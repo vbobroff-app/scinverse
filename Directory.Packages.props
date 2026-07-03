@@ -1,0 +1,33 @@
+<Project>
+
+  <!-- Central Package Management: версии NuGet-пакетов на весь монорепо -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Данные -->
+    <PackageVersion Include="Npgsql" Version="8.0.5" />
+    <PackageVersion Include="Dapper" Version="2.1.35" />
+
+    <!-- Миграции -->
+    <PackageVersion Include="dbup-core" Version="6.0.4" />
+    <PackageVersion Include="dbup-postgresql" Version="6.0.3" />
+
+    <!-- Хостинг / логирование -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageVersion Include="Serilog.Extensions.Hosting" Version="8.0.0" />
+    <PackageVersion Include="Serilog.Settings.Configuration" Version="8.0.4" />
+    <PackageVersion Include="Serilog.Sinks.Console" Version="6.0.0" />
+
+    <!-- Тесты -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="xunit" Version="2.9.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.2" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="3.10.0" />
+    <PackageVersion Include="FluentAssertions" Version="6.12.1" />
+  </ItemGroup>
+
+</Project>

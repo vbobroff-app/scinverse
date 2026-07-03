@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="dbup-core" />
+    <PackageReference Include="dbup-postgresql" />
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\migrations\*.sql" Link="Migrations\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

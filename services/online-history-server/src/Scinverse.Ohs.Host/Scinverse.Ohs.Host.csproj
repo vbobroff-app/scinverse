@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <UserSecretsId>dotnet-Scinverse.Ohs.Host-d5e18649-f69e-455b-9d56-2e1822e1fce3</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Serilog.Extensions.Hosting" />
+    <PackageReference Include="Serilog.Settings.Configuration" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Scinverse.Ohs.Domain\Scinverse.Ohs.Domain.csproj" />
+    <ProjectReference Include="..\Scinverse.Ohs.Connectors.Transaq\Scinverse.Ohs.Connectors.Transaq.csproj" />
+    <ProjectReference Include="..\Scinverse.Ohs.Ingestion\Scinverse.Ohs.Ingestion.csproj" />
+    <ProjectReference Include="..\Scinverse.Ohs.Storage.Timescale\Scinverse.Ohs.Storage.Timescale.csproj" />
+  </ItemGroup>
+
+</Project>
