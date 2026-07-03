@@ -1,0 +1,54 @@
+@startuml Scinverse_Component_ODS
+' C4 Level 3 — Component. Зум в контейнер ODS (read-path Data Context).
+' Рендер: PlantUML server (настроен в settings.json). C4-PlantUML — из встроенной stdlib.
+!include <C4/C4_Component>
+
+LAYOUT_LEFT_RIGHT()
+skinparam nodesep 35
+skinparam ranksep 80
+skinparam wrapWidth 200
+
+title Component Diagram — ODS (Online Data Server)
+
+Container_Ext(gateway, "API Gateway", "YARP / Nginx", "Кромка: JWT-проверка, маршрутизация")
+Container_Ext(ohs, "OHS", "C# / .NET 8", "Источник live-потока")
+ContainerDb(dbReplica, "TimescaleDB — Replica", "PostgreSQL 16 + TimescaleDB", "Read-only: история, continuous aggregates, снимки/diff'ы")
+
+Container_Boundary(ods, "ODS — C# / .NET 8 (ASP.NET Core)") {
+
+    Component(queryApi,  "Query / Replay API", "ASP.NET Core Minimal API", "REST-эндпоинты: свечи, футпринты, стакан, replay истории")
+    Component(liveGw,    "Live Gateway", "SignalR / WebSocket", "Фан-аут live-потока клиентам: агрегация, дельты, троттлинг")
+    Component(liveClient,"Live Ingest Client", "gRPC client", "Подписка на нормализованный поток OHS")
+
+    Component(series,    "Series Service", "C# · ITimeframeAggregator", "Серии баров по таймфреймам из continuous aggregates / md_candle")
+    Component(footprint, "Footprint Builder", "C#", "IFootprint из md_trade: кластеры по price_ticks с buy/sell")
+    Component(bookRebuild,"Order Book Reconstructor", "C#", "Стакан на момент T = снимок + применённые diff'ы")
+
+    Component(registry,  "Instrument Registry (cache)", "IInstrumentRegistry", "instrument_id, min_step; конвертация ticks <-> price на выдаче")
+    Component(repo,      "Read Repository", "Npgsql (read-only)", "SQL-доступ к реплике")
+}
+
+' --- Вход запросов и live ---
+Rel(gateway, queryApi, "REST-запросы", "HTTPS")
+Rel(gateway, liveGw, "Live-подписки", "WebSocket")
+Rel(ohs, liveClient, "Нормализованные события", "gRPC stream")
+Rel(liveClient, liveGw, "События для фан-аута")
+
+' --- Обработка запросов ---
+Rel(queryApi, series, "Запрос серий")
+Rel(queryApi, footprint, "Запрос футпринтов")
+Rel(queryApi, bookRebuild, "Запрос стакана")
+
+' --- Доступ к данным ---
+Rel(series, repo, "Чтение агрегатов/свечей")
+Rel(footprint, repo, "Чтение md_trade")
+Rel(bookRebuild, repo, "Чтение снимков + diff'ов")
+Rel(repo, dbReplica, "SQL", "read-only")
+
+' --- Конвертация цен ---
+Rel(series, registry, "ticks <-> price")
+Rel(footprint, registry, "ticks <-> price")
+Rel(bookRebuild, registry, "ticks <-> price")
+
+SHOW_LEGEND()
+@enduml

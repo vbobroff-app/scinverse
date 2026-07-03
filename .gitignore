@@ -1,0 +1,41 @@
+# ---- .NET / C# ----
+bin/
+obj/
+out/
+artifacts/
+*.user
+*.suo
+.vs/
+# Rider / JetBrains
+.idea/
+*.DotSettings.user
+
+# ---- Node / Web (React) ----
+node_modules/
+dist/
+build/
+.vite/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# ---- Python (Research/Analytics) ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.pytest_cache/
+.ipynb_checkpoints/
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Secrets / local config ----
+*.local
+appsettings.*.local.json
+
+# ---- PlantUML локальные превью ----
+_preview_*.png

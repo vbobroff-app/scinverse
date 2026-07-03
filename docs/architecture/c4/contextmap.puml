@@ -1,0 +1,48 @@
+@startuml Scinverse_ContextMap
+' DDD Context Map — стратегический уровень (bounded contexts + типы интеграции).
+' Рендер: PlantUML server (настроен в settings.json). C4-PlantUML — из встроенной stdlib.
+!include <C4/C4_Context>
+
+LAYOUT_LEFT_RIGHT()
+HIDE_STEREOTYPE()
+skinparam nodesep 40
+skinparam ranksep 90
+skinparam wrapWidth 180
+
+title Context Map (DDD) — Scinverse
+
+System_Ext(broker,   "Брокер", "TRANSAQ / QUIK")
+System_Ext(exchange, "Биржа",  "Plaza2 (VPN) / MOEX")
+
+Enterprise_Boundary(scinverse, "Scinverse") {
+    System(iam,     "Identity & Access", "Generic · adopt (Keycloak). OIDC/JWT, роли, права.")
+    System(data,    "Data Context", "OHS + ODS. ACL на входе. Канон рыночных данных.")
+    System(present, "Presentation", "Web: графики, футпринт, стакан.")
+    System(rnd,     "R&D", "Research / Analytics на Python.")
+}
+
+System_Ext(consumer, "Внешние потребители", "Подписчики Scinverse API")
+
+' --- Вход данных: чужую модель гасим своим ACL ---
+Rel(broker,   data, "Маркет-дата", "U->D | ACL")
+Rel(exchange, data, "Маркет-дата", "U->D | ACL")
+
+' --- Data — поставщик канона для остальных (OHS + Published Language) ---
+Rel(data, present,  "История + live", "OHS+PL -> CF")
+Rel(data, rnd,      "Реплика + канон", "OHS+PL -> CF")
+Rel(data, consumer, "Scinverse API", "OHS -> D")
+
+' --- IAM — идентичность/права (проверка на кромке API) ---
+Rel(iam, present, "OIDC login", "PL -> CF")
+Rel(iam, data,    "Проверка прав", "PL -> CF")
+
+legend right
+  Паттерны интеграции (DDD)
+  U / D  — Upstream / Downstream
+  ACL — Anti-Corruption Layer
+  OHS — Open Host Service
+  PL — Published Language
+  CF — Conformist
+endlegend
+
+@enduml

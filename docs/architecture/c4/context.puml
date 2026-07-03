@@ -1,0 +1,27 @@
+@startuml Scinverse_Context
+' C4 Level 1 — System Context
+' Рендер: PlantUML server (настроен в settings.json). C4-PlantUML — из встроенной stdlib.
+!include <C4/C4_Context>
+
+title System Context — Scinverse
+
+Person(quant,  "Исследователь (Quant)", "Разрабатывает стратегии на Python, анализирует данные")
+Person(trader, "Трейдер / Оператор",    "Деплоит агентов, смотрит графики и стакан")
+
+Enterprise_Boundary(scinverse_b, "Scinverse") {
+    System(scinverse, "Scinverse", "Платформа анализа, хранения данных и автоматической торговли")
+}
+
+System_Ext(broker,   "Брокер", "Доступ к торгам через коннекторы (TRANSAQ, QUIK): маркет-дата и ордера")
+System_Ext(exchange, "Биржа",  "Прямой доступ (Plaza2 по VPN): маркет-дата и ордера (напр. MOEX / FORTS)")
+System_Ext(consumer, "Внешние потребители данных", "Сторонние системы-подписчики данных и аналитики")
+
+Rel(quant,  scinverse, "Пишет стратегии, читает аналитику", "read-only реплика")
+Rel(trader, scinverse, "Деплой агентов, просмотр данных", "HTTPS / WebSocket")
+
+Rel(scinverse, broker,   "Подписка на данные, отправка ордеров", "коннекторы TRANSAQ / QUIK")
+Rel(scinverse, exchange, "Подписка на данные, отправка ордеров", "прямой доступ Plaza2 (VPN)")
+Rel(consumer, scinverse, "Подписка на данные и аналитику", "Scinverse API (REST / WebSocket)")
+
+SHOW_LEGEND()
+@enduml

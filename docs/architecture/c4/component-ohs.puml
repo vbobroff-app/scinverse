@@ -1,0 +1,54 @@
+@startuml Scinverse_Component_OHS
+' C4 Level 3 — Component. Зум в контейнер OHS (write-path Data Context).
+' Рендер: PlantUML server (настроен в settings.json). C4-PlantUML — из встроенной stdlib.
+!include <C4/C4_Component>
+
+LAYOUT_LEFT_RIGHT()
+skinparam nodesep 35
+skinparam ranksep 80
+skinparam wrapWidth 200
+
+title Component Diagram — OHS (Online History Server)
+
+System_Ext(broker,   "Брокер / Биржа", "TRANSAQ / Plaza2")
+ContainerDb(dbPrimary, "TimescaleDB — PRIMARY", "PostgreSQL 16 + TimescaleDB", "Приёмник записи")
+Container_Ext(ods, "ODS", "C# / ASP.NET Core", "Потребитель live-потока")
+
+Container_Boundary(ohs, "OHS — C# / .NET 8 (Worker)") {
+
+    Component(connector, "Market Connector", "IMarketConnector · txmlconnector.dll", "connect / subscribe, приём сырых XML-колбэков, статус соединения")
+    Component(parser,    "Transaq Parser · ACL", "ITransaqParser", "XML-фрагмент -> доменные события. Anti-Corruption Layer (гасит модель TRANSAQ)")
+    Component(registry,  "Instrument Registry", "IInstrumentRegistry", "(seccode,board) <-> instrument_id, min_step, price <-> ticks")
+    Component(normalizer,"Normalizer", "C#", "Доменные события -> каноническая модель, price -> ticks")
+    Component(book,      "Order Book", "IOrderBook", "In-memory книга по инструменту: применение diff'ов, периодические снимки")
+    Component(batcher,   "Write Batcher", "C#", "Буфер и backpressure, формирование батчей")
+    Component(writer,    "History Writer", "IHistoryWriter", "Bulk-запись потоков (Npgsql COPY)")
+    Component(publisher, "Live Publisher", "C# · gRPC", "Публикация нормализованных событий для ODS")
+    Component(session,   "Session & Health", "C#", "ingest_session, подписки, детекция гэпов (data_gap), метрики")
+}
+
+' --- Приём и разбор ---
+Rel(broker, connector, "Сырые данные", "XML callback")
+Rel(connector, parser, "XML-фрагменты")
+Rel(parser, normalizer, "Доменные события")
+Rel(normalizer, registry, "Маппинг инструмента и цены", "lookup")
+
+' --- Ветвление потоков ---
+Rel(normalizer, book, "Diff'ы стакана")
+Rel(normalizer, batcher, "Сделки, котировки")
+Rel(book, batcher, "Валидированные diff'ы + снимки")
+Rel(normalizer, publisher, "Нормализованные события")
+
+' --- Запись ---
+Rel(batcher, writer, "Батчи")
+Rel(writer, dbPrimary, "Запись потоков", "Npgsql COPY")
+
+' --- Live наружу ---
+Rel(publisher, ods, "Live-поток", "gRPC stream")
+
+' --- Управление сессией ---
+Rel(session, connector, "connect / subscribe", "команды")
+Rel(session, writer, "Сессии, подписки, гэпы")
+
+SHOW_LEGEND()
+@enduml

@@ -1,0 +1,56 @@
+@startuml Scinverse_Container_DataContext
+' C4 Level 2 — Container. Зум в bounded context "Data Context" (OHS | ODS).
+' Рендер: PlantUML server (настроен в settings.json). C4-PlantUML — из встроенной stdlib.
+!include <C4/C4_Container>
+
+LAYOUT_LEFT_RIGHT()
+skinparam nodesep 40
+skinparam ranksep 90
+skinparam wrapWidth 210
+
+title Container Diagram — Data Context (OHS | ODS)
+
+' --- Соседние контексты / внешние системы (за границей Data Context) ---
+System_Ext(broker,   "Брокер", "TRANSAQ / QUIK")
+System_Ext(exchange, "Биржа",  "Plaza2 (VPN) / MOEX")
+System_Ext(iam,      "Identity & Access", "Keycloak (OIDC / JWT)")
+System_Ext(present,  "Presentation", "Web-клиент")
+System_Ext(rnd,      "R&D", "Research / Analytics (Python)")
+System_Ext(consumer, "Внешние потребители", "Подписчики Scinverse API")
+
+Container_Ext(gateway, "API Gateway", "YARP / Nginx", "Кромка: маршрутизация + проверка JWT")
+
+System_Boundary(dataCtx, "Data Context") {
+
+    Container(ohs, "OHS — Online History Server", "C# / .NET 8 · Worker", "WRITE-PATH. Коннекторы, ACL-нормализация price->ticks и (seccode,board)->instrument_id, in-memory книга стакана, батч-запись. Публикует live-поток.")
+
+    ContainerDb(dbPrimary, "TimescaleDB — PRIMARY", "PostgreSQL 16 + TimescaleDB", "Hypertables (md_trade, md_orderbook_*, md_quotation). Continuous aggregates, compression, retention.")
+
+    ContainerDb(dbReplica, "TimescaleDB — Replica", "PostgreSQL 16 + TimescaleDB", "Read-only потоковая реплика: история, агрегаты, реконструкция стакана.")
+
+    Container(ods, "ODS — Online Data Server", "C# / .NET 8 · ASP.NET Core", "READ-PATH. Query/Replay API: серии по таймфреймам, футпринты, реконструкция стакана. Live-поток по WebSocket (агрегация/дельты/троттлинг).")
+}
+
+' --- Ingestion (write-path) ---
+Rel(broker,   ohs, "Маркет-дата", "коннектор (XML callback)")
+Rel(exchange, ohs, "Маркет-дата", "Plaza2 (VPN)")
+Rel(ohs, dbPrimary, "Батч-запись потоков", "Npgsql COPY")
+
+' --- Replication ---
+Rel(dbPrimary, dbReplica, "Потоковая репликация", "WAL streaming")
+
+' --- Read-path ---
+Rel(ohs, ods, "Live нормализованные события", "gRPC stream")
+Rel(ods, dbReplica, "Запросы истории и агрегатов", "SQL (read-only)")
+
+' --- Edge + потребители ---
+Rel(present,  gateway, "Запросы и подписки", "HTTPS / WebSocket")
+Rel(consumer, gateway, "Scinverse API", "HTTPS / WebSocket")
+Rel(gateway, ods, "Проксирование к API", "HTTPS / WebSocket")
+Rel(gateway, iam, "Валидация JWT", "OIDC")
+
+' --- R&D читает реплику напрямую ---
+Rel(rnd, dbReplica, "Чтение истории и агрегатов", "SQL (read-only)")
+
+SHOW_LEGEND()
+@enduml
