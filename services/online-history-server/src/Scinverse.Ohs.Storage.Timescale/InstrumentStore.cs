@@ -41,13 +41,12 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
 
         const string upsert = $"""
             INSERT INTO instrument
-                (ticker, board_id, market_id, transaq_secid, short_name, name, sec_type,
+                (ticker, board_id, transaq_secid, short_name, name, sec_type,
                  decimals, min_step, lot_size, point_cost, currency, last_seen_at)
             VALUES
-                (@ticker, @board, @market, @secid, @shortName, @name, @secType,
+                (@ticker, @board, @secid, @shortName, @name, @secType,
                  @decimals, @minStep, @lotSize, @pointCost, @currency, now())
             ON CONFLICT (ticker, board_id) DO UPDATE SET
-                market_id     = EXCLUDED.market_id,
                 transaq_secid = EXCLUDED.transaq_secid,
                 short_name    = EXCLUDED.short_name,
                 name          = EXCLUDED.name,
@@ -68,7 +67,6 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
             {
                 ticker = security.Key.Ticker,
                 board = security.Key.Board,
-                market = security.MarketId,
                 secid = security.TransaqSecId,
                 shortName = security.ShortName,
                 name = security.Name,

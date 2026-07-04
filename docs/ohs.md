@@ -134,8 +134,7 @@ board
 instrument
   instrument_id  BIGSERIAL     PK          -- внутренний стабильный ключ
   ticker         TEXT          NOT NULL    -- сокращённый код / TRANSAQ seccode (часть стабильного ключа)
-  board_id       TEXT          FK → board
-  market_id      INT           FK → market
+  board_id       TEXT          FK → board  -- рынок выводится через board.market_id (3НФ)
   transaq_secid  INT                       -- secid текущей сессии (нестабилен)
   short_name     TEXT
   name           TEXT

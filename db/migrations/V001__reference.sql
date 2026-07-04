@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS instrument (
     instrument_id BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     ticker        TEXT        NOT NULL,     -- сокращённый код (TRANSAQ seccode)
     board_id      TEXT        NOT NULL REFERENCES board (board_id),
-    market_id     INT         REFERENCES market (market_id),
+    -- рынок инструмента выводится через board.market_id (3НФ: без транзитивной зависимости)
     transaq_secid INT,                                    -- secid текущей сессии (нестабилен)
     short_name    TEXT,
     name          TEXT,
