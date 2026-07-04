@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS board (
 
 CREATE TABLE IF NOT EXISTS instrument (
     instrument_id BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    seccode       TEXT        NOT NULL,
+    ticker        TEXT        NOT NULL,     -- сокращённый код (TRANSAQ seccode)
     board_id      TEXT        NOT NULL REFERENCES board (board_id),
     market_id     INT         REFERENCES market (market_id),
     transaq_secid INT,                                    -- secid текущей сессии (нестабилен)
@@ -30,5 +30,5 @@ CREATE TABLE IF NOT EXISTS instrument (
     active        BOOLEAN     NOT NULL DEFAULT TRUE,
     first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uq_instrument_key UNIQUE (seccode, board_id)
+    CONSTRAINT uq_instrument_key UNIQUE (ticker, board_id)
 );

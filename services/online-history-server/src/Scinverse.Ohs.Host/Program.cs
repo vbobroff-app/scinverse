@@ -1,6 +1,3 @@
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Npgsql;
 using Scinverse.Ohs.Connectors.Transaq;
 using Scinverse.Ohs.Domain;

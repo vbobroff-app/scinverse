@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
 
   <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12.0</LangVersion>
     <UserSecretsId>dotnet-Scinverse.Ohs.Host-d5e18649-f69e-455b-9d56-2e1822e1fce3</UserSecretsId>
   </PropertyGroup>
 

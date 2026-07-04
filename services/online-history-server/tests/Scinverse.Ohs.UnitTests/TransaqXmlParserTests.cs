@@ -58,12 +58,64 @@ public sealed class TransaqXmlParserTests
         var security = _parser.Parse(xml).OfType<SecurityInfo>().Single();
 
         security.Key.Should().Be(new InstrumentKey("SBER", "TQBR"));
-        security.TransaqSecid.Should().Be(5);
+        security.TransaqSecId.Should().Be(5);
         security.MarketId.Should().Be(1);
         security.Decimals.Should().Be(2);
         security.MinStep.Should().Be(0.01m);
         security.LotSize.Should().Be(10);
         security.SecType.Should().Be("SHARE");
+    }
+
+    [Fact]
+    public void Parse_Alltrades_SkipsMalformedTradeButKeepsValidOnes()
+    {
+        const string xml =
+            "<alltrades>" +
+            // битая запись: price не число — должна быть отброшена, а не уронить парсинг
+            "<trade><tradeno>1</tradeno><board>TQBR</board><seccode>SBER</seccode>" +
+            "<time>01.07.2026 10:00:00</time><price>not-a-number</price>" +
+            "<quantity>1</quantity><buysell>B</buysell></trade>" +
+            // корректная запись
+            "<trade><tradeno>2</tradeno><board>TQBR</board><seccode>SBER</seccode>" +
+            "<time>01.07.2026 10:00:01</time><price>250.13</price>" +
+            "<quantity>7</quantity><buysell>S</buysell></trade>" +
+            "</alltrades>";
+
+        var trades = _parser.Parse(xml).OfType<TradeEvent>().ToList();
+
+        trades.Should().ContainSingle();
+        trades[0].TradeNo.Should().Be(2);
+        trades[0].Price.Should().Be(250.13m);
+    }
+
+    [Fact]
+    public void Parse_Alltrades_MalformedTime_SkipsTrade()
+    {
+        const string xml =
+            "<alltrades><trade>" +
+            "<tradeno>1</tradeno><board>TQBR</board><seccode>SBER</seccode>" +
+            "<time>garbage</time><price>100</price>" +
+            "<quantity>1</quantity><buysell>B</buysell>" +
+            "</trade></alltrades>";
+
+        _parser.Parse(xml).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Parse_Securities_MalformedOptionalField_IsIgnored()
+    {
+        const string xml =
+            "<securities><security secid=\"5\">" +
+            "<seccode>SBER</seccode><board>TQBR</board><market>1</market>" +
+            "<shortname>Sberbank</shortname><decimals>2</decimals><minstep>0.01</minstep>" +
+            // битый lotsize — должен стать null, запись при этом сохраняется
+            "<lotsize>oops</lotsize><sectype>SHARE</sectype>" +
+            "</security></securities>";
+
+        var security = _parser.Parse(xml).OfType<SecurityInfo>().Single();
+
+        security.LotSize.Should().BeNull();
+        security.MinStep.Should().Be(0.01m);
     }
 
     [Fact]

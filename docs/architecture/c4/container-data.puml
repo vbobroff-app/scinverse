@@ -22,7 +22,7 @@ Container_Ext(gateway, "API Gateway", "YARP / Nginx", "Кромка: маршр�
 
 System_Boundary(dataCtx, "Data Context") {
 
-    Container(ohs, "OHS — Online History Server", "C# / .NET 8 · Worker", "WRITE-PATH. Коннекторы, ACL-нормализация price->ticks и (seccode,board)->instrument_id, in-memory книга стакана, батч-запись. Публикует live-поток.")
+    Container(ohs, "OHS — Online History Server", "C# / .NET 8 · Worker", "WRITE-PATH. Коннекторы, ACL-нормализация price->ticks и (ticker,board)->instrument_id, in-memory книга стакана, батч-запись. Публикует live-поток.")
 
     ContainerDb(dbPrimary, "TimescaleDB — PRIMARY", "PostgreSQL 16 + TimescaleDB", "Hypertables (md_trade, md_orderbook_*, md_quotation). Continuous aggregates, compression, retention.")
 

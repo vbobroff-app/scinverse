@@ -5,21 +5,17 @@ using Scinverse.Ohs.Domain;
 namespace Scinverse.Ohs.Storage.Timescale;
 
 /// <summary>Хранилище справочника инструментов в PostgreSQL/TimescaleDB.</summary>
-public sealed class InstrumentStore : IInstrumentStore
+public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentStore
 {
     private const string SelectColumns =
-        "instrument_id AS InstrumentId, seccode AS Seccode, board_id AS BoardId, " +
+        "instrument_id AS InstrumentId, ticker AS Ticker, board_id AS BoardId, " +
         "min_step AS MinStep, decimals AS Decimals, lot_size AS LotSize";
-
-    private readonly NpgsqlDataSource _dataSource;
-
-    public InstrumentStore(NpgsqlDataSource dataSource) => _dataSource = dataSource;
 
     public async Task<IReadOnlyList<Instrument>> LoadAllAsync(CancellationToken cancellationToken)
     {
         var sql = $"SELECT {SelectColumns} FROM instrument WHERE active = TRUE;";
 
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<InstrumentRow>(
             new CommandDefinition(sql, cancellationToken: cancellationToken));
 
@@ -28,7 +24,7 @@ public sealed class InstrumentStore : IInstrumentStore
 
     public async Task<Instrument> UpsertAsync(SecurityInfo security, CancellationToken cancellationToken)
     {
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         if (security.MarketId is { } marketId)
@@ -45,12 +41,12 @@ public sealed class InstrumentStore : IInstrumentStore
 
         const string upsert = $"""
             INSERT INTO instrument
-                (seccode, board_id, market_id, transaq_secid, short_name, name, sec_type,
+                (ticker, board_id, market_id, transaq_secid, short_name, name, sec_type,
                  decimals, min_step, lot_size, point_cost, currency, last_seen_at)
             VALUES
-                (@seccode, @board, @market, @secid, @shortName, @name, @secType,
+                (@ticker, @board, @market, @secid, @shortName, @name, @secType,
                  @decimals, @minStep, @lotSize, @pointCost, @currency, now())
-            ON CONFLICT (seccode, board_id) DO UPDATE SET
+            ON CONFLICT (ticker, board_id) DO UPDATE SET
                 market_id     = EXCLUDED.market_id,
                 transaq_secid = EXCLUDED.transaq_secid,
                 short_name    = EXCLUDED.short_name,
@@ -70,10 +66,10 @@ public sealed class InstrumentStore : IInstrumentStore
             upsert,
             new
             {
-                seccode = security.Key.Seccode,
+                ticker = security.Key.Ticker,
                 board = security.Key.Board,
                 market = security.MarketId,
-                secid = security.TransaqSecid,
+                secid = security.TransaqSecId,
                 shortName = security.ShortName,
                 name = security.Name,
                 secType = security.SecType,
@@ -93,7 +89,7 @@ public sealed class InstrumentStore : IInstrumentStore
     private static Instrument Map(InstrumentRow row) => new()
     {
         InstrumentId = row.InstrumentId,
-        Key = new InstrumentKey(row.Seccode, row.BoardId),
+        Key = new InstrumentKey(row.Ticker, row.BoardId),
         MinStep = row.MinStep,
         Decimals = row.Decimals ?? 0,
         LotSize = row.LotSize

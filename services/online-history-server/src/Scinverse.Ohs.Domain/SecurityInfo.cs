@@ -4,7 +4,7 @@ namespace Scinverse.Ohs.Domain;
 public sealed record SecurityInfo : IMarketMessage
 {
     public required InstrumentKey Key { get; init; }
-    public int? TransaqSecid { get; init; }
+    public int? TransaqSecId { get; init; }
     public int? MarketId { get; init; }
     public string? ShortName { get; init; }
     public string? Name { get; init; }

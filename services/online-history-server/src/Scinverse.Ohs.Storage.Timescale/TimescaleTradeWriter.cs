@@ -8,7 +8,7 @@ namespace Scinverse.Ohs.Storage.Timescale;
 /// Пакетная запись сделок: COPY (BINARY) во временную таблицу, затем
 /// INSERT ... ON CONFLICT DO NOTHING в md_trade (дедупликация по (instrument_id, trade_no, ts)).
 /// </summary>
-public sealed class TimescaleTradeWriter : ITradeWriter
+public sealed class TimescaleTradeWriter(NpgsqlDataSource dataSource) : ITradeWriter
 {
     private const string CreateStage =
         "CREATE TEMP TABLE IF NOT EXISTS _stage_trade " +
@@ -24,10 +24,6 @@ public sealed class TimescaleTradeWriter : ITradeWriter
         "SELECT ts, instrument_id, trade_no, price_ticks, quantity, side, open_interest FROM _stage_trade " +
         "ON CONFLICT (instrument_id, trade_no, ts) DO NOTHING;";
 
-    private readonly NpgsqlDataSource _dataSource;
-
-    public TimescaleTradeWriter(NpgsqlDataSource dataSource) => _dataSource = dataSource;
-
     public async Task<int> WriteAsync(IReadOnlyCollection<TradeRecord> trades, CancellationToken cancellationToken)
     {
         if (trades.Count == 0)
@@ -35,7 +31,7 @@ public sealed class TimescaleTradeWriter : ITradeWriter
             return 0;
         }
 
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         await using (var create = new NpgsqlCommand(CreateStage, connection, transaction))

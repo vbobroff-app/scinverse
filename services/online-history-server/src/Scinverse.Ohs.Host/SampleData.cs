@@ -13,7 +13,7 @@ internal static class SampleData
     {
         var instruments = options.Instruments.Count > 0
             ? options.Instruments
-            : [new InstrumentRef { Seccode = "SBER", Board = "TQBR" }];
+            : [new InstrumentRef { Ticker = "SBER", Board = "TQBR" }];
 
         var fragments = new List<string> { BuildSecurities(instruments) };
 
@@ -36,7 +36,7 @@ internal static class SampleData
                     .Append("<trade>")
                     .Append("<tradeno>").Append(tradeNo++).Append("</tradeno>")
                     .Append("<board>").Append(instrument.Board).Append("</board>")
-                    .Append("<seccode>").Append(instrument.Seccode).Append("</seccode>")
+                    .Append("<seccode>").Append(instrument.Ticker).Append("</seccode>")
                     .Append("<time>").Append(time).Append("</time>")
                     .Append("<price>").Append(price.ToString(CultureInfo.InvariantCulture)).Append("</price>")
                     .Append("<quantity>").Append(random.Next(1, 50)).Append("</quantity>")
@@ -58,10 +58,10 @@ internal static class SampleData
         {
             builder
                 .Append("<security secid=\"1\">")
-                .Append("<seccode>").Append(instrument.Seccode).Append("</seccode>")
+                .Append("<seccode>").Append(instrument.Ticker).Append("</seccode>")
                 .Append("<board>").Append(instrument.Board).Append("</board>")
                 .Append("<market>1</market>")
-                .Append("<shortname>").Append(instrument.Seccode).Append("</shortname>")
+                .Append("<shortname>").Append(instrument.Ticker).Append("</shortname>")
                 .Append("<decimals>2</decimals>")
                 .Append("<minstep>0.01</minstep>")
                 .Append("<lotsize>10</lotsize>")

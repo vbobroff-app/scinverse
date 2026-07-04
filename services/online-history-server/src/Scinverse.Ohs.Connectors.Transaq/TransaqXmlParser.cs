@@ -41,31 +41,31 @@ public sealed class TransaqXmlParser : ITransaqParser
     {
         foreach (var trade in root.Elements("trade"))
         {
-            var seccode = (string?)trade.Element("seccode");
+            var ticker = (string?)trade.Element("seccode");
             var board = (string?)trade.Element("board");
-            var tradeNo = (string?)trade.Element("tradeno");
-            var time = (string?)trade.Element("time");
-            var price = (string?)trade.Element("price");
-            var quantity = (string?)trade.Element("quantity");
             var buySell = (string?)trade.Element("buysell");
 
-            if (seccode is null || board is null || tradeNo is null || time is null
-                || price is null || quantity is null || buySell is null)
+            // Обязательные поля: пропускаем битую запись целиком, а не роняем конвейер.
+            if (string.IsNullOrEmpty(ticker) || string.IsNullOrEmpty(board) || string.IsNullOrEmpty(buySell)
+                || !TryLong((string?)trade.Element("tradeno"), out var tradeNo)
+                || !TransaqTime.TryParse((string?)trade.Element("time"), out var timestamp)
+                || !TryDecimal((string?)trade.Element("price"), out var price)
+                || !TryInt((string?)trade.Element("quantity"), out var quantity))
             {
                 continue;
             }
 
             yield return new TradeEvent
             {
-                Key = new InstrumentKey(seccode, board),
-                TradeNo = long.Parse(tradeNo, CultureInfo.InvariantCulture),
-                Timestamp = TransaqTime.Parse(time),
-                Price = decimal.Parse(price, CultureInfo.InvariantCulture),
-                Quantity = int.Parse(quantity, CultureInfo.InvariantCulture),
+                Key = new InstrumentKey(ticker, board),
+                TradeNo = tradeNo,
+                Timestamp = timestamp,
+                Price = price,
+                Quantity = quantity,
                 Side = buySell.Equals("B", StringComparison.OrdinalIgnoreCase)
                     ? MarketSide.Buy
                     : MarketSide.Sell,
-                OpenInterest = ParseNullableLong((string?)trade.Element("openinterest"))
+                OpenInterest = TryLong((string?)trade.Element("openinterest"), out var oi) ? oi : null
             };
         }
     }
@@ -74,41 +74,43 @@ public sealed class TransaqXmlParser : ITransaqParser
     {
         foreach (var security in root.Elements("security"))
         {
-            var seccode = (string?)security.Element("seccode");
+            var ticker = (string?)security.Element("seccode");
             var board = (string?)security.Element("board");
-            var minStep = (string?)security.Element("minstep");
 
-            if (seccode is null || board is null || minStep is null)
+            if (string.IsNullOrEmpty(ticker) || string.IsNullOrEmpty(board)
+                || !TryDecimal((string?)security.Element("minstep"), out var minStep))
             {
                 continue;
             }
 
             yield return new SecurityInfo
             {
-                Key = new InstrumentKey(seccode, board),
-                TransaqSecid = ParseNullableInt(security.Attribute("secid")?.Value),
-                MarketId = ParseNullableInt((string?)security.Element("market")),
+                Key = new InstrumentKey(ticker, board),
+                TransaqSecId = TryInt(security.Attribute("secid")?.Value, out var secid) ? secid : null,
+                MarketId = TryInt((string?)security.Element("market"), out var market) ? market : null,
                 ShortName = (string?)security.Element("shortname"),
-                Name = (string?)security.Element("shortname"),
+                // Полное имя в секции TRANSAQ securities отсутствует; оставляем null
+                // до появления отдельного источника (приравнивать к ShortName некорректно).
+                Name = null,
                 SecType = (string?)security.Element("sectype"),
-                Decimals = ParseShort((string?)security.Element("decimals")),
-                MinStep = decimal.Parse(minStep, CultureInfo.InvariantCulture),
-                LotSize = ParseNullableInt((string?)security.Element("lotsize")),
-                PointCost = ParseNullableDecimal((string?)security.Element("point_cost")),
+                Decimals = TryShort((string?)security.Element("decimals"), out var decimals) ? decimals : (short)0,
+                MinStep = minStep,
+                LotSize = TryInt((string?)security.Element("lotsize"), out var lotSize) ? lotSize : null,
+                PointCost = TryDecimal((string?)security.Element("point_cost"), out var pointCost) ? pointCost : null,
                 Currency = (string?)security.Element("currency")
             };
         }
     }
 
-    private static int? ParseNullableInt(string? value) =>
-        value is null ? null : int.Parse(value, CultureInfo.InvariantCulture);
+    private static bool TryInt(string? value, out int result) =>
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
 
-    private static long? ParseNullableLong(string? value) =>
-        value is null ? null : long.Parse(value, CultureInfo.InvariantCulture);
+    private static bool TryLong(string? value, out long result) =>
+        long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
 
-    private static decimal? ParseNullableDecimal(string? value) =>
-        value is null ? null : decimal.Parse(value, CultureInfo.InvariantCulture);
+    private static bool TryShort(string? value, out short result) =>
+        short.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
 
-    private static short ParseShort(string? value) =>
-        value is null ? (short)0 : short.Parse(value, CultureInfo.InvariantCulture);
+    private static bool TryDecimal(string? value, out decimal result) =>
+        decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out result);
 }

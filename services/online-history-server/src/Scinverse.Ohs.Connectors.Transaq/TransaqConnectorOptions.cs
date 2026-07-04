@@ -8,7 +8,10 @@ public sealed class TransaqConnectorOptions
     /// <summary>Путь к txmlconnector.dll (битность обязана совпадать с процессом).</summary>
     public string DllPath { get; set; } = "txmlconnector.dll";
 
+    /// <summary>Логин TRANSAQ. Только из user-secrets/переменных окружения, не из appsettings.json.</summary>
     public string Login { get; set; } = string.Empty;
+
+    /// <summary>Пароль TRANSAQ. Только из user-secrets/переменных окружения, не из appsettings.json.</summary>
     public string Password { get; set; } = string.Empty;
     public string Host { get; set; } = string.Empty;
     public int Port { get; set; }

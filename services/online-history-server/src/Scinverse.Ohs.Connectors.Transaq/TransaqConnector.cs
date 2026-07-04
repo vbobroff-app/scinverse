@@ -81,7 +81,7 @@ public sealed class TransaqConnector : IMarketConnector
         {
             command
                 .Append("<security board=\"").Append(SecurityElement.Escape(instrument.Board)).Append('"')
-                .Append(" seccode=\"").Append(SecurityElement.Escape(instrument.Seccode)).Append("\"/>");
+                .Append(" seccode=\"").Append(SecurityElement.Escape(instrument.Ticker)).Append("\"/>");
         }
 
         command.Append("</alltrades></command>");

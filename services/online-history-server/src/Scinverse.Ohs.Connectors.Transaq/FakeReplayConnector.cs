@@ -7,20 +7,14 @@ namespace Scinverse.Ohs.Connectors.Transaq;
 /// Тестовый/демо-коннектор: воспроизводит заранее заданные XML-фрагменты
 /// (securities/alltrades) без нативной DLL. Полезен для e2e-прогона конвейера.
 /// </summary>
-public sealed class FakeReplayConnector : IMarketConnector
+public sealed class FakeReplayConnector(IEnumerable<string> fragments) : IMarketConnector
 {
-    private readonly IReadOnlyList<string> _fragments;
-    private readonly Channel<string> _messages;
-
-    public FakeReplayConnector(IEnumerable<string> fragments)
+    private readonly IReadOnlyList<string> _fragments = fragments.ToList();
+    private readonly Channel<string> _messages = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
     {
-        _fragments = fragments.ToList();
-        _messages = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = true
-        });
-    }
+        SingleReader = true,
+        SingleWriter = true
+    });
 
     public ChannelReader<string> Messages => _messages.Reader;
 

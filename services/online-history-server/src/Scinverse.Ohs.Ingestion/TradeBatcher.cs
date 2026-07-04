@@ -7,23 +7,15 @@ namespace Scinverse.Ohs.Ingestion;
 /// Буфер сделок с backpressure. Продюсер кладёт записи в ограниченный канал,
 /// фоновой цикл собирает батчи (по размеру или по таймауту) и отдаёт их <see cref="ITradeWriter"/>.
 /// </summary>
-public sealed class TradeBatcher
+public sealed class TradeBatcher(ITradeWriter writer, TradeBatcherOptions options)
 {
-    private readonly ITradeWriter _writer;
-    private readonly TradeBatcherOptions _options;
-    private readonly Channel<TradeRecord> _channel;
-
-    public TradeBatcher(ITradeWriter writer, TradeBatcherOptions options)
-    {
-        _writer = writer;
-        _options = options;
-        _channel = Channel.CreateBounded<TradeRecord>(new BoundedChannelOptions(options.Capacity)
+    private readonly Channel<TradeRecord> _channel = Channel.CreateBounded<TradeRecord>(
+        new BoundedChannelOptions(options.Capacity)
         {
             SingleReader = true,
             SingleWriter = false,
             FullMode = BoundedChannelFullMode.Wait
         });
-    }
 
     public ValueTask EnqueueAsync(TradeRecord record, CancellationToken cancellationToken) =>
         _channel.Writer.WriteAsync(record, cancellationToken);
@@ -33,7 +25,7 @@ public sealed class TradeBatcher
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         var reader = _channel.Reader;
-        var buffer = new List<TradeRecord>(_options.BatchSize);
+        var buffer = new List<TradeRecord>(options.BatchSize);
 
         while (true)
         {
@@ -50,12 +42,12 @@ public sealed class TradeBatcher
                 break;
             }
 
-            using var flushTimeout = new CancellationTokenSource(_options.FlushInterval);
+            using var flushTimeout = new CancellationTokenSource(options.FlushInterval);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, flushTimeout.Token);
 
             try
             {
-                while (buffer.Count < _options.BatchSize)
+                while (buffer.Count < options.BatchSize)
                 {
                     buffer.Add(await reader.ReadAsync(linked.Token).ConfigureAwait(false));
                 }
@@ -77,7 +69,7 @@ public sealed class TradeBatcher
         while (reader.TryRead(out var record))
         {
             buffer.Add(record);
-            if (buffer.Count >= _options.BatchSize)
+            if (buffer.Count >= options.BatchSize)
             {
                 await FlushAsync(buffer).ConfigureAwait(false);
             }
@@ -93,7 +85,7 @@ public sealed class TradeBatcher
             return;
         }
 
-        await _writer.WriteAsync(buffer, CancellationToken.None).ConfigureAwait(false);
+        await writer.WriteAsync(buffer, CancellationToken.None).ConfigureAwait(false);
         buffer.Clear();
     }
 }

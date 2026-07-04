@@ -15,6 +15,6 @@ public sealed class OhsOptions
 /// <summary>Ссылка на инструмент в конфигурации.</summary>
 public sealed class InstrumentRef
 {
-    public string Seccode { get; set; } = string.Empty;
+    public string Ticker { get; set; } = string.Empty;
     public string Board { get; set; } = string.Empty;
 }

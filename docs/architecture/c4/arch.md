@@ -84,7 +84,7 @@ Scinverse как единая система, вокруг — акторы (Qua
 
 ### 3.3. Anti-Corruption Layer на входе
 
-Парсер/нормализатор OHS — это **ACL**: переводит чужую модель TRANSAQ/Plaza2 (нестабильный `secid`, XML) в каноническую (`instrument_id`, `price_ticks`). Инструмент идентифицируется парой `(seccode, board)`, а не `secid`.
+Парсер/нормализатор OHS — это **ACL**: переводит чужую модель TRANSAQ/Plaza2 (нестабильный `secid`, XML) в каноническую (`instrument_id`, `price_ticks`). Инструмент идентифицируется парой `(ticker, board)` (где `ticker` — сокращённый код, TRANSAQ `seccode`), а не `secid`.
 
 ### 3.4. Цена в шагах (ticks)
 

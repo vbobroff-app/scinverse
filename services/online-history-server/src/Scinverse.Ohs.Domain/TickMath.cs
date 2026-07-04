@@ -8,7 +8,7 @@ public static class TickMath
     {
         if (minStep <= 0m)
         {
-            throw new ArgumentOutOfRangeException(nameof(minStep), minStep, "min_step должен быть положительным");
+            throw new ArgumentOutOfRangeException(nameof(minStep), minStep, "min_step должен быть >0");
         }
 
         return (long)Math.Round(price / minStep, MidpointRounding.AwayFromZero);

@@ -7,15 +7,11 @@ namespace Scinverse.Ohs.Ingestion;
 /// Преобразует <see cref="TradeEvent"/> (сырая цена) в <see cref="TradeRecord"/>
 /// (instrument_id + price_ticks). Сделки по неизвестным инструментам отбрасываются.
 /// </summary>
-public sealed class TradeNormalizer
+public sealed class TradeNormalizer(IInstrumentRegistry registry)
 {
-    private readonly IInstrumentRegistry _registry;
-
-    public TradeNormalizer(IInstrumentRegistry registry) => _registry = registry;
-
     public bool TryNormalize(TradeEvent trade, [MaybeNullWhen(false)] out TradeRecord record)
     {
-        if (!_registry.TryResolve(trade.Key, out var instrument))
+        if (!registry.TryResolve(trade.Key, out var instrument))
         {
             record = null;
             return false;
@@ -26,7 +22,7 @@ public sealed class TradeNormalizer
             InstrumentId = instrument.InstrumentId,
             TradeNo = trade.TradeNo,
             Timestamp = trade.Timestamp,
-            PriceTicks = TickMath.ToTicks(trade.Price, instrument.MinStep),
+            PriceTicks = instrument.ToTicks(trade.Price),
             Quantity = trade.Quantity,
             Side = trade.Side,
             OpenInterest = trade.OpenInterest

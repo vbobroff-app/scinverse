@@ -18,7 +18,7 @@ Container_Boundary(ohs, "OHS — C# / .NET 8 (Worker)") {
 
     Component(connector, "Market Connector", "IMarketConnector · txmlconnector.dll", "connect / subscribe, приём сырых XML-колбэков, статус соединения")
     Component(parser,    "Transaq Parser · ACL", "ITransaqParser", "XML-фрагмент -> доменные события. Anti-Corruption Layer (гасит модель TRANSAQ)")
-    Component(registry,  "Instrument Registry", "IInstrumentRegistry", "(seccode,board) <-> instrument_id, min_step, price <-> ticks")
+    Component(registry,  "Instrument Registry", "IInstrumentRegistry", "(ticker,board) <-> instrument_id, min_step, price <-> ticks")
     Component(normalizer,"Normalizer", "C#", "Доменные события -> каноническая модель, price -> ticks")
     Component(book,      "Order Book", "IOrderBook", "In-memory книга по инструменту: применение diff'ов, периодические снимки")
     Component(batcher,   "Write Batcher", "C#", "Буфер и backpressure, формирование батчей")

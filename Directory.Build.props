@@ -1,9 +1,9 @@
 <Project>
 
-  <!-- Общие свойства для всех .NET-проектов монорепо Scinverse -->
+  <!-- Общая политика сборки для всех .NET-проектов монорепо Scinverse.
+       TargetFramework и LangVersion задаются в каждом .csproj — так их видят
+       VS/ReSharper напрямую из файла проекта, без резолюции этого props. -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>

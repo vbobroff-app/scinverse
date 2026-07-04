@@ -22,4 +22,18 @@ internal static class TransaqTime
             value.Trim(), Formats, CultureInfo.InvariantCulture, DateTimeStyles.None);
         return new DateTimeOffset(parsed, MoscowOffset);
     }
+
+    public static bool TryParse(string? value, out DateTimeOffset result)
+    {
+        if (value is not null
+            && DateTime.TryParseExact(
+                value.Trim(), Formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+        {
+            result = new DateTimeOffset(parsed, MoscowOffset);
+            return true;
+        }
+
+        result = default;
+        return false;
+    }
 }

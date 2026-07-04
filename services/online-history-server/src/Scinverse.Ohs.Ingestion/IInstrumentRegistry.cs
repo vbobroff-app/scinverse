@@ -3,7 +3,7 @@ using Scinverse.Ohs.Domain;
 
 namespace Scinverse.Ohs.Ingestion;
 
-/// <summary>Кэш-реестр инструментов: (seccode, board) → instrument_id и параметры цены.</summary>
+/// <summary>Кэш-реестр инструментов: (ticker, board) → instrument_id и параметры цены.</summary>
 public interface IInstrumentRegistry
 {
     /// <summary>Загружает справочник из хранилища в кэш.</summary>

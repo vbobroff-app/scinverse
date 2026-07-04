@@ -133,7 +133,7 @@ board
 
 instrument
   instrument_id  BIGSERIAL     PK          -- внутренний стабильный ключ
-  seccode        TEXT          NOT NULL    -- тикер (часть стабильного ключа)
+  ticker         TEXT          NOT NULL    -- сокращённый код / TRANSAQ seccode (часть стабильного ключа)
   board_id       TEXT          FK → board
   market_id      INT           FK → market
   transaq_secid  INT                       -- secid текущей сессии (нестабилен)
@@ -148,7 +148,7 @@ instrument
   active         BOOLEAN       DEFAULT true
   first_seen_at  TIMESTAMPTZ
   last_seen_at   TIMESTAMPTZ
-  UNIQUE (seccode, board_id)
+  UNIQUE (ticker, board_id)
 ```
 
 ### 5.2. Рыночные данные (hypertables, партиции по `ts`)
@@ -278,7 +278,7 @@ flowchart LR
         direction TB
         C["TXmlConnector<br/>(txmlconnector.dll)"]
         P["XML Parser<br/>по секциям"]
-        NORM["Нормализатор<br/>price → ticks, (seccode,board) → instrument_id"]
+        NORM["Нормализатор<br/>price → ticks, (ticker,board) → instrument_id"]
         BUF["Батчер / буфер<br/>(backpressure)"]
         WR["Timescale Writer<br/>bulk COPY"]
         SNAP["Сборщик снимков стакана<br/>(in-memory книга)"]
@@ -321,7 +321,7 @@ flowchart LR
 
 - `IMarketConnector` — connect/disconnect, subscribe(instrument, stream), событие сырых данных, статус.
 - `ITransaqParser` — XML-фрагмент → доменные события (`TradeEvent`, `QuoteEvent`, `QuotationEvent`, `SecurityInfo`).
-- `IInstrumentRegistry` — маппинг `(seccode, board)` ↔ `instrument_id`, `min_step`, конвертация `price ↔ ticks`.
+- `IInstrumentRegistry` — маппинг `(ticker, board)` ↔ `instrument_id`, `min_step`, конвертация `price ↔ ticks`.
 - `IOrderBook` — in-memory книга: применение diff'ов, выдача снимка.
 - `IHistoryWriter` — батчевая запись потоков в TimescaleDB (`COPY`).
 - `ITimeframeAggregator` — подготовка серий по таймфреймам (`1m`, `5m`, `1H`, `1D`, …) на стороне СУБД (continuous aggregates) и индексация под запросы. Именно расширение роли сервера до «подготовки данных», а не только истории, — повод для рабочего имени **ODS (Online Data Server)** наряду с OHS.

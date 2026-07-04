@@ -35,4 +35,20 @@ public sealed class TickMathTests
         var act = () => TickMath.ToTicks(100m, minStep);
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
+
+    [Fact]
+    public void Instrument_ToTicksAndToPrice_UseOwnMinStep()
+    {
+        var instrument = new Instrument
+        {
+            InstrumentId = 1,
+            Key = new InstrumentKey("SBER", "TQBR"),
+            MinStep = 0.01m
+        };
+
+        var ticks = instrument.ToTicks(250.13m);
+
+        ticks.Should().Be(25013);
+        instrument.ToPrice(ticks).Should().Be(250.13m);
+    }
 }
