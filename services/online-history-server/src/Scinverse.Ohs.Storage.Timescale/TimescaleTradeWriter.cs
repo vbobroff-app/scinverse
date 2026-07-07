@@ -44,7 +44,9 @@ public sealed class TimescaleTradeWriter(NpgsqlDataSource dataSource) : ITradeWr
             foreach (var trade in trades)
             {
                 await writer.StartRowAsync(cancellationToken);
-                await writer.WriteAsync(trade.Timestamp, NpgsqlDbType.TimestampTz, cancellationToken);
+                // Npgsql требует UTC для timestamptz; ToUniversalTime() даёт смещение 0
+                // (сам момент времени сохраняется без изменений).
+                await writer.WriteAsync(trade.Timestamp.ToUniversalTime(), NpgsqlDbType.TimestampTz, cancellationToken);
                 await writer.WriteAsync(trade.InstrumentId, NpgsqlDbType.Bigint, cancellationToken);
                 await writer.WriteAsync(trade.TradeNo, NpgsqlDbType.Bigint, cancellationToken);
                 await writer.WriteAsync(trade.PriceTicks, NpgsqlDbType.Bigint, cancellationToken);
