@@ -29,10 +29,14 @@ var connectionString = builder.Configuration.GetConnectionString("Timescale")
     ?? "Host=localhost;Port=5432;Database=scinverse;Username=scinverse;Password=scinverse";
 builder.Services.AddSingleton(_ => new NpgsqlDataSourceBuilder(connectionString).Build());
 
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IInstrumentStore, InstrumentStore>();
 builder.Services.AddSingleton<ISourceStore, SourceStore>();
+builder.Services.AddSingleton<ICoverageStore, CoverageStore>();
+builder.Services.AddSingleton<IConnectionStore, ConnectionStore>();
 builder.Services.AddSingleton<ITradeWriter, TimescaleTradeWriter>();
 builder.Services.AddSingleton<IInstrumentRegistry, InstrumentRegistry>();
+builder.Services.AddSingleton<RecordingManager>();
 builder.Services.AddSingleton<TradeNormalizer>();
 builder.Services.AddSingleton<TradeBatcher>();
 builder.Services.AddSingleton<ITransaqParser, TransaqXmlParser>();

@@ -5,18 +5,22 @@ using Scinverse.Ohs.Ingestion;
 namespace Scinverse.Ohs.Host;
 
 /// <summary>
-/// Оркестратор write-path: connect → subscribe → parse (ACL) → normalize → batch → write.
+/// Оркестратор write-path: connect → start recordings (subscribe + coverage) → parse (ACL)
+/// → normalize → batch → write, с heartbeat покрытия и закрытием сегментов на остановке.
 /// </summary>
 public sealed class OhsWorker(
     IMarketConnector connector,
     ITransaqParser parser,
     IInstrumentRegistry registry,
     ISourceStore sourceStore,
+    RecordingManager recordingManager,
     TradeNormalizer normalizer,
     TradeBatcher batcher,
     OhsOptions options,
     ILogger<OhsWorker> logger) : BackgroundService
 {
+    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(2);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await registry.InitializeAsync(stoppingToken).ConfigureAwait(false);
@@ -33,8 +37,15 @@ public sealed class OhsWorker(
             .Select(instrument => new InstrumentKey(instrument.Ticker, instrument.Board))
             .ToList();
 
-        logger.LogInformation("Подписка на ленту сделок: {Count} инструментов", instruments.Count);
-        await connector.SubscribeTradesAsync(instruments, stoppingToken).ConfigureAwait(false);
+        logger.LogInformation("Старт записи: {Count} инструментов", instruments.Count);
+        foreach (var instrument in instruments)
+        {
+            await recordingManager.StartAsync(instrument, sourceId, stoppingToken).ConfigureAwait(false);
+        }
+
+        // Heartbeat покрытия останавливаем, как только завершился поток сообщений.
+        using var recordingCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        var heartbeatTask = recordingManager.RunHeartbeatAsync(HeartbeatInterval, recordingCts.Token);
 
         var accepted = 0L;
         try
@@ -51,6 +62,7 @@ public sealed class OhsWorker(
 
                         case TradeEvent trade when normalizer.TryNormalize(trade, sourceId, out var record):
                             await batcher.EnqueueAsync(record, stoppingToken).ConfigureAwait(false);
+                            recordingManager.Track(trade.Key);
                             accepted++;
                             break;
 
@@ -65,6 +77,10 @@ public sealed class OhsWorker(
         {
             // Штатное завершение.
         }
+
+        await recordingCts.CancelAsync().ConfigureAwait(false);
+        await heartbeatTask.ConfigureAwait(false);
+        await recordingManager.StopAllAsync("stopped", CancellationToken.None).ConfigureAwait(false);
 
         batcher.Complete();
         await batcherTask.ConfigureAwait(false);

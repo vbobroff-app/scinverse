@@ -467,6 +467,34 @@ erDiagram
 
 ---
 
+## Решение 6. Покрытие записи (coverage) и подключения коннекторов — **DONE (V005, V006)**
+
+Операционная метадата write-path OHS (не рыночные факты): что и когда писали и какими подключениями.
+
+**`coverage_segment` (V005)** — сегмент записи («колбаска» на Ганте покрытия). Одна строка = одна
+сессия записи одного `(instrument_id, source_id)`:
+
+- суррогат `segment_id` (identity), FK на `instrument` и `data_source`;
+- `started_at` / `ended_at` (NULL = запись активна), `trade_count` (heartbeat), `status`
+  (`recording` / `stopped` / `error`, check-constraint);
+- `ix_coverage_instrument_source_start (instrument_id, source_id, started_at)` — выборка окна Ганта;
+- `uq_coverage_active (instrument_id, source_id) WHERE ended_at IS NULL` — **инвариант**: не более
+  одного активного сегмента на пару; делает `Open` идемпотентным.
+
+**Внутрисессионные разрывы не храним.** Сегмент — только границы старт/стоп; «дыры» внутри
+выводятся запросом из `md_trade` по порогу `GapThreshold` (гибридная модель: сессии из
+`coverage_segment` × фактическое наличие данных). Так метадата не дублирует факты.
+
+**`connector_connection` (V006)** — подключения коннекторов, управляемые из UI (6b): FK на
+`data_source`, unique `name`, `kind` (`transaq` / `synthetic`), `settings JSONB`, `enabled`.
+**Секретов не хранит** (login/password): в `settings` только несекретное (host/port/dllPath/
+timeouts); креды передаются из UI и живут в памяти сессии. Сид — демо `synthetic-local`.
+
+Пишет их `CoverageStore`/`ConnectionStore` (Dapper), оркеструет `RecordingManager`
+(subscribe → open → heartbeat → close). Полный дизайн — в [`../dev/phase6a/`](../dev/phase6a/plan.md).
+
+---
+
 ## Открытые вопросы
 
 - **Стакан/котировки (`md_quote`, `md_orderbook`)** — те же принципы: `source_id` в ключе,
