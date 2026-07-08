@@ -11,6 +11,7 @@ public sealed class OhsWorker(
     IMarketConnector connector,
     ITransaqParser parser,
     IInstrumentRegistry registry,
+    ISourceStore sourceStore,
     TradeNormalizer normalizer,
     TradeBatcher batcher,
     OhsOptions options,
@@ -19,6 +20,10 @@ public sealed class OhsWorker(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await registry.InitializeAsync(stoppingToken).ConfigureAwait(false);
+
+        // Источник — свойство коннектора; резолвим его код в source_id один раз на старте.
+        var sourceId = await sourceStore.ResolveIdAsync(connector.SourceCode, stoppingToken).ConfigureAwait(false);
+        logger.LogInformation("Источник данных: {Source} (source_id={SourceId})", connector.SourceCode, sourceId);
 
         var batcherTask = batcher.RunAsync(stoppingToken);
 
@@ -44,7 +49,7 @@ public sealed class OhsWorker(
                             await registry.RegisterAsync(security, stoppingToken).ConfigureAwait(false);
                             break;
 
-                        case TradeEvent trade when normalizer.TryNormalize(trade, out var record):
+                        case TradeEvent trade when normalizer.TryNormalize(trade, sourceId, out var record):
                             await batcher.EnqueueAsync(record, stoppingToken).ConfigureAwait(false);
                             accepted++;
                             break;

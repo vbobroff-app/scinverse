@@ -15,10 +15,22 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Нативные DLL коннекторов (напр. txmlconnector64.dll) — копируем в вывод, в git не коммитим. -->
+    <None Include="native\*.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Scinverse.Ohs.Domain\Scinverse.Ohs.Domain.csproj" />
     <ProjectReference Include="..\Scinverse.Ohs.Connectors.Transaq\Scinverse.Ohs.Connectors.Transaq.csproj" />
     <ProjectReference Include="..\Scinverse.Ohs.Ingestion\Scinverse.Ohs.Ingestion.csproj" />
     <ProjectReference Include="..\Scinverse.Ohs.Storage.Timescale\Scinverse.Ohs.Storage.Timescale.csproj" />
+  </ItemGroup>
+
+  <!-- Нативная txmlconnector.dll (x64) копируется рядом с exe; файл не коммитится (см. .gitignore). -->
+  <ItemGroup>
+    <None Include="native\txmlconnector.dll" Link="txmlconnector.dll" Condition="Exists('native\txmlconnector.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

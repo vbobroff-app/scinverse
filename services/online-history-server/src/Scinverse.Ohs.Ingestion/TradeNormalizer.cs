@@ -9,7 +9,7 @@ namespace Scinverse.Ohs.Ingestion;
 /// </summary>
 public sealed class TradeNormalizer(IInstrumentRegistry registry)
 {
-    public bool TryNormalize(TradeEvent trade, [MaybeNullWhen(false)] out TradeRecord record)
+    public bool TryNormalize(TradeEvent trade, short sourceId, [MaybeNullWhen(false)] out TradeRecord record)
     {
         if (!registry.TryResolve(trade.Key, out var instrument))
         {
@@ -20,6 +20,7 @@ public sealed class TradeNormalizer(IInstrumentRegistry registry)
         record = new TradeRecord
         {
             InstrumentId = instrument.InstrumentId,
+            SourceId = sourceId,
             TradeNo = trade.TradeNo,
             Timestamp = trade.Timestamp,
             PriceTicks = instrument.ToTicks(trade.Price),

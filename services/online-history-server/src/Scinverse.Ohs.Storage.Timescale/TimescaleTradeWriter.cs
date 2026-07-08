@@ -12,17 +12,17 @@ public sealed class TimescaleTradeWriter(NpgsqlDataSource dataSource) : ITradeWr
 {
     private const string CreateStage =
         "CREATE TEMP TABLE IF NOT EXISTS _stage_trade " +
-        "(ts timestamptz, instrument_id bigint, trade_no bigint, price_ticks bigint, " +
+        "(ts timestamptz, instrument_id bigint, source_id smallint, trade_no bigint, price_ticks bigint, " +
         "quantity int, side smallint, open_interest bigint) ON COMMIT DROP;";
 
     private const string CopyStage =
-        "COPY _stage_trade (ts, instrument_id, trade_no, price_ticks, quantity, side, open_interest) " +
+        "COPY _stage_trade (ts, instrument_id, source_id, trade_no, price_ticks, quantity, side, open_interest) " +
         "FROM STDIN (FORMAT BINARY)";
 
     private const string InsertFromStage =
-        "INSERT INTO md_trade (ts, instrument_id, trade_no, price_ticks, quantity, side, open_interest) " +
-        "SELECT ts, instrument_id, trade_no, price_ticks, quantity, side, open_interest FROM _stage_trade " +
-        "ON CONFLICT (instrument_id, trade_no, ts) DO NOTHING;";
+        "INSERT INTO md_trade (ts, instrument_id, source_id, trade_no, price_ticks, quantity, side, open_interest) " +
+        "SELECT ts, instrument_id, source_id, trade_no, price_ticks, quantity, side, open_interest FROM _stage_trade " +
+        "ON CONFLICT (instrument_id, source_id, trade_no, ts) DO NOTHING;";
 
     public async Task<int> WriteAsync(IReadOnlyCollection<TradeRecord> trades, CancellationToken cancellationToken)
     {
@@ -48,6 +48,7 @@ public sealed class TimescaleTradeWriter(NpgsqlDataSource dataSource) : ITradeWr
                 // (сам момент времени сохраняется без изменений).
                 await writer.WriteAsync(trade.Timestamp.ToUniversalTime(), NpgsqlDbType.TimestampTz, cancellationToken);
                 await writer.WriteAsync(trade.InstrumentId, NpgsqlDbType.Bigint, cancellationToken);
+                await writer.WriteAsync(trade.SourceId, NpgsqlDbType.Smallint, cancellationToken);
                 await writer.WriteAsync(trade.TradeNo, NpgsqlDbType.Bigint, cancellationToken);
                 await writer.WriteAsync(trade.PriceTicks, NpgsqlDbType.Bigint, cancellationToken);
                 await writer.WriteAsync(trade.Quantity, NpgsqlDbType.Integer, cancellationToken);

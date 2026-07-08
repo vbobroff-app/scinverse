@@ -8,6 +8,10 @@ using Serilog;
 
 var builder = Host.CreateApplicationBuilder(args);
 
+// Неверсионируемый локальный конфиг (dev-машина): креды коннектора, Host/Port, UseFakeConnector.
+// Файл в .gitignore; имеет приоритет над appsettings.json.
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+
 builder.Services.AddSerilog((services, loggerConfiguration) => loggerConfiguration
     .ReadFrom.Configuration(builder.Configuration)
     .ReadFrom.Services(services)
@@ -26,6 +30,7 @@ var connectionString = builder.Configuration.GetConnectionString("Timescale")
 builder.Services.AddSingleton(_ => new NpgsqlDataSourceBuilder(connectionString).Build());
 
 builder.Services.AddSingleton<IInstrumentStore, InstrumentStore>();
+builder.Services.AddSingleton<ISourceStore, SourceStore>();
 builder.Services.AddSingleton<ITradeWriter, TimescaleTradeWriter>();
 builder.Services.AddSingleton<IInstrumentRegistry, InstrumentRegistry>();
 builder.Services.AddSingleton<TradeNormalizer>();

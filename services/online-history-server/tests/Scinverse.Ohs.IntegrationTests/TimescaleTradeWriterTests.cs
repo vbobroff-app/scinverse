@@ -62,7 +62,17 @@ public sealed class TimescaleTradeWriterTests : IClassFixture<TimescaleFixture>,
         var second = await _writer.WriteAsync(trades, CancellationToken.None);
 
         first.Should().Be(2);
-        second.Should().Be(0, "повторный батч отсекается по PK (instrument_id, trade_no, ts)");
+        second.Should().Be(0, "повторный батч отсекается по PK (instrument_id, source_id, trade_no, ts)");
+        (await CountAsync()).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task WriteAsync_KeepsOverlap_AcrossSources()
+    {
+        // Один и тот же (instrument_id, trade_no, ts) от двух источников — две строки (Решение 3, A).
+        await _writer.WriteAsync([Trade(30, priceTicks: 300, quantity: 1, MarketSide.Buy, sourceId: 1)], CancellationToken.None);
+        await _writer.WriteAsync([Trade(30, priceTicks: 300, quantity: 1, MarketSide.Buy, sourceId: 2)], CancellationToken.None);
+
         (await CountAsync()).Should().Be(2);
     }
 
@@ -87,9 +97,10 @@ public sealed class TimescaleTradeWriterTests : IClassFixture<TimescaleFixture>,
     }
 
     private TradeRecord Trade(
-        long tradeNo, long priceTicks, int quantity, MarketSide side, long? openInterest = null) => new()
+        long tradeNo, long priceTicks, int quantity, MarketSide side, long? openInterest = null, short sourceId = 1) => new()
     {
         InstrumentId = _fixture.InstrumentId,
+        SourceId = sourceId,
         TradeNo = tradeNo,
         Timestamp = BaseTime.AddSeconds(tradeNo),
         PriceTicks = priceTicks,

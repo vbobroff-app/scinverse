@@ -157,7 +157,14 @@ ORDER BY d.strike;
 
 ---
 
-## Решение 3. Происхождение данных / мультиисточник — **PLANNED (вариант A)**
+## Решение 3. Происхождение данных / мультиисточник — **DONE (вариант A, V004)**
+
+> **Статус (V004, phase 5).** Реализованы `data_source` (сид `transaq`/`synthetic`/`qscalp`) и
+> `md_trade.source_id` в PK `(instrument_id, source_id, trade_no, ts)` + FK. Сквозной `SourceId`
+> протянут через пайплайн (`IMarketConnector.SourceCode` → `ISourceStore` → `TradeRecord` →
+> `TimescaleTradeWriter`). Нахлёст источников проверен интеграционным тестом. **Отложено (future):**
+> `instrument_alias` (обобщение `transaq_secid`) — пока источник один на инструмент; `source_id`
+> в `md_orderlog`/`md_book_snapshot` — Stage 2.
 
 **Вопрос.** Данные по одному инструменту могут приходить из нескольких источников (TRANSAQ,
 Finam, QScalp-storage), в т.ч. с **нахлёстом** по времени. Отличие — только в источнике.

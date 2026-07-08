@@ -7,6 +7,7 @@ namespace Scinverse.Ohs.Domain;
 public sealed record TradeRecord
 {
     public required long InstrumentId { get; init; }
+    public required short SourceId { get; init; }
     public required long TradeNo { get; init; }
     public required DateTimeOffset Timestamp { get; init; }
     public required long PriceTicks { get; init; }

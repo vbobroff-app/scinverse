@@ -16,6 +16,8 @@ public sealed class FakeReplayConnector(IEnumerable<string> fragments) : IMarket
         SingleWriter = true
     });
 
+    public string SourceCode => "synthetic";
+
     public ChannelReader<string> Messages => _messages.Reader;
 
     public bool IsConnected { get; private set; }

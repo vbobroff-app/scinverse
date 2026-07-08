@@ -9,6 +9,9 @@ namespace Scinverse.Ohs.Connectors.Transaq;
 /// </summary>
 public interface IMarketConnector : IAsyncDisposable
 {
+    /// <summary>Код источника данных коннектора (data_source.code), напр. 'transaq'/'synthetic'.</summary>
+    string SourceCode { get; }
+
     ChannelReader<string> Messages { get; }
 
     bool IsConnected { get; }

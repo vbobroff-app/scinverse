@@ -29,6 +29,9 @@ public sealed class TransaqConnector : IMarketConnector
 
     private bool _initialized;
 
+    // Сигнал асинхронного подтверждения соединения (server_status connected="true").
+    private volatile TaskCompletionSource<bool>? _connectedSignal;
+
     public TransaqConnector(TransaqConnectorOptions options)
     {
         _options = options;
@@ -40,11 +43,13 @@ public sealed class TransaqConnector : IMarketConnector
         });
     }
 
+    public string SourceCode => "transaq";
+
     public ChannelReader<string> Messages => _messages.Reader;
 
     public bool IsConnected { get; private set; }
 
-    public Task ConnectAsync(CancellationToken cancellationToken)
+    public async Task ConnectAsync(CancellationToken cancellationToken)
     {
         EnsureResolver(_options.DllPath);
         Directory.CreateDirectory(_options.LogDir);
@@ -56,6 +61,10 @@ public sealed class TransaqConnector : IMarketConnector
         {
             throw new InvalidOperationException("TRANSAQ SetCallback вернул false");
         }
+
+        // Готовим сигнал ДО отправки команды: server_status может прийти сразу.
+        var signal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _connectedSignal = signal;
 
         var command = new StringBuilder()
             .Append("<command id=\"connect\">")
@@ -70,18 +79,34 @@ public sealed class TransaqConnector : IMarketConnector
             .ToString();
 
         EnsureSuccess(SendCommand(command), "connect");
+
+        // Команда connect асинхронная: подтверждение приходит колбэком
+        // server_status connected="true"; ждём его до таймаута.
+        var timeout = TimeSpan.FromSeconds(_options.ConnectTimeoutSeconds);
+        try
+        {
+            await signal.Task.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            throw new InvalidOperationException(
+                $"TRANSAQ connect: не получено подтверждение соединения за {timeout.TotalSeconds:0} с");
+        }
+
         IsConnected = true;
-        return Task.CompletedTask;
     }
 
     public Task SubscribeTradesAsync(IReadOnlyCollection<InstrumentKey> instruments, CancellationToken cancellationToken)
     {
+        // TRANSAQ ожидает security с дочерними элементами board/seccode (не атрибутами).
         var command = new StringBuilder("<command id=\"subscribe\"><alltrades>");
         foreach (var instrument in instruments)
         {
             command
-                .Append("<security board=\"").Append(SecurityElement.Escape(instrument.Board)).Append('"')
-                .Append(" seccode=\"").Append(SecurityElement.Escape(instrument.Ticker)).Append("\"/>");
+                .Append("<security>")
+                .Append("<board>").Append(SecurityElement.Escape(instrument.Board)).Append("</board>")
+                .Append("<seccode>").Append(SecurityElement.Escape(instrument.Ticker)).Append("</seccode>")
+                .Append("</security>");
         }
 
         command.Append("</alltrades></command>");
@@ -125,10 +150,47 @@ public sealed class TransaqConnector : IMarketConnector
         var xml = Marshal.PtrToStringUTF8(data);
         if (xml is not null)
         {
+            TryCompleteConnect(xml);
             _messages.Writer.TryWrite(xml);
         }
 
         return true;
+    }
+
+    // Ловим асинхронный ответ на connect. Дешёвый префикс-фильтр, чтобы не парсить каждое сообщение.
+    private void TryCompleteConnect(string xml)
+    {
+        var signal = _connectedSignal;
+        if (signal is null || signal.Task.IsCompleted)
+        {
+            return;
+        }
+
+        if (!xml.StartsWith("<server_status", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            var root = XDocument.Parse(xml).Root;
+            var connected = root?.Attribute("connected")?.Value;
+
+            if (string.Equals(connected, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                signal.TrySetResult(true);
+            }
+            else if (string.Equals(connected, "error", StringComparison.OrdinalIgnoreCase))
+            {
+                var message = (string?)root?.Element("text") ?? root?.Value ?? "connection error";
+                signal.TrySetException(new InvalidOperationException($"TRANSAQ connect failed: {message}"));
+            }
+            // connected="false" на этапе установки соединения игнорируем: ждём "true" или таймаут.
+        }
+        catch (System.Xml.XmlException)
+        {
+            // Битый server_status — пропускаем, дождёмся корректного.
+        }
     }
 
     private static void EnsureSuccess(IntPtr resultPtr, string operation)
@@ -181,15 +243,41 @@ public sealed class TransaqConnector : IMarketConnector
 
         NativeLibrary.SetDllImportResolver(typeof(TransaqConnector).Assembly, (name, _, _) =>
         {
-            if (name == NativeDll
-                && !string.IsNullOrWhiteSpace(_configuredDllPath)
-                && File.Exists(_configuredDllPath))
+            if (name != NativeDll)
             {
-                return NativeLibrary.Load(_configuredDllPath);
+                return IntPtr.Zero;
             }
 
-            return IntPtr.Zero;
+            var resolved = ResolveDllPath(_configuredDllPath);
+            return resolved is not null ? NativeLibrary.Load(resolved) : IntPtr.Zero;
         });
+    }
+
+    // DllPath может быть абсолютным или относительным. Относительный ищем сначала как есть
+    // (рабочий каталог, напр. корень проекта при `dotnet run`), затем относительно каталога
+    // приложения (bin/…, куда DLL копируется при сборке).
+    private static string? ResolveDllPath(string? dllPath)
+    {
+        if (string.IsNullOrWhiteSpace(dllPath))
+        {
+            return null;
+        }
+
+        if (File.Exists(dllPath))
+        {
+            return Path.GetFullPath(dllPath);
+        }
+
+        if (!Path.IsPathRooted(dllPath))
+        {
+            var candidate = Path.Combine(AppContext.BaseDirectory, dllPath);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     [UnmanagedFunctionPointer(Convention)]

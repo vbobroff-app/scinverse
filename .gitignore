@@ -36,6 +36,11 @@ Thumbs.db
 # ---- Secrets / local config ----
 *.local
 appsettings.*.local.json
+appsettings.Local.json
+**/appsettings.Local.json
+
+# ---- Native connector libraries (TRANSAQ txmlconnector) — не коммитим ----
+**/native/*.dll
 
 # ---- PlantUML локальные превью ----
 _preview_*.png

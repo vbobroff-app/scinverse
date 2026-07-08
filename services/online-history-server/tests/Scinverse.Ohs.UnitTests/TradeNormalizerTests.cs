@@ -35,8 +35,9 @@ public sealed class TradeNormalizerTests
             Side = MarketSide.Buy
         };
 
-        normalizer.TryNormalize(trade, out var record).Should().BeTrue();
+        normalizer.TryNormalize(trade, sourceId: 1, out var record).Should().BeTrue();
         record!.InstrumentId.Should().Be(7);
+        record.SourceId.Should().Be(1);
         record.PriceTicks.Should().Be(25013);
         record.Quantity.Should().Be(5);
         record.Side.Should().Be(MarketSide.Buy);
@@ -57,7 +58,7 @@ public sealed class TradeNormalizerTests
             Side = MarketSide.Sell
         };
 
-        normalizer.TryNormalize(trade, out var record).Should().BeFalse();
+        normalizer.TryNormalize(trade, sourceId: 1, out var record).Should().BeFalse();
         record.Should().BeNull();
     }
 }

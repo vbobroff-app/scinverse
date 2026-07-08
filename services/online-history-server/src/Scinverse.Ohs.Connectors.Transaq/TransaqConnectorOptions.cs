@@ -18,4 +18,10 @@ public sealed class TransaqConnectorOptions
 
     public string LogDir { get; set; } = "logs/transaq";
     public int LogLevel { get; set; } = 2;
+
+    /// <summary>
+    /// Таймаут ожидания асинхронного подтверждения соединения
+    /// (колбэк server_status connected="true") после отправки команды connect.
+    /// </summary>
+    public int ConnectTimeoutSeconds { get; set; } = 30;
 }
