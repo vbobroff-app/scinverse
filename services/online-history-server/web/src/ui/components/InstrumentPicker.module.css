@@ -1,0 +1,139 @@
+.picker {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.header,
+.rowWrap {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: var(--spacing-sm);
+}
+
+.header {
+  height: 24px;
+  align-items: center;
+  padding-right: 4px;
+}
+
+.headLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.axisCell {
+  min-width: 0;
+  padding: 0 var(--spacing-md);
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.rowWrap {
+  padding-bottom: 4px;
+}
+
+/* Левая плашка: звезда + инструмент + Старт/Стоп */
+.left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  height: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-input);
+}
+
+.left:hover {
+  border-color: var(--color-border-focus);
+}
+
+.inactive {
+  opacity: 0.55;
+}
+
+.star {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  line-height: 1;
+  color: var(--color-text-muted);
+}
+
+.star:hover {
+  color: var(--color-accent);
+  background: var(--color-bg-hover);
+}
+
+.starOn {
+  color: var(--color-accent);
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ticker {
+  font-weight: 600;
+  font-size: var(--font-size-base);
+  line-height: 1.15;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.1;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.notTrading {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-warning) 20%, transparent);
+  color: var(--color-warning);
+  font-size: 11px;
+}
+
+/* Правая плашка: таймлайн-колбаска */
+.right {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: var(--spacing-xs) var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  min-width: 0;
+}
+
+.right > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.footer {
+  padding: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
