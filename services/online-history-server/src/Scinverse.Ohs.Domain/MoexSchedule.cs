@@ -20,7 +20,7 @@ public sealed record TradingSession
 /// Часы торгового дня MOEX (ЕТС/ФОРТС, с 23.03.2026).
 /// <list type="bullet">
 /// <item>Будний день: <c>08:50–23:50</c> МСК (утренняя доп. + основная + вечерняя).</item>
-/// <item>Выходной день (ДСВД, сб/вс): <c>10:00–19:00</c> МСК.</item>
+/// <item>Выходной день (доп. сессия выходного дня, с 01.03.2025): <c>09:50–19:00</c> МСК.</item>
 /// </list>
 /// Праздничный календарь не моделируется — фактические торговые дни берутся из наличия данных
 /// (<see cref="ICoverageStore"/>), а этот класс лишь раздаёт часы для конкретной даты.
@@ -32,7 +32,7 @@ public static class MoexSchedule
 
     private static readonly TimeOnly WeekdayStart = new(8, 50);
     private static readonly TimeOnly WeekdayEnd = new(23, 50);
-    private static readonly TimeOnly WeekendStart = new(10, 0);
+    private static readonly TimeOnly WeekendStart = new(9, 50);
     private static readonly TimeOnly WeekendEnd = new(19, 0);
 
     /// <summary>Возвращает границы сессии для указанной календарной даты (МСК).</summary>

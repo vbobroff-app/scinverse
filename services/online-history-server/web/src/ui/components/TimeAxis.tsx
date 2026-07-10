@@ -1,30 +1,174 @@
 import { useMemo } from 'react';
 import type { CoverageWindow } from '../../core/OhsStore';
+import type { SessionDto } from '../../core/types';
+import { mskDateOf } from '../../core/moexSession';
+import { makeProjector } from '../../core/sessionProjection';
+import { useElementWidth } from '../hooks/useElementWidth';
 import styles from './TimeAxis.module.css';
 
-const TICKS = 6;
+const MSK_MS = 3 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
-export function TimeAxis({ window }: { window: CoverageWindow }) {
+/** Минимум пикселей на подпись (dd.MM / HH:mm / «мон YY») — чтобы не сливались. */
+const MIN_LABEL_PX = 56;
+/** «Красивые» шаги прореживания по индексу сессии. */
+const SESSION_STRIDES = [1, 2, 3, 5, 7, 10, 14, 20, 30, 45, 60, 90, 120, 180, 250, 365];
+/** «Красивые» шаги для часовой шкалы (D1). */
+const HOUR_STEPS = [1, 2, 3, 4, 6, 8, 12];
+
+interface Props {
+  window: CoverageWindow;
+  sessions?: SessionDto[];
+}
+
+type Edge = 'start' | 'end' | undefined;
+interface Mark {
+  left: number;
+  label: string;
+  edge?: Edge;
+  weekend?: boolean;
+}
+
+function pctFn(fromMs: number, span: number) {
+  return (t: number) => Math.min(100, Math.max(0, ((t - fromMs) / span) * 100));
+}
+
+/** Время в МСК как HH:mm. */
+function mskHm(ms: number): string {
+  const d = new Date(ms + MSK_MS);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+/** Дата в МСК как dd.MM. */
+function dmMs(ms: number): string {
+  const d = mskDateOf(ms);
+  return `${String(d.day).padStart(2, '0')}.${String(d.month).padStart(2, '0')}`;
+}
+
+function dmIso(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return `${d}.${m}`;
+}
+
+function dmyIso(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return `${d}.${m}.${y.slice(2)}`;
+}
+
+/** Инстант МСК-полуночи для даты момента `ms`. */
+function mskMidnight(ms: number): number {
+  const d = mskDateOf(ms);
+  return Date.UTC(d.year, d.month - 1, d.day, -3, 0);
+}
+
+/** Наименьший «красивый» шаг, дающий не больше `maxCount` меток. */
+function pickStride(total: number, maxCount: number, steps: number[]): number {
+  for (const s of steps) {
+    if (Math.ceil(total / s) <= maxCount) return s;
+  }
+  return steps[steps.length - 1];
+}
+
+export function TimeAxis({ window, sessions }: Props) {
+  const [ref, width] = useElementWidth<HTMLDivElement>();
   const fromMs = Date.parse(window.from);
   const toMs = Date.parse(window.to);
   const span = Math.max(1, toMs - fromMs);
 
-  const ticks = useMemo(
-    () =>
-      Array.from({ length: TICKS + 1 }, (_, i) => ({
-        left: (i / TICKS) * 100,
-        label: new Date(fromMs + (span * i) / TICKS).toLocaleTimeString(),
-      })),
-    [fromMs, span],
-  );
+  const marks = useMemo<Mark[]>(() => {
+    const maxLabels = Math.max(2, Math.floor((width || 600) / MIN_LABEL_PX));
+    const p = pctFn(fromMs, span);
+    const n = sessions?.length ?? 0;
+
+    // Посессионная шкала (D/W/M/Q/Y): подписи прорежены по ширине, шаг — по индексу сессии.
+    if (sessions && n > 1) {
+      const proj = makeProjector(fromMs, toMs, sessions);
+      const spanDays = span / DAY_MS;
+      const withYear = spanDays > 300;
+      const stride = pickStride(n, maxLabels, SESSION_STRIDES);
+      const out: Mark[] = [];
+      for (let i = 0; i < n; i += stride) {
+        const s = sessions[i];
+        const center = (Date.parse(s.start) + Date.parse(s.end)) / 2;
+        out.push({
+          left: proj(center),
+          label: withYear ? dmyIso(s.date) : dmIso(s.date),
+          weekend: s.weekend,
+        });
+      }
+      return out;
+    }
+
+    const spanH = span / HOUR_MS;
+
+    // Одна сессия / короткое окно (D1): время начала, конца и круглые часы между.
+    if (spanH <= 36) {
+      const baseStep = spanH <= 4 ? 1 : spanH <= 10 ? 2 : 3;
+      const stepH = pickStride(spanH / baseStep, maxLabels, HOUR_STEPS) * baseStep;
+      const base = mskDateOf(fromMs);
+      const pad = span * 0.04;
+      const inner: Mark[] = [];
+      for (let h = 0; h <= 48; h += stepH) {
+        const t = Date.UTC(base.year, base.month - 1, base.day, h - 3, 0);
+        if (t > fromMs + pad && t < toMs - pad) {
+          inner.push({ left: p(t), label: mskHm(t) });
+        }
+      }
+      return [
+        { left: 0, label: mskHm(fromMs), edge: 'start' },
+        ...inner,
+        { left: 100, label: mskHm(toMs), edge: 'end' },
+      ];
+    }
+
+    // Длинное окно без сессий (All/диапазон): круглые даты, шаг по ширине.
+    const days = spanH / 24;
+    const stepD = pickStride(days, maxLabels, SESSION_STRIDES);
+    const withYear = days > 300;
+    const pad = span * 0.02;
+    const inner: Mark[] = [];
+    for (let t = mskMidnight(fromMs) + stepD * DAY_MS; t < toMs - pad; t += stepD * DAY_MS) {
+      if (t > fromMs + pad) {
+        inner.push({ left: p(t), label: withYear ? dmyIso(mskDateIso(t)) : dmMs(t) });
+      }
+    }
+    return [
+      { left: 0, label: dmMs(fromMs), edge: 'start' },
+      ...inner,
+      { left: 100, label: dmMs(toMs), edge: 'end' },
+    ];
+  }, [fromMs, toMs, span, sessions, width]);
 
   return (
-    <div className={styles.axis}>
-      {ticks.map((t, i) => (
-        <span key={i} className={styles.tick} style={{ left: `${t.left}%` }}>
-          {t.label}
+    <div className={styles.axis} ref={ref}>
+      {marks.map((m, i) => {
+        const align = m.edge ?? (m.left < 4 ? 'start' : m.left > 96 ? 'end' : undefined);
+        return (
+        <span
+          key={`m${i}`}
+          className={[
+            styles.mark,
+            align === 'start' ? styles.markStart : '',
+            align === 'end' ? styles.markEnd : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          style={{ left: `${m.left}%` }}
+        >
+          <span className={styles.tickMark} />
+          <span className={[styles.label, m.weekend ? styles.weekend : ''].filter(Boolean).join(' ')}>
+            {m.label}
+          </span>
         </span>
-      ))}
+        );
+      })}
     </div>
   );
+}
+
+/** ISO `yyyy-MM-dd` для момента (МСК) — для форматирования с годом. */
+function mskDateIso(ms: number): string {
+  const d = mskDateOf(ms);
+  return `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
 }

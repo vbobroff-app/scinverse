@@ -40,16 +40,6 @@ function segment(overrides: Partial<CoverageSegmentDto> = {}): CoverageSegmentDt
   };
 }
 
-/** ISO строка сессии для даты МСК. */
-function session(dateIso: string, weekend = false): SessionDto {
-  return {
-    date: dateIso,
-    start: `${dateIso}T08:50:00+03:00`,
-    end: `${dateIso}T23:50:00+03:00`,
-    weekend,
-  };
-}
-
 function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
   const emptyPage: InstrumentPage = { items: [], total: 0, limit: 100, offset: 0 };
   const base: OhsApiClient = {
@@ -106,39 +96,75 @@ describe('OhsStore live merge', () => {
 });
 
 describe('OhsStore timeframe → window', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-08T09:00:00Z')); // среда, 12:00 МСК
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('по умолчанию D1: окно = сегодняшняя сессия, правый край = конец сессии', () => {
     const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
     store.start();
 
     const today = todaySession();
     expect(Date.parse(store.window$.value.to)).toBe(today.endMs);
+    expect(store.sessions$.value).toHaveLength(1);
     store.stop();
   });
 
-  it('W1 без выходных запрашивает 5 сессий и берёт левый край самой ранней', () => {
-    const getSessions = vi.fn(() =>
-      of([session('2026-07-06'), session('2026-07-08'), session('2026-07-10')]),
-    );
-    const store = new OhsStore(fakeApi({ getSessions }), new Subject<LiveEvent>());
+  it('D3: три календарные сессии подряд (ось равными долями)', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
     store.start();
 
-    store.setTimeframe({ kind: 'sessions', unit: 'W', count: 1, includeWeekends: false });
+    store.setTimeframe({ kind: 'sessions', unit: 'D', count: 3, includeWeekends: true });
 
-    expect(getSessions).toHaveBeenLastCalledWith(5, false);
-    expect(store.window$.value.from).toBe(new Date(Date.parse('2026-07-06T08:50:00+03:00')).toISOString());
+    expect(store.sessions$.value.map((s) => s.date)).toEqual([
+      '2026-07-06',
+      '2026-07-07',
+      '2026-07-08',
+    ]);
+    expect(store.window$.value.from).toBe(store.sessions$.value[0].start);
     expect(Date.parse(store.window$.value.to)).toBe(todaySession().endMs);
-    expect(store.sessions$.value).toHaveLength(3);
     store.stop();
   });
 
-  it('W1 с выходными запрашивает 7 сессий', () => {
-    const getSessions = vi.fn(() => of<SessionDto[]>([]));
-    const store = new OhsStore(fakeApi({ getSessions }), new Subject<LiveEvent>());
+  it('W1 с выходными: 7 календарных сессий, выходные — отдельные слоты (не схлопнуты)', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
     store.start();
 
     store.setTimeframe({ kind: 'sessions', unit: 'W', count: 1, includeWeekends: true });
 
-    expect(getSessions).toHaveBeenLastCalledWith(7, true);
+    const s = store.sessions$.value;
+    expect(s).toHaveLength(7);
+    expect(s.filter((x) => x.weekend)).toHaveLength(2); // суббота + воскресенье
+    expect(store.window$.value.from).toBe(s[0].start);
+    store.stop();
+  });
+
+  it('W1 без выходных: 5 будних сессий (выходные схлопнуты фильтром)', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    store.start();
+
+    store.setTimeframe({ kind: 'sessions', unit: 'W', count: 1, includeWeekends: false });
+
+    const s = store.sessions$.value;
+    expect(s).toHaveLength(5);
+    expect(s.every((x) => !x.weekend)).toBe(true);
+    store.stop();
+  });
+
+  it('M1 посессионный: много дневных сессий, правый край = конец сегодняшней', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    store.start();
+
+    store.setTimeframe({ kind: 'sessions', unit: 'M', count: 1, includeWeekends: true });
+
+    // ~месяц календарных дней → заметно больше 16 сессий (включён режим прореживания оси).
+    expect(store.sessions$.value.length).toBeGreaterThan(16);
+    expect(Date.parse(store.window$.value.to)).toBe(todaySession().endMs);
+    expect(store.window$.value.from).toBe(store.sessions$.value[0].start);
     store.stop();
   });
 
@@ -157,12 +183,17 @@ describe('OhsStore timeframe → window', () => {
     store.stop();
   });
 
-  it('range снапает границы к началу/концу сессий', () => {
+  it('range посессионный: слот на каждый день диапазона, границы по сессиям', () => {
     const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
     store.start();
 
-    store.setTimeframe({ kind: 'range', from: '2026-07-06', to: '2026-07-08', includeWeekends: false });
+    store.setTimeframe({ kind: 'range', from: '2026-07-06', to: '2026-07-08', includeWeekends: true });
 
+    expect(store.sessions$.value.map((s) => s.date)).toEqual([
+      '2026-07-06',
+      '2026-07-07',
+      '2026-07-08',
+    ]);
     expect(store.window$.value.from).toBe(new Date('2026-07-06T08:50:00+03:00').toISOString());
     expect(store.window$.value.to).toBe(new Date('2026-07-08T23:50:00+03:00').toISOString());
     store.stop();

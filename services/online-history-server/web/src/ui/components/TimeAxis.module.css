@@ -1,20 +1,49 @@
 .axis {
   position: relative;
-  height: 16px;
+  height: 18px;
 }
 
-.tick {
+/* Метка = короткая засечка сверху + подпись под ней (линия не перечёркивает цифры). */
+.mark {
   position: absolute;
+  top: 0;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.markStart {
+  transform: translateX(0);
+  align-items: flex-start;
+}
+
+.markEnd {
+  transform: translateX(-100%);
+  align-items: flex-end;
+}
+
+.tickMark {
+  width: 1px;
+  height: 3px;
+  background: var(--color-border);
+}
+
+.label {
+  margin-top: 2px;
   font-size: 11px;
+  line-height: 1;
   color: var(--color-text-muted);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
-.tick:first-child {
-  transform: translateX(0);
+.markStart .label,
+.markEnd .label {
+  color: var(--color-text-secondary);
 }
 
-.tick:last-child {
-  transform: translateX(-100%);
+.weekend {
+  color: var(--color-text-muted);
+  font-style: italic;
 }

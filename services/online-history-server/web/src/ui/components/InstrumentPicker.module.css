@@ -17,6 +17,14 @@
   padding: var(--spacing-sm) 4px 0 0;
 }
 
+.tfCell {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
 .axisCell {
   min-width: 0;
   padding: 0 var(--spacing-md);
@@ -231,9 +239,9 @@
 }
 
 .footer {
-  margin-top: 15px;
-  padding-left: var(--spacing-sm);
-  font-size: var(--font-size-sm);
+  flex-shrink: 0;
+  padding-left: var(--spacing-xs);
+  font-size: 12px;
   color: var(--color-text-muted);
   white-space: nowrap;
 }

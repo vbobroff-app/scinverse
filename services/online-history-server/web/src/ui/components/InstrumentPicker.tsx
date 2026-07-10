@@ -5,18 +5,21 @@ import { useNow } from '../hooks/useNow';
 import { useVirtualRows } from '../hooks/useVirtualRows';
 import { Button } from './Button';
 import { TimeAxis } from './TimeAxis';
+import { TimeframePanel } from './TimeframePanel';
 import { CoverageTrack } from './CoverageTrack';
 import { seriesKey, type CoverageWindow } from '../../core/OhsStore';
+import { makeProjector } from '../../core/sessionProjection';
 import { exchangeForBoard } from '../../core/exchange';
 import type {
   ConnectionDto,
   CoverageSegmentDto,
   InstrumentDto,
   InstrumentGroupDto,
+  SessionDto,
 } from '../../core/types';
 import styles from './InstrumentPicker.module.css';
 
-const ROW_HEIGHT = 48;
+const ROW_HEIGHT = 50;
 const INDENT = 10;
 const EMPTY_SEGMENTS: CoverageSegmentDto[] = [];
 
@@ -58,6 +61,7 @@ interface RowProps {
   row: TreeRow;
   window: CoverageWindow;
   segments: CoverageSegmentDto[];
+  sessions: SessionDto[];
   sourceCodeById: Map<number, string>;
   recording: boolean;
   connected: boolean;
@@ -74,6 +78,7 @@ const Row = memo(function Row({
   row,
   window,
   segments,
+  sessions,
   sourceCodeById,
   recording,
   connected,
@@ -172,7 +177,7 @@ const Row = memo(function Row({
       </div>
 
       <div className={styles.right}>
-        <CoverageTrack window={window} segments={segments} sourceCodeById={sourceCodeById} />
+        <CoverageTrack window={window} segments={segments} sourceCodeById={sourceCodeById} sessions={sessions} />
       </div>
     </div>
   );
@@ -192,6 +197,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const seriesByFutures = useBehavior(store.seriesByFutures$);
   const strikesBySeries = useBehavior(store.strikesBySeries$);
   const window = useBehavior(store.window$);
+  const sessions = useBehavior(store.sessions$);
   const now = useNow(1000);
 
   const connected = connection.status === 'connected';
@@ -245,11 +251,10 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
     return out;
   }, [instruments, expandedFutures, expandedSeries, seriesByFutures, strikesBySeries]);
 
-  const nowPct = useMemo(() => {
-    const fromMs = Date.parse(window.from);
-    const span = Math.max(1, Date.parse(window.to) - fromMs);
-    return Math.min(100, Math.max(0, ((now - fromMs) / span) * 100));
-  }, [now, window]);
+  const nowPct = useMemo(
+    () => makeProjector(Date.parse(window.from), Date.parse(window.to), sessions)(now),
+    [now, window, sessions],
+  );
 
   const onNearEnd = useCallback(() => store.loadMoreInstruments(), [store]);
   const virtual = useVirtualRows(rows.length, ROW_HEIGHT, { overscan: 8, onNearEnd });
@@ -299,6 +304,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               row={row}
               window={window}
               segments={instrumentId >= 0 ? segmentsByInstrument.get(instrumentId) ?? EMPTY_SEGMENTS : EMPTY_SEGMENTS}
+              sessions={sessions}
               sourceCodeById={sourceCodeById}
               recording={recordingHere}
               connected={connected}
@@ -316,12 +322,15 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
       </div>
 
       <div className={styles.axisBar}>
-        <span className={styles.footer}>
-          {loading ? 'Загрузка…' : `Показано ${instruments.length} из ${total}`}
-          {selected.size > 0 ? ` · выбрано ${selected.size}` : ''}
-        </span>
+        <div className={styles.tfCell}>
+          <span className={styles.footer}>
+            {loading ? 'Загрузка…' : `Показано ${instruments.length} из ${total}`}
+            {selected.size > 0 ? ` · выбрано ${selected.size}` : ''}
+          </span>
+          <TimeframePanel />
+        </div>
         <div className={styles.axisCell}>
-          <TimeAxis window={window} />
+          <TimeAxis window={window} sessions={sessions} />
         </div>
       </div>
     </div>

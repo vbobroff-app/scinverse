@@ -1,7 +1,15 @@
 import { BehaviorSubject, type Observable, type Subscription } from 'rxjs';
 import { OhsApi, type OhsApiClient } from './api';
 import { createLiveStream } from './live';
-import { mskDateFromIso, mskDateOf, sessionBounds, shiftMonths, todaySession } from './moexSession';
+import {
+  mskDateFromIso,
+  mskDateOf,
+  recentSessions,
+  sessionBounds,
+  sessionsFrom,
+  shiftMonths,
+  todaySession,
+} from './moexSession';
 import type {
   ConnectionDto,
   CoverageSegmentDto,
@@ -25,8 +33,11 @@ const COVERAGE_POLL_MS = 12_000;
 const WINDOW_REFRESH_MS = 60_000;
 /** Сколько сессий в неделе при выключенных/включённых выходных. */
 const SESSIONS_PER_WEEK = { workdays: 5, withWeekends: 7 } as const;
-/** Таймфрейм по умолчанию — текущая торговая сессия. */
-const DEFAULT_TIMEFRAME: Timeframe = { kind: 'sessions', unit: 'D', count: 1, includeWeekends: false };
+/**
+ * Таймфрейм по умолчанию — текущая торговая сессия. `includeWeekends: true` — выходные
+ * показываем как отдельные слоты (не схлопываем); схлопывание станет отдельным фильтром.
+ */
+const DEFAULT_TIMEFRAME: Timeframe = { kind: 'sessions', unit: 'D', count: 1, includeWeekends: true };
 
 /** Ключ раскрытой опционной серии: `${futuresId}:${expiration}`. */
 export const seriesKey = (futuresId: number, expiration: string): string =>
@@ -134,7 +145,7 @@ export class OhsStore {
   /** Меняет единицу/глубину посессионного таймфрейма (например W2), сохраняя учёт выходных. */
   setSessionsTimeframe(unit: TimeframeUnit, count: number): void {
     const tf = this.timeframe$.value;
-    const includeWeekends = tf.kind === 'sessions' || tf.kind === 'range' ? tf.includeWeekends : false;
+    const includeWeekends = tf.kind === 'sessions' || tf.kind === 'range' ? tf.includeWeekends : true;
     this.setTimeframe({ kind: 'sessions', unit, count, includeWeekends });
   }
 
@@ -175,30 +186,25 @@ export class OhsStore {
   ): void {
     const toMs = todaySession().endMs;
 
-    // Календарные единицы (M/Q/Y) — сдвиг назад без сепараторов сессий.
+    // Календарные единицы (M/Q/Y) — сдвиг назад на n месяцев/кварталов/лет, но ось тоже
+    // посессионная: каждый торговый день — доля, ночь/разрывы схлопнуты (как D/W, только длиннее).
     if (tf.unit === 'M' || tf.unit === 'Q' || tf.unit === 'Y') {
       const fromDate = shiftMonths(mskDateOf(), monthsPerUnit(tf.unit) * tf.count);
       const fromMs = sessionBounds(fromDate).startMs;
-      this.sessions$.next([]);
-      this.setWindow({ from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() });
+      const ordered = sessionsFrom(fromMs, tf.includeWeekends);
+      this.sessions$.next(ordered);
+      const leftMs = ordered.length > 0 ? Date.parse(ordered[0].start) : fromMs;
+      this.setWindow({ from: new Date(leftMs).toISOString(), to: new Date(toMs).toISOString() });
       return;
     }
 
-    // Посессионные (D/W): левый край — начало самой ранней из N последних сессий.
+    // Посессионные (D/W): календарные сессии (выходные — отдельные слоты, не схлопываем).
+    // Считаем локально — ось должна показывать и пустые выходные, которых нет в данных.
     const count = sessionCount(tf.unit, tf.count, tf.includeWeekends);
-    this.api.getSessions(count, tf.includeWeekends).subscribe({
-      next: (sessions) => {
-        const ordered = [...sessions].sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
-        this.sessions$.next(ordered);
-        const fromMs = ordered.length > 0 ? Date.parse(ordered[0].start) : todaySession().startMs;
-        this.setWindow({ from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() });
-      },
-      error: (err) => {
-        console.error('getSessions', err);
-        this.sessions$.next([]);
-        this.setWindow(defaultWindow());
-      },
-    });
+    const ordered = recentSessions(count, tf.includeWeekends);
+    this.sessions$.next(ordered);
+    const fromMs = ordered.length > 0 ? Date.parse(ordered[0].start) : todaySession().startMs;
+    this.setWindow({ from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() });
   }
 
   private applyAllTimeframe(): void {
@@ -218,13 +224,16 @@ export class OhsStore {
   }
 
   private applyRangeTimeframe(tf: Extract<Timeframe, { kind: 'range' }>): void {
-    const fromMs = sessionBounds(mskDateFromIso(tf.from)).startMs;
-    const toMs = sessionBounds(mskDateFromIso(tf.to)).endMs;
-    this.sessions$.next([]);
-    this.setWindow({
-      from: new Date(Math.min(fromMs, toMs)).toISOString(),
-      to: new Date(Math.max(fromMs, toMs)).toISOString(),
-    });
+    // Диапазон тоже посессионный: каждый день из [from, to] — своя доля (как D/W), без live.
+    const aStart = sessionBounds(mskDateFromIso(tf.from)).startMs;
+    const bEnd = sessionBounds(mskDateFromIso(tf.to)).endMs;
+    const loMs = Math.min(aStart, bEnd);
+    const hiMs = Math.max(aStart, bEnd);
+    const ordered = sessionsFrom(loMs, tf.includeWeekends, hiMs);
+    this.sessions$.next(ordered);
+    const leftMs = ordered.length > 0 ? Date.parse(ordered[0].start) : loMs;
+    const rightMs = ordered.length > 0 ? Date.parse(ordered[ordered.length - 1].end) : hiMs;
+    this.setWindow({ from: new Date(leftMs).toISOString(), to: new Date(rightMs).toISOString() });
   }
 
   /** Переключает пометку инструмента (для будущего фильтра «по выбранным»). */

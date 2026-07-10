@@ -1,0 +1,139 @@
+.root {
+  width: 244px;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-md);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-xs);
+}
+
+.link {
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.link:hover {
+  background: var(--color-bg-hover);
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-xs);
+}
+
+.navBtn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.navBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.navTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.weekdays,
+.cells {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.weekday {
+  text-align: center;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  padding-bottom: 2px;
+}
+
+.empty {
+  height: 28px;
+}
+
+.cell {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.cell:hover {
+  background: var(--color-bg-hover);
+}
+
+.cellInRange {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+}
+
+.cellEdge {
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.cellEdge:hover {
+  background: var(--color-accent-hover);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--spacing-sm);
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+}
+
+.selection {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.apply {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.apply:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.apply:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

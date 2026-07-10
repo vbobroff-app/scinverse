@@ -19,15 +19,15 @@ public sealed class MoexScheduleTests
     }
 
     [Theory]
-    // Сб 2026-07-11, Вс 2026-07-12 — выходные: 10:00–19:00.
+    // Сб 2026-07-11, Вс 2026-07-12 — доп. сессия выходного дня: 09:50–19:00.
     [InlineData(2026, 7, 11)]
     [InlineData(2026, 7, 12)]
-    public void Session_Weekend_Returns1000To1900Msk(int year, int month, int day)
+    public void Session_Weekend_Returns0950To1900Msk(int year, int month, int day)
     {
         var session = MoexSchedule.Session(new DateOnly(year, month, day));
 
         session.Weekend.Should().BeTrue();
-        session.Start.Should().Be(new DateTimeOffset(year, month, day, 10, 0, 0, MoexSchedule.MoscowOffset));
+        session.Start.Should().Be(new DateTimeOffset(year, month, day, 9, 50, 0, MoexSchedule.MoscowOffset));
         session.End.Should().Be(new DateTimeOffset(year, month, day, 19, 0, 0, MoexSchedule.MoscowOffset));
     }
 

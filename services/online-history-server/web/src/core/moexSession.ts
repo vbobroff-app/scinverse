@@ -4,6 +4,8 @@
 // (GET /api/sessions), но границы для «сегодня»/произвольных дат считаем локально,
 // т.к. данных за них может ещё не быть. МСК = UTC+3 без перехода на летнее время.
 
+import type { SessionDto } from './types';
+
 const MSK_OFFSET_MIN = 180;
 
 /** Календарная дата в МСК (компоненты). */
@@ -39,11 +41,15 @@ function weekday({ year, month, day }: MskDate): number {
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
-/** Границы торговой сессии MOEX для даты МСК (будни 08:50–23:50, выходные 10:00–19:00). */
+/**
+ * Границы торговой сессии MOEX для даты МСК.
+ * Будни (ЕТС): 08:50–23:50. Выходные (доп. сессия выходного дня, с 01.03.2025): 09:50–19:00.
+ * Праздничные исключения (не каждые выходные торгуются) появятся в phase7c из ISS-календаря.
+ */
 export function sessionBounds(date: MskDate): SessionBounds {
   const dow = weekday(date);
   const weekend = dow === 0 || dow === 6;
-  const [sh, sm, eh, em] = weekend ? [10, 0, 19, 0] : [8, 50, 23, 50];
+  const [sh, sm, eh, em] = weekend ? [9, 50, 19, 0] : [8, 50, 23, 50];
   return {
     startMs: mskInstant(date.year, date.month, date.day, sh, sm),
     endMs: mskInstant(date.year, date.month, date.day, eh, em),
@@ -67,4 +73,71 @@ export function shiftMonths(date: MskDate, months: number): MskDate {
   const base = new Date(Date.UTC(date.year, date.month - 1, date.day));
   base.setUTCMonth(base.getUTCMonth() - months);
   return { year: base.getUTCFullYear(), month: base.getUTCMonth() + 1, day: base.getUTCDate() };
+}
+
+/** Предыдущий календарный день (по МСК). */
+export function prevDate(date: MskDate): MskDate {
+  const base = new Date(Date.UTC(date.year, date.month - 1, date.day));
+  base.setUTCDate(base.getUTCDate() - 1);
+  return { year: base.getUTCFullYear(), month: base.getUTCMonth() + 1, day: base.getUTCDate() };
+}
+
+/** ISO-дата `yyyy-MM-dd` для даты МСК. */
+export function isoDate({ year, month, day }: MskDate): string {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * Последние `count` календарных сессий (по МСК), заканчивая сегодняшней. Выходные включаются
+ * как отдельные слоты (не схлопываются); при `includeWeekends = false` они пропускаются —
+ * это станет опциональным фильтром «схлопнуть выходные». Праздничные исключения игнорируются
+ * (уточним в phase7c из ISS-календаря).
+ */
+export function recentSessions(
+  count: number,
+  includeWeekends: boolean,
+  now: number = Date.now(),
+): SessionDto[] {
+  const out: SessionDto[] = [];
+  let date = mskDateOf(now);
+  for (let guard = 0; out.length < count && guard < count * 3 + 14; guard++) {
+    const b = sessionBounds(date);
+    if (includeWeekends || !b.weekend) {
+      out.push({
+        date: isoDate(date),
+        start: new Date(b.startMs).toISOString(),
+        end: new Date(b.endMs).toISOString(),
+        weekend: b.weekend,
+      });
+    }
+    date = prevDate(date);
+  }
+  return out.reverse();
+}
+
+/**
+ * Все сессии (по МСК) от `fromMs` до сегодняшней включительно (для календарных M/Q/Y).
+ * Выходные включаются как отдельные слоты при `includeWeekends`. Ограничено ~11 годами.
+ */
+export function sessionsFrom(
+  fromMs: number,
+  includeWeekends: boolean,
+  now: number = Date.now(),
+): SessionDto[] {
+  const out: SessionDto[] = [];
+  let date = mskDateOf(now);
+  for (let guard = 0; guard < 4200; guard++) {
+    const b = sessionBounds(date);
+    if (b.endMs < fromMs) break;
+    if (includeWeekends || !b.weekend) {
+      out.push({
+        date: isoDate(date),
+        start: new Date(b.startMs).toISOString(),
+        end: new Date(b.endMs).toISOString(),
+        weekend: b.weekend,
+      });
+    }
+    date = prevDate(date);
+  }
+  return out.reverse();
 }
