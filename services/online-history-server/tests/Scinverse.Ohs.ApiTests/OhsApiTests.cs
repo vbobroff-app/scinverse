@@ -44,6 +44,36 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
     }
 
     [Fact]
+    public async Task Instruments_filter_by_ids_and_exchange()
+    {
+        var api = CreateApi();
+
+        // «Выделенные»: только явные instrument_id.
+        var byId = await api.GetInstrumentsAsync(new InstrumentQueryParams
+        {
+            InstrumentIds = [factory.SberInstrumentId]
+        });
+        byId.Items.Should().OnlyContain(i => i.InstrumentId == factory.SberInstrumentId);
+        byId.Items.Should().Contain(i => i.Ticker == "SBER");
+
+        // «Биржи» MOEX — no-op (все борды MOEX): SBER остаётся в выборке.
+        var moex = await api.GetInstrumentsAsync(new InstrumentQueryParams
+        {
+            Q = "SBER",
+            Exchanges = ["MOEX"]
+        });
+        moex.Items.Should().Contain(i => i.Ticker == "SBER");
+
+        // Неизвестная биржа — пустая выборка (не-MOEX бордов ещё нет).
+        var bogus = await api.GetInstrumentsAsync(new InstrumentQueryParams
+        {
+            Exchanges = ["NASDAQ"]
+        });
+        bogus.Items.Should().BeEmpty();
+        bogus.Total.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Futures_expose_option_series_and_strikes()
     {
         var api = CreateApi();
@@ -96,6 +126,10 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         var segment = coverage.First(s => s.InstrumentId == factory.SberInstrumentId);
         segment.To.Should().NotBeNull("после остановки сегмент закрыт");
         segment.TradeCount.Should().BeGreaterThan(0);
+
+        // Фильтр «Не пустые»: SBER записывался, поэтому попадает в выборку по nonEmpty.
+        var nonEmpty = await api.GetInstrumentsAsync(new InstrumentQueryParams { NonEmpty = true, Q = "SBER" });
+        nonEmpty.Items.Should().Contain(i => i.Ticker == "SBER");
     }
 
     [Fact]

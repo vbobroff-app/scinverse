@@ -14,6 +14,7 @@ public static class OhsEndpoints
 
         api.MapGet("/instruments", async (
             string? q, string? board, string? secType, string? category, bool? onlyRecording,
+            bool? nonEmpty, string? instrumentIds, string? exchanges,
             long? underlyingId, DateOnly? expiration, int? limit, int? offset,
             IInstrumentStore store, CancellationToken ct) =>
         {
@@ -24,6 +25,9 @@ public static class OhsEndpoints
                 SecType = secType,
                 Category = category,
                 OnlyRecording = onlyRecording ?? false,
+                NonEmpty = nonEmpty ?? false,
+                InstrumentIds = ParseLongs(instrumentIds),
+                Exchanges = ParseCsv(exchanges),
                 UnderlyingId = underlyingId,
                 Expiration = expiration,
                 Limit = limit ?? 100,
@@ -155,6 +159,30 @@ public static class OhsEndpoints
 
         api.MapPost("/connections/{id:long}/test", (long id, ConnectionManager manager, IConnectionStore store, CancellationToken ct) =>
             RunConnectionActionAsync(id, store, manager, () => manager.TestAsync(id, ct), ct));
+    }
+
+    /// <summary>Парсит CSV-параметр (`a,b,c`) в массив непустых значений; null/пусто → null.</summary>
+    private static string[]? ParseCsv(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>Парсит CSV из long-идентификаторов; невалидные элементы отбрасываются; null/пусто → null.</summary>
+    private static List<long>? ParseLongs(string? value)
+    {
+        var parts = ParseCsv(value);
+        if (parts is null)
+        {
+            return null;
+        }
+
+        var ids = parts
+            .Select(p => long.TryParse(p, out var id) ? id : (long?)null)
+            .Where(id => id is not null)
+            .Select(id => id!.Value)
+            .ToList();
+
+        return ids.Count > 0 ? ids : null;
     }
 
     private static async Task<IResult> RunConnectionActionAsync(

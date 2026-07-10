@@ -35,6 +35,15 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
         var secTypes = CategoryToSecTypes(query.Category);
         var hasCategory = secTypes is not null;
 
+        // Массивы всегда передаём непустыми (Npgsql не выводит тип у null-массива — см. secTypes),
+        // а применение фильтра включаем булевым флагом. Пустой @boards при boardsFilter=true даёт
+        // пустую выборку (выбраны только не-MOEX биржи, бордов которых ещё нет).
+        var instrumentIdsFilter = query.InstrumentIds is { Count: > 0 };
+        var instrumentIds = instrumentIdsFilter ? query.InstrumentIds!.ToArray() : [];
+        var boardsList = ExchangeCatalog.BoardsFilter(query.Exchanges);
+        var boardsFilter = boardsList is not null;
+        var boards = boardsList?.ToArray() ?? [];
+
         // Опционы прячем из плоского списка (они доступны только через дерево фьючерса),
         // кроме явного запроса страйков (underlyingId) / OPT / категории «options».
         var hideOptions = query.UnderlyingId is null
@@ -56,6 +65,11 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
               AND (NOT @onlyRecording OR EXISTS (
                     SELECT 1 FROM coverage_segment cs
                     WHERE cs.instrument_id = i.instrument_id AND cs.ended_at IS NULL))
+              AND (NOT @nonEmpty OR EXISTS (
+                    SELECT 1 FROM coverage_segment cs
+                    WHERE cs.instrument_id = i.instrument_id))
+              AND (NOT @instrumentIdsFilter OR i.instrument_id = ANY(@instrumentIds))
+              AND (NOT @boardsFilter OR i.board_id = ANY(@boards))
             """;
 
         var sql = $"""
@@ -78,7 +92,8 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
             search, board, secType,
             hasCategory, secTypes = secTypes ?? [], hideOptions,
             underlyingId = query.UnderlyingId, expiration = query.Expiration,
-            onlyRecording = query.OnlyRecording, limit, offset
+            onlyRecording = query.OnlyRecording, nonEmpty = query.NonEmpty,
+            instrumentIdsFilter, instrumentIds, boardsFilter, boards, limit, offset
         };
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);

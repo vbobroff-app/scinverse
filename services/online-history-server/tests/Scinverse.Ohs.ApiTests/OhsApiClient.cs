@@ -152,6 +152,21 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
             parts.Add("onlyRecording=true");
         }
 
+        if (query.NonEmpty)
+        {
+            parts.Add("nonEmpty=true");
+        }
+
+        if (query.InstrumentIds is { Count: > 0 } instrumentIds)
+        {
+            parts.Add($"instrumentIds={Uri.EscapeDataString(string.Join(',', instrumentIds))}");
+        }
+
+        if (query.Exchanges is { Count: > 0 } exchanges)
+        {
+            parts.Add($"exchanges={Uri.EscapeDataString(string.Join(',', exchanges))}");
+        }
+
         if (query.UnderlyingId is { } underlyingId)
         {
             parts.Add($"underlyingId={underlyingId}");

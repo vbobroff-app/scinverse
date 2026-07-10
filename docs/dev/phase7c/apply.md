@@ -164,6 +164,33 @@ ISS возвращает два блока: `securities` (статика: код
 - Расписание **зависит от даты и рынка** — единый хардкод не подходит; провайдер расписания
   (`IMarketScheduleProvider`, задача 7c.2) должен возвращать часы для конкретной даты.
 
+## 3d. Новости и события биржи (лента)
+
+Новости приходят двумя путями — **push от коннектора** (реальное время) и **pull от биржи** (ISS).
+Регуляторное уведомление из §3c (смена регламента FORTS, `moex.com/n101980`) — пример такой ленты.
+
+**Pull — официальная лента MOEX (ISS, без авторизации, JSON/XML):**
+
+| Endpoint | Что | Поля/примечания |
+| -------- | --- | --------------- |
+| [`/iss/sitenews.json`](https://iss.moex.com/iss/sitenews.json) | Новости сайта MOEX | `id, tag, title, published_at, modified_at`; пагинация по 50 (`?start=0`, cursor `INDEX/TOTAL/PAGESIZE`) |
+| `/iss/sitenews/{news_id}` | Тело новости | Полный текст по id |
+| [`/iss/events.json`](https://iss.moex.com/iss/events.json) | События/активность биржи | Список; деталь — `/iss/events/{event_id}` |
+
+**Push — новостной канал коннектора (реальное время):**
+
+- **TRANSAQ (Finam):** сервер шлёт заголовки `<news_header>` (id, источник, время, тема); тело —
+  командой `get_news_body id=...` → `<news_body>`. Плюс серверные `<messages>`.
+- **QUIK:** таблица «Новости» / окно сообщений (см. скрин уведомления FORTS).
+- **Plaza2/CGate:** системные сообщения торговой системы.
+
+**План (в рамках/после 7c):**
+
+- Поллер ISS `sitenews`/`events` (раз в N минут) — авторитетный источник расписаний/регламентов/статусов;
+  хранение как `NewsEvent` (id, tag, title, body, published_at, source=`moex-iss`).
+- Новостной канал коннектора (TRANSAQ `news_header`/`news_body`) → нормализация в тот же `NewsEvent`
+  (source=`transaq`), лента в UI. Холодный контур, не в hot-path. Оформить отдельным инкрементом.
+
 ## 4. Прочие полезные справочники
 
 - Классификатор рынков: `/iss/calendars/stock/static?iss.only=markets_classifier`

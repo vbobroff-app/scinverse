@@ -21,6 +21,15 @@ public sealed record InstrumentQuery
     /// <summary>Только инструменты с активной записью (coverage_segment.ended_at IS NULL).</summary>
     public bool OnlyRecording { get; init; }
 
+    /// <summary>Только инструменты, по которым есть хоть один сегмент записи (фильтр «Не пустые»).</summary>
+    public bool NonEmpty { get; init; }
+
+    /// <summary>Явный список инструментов (фильтр «Выделенные»); null/пусто — без фильтра.</summary>
+    public IReadOnlyList<long>? InstrumentIds { get; init; }
+
+    /// <summary>Биржи (коды: MOEX, …) — задел под мультибиржу; null/пусто — без фильтра.</summary>
+    public IReadOnlyList<string>? Exchanges { get; init; }
+
     /// <summary>Фильтр опционов по базовому фьючерсу (derivative.underlying_id) — лист дерева.</summary>
     public long? UnderlyingId { get; init; }
 

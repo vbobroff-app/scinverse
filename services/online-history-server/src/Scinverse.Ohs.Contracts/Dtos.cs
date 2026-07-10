@@ -44,6 +44,15 @@ public sealed record InstrumentQueryParams
 
     public bool OnlyRecording { get; init; }
 
+    /// <summary>Только инструменты, по которым есть хоть один сегмент записи («Не пустые»).</summary>
+    public bool NonEmpty { get; init; }
+
+    /// <summary>Явный список инструментов («Выделенные»); null/пусто — без фильтра.</summary>
+    public IReadOnlyList<long>? InstrumentIds { get; init; }
+
+    /// <summary>Биржи (коды: MOEX, …) — задел под мультибиржу; null/пусто — без фильтра.</summary>
+    public IReadOnlyList<string>? Exchanges { get; init; }
+
     /// <summary>Базовый фьючерс (instrument_id) для выборки страйков-листьев дерева.</summary>
     public long? UnderlyingId { get; init; }
 
