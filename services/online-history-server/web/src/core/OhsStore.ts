@@ -1,6 +1,7 @@
 import { BehaviorSubject, type Observable, type Subscription } from 'rxjs';
 import { OhsApi, type OhsApiClient } from './api';
 import { createLiveStream } from './live';
+import { mskDateFromIso, mskDateOf, sessionBounds, shiftMonths, todaySession } from './moexSession';
 import type {
   ConnectionDto,
   CoverageSegmentDto,
@@ -9,24 +10,23 @@ import type {
   InstrumentQueryParams,
   LiveEvent,
   RecordingDto,
+  SessionDto,
   SourceDto,
   StartRecordingRequest,
+  Timeframe,
+  TimeframeUnit,
 } from './types';
 
 const DEFAULT_PAGE_SIZE = 100;
 
-/** Как часто проверять, не дошёл ли «сейчас» до правого края окна. */
-const WINDOW_TICK_MS = 1000;
 /** Как часто перезапрашивать покрытие (живые гэпы внутри активной сессии). */
 const COVERAGE_POLL_MS = 12_000;
-/** Диапазон окна (ширина видимой оси времени) — 2 часа. */
-const DEFAULT_WINDOW_SPAN_MS = 2 * 60 * 60 * 1000;
-/**
- * Доля окна справа от «сейчас» — свободное место, в которое растёт колбаска.
- * now стартует на (1 − доля) ширины и ползёт вправо; при достижении края окно
- * разово перелистывается вперёд (ось снова становится статичной).
- */
-const WINDOW_LEAD_FRACTION = 0.15;
+/** Как часто пересчитывать окно (ловим смену суток/рост экстента; для range — no-op). */
+const WINDOW_REFRESH_MS = 60_000;
+/** Сколько сессий в неделе при выключенных/включённых выходных. */
+const SESSIONS_PER_WEEK = { workdays: 5, withWeekends: 7 } as const;
+/** Таймфрейм по умолчанию — текущая торговая сессия. */
+const DEFAULT_TIMEFRAME: Timeframe = { kind: 'sessions', unit: 'D', count: 1, includeWeekends: false };
 
 /** Ключ раскрытой опционной серии: `${futuresId}:${expiration}`. */
 export const seriesKey = (futuresId: number, expiration: string): string =>
@@ -37,17 +37,21 @@ export interface CoverageWindow {
   to: string;
 }
 
-/** Окно с «сейчас» на (1 − lead) ширины: слева история, справа — задел для роста. */
-function windowAround(now: number, span: number): CoverageWindow {
-  const to = now + span * WINDOW_LEAD_FRACTION;
-  return {
-    from: new Date(to - span).toISOString(),
-    to: new Date(to).toISOString(),
-  };
+/** Число месяцев в единице календарного таймфрейма (M/Q/Y). */
+function monthsPerUnit(unit: TimeframeUnit): number {
+  return unit === 'M' ? 1 : unit === 'Q' ? 3 : 12;
 }
 
-function defaultWindow(): CoverageWindow {
-  return windowAround(Date.now(), DEFAULT_WINDOW_SPAN_MS);
+/** Сколько сессий охватывает посессионный таймфрейм D/W. */
+function sessionCount(unit: 'D' | 'W', count: number, includeWeekends: boolean): number {
+  const perWeek = includeWeekends ? SESSIONS_PER_WEEK.withWeekends : SESSIONS_PER_WEEK.workdays;
+  return unit === 'D' ? count : count * perWeek;
+}
+
+/** Окно «сегодняшняя сессия» — начальное значение до подгрузки истории. */
+function defaultWindow(now: number = Date.now()): CoverageWindow {
+  const today = todaySession(now);
+  return { from: new Date(today.startMs).toISOString(), to: new Date(today.endMs).toISOString() };
 }
 
 /**
@@ -77,6 +81,11 @@ export class OhsStore {
   readonly coverage$ = new BehaviorSubject<CoverageSegmentDto[]>([]);
   readonly window$ = new BehaviorSubject<CoverageWindow>(defaultWindow());
 
+  // --- Таймфрейм и сессионное окно. ---
+  readonly timeframe$ = new BehaviorSubject<Timeframe>(DEFAULT_TIMEFRAME);
+  /** Границы сессий внутри окна (для сепараторов оси); пусто для M/Q/Y/All/range. */
+  readonly sessions$ = new BehaviorSubject<SessionDto[]>([]);
+
   private liveSub?: Subscription;
   private windowTimer?: ReturnType<typeof setInterval>;
   private coveragePollTimer?: ReturnType<typeof setInterval>;
@@ -86,21 +95,21 @@ export class OhsStore {
     private readonly live: Observable<LiveEvent> = createLiveStream(),
   ) {}
 
-  /** Загружает справочники, открывает coverage-окно и подписывается на live-поток. */
+  /** Загружает справочники, применяет таймфрейм и подписывается на live-поток. */
   start(): void {
     this.fetchInstruments(false);
     this.refreshSources();
     this.refreshConnections();
     this.refreshRecordings();
-    this.refreshCoverage();
+    this.applyTimeframe(this.timeframe$.value);
     this.liveSub = this.live.subscribe({
       next: (event) => this.onLive(event),
       error: (err) => console.error('live stream error', err),
     });
 
-    // Ось времени статична; окно перелистывается только когда now дошёл до края.
-    // Покрытие периодически перезапрашивается — свежие гэпы внутри активной сессии.
-    this.windowTimer = setInterval(() => this.maybeAdvanceWindow(), WINDOW_TICK_MS);
+    // Периодический пересчёт окна ловит смену суток и рост экстента (для range — no-op).
+    // Покрытие перезапрашивается чаще — свежие гэпы внутри активной сессии.
+    this.windowTimer = setInterval(() => this.refreshTimeframeWindow(), WINDOW_REFRESH_MS);
     this.coveragePollTimer = setInterval(() => this.refreshCoverage(), COVERAGE_POLL_MS);
   }
 
@@ -116,18 +125,106 @@ export class OhsStore {
     }
   }
 
-  /**
-   * Пока «сейчас» внутри окна — ось статична (ничего не делаем). Когда now доходит
-   * до правого края, окно разово перелистывается вперёд (now снова у левой части задела).
-   */
-  private maybeAdvanceWindow(): void {
-    const { from, to } = this.window$.value;
-    const now = Date.now();
-    if (now < Date.parse(to)) {
+  /** Выбирает таймфрейм (чипы D/W/M/Q/Y, All, диапазон) и пересчитывает окно. */
+  setTimeframe(timeframe: Timeframe): void {
+    this.timeframe$.next(timeframe);
+    this.applyTimeframe(timeframe);
+  }
+
+  /** Меняет единицу/глубину посессионного таймфрейма (например W2), сохраняя учёт выходных. */
+  setSessionsTimeframe(unit: TimeframeUnit, count: number): void {
+    const tf = this.timeframe$.value;
+    const includeWeekends = tf.kind === 'sessions' || tf.kind === 'range' ? tf.includeWeekends : false;
+    this.setTimeframe({ kind: 'sessions', unit, count, includeWeekends });
+  }
+
+  /** Переключает учёт выходных (влияет на счёт сессий D/W) и пересчитывает окно. */
+  setIncludeWeekends(includeWeekends: boolean): void {
+    const tf = this.timeframe$.value;
+    if (tf.kind === 'sessions') {
+      this.setTimeframe({ ...tf, includeWeekends });
+    } else if (tf.kind === 'range') {
+      this.setTimeframe({ ...tf, includeWeekends });
+    }
+  }
+
+  /** Пересчёт окна для текущего таймфрейма (по таймеру); для range ничего не делает. */
+  private refreshTimeframeWindow(): void {
+    if (this.timeframe$.value.kind === 'range') {
       return;
     }
-    const span = Math.max(60_000, Date.parse(to) - Date.parse(from));
-    this.window$.next(windowAround(now, span));
+    this.applyTimeframe(this.timeframe$.value);
+  }
+
+  private applyTimeframe(timeframe: Timeframe): void {
+    switch (timeframe.kind) {
+      case 'sessions':
+        this.applySessionsTimeframe(timeframe);
+        break;
+      case 'all':
+        this.applyAllTimeframe();
+        break;
+      case 'range':
+        this.applyRangeTimeframe(timeframe);
+        break;
+    }
+  }
+
+  private applySessionsTimeframe(
+    tf: Extract<Timeframe, { kind: 'sessions' }>,
+  ): void {
+    const toMs = todaySession().endMs;
+
+    // Календарные единицы (M/Q/Y) — сдвиг назад без сепараторов сессий.
+    if (tf.unit === 'M' || tf.unit === 'Q' || tf.unit === 'Y') {
+      const fromDate = shiftMonths(mskDateOf(), monthsPerUnit(tf.unit) * tf.count);
+      const fromMs = sessionBounds(fromDate).startMs;
+      this.sessions$.next([]);
+      this.setWindow({ from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() });
+      return;
+    }
+
+    // Посессионные (D/W): левый край — начало самой ранней из N последних сессий.
+    const count = sessionCount(tf.unit, tf.count, tf.includeWeekends);
+    this.api.getSessions(count, tf.includeWeekends).subscribe({
+      next: (sessions) => {
+        const ordered = [...sessions].sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+        this.sessions$.next(ordered);
+        const fromMs = ordered.length > 0 ? Date.parse(ordered[0].start) : todaySession().startMs;
+        this.setWindow({ from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() });
+      },
+      error: (err) => {
+        console.error('getSessions', err);
+        this.sessions$.next([]);
+        this.setWindow(defaultWindow());
+      },
+    });
+  }
+
+  private applyAllTimeframe(): void {
+    const toMs = todaySession().endMs;
+    this.sessions$.next([]);
+    this.api.getCoverageExtent().subscribe({
+      next: (extent) => {
+        const fromMs = extent.from ? Date.parse(extent.from) : todaySession().startMs;
+        const rightMs = Math.max(toMs, extent.to ? Date.parse(extent.to) : toMs);
+        this.setWindow({ from: new Date(fromMs).toISOString(), to: new Date(rightMs).toISOString() });
+      },
+      error: (err) => {
+        console.error('getCoverageExtent', err);
+        this.setWindow(defaultWindow());
+      },
+    });
+  }
+
+  private applyRangeTimeframe(tf: Extract<Timeframe, { kind: 'range' }>): void {
+    const fromMs = sessionBounds(mskDateFromIso(tf.from)).startMs;
+    const toMs = sessionBounds(mskDateFromIso(tf.to)).endMs;
+    this.sessions$.next([]);
+    this.setWindow({
+      from: new Date(Math.min(fromMs, toMs)).toISOString(),
+      to: new Date(Math.max(fromMs, toMs)).toISOString(),
+    });
   }
 
   /** Переключает пометку инструмента (для будущего фильтра «по выбранным»). */
