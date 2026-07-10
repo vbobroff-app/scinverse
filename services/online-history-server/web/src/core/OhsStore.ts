@@ -15,6 +15,19 @@ import type {
 
 const DEFAULT_PAGE_SIZE = 100;
 
+/** Как часто проверять, не дошёл ли «сейчас» до правого края окна. */
+const WINDOW_TICK_MS = 1000;
+/** Как часто перезапрашивать покрытие (живые гэпы внутри активной сессии). */
+const COVERAGE_POLL_MS = 12_000;
+/** Диапазон окна (ширина видимой оси времени) — 2 часа. */
+const DEFAULT_WINDOW_SPAN_MS = 2 * 60 * 60 * 1000;
+/**
+ * Доля окна справа от «сейчас» — свободное место, в которое растёт колбаска.
+ * now стартует на (1 − доля) ширины и ползёт вправо; при достижении края окно
+ * разово перелистывается вперёд (ось снова становится статичной).
+ */
+const WINDOW_LEAD_FRACTION = 0.15;
+
 /** Ключ раскрытой опционной серии: `${futuresId}:${expiration}`. */
 export const seriesKey = (futuresId: number, expiration: string): string =>
   `${futuresId}:${expiration}`;
@@ -24,12 +37,17 @@ export interface CoverageWindow {
   to: string;
 }
 
-function defaultWindow(): CoverageWindow {
-  const now = Date.now();
+/** Окно с «сейчас» на (1 − lead) ширины: слева история, справа — задел для роста. */
+function windowAround(now: number, span: number): CoverageWindow {
+  const to = now + span * WINDOW_LEAD_FRACTION;
   return {
-    from: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
-    to: new Date(now + 2 * 60 * 1000).toISOString(),
+    from: new Date(to - span).toISOString(),
+    to: new Date(to).toISOString(),
   };
+}
+
+function defaultWindow(): CoverageWindow {
+  return windowAround(Date.now(), DEFAULT_WINDOW_SPAN_MS);
 }
 
 /**
@@ -60,6 +78,8 @@ export class OhsStore {
   readonly window$ = new BehaviorSubject<CoverageWindow>(defaultWindow());
 
   private liveSub?: Subscription;
+  private windowTimer?: ReturnType<typeof setInterval>;
+  private coveragePollTimer?: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly api: OhsApiClient = OhsApi,
@@ -77,10 +97,37 @@ export class OhsStore {
       next: (event) => this.onLive(event),
       error: (err) => console.error('live stream error', err),
     });
+
+    // Ось времени статична; окно перелистывается только когда now дошёл до края.
+    // Покрытие периодически перезапрашивается — свежие гэпы внутри активной сессии.
+    this.windowTimer = setInterval(() => this.maybeAdvanceWindow(), WINDOW_TICK_MS);
+    this.coveragePollTimer = setInterval(() => this.refreshCoverage(), COVERAGE_POLL_MS);
   }
 
   stop(): void {
     this.liveSub?.unsubscribe();
+    if (this.windowTimer !== undefined) {
+      clearInterval(this.windowTimer);
+      this.windowTimer = undefined;
+    }
+    if (this.coveragePollTimer !== undefined) {
+      clearInterval(this.coveragePollTimer);
+      this.coveragePollTimer = undefined;
+    }
+  }
+
+  /**
+   * Пока «сейчас» внутри окна — ось статична (ничего не делаем). Когда now доходит
+   * до правого края, окно разово перелистывается вперёд (now снова у левой части задела).
+   */
+  private maybeAdvanceWindow(): void {
+    const { from, to } = this.window$.value;
+    const now = Date.now();
+    if (now < Date.parse(to)) {
+      return;
+    }
+    const span = Math.max(60_000, Date.parse(to) - Date.parse(from));
+    this.window$.next(windowAround(now, span));
   }
 
   /** Переключает пометку инструмента (для будущего фильтра «по выбранным»). */

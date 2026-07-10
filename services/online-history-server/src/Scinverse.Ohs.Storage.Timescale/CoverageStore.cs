@@ -101,4 +101,41 @@ public sealed class CoverageStore(NpgsqlDataSource dataSource) : ICoverageStore
 
         return rows.ToList();
     }
+
+    public async Task<IReadOnlyList<DateOnly>> QueryTradingDaysAsync(
+        int count, bool includeWeekends, CancellationToken cancellationToken)
+    {
+        if (count <= 0)
+        {
+            return [];
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<DateOnly>(new CommandDefinition(
+            """
+            SELECT DISTINCT (ts AT TIME ZONE 'Europe/Moscow')::date AS day
+            FROM md_trade
+            WHERE (@includeWeekends OR extract(isodow FROM (ts AT TIME ZONE 'Europe/Moscow')) < 6)
+            ORDER BY day DESC
+            LIMIT @count;
+            """,
+            new { count, includeWeekends },
+            cancellationToken: cancellationToken));
+
+        return rows.ToList();
+    }
+
+    public async Task<CoverageExtent> QueryCoverageExtentAsync(short? sourceId, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleAsync<CoverageExtent>(new CommandDefinition(
+            """
+            SELECT min(started_at) AS "From",
+                   max(coalesce(ended_at, now())) AS "To"
+            FROM coverage_segment
+            WHERE (@sourceId IS NULL OR source_id = @sourceId);
+            """,
+            new { sourceId },
+            cancellationToken: cancellationToken));
+    }
 }

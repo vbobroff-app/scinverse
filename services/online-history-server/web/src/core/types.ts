@@ -52,6 +52,34 @@ export interface SourceDto {
   name: string | null;
 }
 
+/** Торговая сессия MOEX: дата и границы (ISO со смещением +03:00 МСК). */
+export interface SessionDto {
+  date: string;
+  start: string;
+  end: string;
+  weekend: boolean;
+}
+
+/** Границы покрытия данными (для таймфрейма All). */
+export interface CoverageExtentDto {
+  from: string | null;
+  to: string | null;
+}
+
+/** Единица посессионных таймфреймов. */
+export type TimeframeUnit = 'D' | 'W' | 'M' | 'Q' | 'Y';
+
+/**
+ * Выбранный горизонт Ганта.
+ * - `sessions` — последние N сессий (D/W) или календарный сдвиг (M/Q/Y);
+ * - `all` — от самого раннего сегмента покрытия;
+ * - `range` — фиксированный диапазон дат (без live-сдвига).
+ */
+export type Timeframe =
+  | { kind: 'sessions'; unit: TimeframeUnit; count: number; includeWeekends: boolean }
+  | { kind: 'all' }
+  | { kind: 'range'; from: string; to: string; includeWeekends: boolean };
+
 export interface GapDto {
   from: string;
   to: string;

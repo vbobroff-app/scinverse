@@ -55,6 +55,16 @@ public sealed record InstrumentQueryParams
 /// <summary>Источник данных (data_source).</summary>
 public sealed record SourceDto(short SourceId, string Code, string? Name);
 
+/// <summary>Торговая сессия MOEX: дата и границы (со смещением +03:00 МСК).</summary>
+public sealed record SessionDto(
+    DateOnly Date,
+    DateTimeOffset Start,
+    DateTimeOffset End,
+    bool Weekend);
+
+/// <summary>Границы покрытия данными (для таймфрейма «All»); пустые, если сегментов нет.</summary>
+public sealed record CoverageExtentDto(DateTimeOffset? From, DateTimeOffset? To);
+
 /// <summary>Внутрисессионный разрыв данных (вычисляется из md_trade по порогу).</summary>
 public sealed record GapDto(DateTimeOffset From, DateTimeOffset To);
 

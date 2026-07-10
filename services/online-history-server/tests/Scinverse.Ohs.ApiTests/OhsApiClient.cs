@@ -37,6 +37,19 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
     public Task<IReadOnlyList<SourceDto>> GetSourcesAsync(CancellationToken cancellationToken = default) =>
         GetListAsync<SourceDto>("/api/sources", cancellationToken);
 
+    public Task<IReadOnlyList<SessionDto>> GetSessionsAsync(
+        int count, bool includeWeekends, CancellationToken cancellationToken = default) =>
+        GetListAsync<SessionDto>(
+            $"/api/sessions?count={count}&includeWeekends={(includeWeekends ? "true" : "false")}", cancellationToken);
+
+    public async Task<CoverageExtentDto> GetCoverageExtentAsync(
+        short? sourceId = null, CancellationToken cancellationToken = default)
+    {
+        var uri = sourceId is { } id ? $"/api/coverage/extent?sourceId={id}" : "/api/coverage/extent";
+        var extent = await http.GetFromJsonAsync<CoverageExtentDto>(uri, Json, cancellationToken);
+        return extent ?? new CoverageExtentDto(null, null);
+    }
+
     public Task<IReadOnlyList<CoverageSegmentDto>> GetCoverageAsync(
         DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default) =>
         GetListAsync<CoverageSegmentDto>(

@@ -25,6 +25,26 @@ public interface ICoverageStore
     Task<IReadOnlyList<CoverageGap>> QueryGapsAsync(
         long instrumentId, short sourceId, DateTimeOffset from, DateTimeOffset to,
         double thresholdSeconds, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Последние торговые дни (даты в МСК), по которым есть сделки в <c>md_trade</c>. Свежие — первыми.
+    /// При <paramref name="includeWeekends"/> == false выходные (сб/вс) исключаются.
+    /// </summary>
+    Task<IReadOnlyList<DateOnly>> QueryTradingDaysAsync(
+        int count, bool includeWeekends, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Границы покрытия по <c>coverage_segment</c>: от самого раннего <c>started_at</c> до
+    /// последнего <c>ended_at</c> (для активных сегментов — <c>now()</c>). Для кнопки «All».
+    /// </summary>
+    Task<CoverageExtent> QueryCoverageExtentAsync(short? sourceId, CancellationToken cancellationToken);
+}
+
+/// <summary>Временны́е границы покрытия данными (пустые, если сегментов нет).</summary>
+public sealed record CoverageExtent
+{
+    public DateTimeOffset? From { get; init; }
+    public DateTimeOffset? To { get; init; }
 }
 
 /// <summary>Внутрисессионный разрыв данных (выводится из md_trade, не хранится).</summary>

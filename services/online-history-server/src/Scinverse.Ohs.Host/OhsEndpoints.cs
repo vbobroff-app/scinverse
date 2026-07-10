@@ -71,6 +71,22 @@ public static class OhsEndpoints
             return sources.Select(s => new SourceDto(s.SourceId, s.Code, s.Name)).ToList();
         });
 
+        api.MapGet("/sessions", async (
+            int? count, bool? includeWeekends, ICoverageStore store, CancellationToken ct) =>
+        {
+            var days = await store.QueryTradingDaysAsync(count ?? 1, includeWeekends ?? false, ct);
+            return days
+                .Select(MoexSchedule.Session)
+                .Select(s => new SessionDto(s.Date, s.Start, s.End, s.Weekend))
+                .ToList();
+        });
+
+        api.MapGet("/coverage/extent", async (short? sourceId, ICoverageStore store, CancellationToken ct) =>
+        {
+            var extent = await store.QueryCoverageExtentAsync(sourceId, ct);
+            return new CoverageExtentDto(extent.From, extent.To);
+        });
+
         api.MapGet("/coverage", async (
             DateTimeOffset from, DateTimeOffset to, ICoverageStore store, OhsOptions options, CancellationToken ct) =>
         {

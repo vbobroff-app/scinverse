@@ -19,6 +19,14 @@ public interface IOhsApi
     /// <summary>GET /api/sources</summary>
     Task<IReadOnlyList<SourceDto>> GetSourcesAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>GET /api/sessions?count=&amp;includeWeekends=</summary>
+    Task<IReadOnlyList<SessionDto>> GetSessionsAsync(
+        int count, bool includeWeekends, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/coverage/extent?sourceId=</summary>
+    Task<CoverageExtentDto> GetCoverageExtentAsync(
+        short? sourceId = null, CancellationToken cancellationToken = default);
+
     /// <summary>GET /api/coverage?from={from}&amp;to={to}</summary>
     Task<IReadOnlyList<CoverageSegmentDto>> GetCoverageAsync(
         DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default);

@@ -3,11 +3,13 @@ import { map, type Observable } from 'rxjs';
 import type {
   ConnectionCredentialsRequest,
   ConnectionDto,
+  CoverageExtentDto,
   CoverageSegmentDto,
   InstrumentGroupDto,
   InstrumentPage,
   InstrumentQueryParams,
   RecordingDto,
+  SessionDto,
   SourceDto,
   StartRecordingRequest,
   UpsertConnectionRequest,
@@ -58,6 +60,16 @@ export const OhsApi = {
   getCoverage: (from: string, to: string) =>
     getJSON<CoverageSegmentDto[]>(
       `/coverage?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    ),
+
+  getSessions: (count: number, includeWeekends: boolean) =>
+    getJSON<SessionDto[]>(
+      `/sessions?count=${count}&includeWeekends=${includeWeekends ? 'true' : 'false'}`,
+    ),
+
+  getCoverageExtent: (sourceId?: number) =>
+    getJSON<CoverageExtentDto>(
+      sourceId != null ? `/coverage/extent?sourceId=${sourceId}` : '/coverage/extent',
     ),
 
   startRecording: (body: StartRecordingRequest) => post<RecordingDto>('/recordings', body),
