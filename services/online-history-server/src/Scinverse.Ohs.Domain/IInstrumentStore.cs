@@ -11,6 +11,9 @@ public interface IInstrumentStore
     /// <summary>Узлы дерева каталога (группировка по базовому активу / серии).</summary>
     Task<IReadOnlyList<InstrumentGroup>> QueryGroupsAsync(GroupQuery query, CancellationToken cancellationToken);
 
+    /// <summary>Загружает справки FUT/OPT для повторного обогащения деривативов (backfill).</summary>
+    Task<IReadOnlyList<SecurityInfo>> LoadDerivativeCandidatesAsync(CancellationToken cancellationToken);
+
     /// <summary>Идемпотентно сохраняет market/board/instrument и возвращает инструмент со стабильным id.</summary>
     Task<Instrument> UpsertAsync(SecurityInfo security, CancellationToken cancellationToken);
 }

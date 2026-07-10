@@ -31,7 +31,7 @@ public sealed class InstrumentRegistry(IInstrumentStore store, IDerivativeSpecPa
     private SecurityInfo Enrich(SecurityInfo security)
     {
         if (security.UnderlyingCode is not null
-            || !derivativeParser.TryParse(security.Key, security.SecType,
+            || !derivativeParser.TryParse(security.Key, security.SecType, security.ShortName,
                    DateOnly.FromDateTime(DateTime.UtcNow), out var spec))
         {
             return security;
@@ -41,6 +41,7 @@ public sealed class InstrumentRegistry(IInstrumentStore store, IDerivativeSpecPa
         {
             UnderlyingCode = spec.UnderlyingCode,
             UnderlyingFuturesCode = spec.UnderlyingFuturesCode,
+            UnderlyingShortName = spec.UnderlyingShortName,
             Expiration = spec.Expiration,
             OptionType = spec.OptionType,
             Strike = spec.Strike

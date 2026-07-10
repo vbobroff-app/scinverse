@@ -18,22 +18,41 @@ internal sealed class InstrumentCatalogRow
     public string Ticker { get; init; } = string.Empty;
     public string Board { get; init; } = string.Empty;
     public string? SecType { get; init; }
+    public string? ShortName { get; init; }
     public string? Name { get; init; }
     public decimal MinStep { get; init; }
     public short? Decimals { get; init; }
     public bool Active { get; init; }
     public bool Recording { get; init; }
+    public bool HasOptions { get; init; }
     public decimal? Strike { get; init; }
     public string? OptionType { get; init; }
     public DateOnly? Expiration { get; init; }
     public int Total { get; init; }
 }
 
+/// <summary>Строка справки инструмента для backfill деривативов (Dapper-маппинг).</summary>
+internal sealed class SecurityRow
+{
+    public string Ticker { get; init; } = string.Empty;
+    public string Board { get; init; } = string.Empty;
+    public int? TransaqSecId { get; init; }
+    public string? ShortName { get; init; }
+    public string? Name { get; init; }
+    public string? SecType { get; init; }
+    public short Decimals { get; init; }
+    public decimal MinStep { get; init; }
+    public int? LotSize { get; init; }
+    public decimal? PointCost { get; init; }
+    public string? Currency { get; init; }
+}
+
 /// <summary>Строка узла дерева каталога (группировка).</summary>
 internal sealed class InstrumentGroupRow
 {
     public string Key { get; init; } = string.Empty;
-    public string Label { get; init; } = string.Empty;
+    public string? UnderlyingCode { get; init; }
+    public string? AnyShortCode { get; init; }
     public int Count { get; init; }
     public DateOnly? Expiration { get; init; }
 }

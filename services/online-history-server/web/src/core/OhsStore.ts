@@ -5,6 +5,7 @@ import type {
   ConnectionDto,
   CoverageSegmentDto,
   InstrumentDto,
+  InstrumentGroupDto,
   InstrumentQueryParams,
   LiveEvent,
   RecordingDto,
@@ -13,6 +14,10 @@ import type {
 } from './types';
 
 const DEFAULT_PAGE_SIZE = 100;
+
+/** Ключ раскрытой опционной серии: `${futuresId}:${expiration}`. */
+export const seriesKey = (futuresId: number, expiration: string): string =>
+  `${futuresId}:${expiration}`;
 
 export interface CoverageWindow {
   from: string;
@@ -37,10 +42,17 @@ export class OhsStore {
   readonly instrumentsTotal$ = new BehaviorSubject<number>(0);
   readonly instrumentsLoading$ = new BehaviorSubject<boolean>(false);
   readonly instrumentQuery$ = new BehaviorSubject<InstrumentQueryParams>({
+    category: 'futures',
     limit: DEFAULT_PAGE_SIZE,
     offset: 0,
   });
   readonly selectedInstruments$ = new BehaviorSubject<ReadonlySet<number>>(new Set());
+
+  // --- Ленивое дерево деривативов: фьючерс → серии (экспирации) → страйки (опционы). ---
+  readonly expandedFutures$ = new BehaviorSubject<ReadonlySet<number>>(new Set());
+  readonly expandedSeries$ = new BehaviorSubject<ReadonlySet<string>>(new Set());
+  readonly seriesByFutures$ = new BehaviorSubject<ReadonlyMap<number, InstrumentGroupDto[]>>(new Map());
+  readonly strikesBySeries$ = new BehaviorSubject<ReadonlyMap<string, InstrumentDto[]>>(new Map());
   readonly sources$ = new BehaviorSubject<SourceDto[]>([]);
   readonly connections$ = new BehaviorSubject<ConnectionDto[]>([]);
   readonly recordings$ = new BehaviorSubject<RecordingDto[]>([]);
@@ -82,10 +94,69 @@ export class OhsStore {
     this.selectedInstruments$.next(next);
   }
 
-  /** Меняет фильтр каталога (сбрасывает offset) и перезагружает первую страницу. */
+  /** Меняет фильтр каталога (сбрасывает offset + дерево) и перезагружает первую страницу. */
   setInstrumentFilter(patch: Partial<InstrumentQueryParams>): void {
     this.instrumentQuery$.next({ ...this.instrumentQuery$.value, ...patch, offset: 0 });
+    this.collapseTree();
     this.fetchInstruments(false);
+  }
+
+  private collapseTree(): void {
+    this.expandedFutures$.next(new Set());
+    this.expandedSeries$.next(new Set());
+  }
+
+  /** Раскрывает/сворачивает фьючерс; при первом раскрытии лениво грузит серии. */
+  toggleFutures(instrument: InstrumentDto): void {
+    const next = new Set(this.expandedFutures$.value);
+    if (next.has(instrument.instrumentId)) {
+      next.delete(instrument.instrumentId);
+    } else {
+      next.add(instrument.instrumentId);
+      if (!this.seriesByFutures$.value.has(instrument.instrumentId)) {
+        this.loadSeries(instrument.instrumentId);
+      }
+    }
+    this.expandedFutures$.next(next);
+  }
+
+  /** Раскрывает/сворачивает серию; при первом раскрытии лениво грузит страйки. */
+  toggleSeries(futuresId: number, expiration: string): void {
+    const key = seriesKey(futuresId, expiration);
+    const next = new Set(this.expandedSeries$.value);
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+      if (!this.strikesBySeries$.value.has(key)) {
+        this.loadStrikes(futuresId, expiration);
+      }
+    }
+    this.expandedSeries$.next(next);
+  }
+
+  private loadSeries(futuresId: number): void {
+    this.api.getInstrumentSeries(futuresId).subscribe({
+      next: (series) => {
+        const map = new Map(this.seriesByFutures$.value);
+        map.set(futuresId, series);
+        this.seriesByFutures$.next(map);
+      },
+      error: (err) => console.error('getInstrumentSeries', err),
+    });
+  }
+
+  private loadStrikes(futuresId: number, expiration: string): void {
+    this.api
+      .getInstruments({ underlyingId: futuresId, expiration, secType: 'OPT', limit: 500, offset: 0 })
+      .subscribe({
+        next: (page) => {
+          const map = new Map(this.strikesBySeries$.value);
+          map.set(seriesKey(futuresId, expiration), page.items);
+          this.strikesBySeries$.next(map);
+        },
+        error: (err) => console.error('loadStrikes', err),
+      });
   }
 
   /** Догружает следующую страницу каталога (infinite scroll). */

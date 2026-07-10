@@ -20,6 +20,74 @@ public sealed class SyntheticLiveConnector : IMarketConnector
         public long TradeNo;
     }
 
+    private sealed record DemoSecurity(
+        string Ticker, string Board, string SecType, string ShortName, decimal MinStep, short Decimals);
+
+    // Демо-каталог для наполнения дерева деривативов без TRANSAQ: акции + фьючерсы с полной
+    // опционной цепочкой Si-9.26 (недельные/месячные/квартальная — в реальном MOEX-формате кодов).
+    // Фьючерсы идут перед опционами, чтобы у опционов резолвился underlying_id.
+    private static readonly DemoSecurity[] DemoCatalog = BuildDemoCatalog();
+
+    private static DemoSecurity[] BuildDemoCatalog()
+    {
+        var list = new List<DemoSecurity>
+        {
+            Share("SBER"),
+            Share("GAZP"),
+            Fut("SiU6", "Si-9.26"),   // базовый квартальный фьючерс демо-цепочки
+            Fut("RIU6", "RTS-9.26"),
+            Fut("BRU6", "BR-9.26")
+        };
+        list.AddRange(BuildSiChain());
+        return [.. list];
+    }
+
+    private static DemoSecurity Share(string ticker) => new(ticker, "TQBR", "SHARE", ticker, 0.01m, 2);
+
+    private static DemoSecurity Fut(string ticker, string shortName) =>
+        new(ticker, "FUT", "FUT", shortName, 1m, 0);
+
+    // Опционная цепочка Si-9.26 на 2026 год. 3-й четверг месяца — месячная/квартальная серия
+    // (поле W пустое), прочие четверги — недельные (W = A..E). См. spec MOEX (moex.com/s205).
+    private static IEnumerable<DemoSecurity> BuildSiChain()
+    {
+        const int year = 2026;
+        int[] strikes = [80000, 85000];
+        (int Day, int Month, char? Week)[] series =
+        [
+            (2, 7, 'A'),   // W1 июля
+            (9, 7, 'B'),   // W2 июля
+            (23, 7, 'D'),  // W4 июля
+            (30, 7, 'E'),  // W5 июля
+            (16, 7, null), // месячная июля (M7)
+            (20, 8, null), // месячная августа (M8)
+            (17, 9, null)  // квартальная сентября (Q3)
+        ];
+
+        foreach (var (day, month, week) in series)
+        {
+            foreach (var strike in strikes)
+            {
+                yield return BuildOption(day, month, year, week, strike, isCall: true);
+                yield return BuildOption(day, month, year, week, strike, isCall: false);
+            }
+        }
+    }
+
+    private static DemoSecurity BuildOption(int day, int month, int year, char? week, int strike, bool isCall)
+    {
+        // Краткий код: Si{страйк}{тип расчётов B}{буква колл/пут+месяц}{цифра года}{неделя?}.
+        var monthLetter = (char)((isCall ? 'A' : 'M') + (month - 1));
+        var weekLetter = week is { } w ? w.ToString() : string.Empty;
+        var ticker = $"Si{strike}B{monthLetter}{year % 10}{weekLetter}";
+
+        // Длинный код (short_name): Si-9.26M{ddMMyy}{C|P}A{страйк}.
+        var cp = isCall ? 'C' : 'P';
+        var shortName = $"Si-9.26M{day:00}{month:00}{year % 100:00}{cp}A{strike}";
+
+        return new DemoSecurity(ticker, "OPT", "OPT", shortName, 1m, 0);
+    }
+
     private readonly TimeSpan _interval;
     private readonly int _tradesPerTick;
     private readonly Random _random = new(20260701);
@@ -48,6 +116,11 @@ public sealed class SyntheticLiveConnector : IMarketConnector
     public Task ConnectAsync(CancellationToken cancellationToken)
     {
         IsConnected = true;
+
+        // Регистрируем весь демо-каталог сразу при подключении: справочник + дерево деривативов
+        // наполняются до первой подписки (плоский список и дерево видны без старта записи).
+        _messages.Writer.TryWrite(BuildSecurities(DemoCatalog));
+
         _loopCts = new CancellationTokenSource();
         _loopTask = RunLoopAsync(_loopCts.Token);
         return Task.CompletedTask;
@@ -59,7 +132,7 @@ public sealed class SyntheticLiveConnector : IMarketConnector
         {
             if (_subscribed.TryAdd(instrument, new State { Key = instrument }))
             {
-                _messages.Writer.TryWrite(BuildSecurities(instrument));
+                _messages.Writer.TryWrite(BuildSecurities([ToDemo(instrument)]));
             }
         }
 
@@ -147,19 +220,30 @@ public sealed class SyntheticLiveConnector : IMarketConnector
         return builder.ToString();
     }
 
-    private static string BuildSecurities(InstrumentKey key) =>
-        new StringBuilder("<securities>")
-            .Append("<security secid=\"1\">")
-            .Append("<seccode>").Append(key.Ticker).Append("</seccode>")
-            .Append("<board>").Append(key.Board).Append("</board>")
-            .Append("<market>1</market>")
-            .Append("<shortname>").Append(key.Ticker).Append("</shortname>")
-            .Append("<decimals>2</decimals>")
-            .Append("<minstep>0.01</minstep>")
-            .Append("<lotsize>10</lotsize>")
-            .Append("<point_cost>1</point_cost>")
-            .Append("<sectype>SHARE</sectype>")
-            .Append("</security>")
-            .Append("</securities>")
-            .ToString();
+    private static DemoSecurity ToDemo(InstrumentKey key) =>
+        Array.Find(DemoCatalog, d => d.Ticker == key.Ticker && d.Board == key.Board)
+        ?? new DemoSecurity(key.Ticker, key.Board, "SHARE", key.Ticker, 0.01m, 2);
+
+    private static string BuildSecurities(IEnumerable<DemoSecurity> instruments)
+    {
+        var builder = new StringBuilder("<securities>");
+        foreach (var instrument in instruments)
+        {
+            builder
+                .Append("<security secid=\"1\">")
+                .Append("<seccode>").Append(instrument.Ticker).Append("</seccode>")
+                .Append("<board>").Append(instrument.Board).Append("</board>")
+                .Append("<market>1</market>")
+                .Append("<shortname>").Append(instrument.ShortName).Append("</shortname>")
+                .Append("<decimals>").Append(instrument.Decimals).Append("</decimals>")
+                .Append("<minstep>").Append(instrument.MinStep.ToString(CultureInfo.InvariantCulture)).Append("</minstep>")
+                .Append("<lotsize>1</lotsize>")
+                .Append("<point_cost>1</point_cost>")
+                .Append("<sectype>").Append(instrument.SecType).Append("</sectype>")
+                .Append("</security>");
+        }
+
+        builder.Append("</securities>");
+        return builder.ToString();
+    }
 }

@@ -4,6 +4,7 @@ import type {
   ConnectionCredentialsRequest,
   ConnectionDto,
   CoverageSegmentDto,
+  InstrumentGroupDto,
   InstrumentPage,
   InstrumentQueryParams,
   RecordingDto,
@@ -24,7 +25,10 @@ function buildInstrumentsQuery(params: InstrumentQueryParams): string {
   if (params.q) search.set('q', params.q);
   if (params.board) search.set('board', params.board);
   if (params.secType) search.set('secType', params.secType);
+  if (params.category) search.set('category', params.category);
   if (params.onlyRecording) search.set('onlyRecording', 'true');
+  if (params.underlyingId != null) search.set('underlyingId', String(params.underlyingId));
+  if (params.expiration) search.set('expiration', params.expiration);
   search.set('limit', String(params.limit));
   search.set('offset', String(params.offset));
   return `?${search.toString()}`;
@@ -43,6 +47,10 @@ function post<T>(path: string, body?: unknown): Observable<T> {
 export const OhsApi = {
   getInstruments: (params: InstrumentQueryParams) =>
     getJSON<InstrumentPage>(`/instruments${buildInstrumentsQuery(params)}`),
+
+  getInstrumentSeries: (underlyingId: number) =>
+    getJSON<InstrumentGroupDto[]>(`/instruments/groups?level=series&underlyingId=${underlyingId}`),
+
   getSources: () => getJSON<SourceDto[]>('/sources'),
   getConnections: () => getJSON<ConnectionDto[]>('/connections'),
   getRecordings: () => getJSON<RecordingDto[]>('/recordings'),

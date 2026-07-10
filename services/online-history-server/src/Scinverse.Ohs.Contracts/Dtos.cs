@@ -6,11 +6,13 @@ public sealed record InstrumentDto(
     string Ticker,
     string Board,
     string? SecType,
+    string? ShortName,
     string? Name,
     decimal MinStep,
     short Decimals,
     bool Active,
     bool Recording,
+    bool HasOptions = false,
     decimal? Strike = null,
     string? OptionType = null,
     DateOnly? Expiration = null);
@@ -20,7 +22,8 @@ public sealed record InstrumentGroupDto(
     string Key,
     string Label,
     int Count,
-    DateOnly? Expiration = null);
+    DateOnly? Expiration = null,
+    string? Badge = null);
 
 /// <summary>Страница каталога инструментов: элементы + общее число под фильтром.</summary>
 public sealed record InstrumentPageDto(
@@ -35,8 +38,15 @@ public sealed record InstrumentQueryParams
     public string? Q { get; init; }
     public string? Board { get; init; }
     public string? SecType { get; init; }
+
+    /// <summary>Категория верхнего уровня: futures|shares|bonds|currency|index|options.</summary>
+    public string? Category { get; init; }
+
     public bool OnlyRecording { get; init; }
-    public string? UnderlyingCode { get; init; }
+
+    /// <summary>Базовый фьючерс (instrument_id) для выборки страйков-листьев дерева.</summary>
+    public long? UnderlyingId { get; init; }
+
     public DateOnly? Expiration { get; init; }
     public int Limit { get; init; } = 100;
     public int Offset { get; init; }

@@ -31,17 +31,27 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
         var search = string.IsNullOrWhiteSpace(query.Search) ? null : $"%{query.Search.Trim()}%";
         var board = string.IsNullOrWhiteSpace(query.Board) ? null : query.Board;
         var secType = string.IsNullOrWhiteSpace(query.SecType) ? null : query.SecType;
-        var underlyingCode = string.IsNullOrWhiteSpace(query.UnderlyingCode) ? null : query.UnderlyingCode;
+
+        var secTypes = CategoryToSecTypes(query.Category);
+        var hasCategory = secTypes is not null;
+
+        // Опционы прячем из плоского списка (они доступны только через дерево фьючерса),
+        // кроме явного запроса страйков (underlyingId) / OPT / категории «options».
+        var hideOptions = query.UnderlyingId is null
+            && !string.Equals(secType, "OPT", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(query.Category, "options", StringComparison.OrdinalIgnoreCase);
 
         // COUNT(*) OVER() отдаёт общее число под фильтром до LIMIT — без отдельного запроса.
-        // LEFT JOIN derivative — фильтры цепочки (underlying/expiration) и подпись листьев.
+        // LEFT JOIN derivative — фильтр серии (underlying_id/expiration) и подпись листьев.
         const string whereClause = """
             FROM instrument i
             LEFT JOIN derivative d ON d.instrument_id = i.instrument_id
-            WHERE (@search  IS NULL OR i.ticker ILIKE @search OR i.name ILIKE @search)
+            WHERE (@search  IS NULL OR i.ticker ILIKE @search OR i.short_name ILIKE @search OR i.name ILIKE @search)
               AND (@board   IS NULL OR i.board_id = @board)
               AND (@secType IS NULL OR i.sec_type = @secType)
-              AND (@underlyingCode IS NULL OR d.underlying_code = @underlyingCode)
+              AND (NOT @hasCategory OR i.sec_type = ANY(@secTypes))
+              AND (NOT @hideOptions OR i.sec_type IS DISTINCT FROM 'OPT')
+              AND (@underlyingId IS NULL OR d.underlying_id = @underlyingId)
               AND (@expiration::date IS NULL OR d.expiration = @expiration::date)
               AND (NOT @onlyRecording OR EXISTS (
                     SELECT 1 FROM coverage_segment cs
@@ -50,9 +60,11 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
 
         var sql = $"""
             SELECT i.instrument_id AS InstrumentId, i.ticker AS Ticker, i.board_id AS Board,
-                   i.sec_type AS SecType, i.name AS Name, i.min_step AS MinStep,
+                   i.sec_type AS SecType, i.short_name AS ShortName, i.name AS Name, i.min_step AS MinStep,
                    i.decimals AS Decimals, i.active AS Active,
                    d.strike AS Strike, d.option_type AS OptionType, d.expiration AS Expiration,
+                   EXISTS (SELECT 1 FROM derivative od
+                           WHERE od.underlying_id = i.instrument_id AND od.option_type IS NOT NULL) AS HasOptions,
                    EXISTS (SELECT 1 FROM coverage_segment cs
                            WHERE cs.instrument_id = i.instrument_id AND cs.ended_at IS NULL) AS Recording,
                    COUNT(*) OVER() AS Total
@@ -63,7 +75,9 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
 
         var parameters = new
         {
-            search, board, secType, underlyingCode, expiration = query.Expiration,
+            search, board, secType,
+            hasCategory, secTypes = secTypes ?? [], hideOptions,
+            underlyingId = query.UnderlyingId, expiration = query.Expiration,
             onlyRecording = query.OnlyRecording, limit, offset
         };
 
@@ -83,11 +97,13 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
             Ticker = r.Ticker,
             Board = r.Board,
             SecType = r.SecType,
+            ShortName = r.ShortName,
             Name = r.Name,
             MinStep = r.MinStep,
             Decimals = r.Decimals ?? 0,
             Active = r.Active,
             Recording = r.Recording,
+            HasOptions = r.HasOptions,
             Strike = r.Strike,
             OptionType = string.IsNullOrEmpty(r.OptionType) ? null : r.OptionType[0],
             Expiration = r.Expiration
@@ -98,44 +114,77 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
 
     public async Task<IReadOnlyList<InstrumentGroup>> QueryGroupsAsync(GroupQuery query, CancellationToken cancellationToken)
     {
-        var secType = string.IsNullOrWhiteSpace(query.SecType) ? null : query.SecType;
-        var search = string.IsNullOrWhiteSpace(query.Search) ? null : $"%{query.Search.Trim()}%";
-        var isSeries = string.Equals(query.Level, "series", StringComparison.OrdinalIgnoreCase);
-
-        var sql = isSeries
-            ? """
-                SELECT to_char(d.expiration, 'YYYY-MM-DD') AS Key,
-                       to_char(d.expiration, 'YYYY-MM-DD') AS Label,
-                       COUNT(*) AS Count, d.expiration AS Expiration
-                FROM derivative d JOIN instrument i USING (instrument_id)
-                WHERE d.underlying_code = @underlyingCode
-                  AND (@secType IS NULL OR i.sec_type = @secType)
-                  AND (@search  IS NULL OR i.ticker ILIKE @search OR i.name ILIKE @search)
-                GROUP BY d.expiration
-                ORDER BY d.expiration;
-                """
-            : """
-                SELECT d.underlying_code AS Key, d.underlying_code AS Label, COUNT(*) AS Count
-                FROM derivative d JOIN instrument i USING (instrument_id)
-                WHERE d.underlying_code IS NOT NULL
-                  AND (@secType IS NULL OR i.sec_type = @secType)
-                  AND (@search  IS NULL OR i.ticker ILIKE @search OR i.name ILIKE @search)
-                GROUP BY d.underlying_code
-                ORDER BY d.underlying_code;
-                """;
-
-        var parameters = new { underlyingCode = query.UnderlyingCode, secType, search };
+        // Единственный уровень дерева: серии опционов под конкретным фьючерсом (underlying_id).
+        // Тикер (краткий код) любого опциона серии несёт признак недельности (поле «W»).
+        const string sql = """
+            SELECT to_char(d.expiration, 'YYYY-MM-DD') AS Key,
+                   MAX(d.underlying_code) AS UnderlyingCode,
+                   MAX(i.ticker) AS AnyShortCode,
+                   COUNT(*) AS Count, d.expiration AS Expiration
+            FROM derivative d
+            JOIN instrument i ON i.instrument_id = d.instrument_id
+            WHERE d.underlying_id = @underlyingId AND d.option_type IS NOT NULL
+            GROUP BY d.expiration
+            ORDER BY d.expiration;
+            """;
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<InstrumentGroupRow>(
-            new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
+            new CommandDefinition(sql, new { underlyingId = query.UnderlyingId }, cancellationToken: cancellationToken));
 
-        return rows.Select(r => new InstrumentGroup
+        return rows.Select(r =>
         {
-            Key = r.Key,
-            Label = r.Label,
-            Count = r.Count,
-            Expiration = r.Expiration
+            var week = MoexSeries.WeekFromShortCode(r.AnyShortCode);
+            return new InstrumentGroup
+            {
+                Key = r.Key,
+                Label = r.Expiration is { } exp ? MoexSeries.Label(r.UnderlyingCode, exp) : r.Key,
+                Badge = r.Expiration is { } e ? MoexSeries.Badge(e, week) : null,
+                Count = r.Count,
+                Expiration = r.Expiration
+            };
+        }).ToList();
+    }
+
+    /// <summary>Категория верхнего уровня (Finam-стиль) → набор sec_type; null — без фильтра.</summary>
+    private static string[]? CategoryToSecTypes(string? category) => category?.Trim().ToLowerInvariant() switch
+    {
+        "futures" => ["FUT"],
+        "shares" => ["SHARE"],
+        "bonds" => ["BOND"],
+        "currency" => ["CURRENCY"],
+        "index" => ["INDEX"],
+        "options" => ["OPT"],
+        _ => null
+    };
+
+    public async Task<IReadOnlyList<SecurityInfo>> LoadDerivativeCandidatesAsync(CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT ticker AS Ticker, board_id AS Board, transaq_secid AS TransaqSecId,
+                   short_name AS ShortName, name AS Name, sec_type AS SecType,
+                   COALESCE(decimals, 0) AS Decimals, min_step AS MinStep, lot_size AS LotSize,
+                   point_cost AS PointCost, currency AS Currency
+            FROM instrument
+            WHERE sec_type IN ('FUT', 'OPT');
+            """;
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<SecurityRow>(
+            new CommandDefinition(sql, cancellationToken: cancellationToken));
+
+        return rows.Select(r => new SecurityInfo
+        {
+            Key = new InstrumentKey(r.Ticker, r.Board),
+            TransaqSecId = r.TransaqSecId,
+            ShortName = r.ShortName,
+            Name = r.Name,
+            SecType = r.SecType,
+            Decimals = r.Decimals,
+            MinStep = r.MinStep,
+            LotSize = r.LotSize,
+            PointCost = r.PointCost,
+            Currency = r.Currency
         }).ToList();
     }
 
@@ -210,12 +259,17 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
         NpgsqlConnection connection, System.Data.Common.DbTransaction transaction,
         long instrumentId, SecurityInfo security, DateOnly expiration, CancellationToken cancellationToken)
     {
-        // underlying_id — best-effort: для опциона резолвим базовый фьючерс по коду (может отсутствовать).
+        // underlying_id — best-effort: базовый фьючерс резолвим по short_name (реальный MOEX)
+        // либо по тикеру (синтетика). Может отсутствовать (спот/индекс) — тогда NULL.
         const string sql = """
             INSERT INTO derivative
                 (instrument_id, underlying_id, underlying_code, expiration, option_type, strike)
             SELECT @instrumentId,
-                   (SELECT instrument_id FROM instrument WHERE ticker = @underlyingFut LIMIT 1),
+                   (SELECT instrument_id FROM instrument
+                    WHERE sec_type = 'FUT'
+                      AND (short_name = @underlyingShortName OR ticker = @underlyingFut)
+                    ORDER BY (short_name = @underlyingShortName) DESC
+                    LIMIT 1),
                    @underlyingCode, @expiration, @optionType, @strike
             ON CONFLICT (instrument_id) DO UPDATE SET
                 underlying_id   = COALESCE(EXCLUDED.underlying_id, derivative.underlying_id),
@@ -231,6 +285,7 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
             {
                 instrumentId,
                 underlyingFut = security.UnderlyingFuturesCode,
+                underlyingShortName = security.UnderlyingShortName,
                 underlyingCode = security.UnderlyingCode,
                 expiration,
                 optionType = security.OptionType?.ToString(),

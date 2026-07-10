@@ -8,14 +8,13 @@ namespace Scinverse.Ohs.Contracts;
 /// </summary>
 public interface IOhsApi
 {
-    /// <summary>GET /api/instruments?q=&amp;board=&amp;secType=&amp;onlyRecording=&amp;underlyingCode=&amp;expiration=&amp;limit=&amp;offset=</summary>
+    /// <summary>GET /api/instruments?q=&amp;board=&amp;secType=&amp;category=&amp;onlyRecording=&amp;underlyingId=&amp;expiration=&amp;limit=&amp;offset=</summary>
     Task<InstrumentPageDto> GetInstrumentsAsync(
         InstrumentQueryParams query, CancellationToken cancellationToken = default);
 
-    /// <summary>GET /api/instruments/groups?level=underlying|series&amp;underlyingCode=&amp;secType=&amp;q=</summary>
+    /// <summary>GET /api/instruments/groups?level=series&amp;underlyingId=</summary>
     Task<IReadOnlyList<InstrumentGroupDto>> GetInstrumentGroupsAsync(
-        string level, string? underlyingCode = null, string? secType = null, string? q = null,
-        CancellationToken cancellationToken = default);
+        string level, long? underlyingId = null, CancellationToken cancellationToken = default);
 
     /// <summary>GET /api/sources</summary>
     Task<IReadOnlyList<SourceDto>> GetSourcesAsync(CancellationToken cancellationToken = default);

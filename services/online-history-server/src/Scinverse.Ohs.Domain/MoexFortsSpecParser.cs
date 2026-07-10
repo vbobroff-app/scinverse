@@ -5,24 +5,27 @@ using System.Text.RegularExpressions;
 namespace Scinverse.Ohs.Domain;
 
 /// <summary>
-/// Разбор кодов MOEX FORTS (эвристика по конвенциям кодов; точные дата/тип в проде уточняются из
-/// TRANSAQ <c>sec_info</c> — см. docs/dev/phase7/issue.md). Поддерживаемые формы:
+/// Разбор деривативов MOEX FORTS. Сначала пробуем реальный формат <c>short_name</c>
+/// (как в боевом справочнике TRANSAQ), затем — синтетический формат тикера (демо/тесты).
 /// <list type="bullet">
-/// <item>Фьючерс: <c>&lt;base&gt;&lt;monthLetter&gt;&lt;yearDigit&gt;</c> — напр. <c>SiU6</c>.</item>
-/// <item>Опцион: <c>&lt;base&gt;&lt;monthLetter&gt;&lt;yearDigit&gt;&lt;C|P&gt;&lt;strike&gt;</c> —
-///   напр. <c>SiU6C65000</c>.</item>
+/// <item>Фьючерс short_name: <c>Si-9.26</c> (спреды <c>Si-9.26-12.26</c> — не дериватив).</item>
+/// <item>Опцион short_name: <c>Si-9.26M160726CA80000</c> — базовый фьючерс + экспирация(ddMMyy) +
+///   тип(C|P) + страйк.</item>
+/// <item>Синтетика (тикер): фьючерс <c>SiU6</c>, опцион <c>SiU6C65000</c>.</item>
 /// </list>
 /// </summary>
 public sealed partial class MoexFortsSpecParser : IDerivativeSpecParser
 {
-    // Фьючерсные буквы месяца исполнения → номер месяца.
+    // Фьючерсные буквы месяца исполнения → номер месяца (синтетический формат тикера).
     private static readonly Dictionary<char, int> MonthLetters = new()
     {
         ['F'] = 1, ['G'] = 2, ['H'] = 3, ['J'] = 4, ['K'] = 5, ['M'] = 6,
         ['N'] = 7, ['Q'] = 8, ['U'] = 9, ['V'] = 10, ['X'] = 11, ['Z'] = 12
     };
 
-    public bool TryParse(InstrumentKey key, string? secType, DateOnly asOf, [NotNullWhen(true)] out DerivativeSpec? spec)
+    public bool TryParse(
+        InstrumentKey key, string? secType, string? shortName, DateOnly asOf,
+        [NotNullWhen(true)] out DerivativeSpec? spec)
     {
         spec = null;
         if (string.IsNullOrWhiteSpace(secType) || string.IsNullOrWhiteSpace(key.Ticker))
@@ -32,16 +35,79 @@ public sealed partial class MoexFortsSpecParser : IDerivativeSpecParser
 
         return secType.ToUpperInvariant() switch
         {
-            "FUT" => TryParseFutures(key.Ticker, asOf, out spec),
-            "OPT" => TryParseOption(key.Ticker, asOf, out spec),
+            "FUT" => TryParseRealFutures(shortName, key.Ticker, out spec)
+                     || TryParseTickerFutures(key.Ticker, asOf, out spec),
+            "OPT" => TryParseRealOption(shortName, out spec)
+                     || TryParseTickerOption(key.Ticker, asOf, out spec),
             _ => false
         };
     }
 
-    private static bool TryParseFutures(string ticker, DateOnly asOf, [NotNullWhen(true)] out DerivativeSpec? spec)
+    // --- Реальный формат short_name (боевой MOEX/TRANSAQ). ---
+
+    private static bool TryParseRealFutures(string? shortName, string ticker, [NotNullWhen(true)] out DerivativeSpec? spec)
     {
         spec = null;
-        var match = FuturesRegex().Match(ticker);
+        if (string.IsNullOrWhiteSpace(shortName))
+        {
+            return false;
+        }
+
+        var match = RealFuturesRegex().Match(shortName);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var month = int.Parse(match.Groups["mo"].Value, CultureInfo.InvariantCulture);
+        var year = 2000 + int.Parse(match.Groups["yy"].Value, CultureInfo.InvariantCulture);
+        spec = new DerivativeSpec
+        {
+            UnderlyingCode = match.Groups["base"].Value,
+            Expiration = ThirdFriday(year, month),
+            UnderlyingFuturesCode = ticker,
+            UnderlyingShortName = shortName
+        };
+        return true;
+    }
+
+    private static bool TryParseRealOption(string? shortName, [NotNullWhen(true)] out DerivativeSpec? spec)
+    {
+        spec = null;
+        if (string.IsNullOrWhiteSpace(shortName))
+        {
+            return false;
+        }
+
+        var match = RealOptionRegex().Match(shortName);
+        if (!match.Success
+            || !decimal.TryParse(match.Groups["strike"].Value, NumberStyles.Number, CultureInfo.InvariantCulture, out var strike))
+        {
+            return false;
+        }
+
+        var day = int.Parse(match.Groups["d"].Value, CultureInfo.InvariantCulture);
+        var month = int.Parse(match.Groups["mo"].Value, CultureInfo.InvariantCulture);
+        var year = 2000 + int.Parse(match.Groups["yy"].Value, CultureInfo.InvariantCulture);
+        var underlyingShortName = match.Groups["u"].Value;
+
+        spec = new DerivativeSpec
+        {
+            UnderlyingCode = match.Groups["ubase"].Value,
+            Expiration = new DateOnly(year, month, day),
+            OptionType = match.Groups["cp"].Value[0],
+            Strike = strike,
+            UnderlyingShortName = underlyingShortName
+        };
+        return true;
+    }
+
+    // --- Синтетический формат тикера (демо/тесты): SiU6 / SiU6C65000. ---
+
+    private static bool TryParseTickerFutures(string ticker, DateOnly asOf, [NotNullWhen(true)] out DerivativeSpec? spec)
+    {
+        spec = null;
+        var match = TickerFuturesRegex().Match(ticker);
         if (!match.Success || !TryMonth(match.Groups["m"].Value[0], out var month))
         {
             return false;
@@ -57,10 +123,10 @@ public sealed partial class MoexFortsSpecParser : IDerivativeSpecParser
         return true;
     }
 
-    private static bool TryParseOption(string ticker, DateOnly asOf, [NotNullWhen(true)] out DerivativeSpec? spec)
+    private static bool TryParseTickerOption(string ticker, DateOnly asOf, [NotNullWhen(true)] out DerivativeSpec? spec)
     {
         spec = null;
-        var match = OptionRegex().Match(ticker);
+        var match = TickerOptionRegex().Match(ticker);
         if (!match.Success || !TryMonth(match.Groups["m"].Value[0], out var month)
             || !decimal.TryParse(match.Groups["strike"].Value, NumberStyles.Number, CultureInfo.InvariantCulture, out var strike))
         {
@@ -104,9 +170,15 @@ public sealed partial class MoexFortsSpecParser : IDerivativeSpecParser
         return first.AddDays(offset + 14);
     }
 
+    [GeneratedRegex(@"^(?<base>[A-Za-z]+)-(?<mo>\d{1,2})\.(?<yy>\d{2})$")]
+    private static partial Regex RealFuturesRegex();
+
+    [GeneratedRegex(@"^(?<u>(?<ubase>[A-Za-z]+)-\d{1,2}\.\d{2})M(?<d>\d{2})(?<mo>\d{2})(?<yy>\d{2})(?<cp>[CP])A(?<strike>\d+)$")]
+    private static partial Regex RealOptionRegex();
+
     [GeneratedRegex(@"^(?<base>[A-Za-z]+?)(?<m>[FGHJKMNQUVXZ])(?<y>\d)$")]
-    private static partial Regex FuturesRegex();
+    private static partial Regex TickerFuturesRegex();
 
     [GeneratedRegex(@"^(?<base>[A-Za-z]+?)(?<m>[FGHJKMNQUVXZ])(?<y>\d)(?<cp>[CP])(?<strike>\d+)$")]
-    private static partial Regex OptionRegex();
+    private static partial Regex TickerOptionRegex();
 }

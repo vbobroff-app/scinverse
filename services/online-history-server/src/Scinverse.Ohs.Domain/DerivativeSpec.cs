@@ -20,8 +20,11 @@ public sealed record DerivativeSpec
     /// <summary>Страйк опциона; <c>null</c> — фьючерс.</summary>
     public decimal? Strike { get; init; }
 
-    /// <summary>Для опциона — код базового фьючерса (напр. <c>SiU6</c>) для резолва underlying_id.</summary>
+    /// <summary>Для опциона — код базового фьючерса (напр. <c>SiU6</c>) для резолва underlying_id (синтетика).</summary>
     public string? UnderlyingFuturesCode { get; init; }
+
+    /// <summary>Короткое имя базового фьючерса (напр. <c>Si-9.26</c>) для резолва underlying_id (реальный MOEX).</summary>
+    public string? UnderlyingShortName { get; init; }
 }
 
 /// <summary>
@@ -30,5 +33,7 @@ public sealed record DerivativeSpec
 /// </summary>
 public interface IDerivativeSpecParser
 {
-    bool TryParse(InstrumentKey key, string? secType, DateOnly asOf, [NotNullWhen(true)] out DerivativeSpec? spec);
+    bool TryParse(
+        InstrumentKey key, string? secType, string? shortName, DateOnly asOf,
+        [NotNullWhen(true)] out DerivativeSpec? spec);
 }

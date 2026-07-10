@@ -8,7 +8,7 @@
 .header,
 .rowWrap {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) 1fr;
+  grid-template-columns: minmax(250px, 315px) 1fr;
   gap: var(--spacing-sm);
 }
 
@@ -61,6 +61,111 @@
   opacity: 0.55;
 }
 
+.chevron {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transform: scale(1.4);
+  transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.chevron:hover {
+  color: var(--color-accent);
+  background: var(--color-bg-hover);
+}
+
+.chevronOpen {
+  transform: rotate(90deg) scale(1.4);
+}
+
+.chevronSpacer {
+  flex-shrink: 0;
+  width: 16px;
+}
+
+/* Строка серии (опционная экспирация) — заголовок-раскрывашка на всю ширину. */
+.seriesRow {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  height: 100%;
+  padding: 0 var(--spacing-sm);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-bg-hover) 40%, transparent);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+
+.seriesRow:hover {
+  border-color: var(--color-border-focus);
+}
+
+.seriesLabel {
+  min-width: 0;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+
+/* Квартальные — акцентный (синий), месячные — нейтральный, недельные — приглушённый. */
+.badgeQuarterly {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
+.badgeMonthly {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-input);
+  border-color: color-mix(in srgb, var(--color-text-secondary) 45%, transparent);
+}
+
+.badgeWeekly {
+  color: var(--color-text-muted);
+  background: transparent;
+  border-color: var(--color-border);
+}
+
+.seriesExp {
+  margin-right: auto;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.count {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--color-bg-input);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .star {
   flex-shrink: 0;
   width: 22px;
@@ -98,16 +203,17 @@
 }
 
 .meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: block;
   font-size: 12px;
   line-height: 1.1;
   color: var(--color-text-muted);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .notTrading {
+  margin-left: 6px;
   padding: 1px 6px;
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--color-warning) 20%, transparent);

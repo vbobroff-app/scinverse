@@ -43,20 +43,21 @@ public sealed class DerivativeStoreTests : IClassFixture<TimescaleFixture>
             "SELECT strike FROM derivative d JOIN instrument i USING (instrument_id) WHERE i.ticker = 'SiU6C70000';");
         callStrike.Should().Be(70000m);
 
-        // Уровень underlying: одна группа Si на все 4 контракта.
-        var underlyings = await _store.QueryGroupsAsync(new GroupQuery { Level = "underlying" }, CancellationToken.None);
-        underlyings.Should().ContainSingle(g => g.Key == "Si").Which.Count.Should().Be(4);
+        // Фьючерс в каталоге помечен HasOptions (можно раскрыть в дерево).
+        var futures = await _store.QueryAsync(
+            new InstrumentQuery { Search = "SiU6", SecType = "FUT" }, CancellationToken.None);
+        futures.Items.Should().ContainSingle(i => i.Ticker == "SiU6").Which.HasOptions.Should().BeTrue();
 
-        // Уровень series: одна серия (общая экспирация).
+        // Уровень series: одна серия опционов под фьючерсом (общая экспирация).
         var series = await _store.QueryGroupsAsync(
-            new GroupQuery { Level = "series", UnderlyingCode = "Si" }, CancellationToken.None);
+            new GroupQuery { Level = "series", UnderlyingId = future.InstrumentId }, CancellationToken.None);
         series.Should().ContainSingle();
         series[0].Expiration.Should().Be(SeriesExpiration);
-        series[0].Count.Should().Be(4);
+        series[0].Count.Should().Be(3);
 
-        // Лист цепочки: только опционы Si.
+        // Лист цепочки: только опционы под фьючерсом.
         var options = await _store.QueryAsync(
-            new InstrumentQuery { UnderlyingCode = "Si", SecType = "OPT" }, CancellationToken.None);
+            new InstrumentQuery { UnderlyingId = future.InstrumentId, SecType = "OPT" }, CancellationToken.None);
         options.Total.Should().Be(3);
         options.Items.Should().OnlyContain(i => i.OptionType == 'C' || i.OptionType == 'P');
     }
@@ -66,12 +67,13 @@ public sealed class DerivativeStoreTests : IClassFixture<TimescaleFixture>
         var key = new InstrumentKey(ticker, board);
         var security = new SecurityInfo { Key = key, MinStep = 1m, Decimals = 0, SecType = secType };
 
-        if (_parser.TryParse(key, secType, AsOf, out var spec))
+        if (_parser.TryParse(key, secType, security.ShortName, AsOf, out var spec))
         {
             security = security with
             {
                 UnderlyingCode = spec.UnderlyingCode,
                 UnderlyingFuturesCode = spec.UnderlyingFuturesCode,
+                UnderlyingShortName = spec.UnderlyingShortName,
                 Expiration = spec.Expiration,
                 OptionType = spec.OptionType,
                 Strike = spec.Strike

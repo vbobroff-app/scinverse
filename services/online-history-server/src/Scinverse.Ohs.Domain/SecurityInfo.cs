@@ -23,8 +23,11 @@ public sealed record SecurityInfo : IMarketMessage
     /// <summary>Код базового актива для группировки (напр. Si, RI, BR).</summary>
     public string? UnderlyingCode { get; init; }
 
-    /// <summary>Код базового фьючерса опциона (для резолва underlying_id).</summary>
+    /// <summary>Код базового фьючерса опциона (тикер, синтетика) для резолва underlying_id.</summary>
     public string? UnderlyingFuturesCode { get; init; }
+
+    /// <summary>Короткое имя базового фьючерса опциона (реальный MOEX) для резолва underlying_id.</summary>
+    public string? UnderlyingShortName { get; init; }
 
     public DateOnly? Expiration { get; init; }
 

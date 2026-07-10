@@ -44,17 +44,22 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
     }
 
     [Fact]
-    public async Task Instrument_groups_expose_underlying_and_series()
+    public async Task Futures_expose_option_series_and_strikes()
     {
         var api = CreateApi();
 
-        var underlyings = await api.GetInstrumentGroupsAsync("underlying");
-        underlyings.Should().Contain(g => g.Key == "Si" && g.Count >= 3);
+        // Верхний уровень «Фьючерсы»: GZU6 помечен HasOptions и опционы в список не попадают.
+        var futures = await api.GetInstrumentsAsync(new InstrumentQueryParams { Category = "futures", Q = "GZU6" });
+        var gz = futures.Items.Should().ContainSingle(i => i.Ticker == "GZU6").Subject;
+        gz.HasOptions.Should().BeTrue();
+        futures.Items.Should().NotContain(i => i.SecType == "OPT");
 
-        var series = await api.GetInstrumentGroupsAsync("series", underlyingCode: "Si");
+        // Раскрытие фьючерса → серии опционов (по экспирации).
+        var series = await api.GetInstrumentGroupsAsync("series", underlyingId: gz.InstrumentId);
         series.Should().ContainSingle().Which.Expiration.Should().NotBeNull();
 
-        var chain = await api.GetInstrumentsAsync(new InstrumentQueryParams { UnderlyingCode = "Si", SecType = "OPT" });
+        // Раскрытие серии → страйки (только опционы).
+        var chain = await api.GetInstrumentsAsync(new InstrumentQueryParams { UnderlyingId = gz.InstrumentId, SecType = "OPT" });
         chain.Items.Should().OnlyContain(i => i.OptionType == "C" || i.OptionType == "P");
         chain.Total.Should().Be(2);
     }

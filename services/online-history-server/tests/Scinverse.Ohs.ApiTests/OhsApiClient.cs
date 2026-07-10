@@ -23,23 +23,12 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
     }
 
     public Task<IReadOnlyList<InstrumentGroupDto>> GetInstrumentGroupsAsync(
-        string level, string? underlyingCode = null, string? secType = null, string? q = null,
-        CancellationToken cancellationToken = default)
+        string level, long? underlyingId = null, CancellationToken cancellationToken = default)
     {
         var parts = new List<string> { $"level={Uri.EscapeDataString(level)}" };
-        if (!string.IsNullOrWhiteSpace(underlyingCode))
+        if (underlyingId is { } id)
         {
-            parts.Add($"underlyingCode={Uri.EscapeDataString(underlyingCode)}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(secType))
-        {
-            parts.Add($"secType={Uri.EscapeDataString(secType)}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(q))
-        {
-            parts.Add($"q={Uri.EscapeDataString(q)}");
+            parts.Add($"underlyingId={id}");
         }
 
         return GetListAsync<InstrumentGroupDto>("/api/instruments/groups?" + string.Join('&', parts), cancellationToken);
@@ -140,14 +129,19 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
             parts.Add($"secType={Uri.EscapeDataString(query.SecType)}");
         }
 
+        if (!string.IsNullOrWhiteSpace(query.Category))
+        {
+            parts.Add($"category={Uri.EscapeDataString(query.Category)}");
+        }
+
         if (query.OnlyRecording)
         {
             parts.Add("onlyRecording=true");
         }
 
-        if (!string.IsNullOrWhiteSpace(query.UnderlyingCode))
+        if (query.UnderlyingId is { } underlyingId)
         {
-            parts.Add($"underlyingCode={Uri.EscapeDataString(query.UnderlyingCode)}");
+            parts.Add($"underlyingId={underlyingId}");
         }
 
         if (query.Expiration is { } expiration)

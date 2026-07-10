@@ -9,9 +9,9 @@ public sealed class MoexFortsSpecParserTests
     private readonly MoexFortsSpecParser _parser = new();
 
     [Fact]
-    public void TryParse_Futures_ExtractsUnderlyingAndExpiration()
+    public void TryParse_TickerFutures_ExtractsUnderlyingAndExpiration()
     {
-        var ok = _parser.TryParse(new InstrumentKey("SiU6", "FUT"), "FUT", AsOf, out var spec);
+        var ok = _parser.TryParse(new InstrumentKey("SiU6", "FUT"), "FUT", shortName: null, AsOf, out var spec);
 
         ok.Should().BeTrue();
         spec!.UnderlyingCode.Should().Be("Si");
@@ -23,9 +23,9 @@ public sealed class MoexFortsSpecParserTests
     }
 
     [Fact]
-    public void TryParse_CallOption_ExtractsStrikeTypeAndFuturesCode()
+    public void TryParse_TickerCallOption_ExtractsStrikeTypeAndFuturesCode()
     {
-        var ok = _parser.TryParse(new InstrumentKey("SiU6C65000", "OPT"), "OPT", AsOf, out var spec);
+        var ok = _parser.TryParse(new InstrumentKey("SiU6C65000", "OPT"), "OPT", shortName: null, AsOf, out var spec);
 
         ok.Should().BeTrue();
         spec!.UnderlyingCode.Should().Be("Si");
@@ -36,13 +36,60 @@ public sealed class MoexFortsSpecParserTests
     }
 
     [Fact]
-    public void TryParse_PutOption_ExtractsPutType()
+    public void TryParse_TickerPutOption_ExtractsPutType()
     {
-        var ok = _parser.TryParse(new InstrumentKey("SiU6P70000", "OPT"), "OPT", AsOf, out var spec);
+        var ok = _parser.TryParse(new InstrumentKey("SiU6P70000", "OPT"), "OPT", shortName: null, AsOf, out var spec);
 
         ok.Should().BeTrue();
         spec!.OptionType.Should().Be('P');
         spec.Strike.Should().Be(70000m);
+    }
+
+    [Fact]
+    public void TryParse_RealFutures_FromShortName()
+    {
+        var ok = _parser.TryParse(new InstrumentKey("SiU6", "FUT"), "FUT", "Si-9.26", AsOf, out var spec);
+
+        ok.Should().BeTrue();
+        spec!.UnderlyingCode.Should().Be("Si");
+        spec.UnderlyingShortName.Should().Be("Si-9.26");
+        spec.OptionType.Should().BeNull();
+        spec.Expiration.Month.Should().Be(9);
+        spec.Expiration.Year.Should().Be(2026);
+    }
+
+    [Fact]
+    public void TryParse_RealCallOption_FromShortName()
+    {
+        var ok = _parser.TryParse(
+            new InstrumentKey("Si80000BG6", "OPT"), "OPT", "Si-9.26M160726CA80000", AsOf, out var spec);
+
+        ok.Should().BeTrue();
+        spec!.UnderlyingCode.Should().Be("Si");
+        spec.UnderlyingShortName.Should().Be("Si-9.26");
+        spec.OptionType.Should().Be('C');
+        spec.Strike.Should().Be(80000m);
+        spec.Expiration.Should().Be(new DateOnly(2026, 7, 16));
+    }
+
+    [Fact]
+    public void TryParse_RealPutOption_FromShortName()
+    {
+        var ok = _parser.TryParse(
+            new InstrumentKey("Si69500BS6", "OPT"), "OPT", "Si-9.26M160726PA69500", AsOf, out var spec);
+
+        ok.Should().BeTrue();
+        spec!.OptionType.Should().Be('P');
+        spec.Strike.Should().Be(69500m);
+    }
+
+    [Fact]
+    public void TryParse_CalendarSpread_ShortName_ReturnsFalse()
+    {
+        var ok = _parser.TryParse(new InstrumentKey("SiU6SiZ6", "FUT"), "FUT", "Si-9.26-12.26", AsOf, out var spec);
+
+        ok.Should().BeFalse();
+        spec.Should().BeNull();
     }
 
     [Theory]
@@ -51,7 +98,7 @@ public sealed class MoexFortsSpecParserTests
     [InlineData("Si65000", "OPT")] // нет буквы месяца/типа → не распознано
     public void TryParse_NonDerivativeOrUnknown_ReturnsFalse(string ticker, string? secType)
     {
-        var ok = _parser.TryParse(new InstrumentKey(ticker, "TQBR"), secType, AsOf, out var spec);
+        var ok = _parser.TryParse(new InstrumentKey(ticker, "TQBR"), secType, shortName: null, AsOf, out var spec);
 
         ok.Should().BeFalse();
         spec.Should().BeNull();

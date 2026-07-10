@@ -2,9 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { CategoryDropdown, type Category } from './CategoryDropdown';
 import styles from './FilterBar.module.css';
 
-const SEC_TYPES = ['SHARE', 'FUT', 'OPT', 'BOND', 'CURRENCY'];
+// Категории верхнего уровня (Finam-стиль). Опционы не выделены — они внутри дерева фьючерсов.
+const CATEGORIES: Category[] = [
+  { id: '', label: 'Все инструменты' },
+  { id: 'futures', label: 'Фьючерсы' },
+  { id: 'shares', label: 'Акции' },
+  { id: 'currency', label: 'Валюта' },
+  { id: 'bonds', label: 'Облигации' },
+  { id: 'index', label: 'Индексы' },
+];
 
 export function FilterBar() {
   const store = useOhsStore();
@@ -26,25 +35,18 @@ export function FilterBar() {
 
   return (
     <div className={styles.bar}>
+      <CategoryDropdown
+        categories={CATEGORIES}
+        value={query.category ?? ''}
+        onChange={(id) => store.setInstrumentFilter({ category: id || undefined })}
+      />
+
       <input
         className={styles.search}
         placeholder="Поиск по тикеру или названию…"
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
-
-      <select
-        className={styles.select}
-        value={query.secType ?? ''}
-        onChange={(e) => store.setInstrumentFilter({ secType: e.target.value || undefined })}
-      >
-        <option value="">Все типы</option>
-        {SEC_TYPES.map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </select>
 
       <label className={styles.check}>
         <input

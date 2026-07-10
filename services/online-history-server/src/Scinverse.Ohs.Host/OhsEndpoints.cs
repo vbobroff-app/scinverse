@@ -1,6 +1,7 @@
 using Scinverse.Ohs.Connectors.Transaq;
 using Scinverse.Ohs.Contracts;
 using Scinverse.Ohs.Domain;
+using Scinverse.Ohs.Ingestion;
 
 namespace Scinverse.Ohs.Host;
 
@@ -12,8 +13,8 @@ public static class OhsEndpoints
         var api = app.MapGroup("/api");
 
         api.MapGet("/instruments", async (
-            string? q, string? board, string? secType, bool? onlyRecording,
-            string? underlyingCode, DateOnly? expiration, int? limit, int? offset,
+            string? q, string? board, string? secType, string? category, bool? onlyRecording,
+            long? underlyingId, DateOnly? expiration, int? limit, int? offset,
             IInstrumentStore store, CancellationToken ct) =>
         {
             var page = await store.QueryAsync(new InstrumentQuery
@@ -21,8 +22,9 @@ public static class OhsEndpoints
                 Search = q,
                 Board = board,
                 SecType = secType,
+                Category = category,
                 OnlyRecording = onlyRecording ?? false,
-                UnderlyingCode = underlyingCode,
+                UnderlyingId = underlyingId,
                 Expiration = expiration,
                 Limit = limit ?? 100,
                 Offset = offset ?? 0
@@ -30,26 +32,37 @@ public static class OhsEndpoints
 
             var items = page.Items
                 .Select(i => new InstrumentDto(
-                    i.InstrumentId, i.Ticker, i.Board, i.SecType, i.Name, i.MinStep, i.Decimals, i.Active,
-                    i.Recording, i.Strike, i.OptionType?.ToString(), i.Expiration))
+                    i.InstrumentId, i.Ticker, i.Board, i.SecType, i.ShortName, i.Name, i.MinStep, i.Decimals,
+                    i.Active, i.Recording, i.HasOptions, i.Strike, i.OptionType?.ToString(), i.Expiration))
                 .ToList();
 
             return new InstrumentPageDto(items, page.Total, page.Limit, page.Offset);
         });
 
         api.MapGet("/instruments/groups", async (
-            string level, string? underlyingCode, string? secType, string? q,
-            IInstrumentStore store, CancellationToken ct) =>
+            string level, long? underlyingId, IInstrumentStore store, CancellationToken ct) =>
         {
             var groups = await store.QueryGroupsAsync(new GroupQuery
             {
                 Level = level,
-                UnderlyingCode = underlyingCode,
-                SecType = secType,
-                Search = q
+                UnderlyingId = underlyingId
             }, ct);
 
-            return groups.Select(g => new InstrumentGroupDto(g.Key, g.Label, g.Count, g.Expiration)).ToList();
+            return groups.Select(g => new InstrumentGroupDto(g.Key, g.Label, g.Count, g.Expiration, g.Badge)).ToList();
+        });
+
+        // Dev: повторно обогащает derivative для уже загруженных FUT/OPT (backfill после импорта
+        // справочника до того, как парсер деривативов существовал). Идемпотентно.
+        api.MapPost("/maintenance/reenrich", async (
+            IInstrumentStore store, IInstrumentRegistry registry, CancellationToken ct) =>
+        {
+            var candidates = await store.LoadDerivativeCandidatesAsync(ct);
+            foreach (var security in candidates)
+            {
+                await registry.RegisterAsync(security, ct);
+            }
+
+            return Results.Ok(new { processed = candidates.Count });
         });
 
         api.MapGet("/sources", async (ISourceStore store, CancellationToken ct) =>

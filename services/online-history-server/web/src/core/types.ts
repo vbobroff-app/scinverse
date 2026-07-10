@@ -5,11 +5,16 @@ export interface InstrumentDto {
   ticker: string;
   board: string;
   secType: string | null;
+  shortName: string | null;
   name: string | null;
   minStep: number;
   decimals: number;
   active: boolean;
   recording: boolean;
+  hasOptions: boolean;
+  strike: number | null;
+  optionType: string | null;
+  expiration: string | null;
 }
 
 export interface InstrumentPage {
@@ -19,11 +24,24 @@ export interface InstrumentPage {
   offset: number;
 }
 
+/** Узел дерева каталога: серия опционов (экспирация) фьючерса. */
+export interface InstrumentGroupDto {
+  key: string;
+  label: string;
+  count: number;
+  expiration: string | null;
+  /** Нотификатор типа серии: W1..W5 | M1..M12 | Q1..Q4. */
+  badge: string | null;
+}
+
 export interface InstrumentQueryParams {
   q?: string;
   board?: string;
   secType?: string;
+  category?: string;
   onlyRecording?: boolean;
+  underlyingId?: number;
+  expiration?: string;
   limit: number;
   offset: number;
 }

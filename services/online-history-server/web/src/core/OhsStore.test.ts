@@ -40,6 +40,7 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
   const emptyPage: InstrumentPage = { items: [], total: 0, limit: 100, offset: 0 };
   const base: OhsApiClient = {
     getInstruments: () => of(emptyPage),
+    getInstrumentSeries: () => of([]),
     getSources: () => of([]),
     getConnections: () => of([connection()]),
     getRecordings: () => of<RecordingDto[]>([]),

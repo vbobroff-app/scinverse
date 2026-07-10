@@ -12,11 +12,17 @@ public sealed record InstrumentQuery
     /// <summary>Фильтр по типу инструмента (sec_type: SHARE/FUT/OPT/BOND/CURRENCY).</summary>
     public string? SecType { get; init; }
 
+    /// <summary>
+    /// Категория верхнего уровня (Finam-стиль): <c>futures</c>|<c>shares</c>|<c>bonds</c>|
+    /// <c>currency</c>|<c>index</c>|<c>options</c>. Маппится на набор sec_type.
+    /// </summary>
+    public string? Category { get; init; }
+
     /// <summary>Только инструменты с активной записью (coverage_segment.ended_at IS NULL).</summary>
     public bool OnlyRecording { get; init; }
 
-    /// <summary>Фильтр по базовому активу дериватива (derivative.underlying_code).</summary>
-    public string? UnderlyingCode { get; init; }
+    /// <summary>Фильтр опционов по базовому фьючерсу (derivative.underlying_id) — лист дерева.</summary>
+    public long? UnderlyingId { get; init; }
 
     /// <summary>Фильтр по экспирации серии (derivative.expiration).</summary>
     public DateOnly? Expiration { get; init; }
@@ -25,24 +31,25 @@ public sealed record InstrumentQuery
     public int Offset { get; init; }
 }
 
-/// <summary>Параметры запроса узлов дерева каталога (ленивая группировка).</summary>
+/// <summary>Параметры запроса узлов дерева каталога (ленивая группировка серий под фьючерсом).</summary>
 public sealed record GroupQuery
 {
-    /// <summary>Уровень группировки: <c>underlying</c> | <c>series</c>.</summary>
+    /// <summary>Уровень группировки. Сейчас поддерживается <c>series</c> (серии опционов фьючерса).</summary>
     public required string Level { get; init; }
 
-    /// <summary>Базовый актив (обязателен для level=series).</summary>
-    public string? UnderlyingCode { get; init; }
-
-    public string? SecType { get; init; }
-    public string? Search { get; init; }
+    /// <summary>Базовый фьючерс (derivative.underlying_id) — обязателен для level=series.</summary>
+    public long? UnderlyingId { get; init; }
 }
 
-/// <summary>Узел дерева каталога: базовый актив или серия (экспирация) + число листьев.</summary>
+/// <summary>Узел дерева каталога: серия (экспирация) + число листьев (страйков).</summary>
 public sealed record InstrumentGroup
 {
     public required string Key { get; init; }
     public required string Label { get; init; }
+
+    /// <summary>Нотификатор типа серии: <c>W1..W5</c>|<c>M1..M12</c>|<c>Q1..Q4</c>.</summary>
+    public string? Badge { get; init; }
+
     public required int Count { get; init; }
     public DateOnly? Expiration { get; init; }
 }
@@ -54,6 +61,7 @@ public sealed record InstrumentCatalogItem
     public required string Ticker { get; init; }
     public required string Board { get; init; }
     public string? SecType { get; init; }
+    public string? ShortName { get; init; }
     public string? Name { get; init; }
     public required decimal MinStep { get; init; }
     public short Decimals { get; init; }
@@ -61,6 +69,9 @@ public sealed record InstrumentCatalogItem
 
     /// <summary>Есть ли открытый сегмент записи по этому инструменту.</summary>
     public bool Recording { get; init; }
+
+    /// <summary>У фьючерса есть опционы (можно раскрыть в дерево). Всегда false для не-фьючерсов.</summary>
+    public bool HasOptions { get; init; }
 
     // Атрибуты дериватива (для подписи листьев дерева); null для не-деривативов.
     public decimal? Strike { get; init; }

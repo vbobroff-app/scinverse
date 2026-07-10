@@ -103,6 +103,20 @@ Scinverse как единая система, вокруг — акторы (Qua
 
 Единый web-клиент (React + WebGL/WebGPU); десктоп — лишь возможный тонкий потребитель того же API. Обоснование и детали — в `concept.md`.
 
+### 3.8. Control-plane и админка внутри OHS (write-path)
+
+OHS — не только worker записи, но и **control-plane**: ASP.NET Core (`WebApplication`, Minimal API) + WebSocket `/ws`. Через него **админка** (React+Vite+TS, `services/online-history-server/web`) управляет write-path: старт/стоп записи, покрытие (Гант «колбасок»), CRUD и connect/disconnect/test подключений коннекторов. Это **внутренний ops-инструмент**, а не публичный потребитель данных (те читают через ODS/Gateway).
+
+- **Подключения** живут в `connector_connection` (без секретов); **секреты** (login/password) — только в памяти сессии (`InMemoryCredentialStore`), не персистятся. Коннектор создаётся `IConnectorFactory` по `kind`.
+- **Динамическая запись:** `RecordingManager` подписывает/отписывает инструменты в рантайме; `CoverageTracker` ведёт сегменты `coverage_segment` и шлёт `coverageExtended` в `/ws`.
+- **Live-обновления** — сырой WebSocket (`WebSocketBroadcaster`, fan-out `LiveEvent`), без SignalR. Для демо без TRANSAQ есть `SyntheticLiveConnector`.
+
+### 3.9. Каталог инструментов: пагинация + иерархия деривативов (read-model)
+
+Справочник большой (десятки тысяч строк), поэтому `GET /api/instruments` — **пагинация + фильтры на сервере** (`q`/`board`/`secType`/`onlyRecording`/`underlyingCode`/`expiration`, `limit`/`offset`), а не выгрузка всего каталога.
+
+**Деривативы — плоская модель данных + иерархия на чтении.** Атрибуты контракта выводятся из кода инструмента (`IDerivativeSpecParser`/`MoexFortsSpecParser`) и пишутся в подтип `derivative` (см. `db-design.md`, Решение 2). Дерево «базовый актив → серия → страйки» собирается лениво через `GET /api/instruments/groups` (`level = underlying|series`) + лист цепочки обычным `instruments`-запросом. Так UI получает иерархию без денормализации хранения.
+
 ---
 
 ## 4. Конвенции

@@ -55,23 +55,26 @@ public sealed class OhsApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         SberInstrumentId = sber.InstrumentId;
 
         // Сид цепочки FORTS для проверки группировки (derivative + /api/instruments/groups).
+        // Базовый GZU6 намеренно вне DemoCatalog synthetic-коннектора — чтобы connect в других
+        // тестах не добавлял страйки в общую БД и не ломал точные счётчики.
         var parser = new MoexFortsSpecParser();
         var asOf = DateOnly.FromDateTime(DateTime.UtcNow);
         foreach (var (ticker, board, secType) in new[]
                  {
-                     ("SiU6", "FUT", "FUT"),
-                     ("SiU6C65000", "OPT", "OPT"),
-                     ("SiU6P65000", "OPT", "OPT")
+                     ("GZU6", "FUT", "FUT"),
+                     ("GZU6C15000", "OPT", "OPT"),
+                     ("GZU6P15000", "OPT", "OPT")
                  })
         {
             var key = new InstrumentKey(ticker, board);
             var security = new SecurityInfo { Key = key, MinStep = 1m, Decimals = 0, SecType = secType };
-            if (parser.TryParse(key, secType, asOf, out var spec))
+            if (parser.TryParse(key, secType, security.ShortName, asOf, out var spec))
             {
                 security = security with
                 {
                     UnderlyingCode = spec.UnderlyingCode,
                     UnderlyingFuturesCode = spec.UnderlyingFuturesCode,
+                    UnderlyingShortName = spec.UnderlyingShortName,
                     Expiration = spec.Expiration,
                     OptionType = spec.OptionType,
                     Strike = spec.Strike

@@ -89,7 +89,14 @@ erDiagram
 
 ---
 
-## Решение 2. Декомпозиция справочника инструментов — **DONE (V003)**
+## Решение 2. Декомпозиция справочника инструментов — **DONE (V003, V007)**
+
+> **Статус (V007, phase 6c).** Подтип `derivative` теперь **наполняется** на write-path и
+> обслуживает **иерархический каталог** (базовый актив → серия → страйки). Изменения к `V003`:
+> `underlying_id` стал **nullable** (базовый фьючерс мог ещё не приехать в справочник — резолвим
+> best-effort), добавлен **`underlying_code TEXT`** (код базового актива как строка — надёжная
+> группировка без обязательного FK) и индекс `ix_derivative_group (underlying_code, expiration)`.
+> Наполнение — доменным парсером `MoexFortsSpecParser` (см. ниже), группировка — `QueryGroupsAsync`.
 
 **Вопрос.** Выносить ли «спецификацию инструмента» в отдельные таблицы?
 
@@ -118,13 +125,15 @@ erDiagram
 ```sql
 -- Атрибуты контракта (только FUT/OPT), 1:1 с instrument
 derivative (
-    instrument_id BIGINT  PRIMARY KEY REFERENCES instrument (instrument_id),
-    underlying_id BIGINT  NOT NULL REFERENCES instrument (instrument_id), -- базовый актив
-    expiration    DATE    NOT NULL,
-    option_type   CHAR(1),        -- 'C'/'P'; NULL для фьючерса
-    strike        NUMERIC         -- NULL для фьючерса
+    instrument_id  BIGINT  PRIMARY KEY REFERENCES instrument (instrument_id),
+    underlying_id  BIGINT  REFERENCES instrument (instrument_id), -- V007: nullable (может не резолвиться)
+    underlying_code TEXT,                 -- V007: код базового актива для группировки (напр. 'Si')
+    expiration     DATE    NOT NULL,
+    option_type    CHAR(1),        -- 'C'/'P'; NULL для фьючерса
+    strike         NUMERIC         -- NULL для фьючерса
 );
 CREATE INDEX ix_derivative_chain ON derivative (underlying_id, expiration, strike);
+CREATE INDEX ix_derivative_group ON derivative (underlying_code, expiration); -- V007: лениво-иерархический каталог
 
 -- Волатильные риск-параметры с историей
 instrument_risk (
@@ -151,6 +160,30 @@ ORDER BY d.strike;
 ```
 
 Индекс `(underlying_id, expiration, strike)` покрывает выборку цепочки.
+
+### Наполнение `derivative` (write-path, V007)
+
+Атрибуты деривативов не приходят из TRANSAQ отдельными полями надёжно, поэтому выводятся из
+**кода инструмента** доменным парсером `IDerivativeSpecParser` (реализация `MoexFortsSpecParser`):
+
+- фьючерс `SiU6` → `underlying_code = 'Si'`, `expiration` (3-я пятница месяца по букве `U`+год);
+- опцион `SiU6C65000` → тот же базовый фьючерс `SiU6`, `option_type = 'C'`, `strike = 65000`;
+- нераспознанный код (напр. акция `SBER`) → инструмент остаётся «плоским», строка `derivative`
+  не создаётся.
+
+`InstrumentRegistry.RegisterAsync` обогащает `SecurityInfo` (поля `UnderlyingCode`,
+`UnderlyingFuturesCode`, `Expiration`, `OptionType`, `Strike`), а `InstrumentStore.UpsertAsync`
+в той же транзакции делает upsert в `derivative` (`underlying_id` резолвится best-effort по коду
+базового фьючерса; при отсутствии — `NULL`, группировка держится на `underlying_code`).
+
+### Read-model группировки (лениво-иерархический каталог)
+
+Для UI-дерева «базовый актив → серия → страйки» — `IInstrumentStore.QueryGroupsAsync(GroupQuery)`:
+
+- `level = underlying` → список базовых активов с числом контрактов (`GROUP BY underlying_code`);
+- `level = series` (для заданного `underlyingCode`) → серии по `expiration`;
+- лист цепочки — обычный `QueryAsync` с фильтрами `underlyingCode` + `expiration` (плоская модель
+  данных, иерархия собирается на чтении). Флаг `secType` отделяет фьючерсы от опционов.
 
 > Если ГО прилетает интрадей и часто — `instrument_risk` можно сделать hypertable, а «текущее»
 > значение брать `ORDER BY valid_from DESC LIMIT 1` или через continuous aggregate.
@@ -237,6 +270,7 @@ erDiagram
     derivative {
         bigint  instrument_id PK,FK
         bigint  underlying_id FK
+        text    underlying_code
         date    expiration
         char    option_type
         numeric strike
