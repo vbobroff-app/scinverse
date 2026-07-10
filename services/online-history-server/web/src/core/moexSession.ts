@@ -45,6 +45,8 @@ function weekday({ year, month, day }: MskDate): number {
  * Границы торговой сессии MOEX для даты МСК.
  * Будни (ЕТС): 08:50–23:50. Выходные (доп. сессия выходного дня, с 01.03.2025): 09:50–19:00.
  * Праздничные исключения (не каждые выходные торгуются) появятся в phase7c из ISS-календаря.
+ * ВНИМАНИЕ: с 14.07.2026 СР/FORTS — 06:50–23:50 (см. docs/dev/phase7c/apply.md §3c); дат-зависимое
+ * расписание подтянем из ISS (phase7c), пока используется эвристика.
  */
 export function sessionBounds(date: MskDate): SessionBounds {
   const dow = weekday(date);

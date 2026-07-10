@@ -40,11 +40,23 @@ export interface InstrumentQueryParams {
   secType?: string;
   category?: string;
   onlyRecording?: boolean;
+  /** Только инструменты, по которым есть хоть один сегмент записи (фильтр «Не пустые»). */
+  nonEmpty?: boolean;
+  /** Явный список инструментов (фильтр «Выделенные»); пусто/undefined — без фильтра. */
+  instrumentIds?: number[];
+  /** Биржи (коды: MOEX, …) — задел под мультибиржу; пусто/undefined — без фильтра. */
+  exchanges?: string[];
   underlyingId?: number;
   expiration?: string;
   limit: number;
   offset: number;
 }
+
+/** Ключ динамической плашки-фильтра каталога (порядок = порядок добавления). */
+export type FilterKey = 'instruments' | 'selection' | 'exchanges';
+
+/** Условие плашки «Выбор» (комбинируются по И). */
+export type SelectionCondition = 'recording' | 'nonEmpty' | 'selected';
 
 export interface SourceDto {
   sourceId: number;

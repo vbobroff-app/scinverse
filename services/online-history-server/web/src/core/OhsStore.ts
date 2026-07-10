@@ -13,6 +13,7 @@ import {
 import type {
   ConnectionDto,
   CoverageSegmentDto,
+  FilterKey,
   InstrumentDto,
   InstrumentGroupDto,
   InstrumentQueryParams,
@@ -24,6 +25,13 @@ import type {
   Timeframe,
   TimeframeUnit,
 } from './types';
+
+/** Флаги условий плашки «Выбор» (проекция query-параметров для чек-листа). */
+export interface SelectionConditions {
+  recording: boolean;
+  nonEmpty: boolean;
+  selected: boolean;
+}
 
 const DEFAULT_PAGE_SIZE = 100;
 
@@ -75,11 +83,13 @@ export class OhsStore {
   readonly instrumentsTotal$ = new BehaviorSubject<number>(0);
   readonly instrumentsLoading$ = new BehaviorSubject<boolean>(false);
   readonly instrumentQuery$ = new BehaviorSubject<InstrumentQueryParams>({
-    category: 'futures',
     limit: DEFAULT_PAGE_SIZE,
     offset: 0,
   });
   readonly selectedInstruments$ = new BehaviorSubject<ReadonlySet<number>>(new Set());
+
+  /** Активные плашки-фильтры каталога (порядок = порядок добавления). */
+  readonly activeFilters$ = new BehaviorSubject<FilterKey[]>([]);
 
   // --- Ленивое дерево деривативов: фьючерс → серии (экспирации) → страйки (опционы). ---
   readonly expandedFutures$ = new BehaviorSubject<ReadonlySet<number>>(new Set());
@@ -236,7 +246,7 @@ export class OhsStore {
     this.setWindow({ from: new Date(leftMs).toISOString(), to: new Date(rightMs).toISOString() });
   }
 
-  /** Переключает пометку инструмента (для будущего фильтра «по выбранным»). */
+  /** Переключает пометку инструмента; при активном условии «Выделенные» — пере-применяет фильтр. */
   toggleInstrumentSelection(instrumentId: number): void {
     const next = new Set(this.selectedInstruments$.value);
     if (next.has(instrumentId)) {
@@ -245,6 +255,77 @@ export class OhsStore {
       next.add(instrumentId);
     }
     this.selectedInstruments$.next(next);
+
+    if (this.instrumentQuery$.value.instrumentIds !== undefined) {
+      this.setInstrumentFilter({ instrumentIds: [...next] });
+    }
+  }
+
+  /** Добавляет плашку-фильтр (если ещё не добавлена). Значения выбираются в поповере. */
+  addFilter(key: FilterKey): void {
+    if (this.activeFilters$.value.includes(key)) {
+      return;
+    }
+    this.activeFilters$.next([...this.activeFilters$.value, key]);
+  }
+
+  /** Убирает плашку и очищает относящиеся к ней поля запроса. */
+  removeFilter(key: FilterKey): void {
+    this.activeFilters$.next(this.activeFilters$.value.filter((k) => k !== key));
+    this.setInstrumentFilter(this.clearedFieldsFor(key));
+  }
+
+  /** Сбрасывает все плашки и фильтр-поля запроса (поиск не трогаем). */
+  clearFilters(): void {
+    this.activeFilters$.next([]);
+    this.setInstrumentFilter({
+      category: undefined,
+      onlyRecording: undefined,
+      nonEmpty: undefined,
+      instrumentIds: undefined,
+      exchanges: undefined,
+    });
+  }
+
+  /** Категория плашки «Инструменты» (пусто → все). */
+  setCategory(category: string | undefined): void {
+    this.setInstrumentFilter({ category: category || undefined });
+  }
+
+  /** Биржи плашки «Биржи» (пусто → без фильтра). */
+  setExchanges(exchanges: string[]): void {
+    this.setInstrumentFilter({ exchanges: exchanges.length > 0 ? exchanges : undefined });
+  }
+
+  /** Текущие условия плашки «Выбор» (проекция query-полей). */
+  selectionConditions(): SelectionConditions {
+    const q = this.instrumentQuery$.value;
+    return {
+      recording: Boolean(q.onlyRecording),
+      nonEmpty: Boolean(q.nonEmpty),
+      selected: q.instrumentIds !== undefined,
+    };
+  }
+
+  /** Применяет условия плашки «Выбор» (комбинируются по И). */
+  setSelectionConditions(conditions: SelectionConditions): void {
+    this.setInstrumentFilter({
+      onlyRecording: conditions.recording ? true : undefined,
+      nonEmpty: conditions.nonEmpty ? true : undefined,
+      instrumentIds: conditions.selected ? [...this.selectedInstruments$.value] : undefined,
+    });
+  }
+
+  /** Патч query-полей для очистки при снятии плашки. */
+  private clearedFieldsFor(key: FilterKey): Partial<InstrumentQueryParams> {
+    switch (key) {
+      case 'instruments':
+        return { category: undefined };
+      case 'selection':
+        return { onlyRecording: undefined, nonEmpty: undefined, instrumentIds: undefined };
+      case 'exchanges':
+        return { exchanges: undefined };
+    }
   }
 
   /** Меняет фильтр каталога (сбрасывает offset + дерево) и перезагружает первую страницу. */

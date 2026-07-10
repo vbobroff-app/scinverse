@@ -2,18 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import { CategoryDropdown, type Category } from './CategoryDropdown';
+import { FilterChips } from './FilterChips';
 import styles from './FilterBar.module.css';
-
-// Категории верхнего уровня (Finam-стиль). Опционы не выделены — они внутри дерева фьючерсов.
-const CATEGORIES: Category[] = [
-  { id: '', label: 'Все инструменты' },
-  { id: 'futures', label: 'Фьючерсы' },
-  { id: 'shares', label: 'Акции' },
-  { id: 'currency', label: 'Валюта' },
-  { id: 'bonds', label: 'Облигации' },
-  { id: 'index', label: 'Индексы' },
-];
 
 export function FilterBar() {
   const store = useOhsStore();
@@ -35,29 +25,28 @@ export function FilterBar() {
 
   return (
     <div className={styles.bar}>
-      <CategoryDropdown
-        categories={CATEGORIES}
-        value={query.category ?? ''}
-        onChange={(id) => store.setInstrumentFilter({ category: id || undefined })}
-      />
+      <FilterChips />
 
-      <input
-        className={styles.search}
-        placeholder="Поиск по тикеру или названию…"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-      />
-
-      <label className={styles.check}>
-        <input
-          type="checkbox"
-          checked={Boolean(query.onlyRecording)}
-          onChange={(e) => store.setInstrumentFilter({ onlyRecording: e.target.checked })}
-        />
-        только запущенные
-      </label>
-
-      <span className={styles.total}>Найдено: {total}</span>
+      <div className={styles.right}>
+        <span className={styles.total}>Найдено: {total}</span>
+        <div className={styles.searchWrap}>
+          <svg className={styles.searchIcon} viewBox="0 0 16 16" aria-hidden="true">
+            <path
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              d="M7 2a5 5 0 1 1 0 10A5 5 0 0 1 7 2Zm3.5 8.5L14 14"
+            />
+          </svg>
+          <input
+            className={styles.search}
+            placeholder="Поиск…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+        </div>
+      </div>
     </div>
   );
 }

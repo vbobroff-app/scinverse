@@ -29,6 +29,9 @@ function buildInstrumentsQuery(params: InstrumentQueryParams): string {
   if (params.secType) search.set('secType', params.secType);
   if (params.category) search.set('category', params.category);
   if (params.onlyRecording) search.set('onlyRecording', 'true');
+  if (params.nonEmpty) search.set('nonEmpty', 'true');
+  if (params.instrumentIds?.length) search.set('instrumentIds', params.instrumentIds.join(','));
+  if (params.exchanges?.length) search.set('exchanges', params.exchanges.join(','));
   if (params.underlyingId != null) search.set('underlyingId', String(params.underlyingId));
   if (params.expiration) search.set('expiration', params.expiration);
   search.set('limit', String(params.limit));

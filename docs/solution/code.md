@@ -2,7 +2,8 @@
 
 Документ описывает проекты OHS (Online History Server): приём ленты сделок → нормализация →
 пакетная запись в TimescaleDB (write-path) и control-plane (ASP.NET Core: REST + WebSocket,
-управление записью и подключениями). `Db.Migrator` описан в фазах Stage 0.
+управление записью и подключениями), а также **admin frontend** (React + RxJS, §7).
+`Db.Migrator` описан в фазах Stage 0.
 
 ## Направление зависимостей
 
@@ -317,3 +318,39 @@ reference-данные без секретов, пагинация/поиск к
 применения конфигурации фабрики (и `appsettings.Local.json` имеет приоритет), поэтому фабрика
 детерминированно **подменяет сам `NpgsqlDataSource`** (`ConfigureTestServices`) на контейнер —
 тесты не зависят от dev-БД. Требует Docker.
+
+## 7. Admin frontend (`web/`, React + TS + Vite + RxJS)
+
+Админ-панель управления записью и панель покрытия (Гант). Архитектура — **framework-agnostic ядро
+(`core/`) + тонкий React-слой (`ui/`)**; тема тёмная (вдохновлено `scrider-editor`). Тесты — Vitest.
+
+### `core/` — доменное ядро на RxJS (без React)
+
+- `OhsStore.ts` — центральный стор (`BehaviorSubject`-ы: инструменты/пагинация, дерево деривативов,
+  источники/подключения/записи, `coverage$`, `window$`, `timeframe$`/`sessions$`). REST-команды
+  дергают API и правят сабджекты; live-события из `/ws` инкрементально двигают колбаски.
+  Таймфрейм → окно: `D/W` (последние сессии), `M/Q/Y` (сдвиг + торговые дни), `All` (экстент),
+  `range` (произвольный) — все посессionные.
+- `api.ts` — RxJS-клиент REST (`getInstruments`, `getInstrumentSeries`, `getSessions`,
+  `getCoverage`, `getCoverageExtent`, connect/record/…); `live.ts` — WS-поток `LiveEvent`.
+- `types.ts` — зеркало DTO контракта + фронт-типы (`Timeframe`, `SessionDto`, `CoverageExtentDto`).
+- `moexSession.ts` — часы сессий MOEX (будни 08:50–23:50, выходной 09:50–19:00) и генерация
+  календарных сессий (`recentSessions`, `sessionsFrom`).
+- `sessionProjection.ts` — **посессионная проекция оси**: доля ∝ длительности сессии, разрывы
+  схлопнуты в шов; без сессий — линейная шкала.
+- `sourceColors.ts` (цвет = источник), `exchange.ts` (борд → биржа).
+
+### `ui/` — React-слой
+
+- `context.ts` + хуки `useObservable`/`useBehavior` (подписка на сабджекты), `useNow` (тик для
+  «ползущих» колбасок), `useVirtualRows` (виртуализация + infinite scroll), `useDebouncedValue`,
+  `useElementWidth` (ResizeObserver — адаптивная плотность оси).
+- Компоненты: `InstrumentPicker` (дерево инструментов + дорожки + footer), `CoverageTrack`
+  (колбаски/гэпы/слоты выходных на div-ах, тултипы-даты через нативный `title`), `TimeAxis`
+  (адаптивная ось: засечки + подписи, плотность по ширине), `TimeframePanel` + `DateRangePicker`
+  (панель таймфреймов), `CategoryDropdown`/`FilterBar` (фильтры каталога), `Button`, `StatusDot`,
+  `ThemeToggle`.
+- Страницы: `ProviderCard` (карточка провайдера), `ConnectionsPanel` (управление подключениями).
+
+Проверки фронта: `pnpm exec tsc --noEmit`, `pnpm exec eslint`, `pnpm exec vitest run`
+(`OhsStore.test.ts`, `sessionProjection.test.ts`).

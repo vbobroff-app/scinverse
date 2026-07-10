@@ -33,11 +33,6 @@
   gap: var(--spacing-md);
 }
 
-.hint {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-}
-
 .instruments {
   display: flex;
   flex-direction: column;

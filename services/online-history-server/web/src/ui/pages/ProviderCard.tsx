@@ -33,10 +33,6 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
         </div>
       </header>
 
-      {!connected && (
-        <p className={styles.hint}>Подключись, чтобы стартовать запись инструментов.</p>
-      )}
-
       <FilterBar />
       <InstrumentPicker connection={connection} />
     </section>

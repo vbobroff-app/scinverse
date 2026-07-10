@@ -95,6 +95,59 @@ describe('OhsStore live merge', () => {
 
 });
 
+describe('OhsStore фильтры-плашки', () => {
+  it('add/remove/clear меняют activeFilters$ и очищают поля запроса', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    store.start();
+
+    store.addFilter('instruments');
+    store.addFilter('selection');
+    store.addFilter('instruments'); // повтор игнорируется
+    expect(store.activeFilters$.value).toEqual(['instruments', 'selection']);
+
+    store.setCategory('futures');
+    expect(store.instrumentQuery$.value.category).toBe('futures');
+
+    store.removeFilter('instruments');
+    expect(store.activeFilters$.value).toEqual(['selection']);
+    expect(store.instrumentQuery$.value.category).toBeUndefined();
+
+    store.setSelectionConditions({ recording: true, nonEmpty: true, selected: false });
+    store.clearFilters();
+    expect(store.activeFilters$.value).toEqual([]);
+    expect(store.instrumentQuery$.value.onlyRecording).toBeUndefined();
+    expect(store.instrumentQuery$.value.nonEmpty).toBeUndefined();
+    store.stop();
+  });
+
+  it('setSelectionConditions маппит условия в query-поля (И-комбинация)', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    store.start();
+    store.toggleInstrumentSelection(7);
+
+    store.setSelectionConditions({ recording: true, nonEmpty: true, selected: true });
+    const q = store.instrumentQuery$.value;
+    expect(q.onlyRecording).toBe(true);
+    expect(q.nonEmpty).toBe(true);
+    expect(q.instrumentIds).toEqual([7]);
+    store.stop();
+  });
+
+  it('при активном условии «Выделенные» смена выделения пере-запрашивает каталог', () => {
+    const getInstruments = vi.fn(() => of<InstrumentPage>({ items: [], total: 0, limit: 100, offset: 0 }));
+    const store = new OhsStore(fakeApi({ getInstruments }), new Subject<LiveEvent>());
+    store.start();
+
+    store.setSelectionConditions({ recording: false, nonEmpty: false, selected: true });
+    getInstruments.mockClear();
+
+    store.toggleInstrumentSelection(3);
+    expect(getInstruments).toHaveBeenCalledTimes(1);
+    expect(getInstruments.mock.calls[0][0].instrumentIds).toEqual([3]);
+    store.stop();
+  });
+});
+
 describe('OhsStore timeframe → window', () => {
   beforeEach(() => {
     vi.useFakeTimers();
