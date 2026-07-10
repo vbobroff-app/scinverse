@@ -114,6 +114,23 @@ public sealed class TransaqConnector : IMarketConnector
         return Task.CompletedTask;
     }
 
+    public Task UnsubscribeTradesAsync(IReadOnlyCollection<InstrumentKey> instruments, CancellationToken cancellationToken)
+    {
+        var command = new StringBuilder("<command id=\"unsubscribe\"><alltrades>");
+        foreach (var instrument in instruments)
+        {
+            command
+                .Append("<security>")
+                .Append("<board>").Append(SecurityElement.Escape(instrument.Board)).Append("</board>")
+                .Append("<seccode>").Append(SecurityElement.Escape(instrument.Ticker)).Append("</seccode>")
+                .Append("</security>");
+        }
+
+        command.Append("</alltrades></command>");
+        EnsureSuccess(SendCommand(command.ToString()), "unsubscribe");
+        return Task.CompletedTask;
+    }
+
     public Task DisconnectAsync(CancellationToken cancellationToken)
     {
         if (IsConnected)

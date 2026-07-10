@@ -1,0 +1,75 @@
+# Phase 7. Issue: иерархия инструментов (base → series → strikes)
+
+Зафиксированы сложности, всплывшие при доработке пикера инструментов в фазе 7. Они
+блокируют «древовидный» вид каталога и решаются отдельной бэкенд-фазой
+**[phase6c](../phase6c/plan.md)** (её реализуем до возврата в phase7).
+
+**Статус:** `BLOCKED → вынесено в phase6c`. **Дата:** 2026-07-09.
+
+## Контекст
+
+Каталог деривативов MOEX имеет естественную вложенность (см. скрины опционной доски):
+
+```
+Si                     базовый актив (underlying)
+└─ SiU6                фьючерс, exp 2026-09-17
+   └─ Si N26 W1        недельная опционная серия, exp 2026-07-02
+      ├─ Si65000BS6A   PUT  65000
+      ├─ Si65000BG6A   CALL 65000
+      └─ …             сотни страйков
+```
+
+Согласованный подход — **гибрид**: плоская модель данных `instrument`, а иерархия выражается
+атрибутами (`underlying`, `expiration/series`, `strike`, `option_type`) и подаётся как *представление*
+(переключатель «список ↔ дерево», ленивое раскрытие узлов, bulk-запись на узле).
+
+## Сложности
+
+1. **Нет данных группировки.** Дерево `underlying → series → strikes` строить не из чего:
+   атрибуты деривативов в БД отсутствуют.
+
+2. **Таблица `derivative` есть, но пустая.** Схема заложена ещё в `V003`
+   (`derivative(instrument_id, underlying_id, expiration, option_type, strike)` +
+   индекс `ix_derivative_chain`), но **ни одна строка C#-кода её не пишет** — write-path
+   наполняет только `instrument`. Это уже отмечалось как открытый пункт в
+   [`phase1/apply.md`](../phase1/apply.md) («Заполнение `underlying_id` потребует…»).
+
+3. **Парсер не извлекает атрибуты деривативов.** `TransaqXmlParser.ParseSecurities` читает из
+   секции `securities` только `seccode/board/secid/market/shortname/sectype/decimals/minstep/lotsize`.
+   `strike / option_type / expiration / underlying` не читаются, а в `SecurityInfo` таких полей нет.
+
+4. **Коннектор TRANSAQ — бинарный DLL.** Исходников нет
+   (`services/online-history-server/src/Scinverse.Ohs.Host/native/txmlconnector.dll`), поэтому
+   точную схему XML для деривативов нельзя «прочитать из кода». Известные особенности TRANSAQ:
+   - `expiration` и `option_type` приходят не в `securities`, а в отдельном сообщении
+     `sec_info` / `sec_info_upd` (поля `mat_date`, `put_call`);
+   - `strike` в TRANSAQ отдельным полем, как правило, **не отдаётся** — кодируется в `seccode`
+     опциона;
+   - `underlying` (базовый фьючерс) явной ссылкой не передаётся — выводится по конвенции кодов.
+   → Точный маппинг нужно подтвердить **захватом реального XML** (`securities` + `sec_info`) с
+     живого коннектора; до этого правила парсинга — эвристика по кодам MOEX FORTS.
+
+5. **Синтетика не содержит деривативов.** `SyntheticLiveConnector`/`SampleData` эмитят только
+   `sectype=SHARE`, поэтому дерево не на чем демонстрировать без TRANSAQ → нужен небольшой
+   синтетический FORTS-набор (фьючерс + опционная серия) для проверки UX.
+
+6. **«Торгуется сейчас» — временно проксируется `active`.** Реальный статус торговой сессии
+   инструмента (в TRANSAQ — `sec_status`/`quotestype`) не ингестится. Для точного индикатора
+   «disabled Старт» это отдельный write-path-инкремент (вне scope дерева, отмечено на будущее).
+
+## Что делаем (в phase6c)
+
+- Ввести `IDerivativeSpecParser`: из `SecurityInfo` + тикера FORTS выводить
+  `underlying / expiration / strike / option_type` (с unit-тестами на известные форматы).
+- Заполнять `derivative` на write-path при upsert инструмента (резолв `underlying_id`).
+- Read-model группировки: `GET /api/instruments/groups?level=underlying|series` (ленивое дерево)
+  + фильтры `underlyingId/expiration` в `InstrumentQuery` (лист страйков через существующую
+  пагинацию).
+- Синтетический FORTS-набор для демо дерева без TRANSAQ.
+- `sec_info`-парсинг (`mat_date`/`put_call`) — реализовать по спецификации, но точные теги
+  **пометить на подтверждение** живым захватом; strike/underlying — эвристика по кодам.
+
+## Возврат в phase7
+
+После phase6c: добавить в `FilterBar` переключатель «Список ↔ Дерево», компонент дерева с ленивым
+раскрытием и bulk-действиями на узлах; плоский пикер остаётся как есть.

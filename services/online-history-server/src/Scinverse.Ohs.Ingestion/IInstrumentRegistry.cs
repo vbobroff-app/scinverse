@@ -13,4 +13,7 @@ public interface IInstrumentRegistry
     Task<Instrument> RegisterAsync(SecurityInfo security, CancellationToken cancellationToken);
 
     bool TryResolve(InstrumentKey key, [MaybeNullWhen(false)] out Instrument instrument);
+
+    /// <summary>Обратный поиск по стабильному id (для команд управления записью).</summary>
+    bool TryResolveById(long instrumentId, [MaybeNullWhen(false)] out Instrument instrument);
 }

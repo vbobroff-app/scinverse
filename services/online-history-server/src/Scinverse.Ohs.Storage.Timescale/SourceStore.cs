@@ -18,4 +18,14 @@ public sealed class SourceStore(NpgsqlDataSource dataSource) : ISourceStore
         return sourceId
             ?? throw new InvalidOperationException($"Неизвестный источник данных '{code}' (нет в data_source)");
     }
+
+    public async Task<IReadOnlyList<DataSource>> ListAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<DataSource>(new CommandDefinition(
+            "SELECT source_id AS SourceId, code AS Code, name AS Name FROM data_source ORDER BY source_id;",
+            cancellationToken: cancellationToken));
+
+        return rows.ToList();
+    }
 }

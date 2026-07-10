@@ -68,12 +68,14 @@ Stage 1 (архитектура, модель данных, API/WS, границ
 | 4 | Локальный E2E OHS (запись): смоук (fake) + реальный TRANSAQ, отладка коннектора | DONE | [phase4](phase4/report.md) — живой ингест SBER/TQBR |
 | 5 | Мультиисточник: `V004` (`data_source` + `source_id`), сквозной `SourceId` | DONE | [phase5](phase5/report.md) — PK+source_id, нахлёст источников |
 | 6a | Схема + запись: `V005` (coverage_segment), `V006` (connector_connection), `RecordingManager`, `CoverageStore` | DONE | [phase6a](phase6a/report.md) — сегменты покрытия, E2E `trade_count=500` |
-| 6b | Control-plane сеть: хост → ASP.NET Core, REST + WebSocket, фабрика коннекторов, in-memory креды | TODO | — |
-| 7 | Админ-фронт (React + Vite + TS): список инструментов, Гант, старт/стоп, управление подключениями | TODO | — |
+| 6b | Control-plane сеть: хост → ASP.NET Core, REST (Minimal API + контракт `IOhsApi`) + WebSocket, фабрика коннекторов, in-memory креды | DONE | [phase6b](phase6b/report.md) — 31 тест, живой хост отвечает |
+| 6c | Иерархия инструментов: наполнение `derivative` (`V007`), read-model группировки (`/api/instruments/groups`), фильтры цепочки | IN PROGRESS | [phase6c](phase6c/report.md) — разблокирует дерево (см. [issue](phase7/issue.md)) |
+| 7 | Админ-фронт (React + Vite + TS): список инструментов, Гант, старт/стоп, управление подключениями | IN PROGRESS | [phase7](phase7/report.md) — срез ур.3 готов; дерево ждёт 6c ([issue](phase7/issue.md)) |
 | 8 | CI/CD: GitHub Actions (build + unit + integration) + compose-сервис `migrator` | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` (бэкфилл, `source=qscalp`) — поздний этап | TODO | — |
 
-Порядок и зависимости: 4 → 5 → 6a → 6b → 7 (фронт можно начинать параллельно на моках) → 8 (можно рано) → 9.
+Порядок и зависимости: 4 → 5 → 6a → 6b → 7 (фронт можно начинать параллельно на моках); 6c
+вклинивается между итерациями phase7 (разблокирует древовидный каталог) → 8 (можно рано) → 9.
 Каждая фаза документируется как `phaseN/{plan,apply,report}.md` по общему шаблону.
 
 ---

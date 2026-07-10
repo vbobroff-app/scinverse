@@ -17,4 +17,19 @@ public sealed record SecurityInfo : IMarketMessage
     public int? LotSize { get; init; }
     public decimal? PointCost { get; init; }
     public string? Currency { get; init; }
+
+    // --- Атрибуты дериватива (FUT/OPT); null для не-деривативов. См. IDerivativeSpecParser. ---
+
+    /// <summary>Код базового актива для группировки (напр. Si, RI, BR).</summary>
+    public string? UnderlyingCode { get; init; }
+
+    /// <summary>Код базового фьючерса опциона (для резолва underlying_id).</summary>
+    public string? UnderlyingFuturesCode { get; init; }
+
+    public DateOnly? Expiration { get; init; }
+
+    /// <summary>'C'/'P'; null для фьючерса.</summary>
+    public char? OptionType { get; init; }
+
+    public decimal? Strike { get; init; }
 }

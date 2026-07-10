@@ -10,7 +10,7 @@ public sealed class TradeNormalizerTests
 
     private static async Task<TradeNormalizer> BuildNormalizerAsync(params Instrument[] instruments)
     {
-        var registry = new InstrumentRegistry(new FakeInstrumentStore(instruments));
+        var registry = new InstrumentRegistry(new FakeInstrumentStore(instruments), new MoexFortsSpecParser());
         await registry.InitializeAsync(CancellationToken.None);
         return new TradeNormalizer(registry);
     }

@@ -55,4 +55,50 @@ public sealed class CoverageStore(NpgsqlDataSource dataSource) : ICoverageStore
             new { segmentId, endedAt = endedAt.ToUniversalTime(), status },
             cancellationToken: cancellationToken));
     }
+
+    public async Task<IReadOnlyList<CoverageSegment>> QuerySegmentsAsync(
+        DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<CoverageSegment>(new CommandDefinition(
+            "SELECT segment_id AS SegmentId, instrument_id AS InstrumentId, source_id AS SourceId, " +
+            "started_at AS StartedAt, ended_at AS EndedAt, trade_count AS TradeCount, status AS Status " +
+            "FROM coverage_segment " +
+            "WHERE started_at < @to AND (ended_at IS NULL OR ended_at > @from) " +
+            "ORDER BY instrument_id, source_id, started_at;",
+            new { from = from.ToUniversalTime(), to = to.ToUniversalTime() },
+            cancellationToken: cancellationToken));
+
+        return rows.ToList();
+    }
+
+    public async Task<IReadOnlyList<CoverageGap>> QueryGapsAsync(
+        long instrumentId, short sourceId, DateTimeOffset from, DateTimeOffset to,
+        double thresholdSeconds, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<CoverageGap>(new CommandDefinition(
+            """
+            WITH ordered AS (
+                SELECT ts, lead(ts) OVER (ORDER BY ts) AS next_ts
+                FROM md_trade
+                WHERE instrument_id = @instrumentId AND source_id = @sourceId AND ts BETWEEN @from AND @to
+            )
+            SELECT ts AS "From", next_ts AS "To"
+            FROM ordered
+            WHERE next_ts IS NOT NULL AND next_ts - ts > make_interval(secs => @thresholdSeconds)
+            ORDER BY ts;
+            """,
+            new
+            {
+                instrumentId,
+                sourceId,
+                from = from.ToUniversalTime(),
+                to = to.ToUniversalTime(),
+                thresholdSeconds
+            },
+            cancellationToken: cancellationToken));
+
+        return rows.ToList();
+    }
 }

@@ -1,100 +1,99 @@
 using System.Collections.Concurrent;
-using Scinverse.Ohs.Connectors.Transaq;
 using Scinverse.Ohs.Domain;
 using Scinverse.Ohs.Ingestion;
 
 namespace Scinverse.Ohs.Host;
 
 /// <summary>
-/// Управляет активными записями: подписка коннектора + сегмент покрытия на (instrument, source).
-/// 6a: старт по конфигу, heartbeat по мере записи, закрытие на остановке. Динамический
-/// старт/стоп из UI и unsubscribe по инструменту — 6b.
+/// Оркестратор записей: динамический start/stop по (instrument, connection) в рантайме.
+/// Подписку/отписку маршрутизирует на коннектор подключения, покрытие ведёт через
+/// <see cref="CoverageTracker"/>. Ключ записи — instrumentId (одна запись на инструмент).
 /// </summary>
 public sealed class RecordingManager(
-    IMarketConnector connector,
+    ConnectionManager connections,
+    CoverageTracker coverage,
     IInstrumentRegistry registry,
-    ICoverageStore coverageStore,
-    TimeProvider timeProvider,
+    ISourceStore sourceStore,
+    WebSocketBroadcaster broadcaster,
     ILogger<RecordingManager> logger)
 {
-    private sealed class Recording(long segmentId)
+    private sealed record Recording(
+        InstrumentKey Key, long InstrumentId, short SourceId, long ConnectionId, long SegmentId, DateTimeOffset StartedAt);
+
+    private readonly ConcurrentDictionary<long, Recording> _recordings = new();
+
+    public async Task<RecordingInfo> StartAsync(long instrumentId, long connectionId, CancellationToken cancellationToken)
     {
-        public long SegmentId { get; } = segmentId;
-        public long PendingDelta;
+        if (_recordings.ContainsKey(instrumentId))
+        {
+            throw new InvalidOperationException($"Запись инструмента {instrumentId} уже идёт");
+        }
+
+        if (!registry.TryResolveById(instrumentId, out var instrument))
+        {
+            throw new InvalidOperationException($"Инструмент {instrumentId} не найден в реестре");
+        }
+
+        var connector = connections.GetConnector(connectionId)
+            ?? throw new InvalidOperationException($"Подключение {connectionId} не в статусе connected");
+
+        var sourceId = await sourceStore.ResolveIdAsync(connector.SourceCode, cancellationToken).ConfigureAwait(false);
+        var (segmentId, startedAt) = await coverage.OpenAsync(instrument, sourceId, cancellationToken).ConfigureAwait(false);
+        await connector.SubscribeTradesAsync([instrument.Key], cancellationToken).ConfigureAwait(false);
+
+        var recording = new Recording(instrument.Key, instrumentId, sourceId, connectionId, segmentId, startedAt);
+        _recordings[instrumentId] = recording;
+        broadcaster.Broadcast(new RecordingStartedEvent(instrumentId, sourceId, connectionId, segmentId));
+        logger.LogInformation("Старт записи {Instrument} через подключение {ConnectionId}", instrument.Key, connectionId);
+        return ToInfo(recording);
     }
 
-    private readonly ConcurrentDictionary<InstrumentKey, Recording> _active = new();
-
-    /// <summary>Подписывает инструмент и открывает сегмент покрытия.</summary>
-    public async Task StartAsync(InstrumentKey instrument, short sourceId, CancellationToken cancellationToken)
+    public async Task StopAsync(long instrumentId, CancellationToken cancellationToken)
     {
-        await connector.SubscribeTradesAsync([instrument], cancellationToken).ConfigureAwait(false);
-
-        if (!registry.TryResolve(instrument, out var resolved))
+        if (!_recordings.TryRemove(instrumentId, out var recording))
         {
-            logger.LogWarning(
-                "Запись {Instrument}: инструмент не в реестре, сегмент покрытия не открыт", instrument);
             return;
         }
 
-        var segmentId = await coverageStore
-            .OpenAsync(resolved.InstrumentId, sourceId, timeProvider.GetUtcNow(), cancellationToken)
-            .ConfigureAwait(false);
+        var connector = connections.GetConnector(recording.ConnectionId);
+        if (connector is not null)
+        {
+            await connector.UnsubscribeTradesAsync([recording.Key], cancellationToken).ConfigureAwait(false);
+        }
 
-        _active[instrument] = new Recording(segmentId);
-        logger.LogInformation(
-            "Запись {Instrument} (source_id={SourceId}) → сегмент {SegmentId}", instrument, sourceId, segmentId);
+        await coverage.CloseAsync(recording.Key, "stopped", cancellationToken).ConfigureAwait(false);
+        broadcaster.Broadcast(new RecordingStoppedEvent(instrumentId));
+        logger.LogInformation("Стоп записи {Instrument}", recording.Key);
     }
 
-    /// <summary>Учитывает принятую сделку (для heartbeat trade_count).</summary>
-    public void Track(InstrumentKey instrument)
+    public async Task StopAllAsync(CancellationToken cancellationToken)
     {
-        if (_active.TryGetValue(instrument, out var recording))
+        foreach (var instrumentId in _recordings.Keys)
         {
-            Interlocked.Increment(ref recording.PendingDelta);
+            await StopAsync(instrumentId, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    /// <summary>Периодически сбрасывает накопленные дельты в trade_count активных сегментов.</summary>
-    public async Task RunHeartbeatAsync(TimeSpan interval, CancellationToken cancellationToken)
-    {
-        using var timer = new PeriodicTimer(interval);
-        try
-        {
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
-            {
-                await FlushDeltasAsync(cancellationToken).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Штатная остановка heartbeat.
-        }
-    }
+    public IReadOnlyList<RecordingInfo> List() => _recordings.Values.Select(ToInfo).ToList();
 
-    /// <summary>Досбрасывает дельты и закрывает все активные сегменты.</summary>
-    public async Task StopAllAsync(string status, CancellationToken cancellationToken)
-    {
-        await FlushDeltasAsync(cancellationToken).ConfigureAwait(false);
-
-        foreach (var (instrument, recording) in _active)
-        {
-            await coverageStore
-                .CloseAsync(recording.SegmentId, timeProvider.GetUtcNow(), status, cancellationToken)
-                .ConfigureAwait(false);
-            logger.LogInformation("Запись {Instrument} остановлена: сегмент {SegmentId} закрыт ({Status})",
-                instrument, recording.SegmentId, status);
-        }
-
-        _active.Clear();
-    }
-
-    private async Task FlushDeltasAsync(CancellationToken cancellationToken)
-    {
-        foreach (var recording in _active.Values)
-        {
-            var delta = Interlocked.Exchange(ref recording.PendingDelta, 0);
-            await coverageStore.ExtendAsync(recording.SegmentId, delta, cancellationToken).ConfigureAwait(false);
-        }
-    }
+    private RecordingInfo ToInfo(Recording recording) => new(
+        recording.InstrumentId,
+        recording.Key.Ticker,
+        recording.Key.Board,
+        recording.SourceId,
+        recording.ConnectionId,
+        recording.SegmentId,
+        recording.StartedAt,
+        coverage.CurrentCount(recording.Key));
 }
+
+/// <summary>Снимок активной записи (для API).</summary>
+public sealed record RecordingInfo(
+    long InstrumentId,
+    string Ticker,
+    string Board,
+    short SourceId,
+    long ConnectionId,
+    long SegmentId,
+    DateTimeOffset StartedAt,
+    long TradeCount);

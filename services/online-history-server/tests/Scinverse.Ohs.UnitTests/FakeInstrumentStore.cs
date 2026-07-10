@@ -17,6 +17,26 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
     public Task<IReadOnlyList<Instrument>> LoadAllAsync(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<Instrument>>(_instruments);
 
+    public Task<InstrumentCatalogPage> QueryAsync(InstrumentQuery query, CancellationToken cancellationToken)
+    {
+        var items = _instruments
+            .Select(i => new InstrumentCatalogItem
+            {
+                InstrumentId = i.InstrumentId,
+                Ticker = i.Key.Ticker,
+                Board = i.Key.Board,
+                MinStep = i.MinStep,
+                Decimals = i.Decimals,
+                Active = true
+            })
+            .ToList();
+
+        return Task.FromResult(new InstrumentCatalogPage(items, items.Count, query.Limit, query.Offset));
+    }
+
+    public Task<IReadOnlyList<InstrumentGroup>> QueryGroupsAsync(GroupQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<InstrumentGroup>>([]);
+
     public Task<Instrument> UpsertAsync(SecurityInfo security, CancellationToken cancellationToken)
     {
         var existing = _instruments.FirstOrDefault(i => i.Key == security.Key);

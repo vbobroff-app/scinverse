@@ -1,0 +1,53 @@
+namespace Scinverse.Ohs.Contracts;
+
+/// <summary>
+/// Типизированный контракт REST API OHS. Сервер реализует те же маршруты на Minimal API;
+/// согласованность держится интеграционными тестами (клиент бьёт по реальному хосту).
+/// Комментарии рядом с методами фиксируют HTTP-маршрут (source-generator не используется —
+/// клиент реализован вручную на <c>HttpClient</c>, см. Scinverse.Ohs.ApiTests).
+/// </summary>
+public interface IOhsApi
+{
+    /// <summary>GET /api/instruments?q=&amp;board=&amp;secType=&amp;onlyRecording=&amp;underlyingCode=&amp;expiration=&amp;limit=&amp;offset=</summary>
+    Task<InstrumentPageDto> GetInstrumentsAsync(
+        InstrumentQueryParams query, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/instruments/groups?level=underlying|series&amp;underlyingCode=&amp;secType=&amp;q=</summary>
+    Task<IReadOnlyList<InstrumentGroupDto>> GetInstrumentGroupsAsync(
+        string level, string? underlyingCode = null, string? secType = null, string? q = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/sources</summary>
+    Task<IReadOnlyList<SourceDto>> GetSourcesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/coverage?from={from}&amp;to={to}</summary>
+    Task<IReadOnlyList<CoverageSegmentDto>> GetCoverageAsync(
+        DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/recordings</summary>
+    Task<IReadOnlyList<RecordingDto>> GetRecordingsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>POST /api/recordings</summary>
+    Task<RecordingDto> StartRecordingAsync(StartRecordingRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>DELETE /api/recordings/{instrumentId}</summary>
+    Task StopRecordingAsync(long instrumentId, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/connections</summary>
+    Task<IReadOnlyList<ConnectionDto>> GetConnectionsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>POST /api/connections</summary>
+    Task<ConnectionDto> UpsertConnectionAsync(UpsertConnectionRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>PUT /api/connections/{id}/credentials</summary>
+    Task SetCredentialsAsync(long id, ConnectionCredentialsRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>POST /api/connections/{id}/connect</summary>
+    Task<ConnectionDto> ConnectConnectionAsync(long id, CancellationToken cancellationToken = default);
+
+    /// <summary>POST /api/connections/{id}/disconnect</summary>
+    Task<ConnectionDto> DisconnectConnectionAsync(long id, CancellationToken cancellationToken = default);
+
+    /// <summary>POST /api/connections/{id}/test</summary>
+    Task<ConnectionDto> TestConnectionAsync(long id, CancellationToken cancellationToken = default);
+}

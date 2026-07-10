@@ -5,15 +5,30 @@ namespace Scinverse.Ohs.Host;
 
 /// <summary>
 /// Генератор синтетических XML-фрагментов TRANSAQ (securities + alltrades)
-/// для демо-прогона конвейера без реального коннектора.
+/// для демо-прогона конвейера без реального коннектора. Включает небольшую
+/// цепочку FORTS (фьючерс + опционы), чтобы наполнить дерево деривативов.
 /// </summary>
 internal static class SampleData
 {
+    private sealed record DemoSecurity(string Ticker, string Board, string SecType);
+
+    // Демо-цепочка FORTS: базовый Si → фьючерс SiU6 → опционная серия (той же экспирации).
+    // Коды подобраны под MoexFortsSpecParser → derivative наполняется детерминированно.
+    private static readonly DemoSecurity[] FortsChain =
+    [
+        new("SiU6", "FUT", "FUT"),
+        new("SiU6C65000", "OPT", "OPT"),
+        new("SiU6P65000", "OPT", "OPT"),
+        new("SiU6C70000", "OPT", "OPT")
+    ];
+
     public static IEnumerable<string> Generate(OhsOptions options)
     {
-        var instruments = options.Instruments.Count > 0
-            ? options.Instruments
-            : [new InstrumentRef { Ticker = "SBER", Board = "TQBR" }];
+        var configured = options.Instruments.Count > 0
+            ? options.Instruments.Select(i => new DemoSecurity(i.Ticker, i.Board, "SHARE"))
+            : [new DemoSecurity("SBER", "TQBR", "SHARE")];
+
+        var instruments = configured.Concat(FortsChain).ToList();
 
         var fragments = new List<string> { BuildSecurities(instruments) };
 
@@ -51,7 +66,7 @@ internal static class SampleData
         return fragments;
     }
 
-    private static string BuildSecurities(IEnumerable<InstrumentRef> instruments)
+    private static string BuildSecurities(IEnumerable<DemoSecurity> instruments)
     {
         var builder = new StringBuilder("<securities>");
         foreach (var instrument in instruments)
@@ -66,7 +81,7 @@ internal static class SampleData
                 .Append("<minstep>0.01</minstep>")
                 .Append("<lotsize>10</lotsize>")
                 .Append("<point_cost>1</point_cost>")
-                .Append("<sectype>SHARE</sectype>")
+                .Append("<sectype>").Append(instrument.SecType).Append("</sectype>")
                 .Append("</security>");
         }
 

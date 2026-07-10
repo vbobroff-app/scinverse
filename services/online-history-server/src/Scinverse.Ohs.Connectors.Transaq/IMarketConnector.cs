@@ -20,5 +20,7 @@ public interface IMarketConnector : IAsyncDisposable
 
     Task SubscribeTradesAsync(IReadOnlyCollection<InstrumentKey> instruments, CancellationToken cancellationToken);
 
+    Task UnsubscribeTradesAsync(IReadOnlyCollection<InstrumentKey> instruments, CancellationToken cancellationToken);
+
     Task DisconnectAsync(CancellationToken cancellationToken);
 }

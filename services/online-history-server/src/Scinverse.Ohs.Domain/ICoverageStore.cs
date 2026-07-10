@@ -14,4 +14,22 @@ public interface ICoverageStore
 
     /// <summary>Закрывает сегмент (ended_at + статус).</summary>
     Task CloseAsync(long segmentId, DateTimeOffset endedAt, string status, CancellationToken cancellationToken);
+
+    /// <summary>Сегменты, пересекающие окно [from, to] (для Ганта покрытия).</summary>
+    Task<IReadOnlyList<CoverageSegment>> QuerySegmentsAsync(
+        DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Внутрисессионные разрывы: пары соседних сделок в окне, между которыми зазор больше порога.
+    /// </summary>
+    Task<IReadOnlyList<CoverageGap>> QueryGapsAsync(
+        long instrumentId, short sourceId, DateTimeOffset from, DateTimeOffset to,
+        double thresholdSeconds, CancellationToken cancellationToken);
+}
+
+/// <summary>Внутрисессионный разрыв данных (выводится из md_trade, не хранится).</summary>
+public sealed record CoverageGap
+{
+    public required DateTimeOffset From { get; init; }
+    public required DateTimeOffset To { get; init; }
 }

@@ -39,6 +39,9 @@ public sealed class FakeReplayConnector(IEnumerable<string> fragments) : IMarket
         return Task.CompletedTask;
     }
 
+    public Task UnsubscribeTradesAsync(IReadOnlyCollection<InstrumentKey> instruments, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
     public Task DisconnectAsync(CancellationToken cancellationToken)
     {
         IsConnected = false;
