@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using System.Threading.Channels;
 using Scinverse.Ohs.Domain;
@@ -52,7 +53,8 @@ public sealed class SyntheticLiveConnector : IMarketConnector
     private static IEnumerable<DemoSecurity> BuildSiChain()
     {
         const int year = 2026;
-        int[] strikes = [80000, 85000];
+        // Лесенка страйков «как на доске»: 65000..90000 с шагом 2500 (11 страйков × Call/Put).
+        var strikes = Enumerable.Range(0, 11).Select(i => 65000 + i * 2500).ToArray();
         (int Day, int Month, char? Week)[] series =
         [
             (2, 7, 'A'),   // W1 июля

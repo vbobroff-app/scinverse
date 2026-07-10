@@ -5,24 +5,16 @@
   min-height: 0;
 }
 
-.header,
+.axisBar,
 .rowWrap {
   display: grid;
   grid-template-columns: minmax(250px, 315px) 1fr;
   gap: var(--spacing-sm);
 }
 
-.header {
-  height: 24px;
+.axisBar {
   align-items: center;
-  padding-right: 4px;
-}
-
-.headLabel {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
+  padding: var(--spacing-sm) 4px 0 0;
 }
 
 .axisCell {
@@ -239,7 +231,9 @@
 }
 
 .footer {
-  padding: var(--spacing-sm) 0 0;
+  margin-top: 15px;
+  padding-left: var(--spacing-sm);
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
+  white-space: nowrap;
 }

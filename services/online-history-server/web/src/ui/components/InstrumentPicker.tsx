@@ -275,13 +275,6 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
 
   return (
     <div className={styles.picker}>
-      <div className={styles.header}>
-        <span className={styles.headLabel}>Инструмент</span>
-        <div className={styles.axisCell}>
-          <TimeAxis window={window} />
-        </div>
-      </div>
-
       <div className={styles.scroll} ref={virtual.ref} onScroll={virtual.onScroll} style={scrollStyle}>
         <div style={{ height: virtual.topPad }} />
         {visible.map((row) => {
@@ -322,9 +315,14 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
         <div style={{ height: virtual.bottomPad }} />
       </div>
 
-      <div className={styles.footer}>
-        {loading ? 'Загрузка…' : `Показано ${instruments.length} из ${total}`}
-        {selected.size > 0 ? ` · выбрано ${selected.size}` : ''}
+      <div className={styles.axisBar}>
+        <span className={styles.footer}>
+          {loading ? 'Загрузка…' : `Показано ${instruments.length} из ${total}`}
+          {selected.size > 0 ? ` · выбрано ${selected.size}` : ''}
+        </span>
+        <div className={styles.axisCell}>
+          <TimeAxis window={window} />
+        </div>
       </div>
     </div>
   );
