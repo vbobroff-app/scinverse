@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makeProjector } from './sessionProjection';
+import { makeProjector, makeInverseProjector } from './sessionProjection';
 import type { SessionDto } from './types';
 
 function session(date: string, start: string, end: string, weekend = false): SessionDto {
@@ -62,5 +62,48 @@ describe('makeProjector', () => {
     // 15ч против 9ч10м → будни ≈62%, выходные ≈38%.
     expect(boundary).toBeCloseTo((15 / (15 + 55 / 6)) * 100, 1);
     expect(weekdayWidth).toBeGreaterThan(weekendWidth);
+  });
+});
+
+describe('makeInverseProjector', () => {
+  it('без сессий — линейная инверсия', () => {
+    const from = at('2026-07-06T00:00:00Z');
+    const to = at('2026-07-06T10:00:00Z');
+    const inv = makeInverseProjector(from, to, []);
+    expect(inv(0)).toBe(from);
+    expect(inv(100)).toBe(to);
+    expect(inv(50)).toBeCloseTo((from + to) / 2, 5);
+  });
+
+  it('round-trip project→invert по позициям оси (D2)', () => {
+    const p = makeProjector(at(s1.start), at(s2.end), [s1, s2]);
+    const inv = makeInverseProjector(at(s1.start), at(s2.end), [s1, s2]);
+    for (const pos of [0, 12.5, 25, 49, 51, 75, 100]) {
+      expect(p(inv(pos))).toBeCloseTo(pos, 5);
+    }
+  });
+
+  it('round-trip invert→project по моментам внутри сессий (D2)', () => {
+    const inv = makeInverseProjector(at(s1.start), at(s2.end), [s1, s2]);
+    const p = makeProjector(at(s1.start), at(s2.end), [s1, s2]);
+    const mid1 = (at(s1.start) + at(s1.end)) / 2;
+    const mid2 = (at(s2.start) + at(s2.end)) / 2;
+    // s2.start исключён намеренно: он делит позицию-шов с s1.end (ночь схлопнута), инверсия
+    // однозначно отдаёт канонический s1.end — стык принципиально неразличим.
+    for (const ms of [at(s1.start), mid1, at(s1.end), mid2, at(s2.end)]) {
+      expect(inv(p(ms))).toBeCloseTo(ms, 5);
+    }
+  });
+
+  it('50% на границе D2 отдаёт стык сессий', () => {
+    const inv = makeInverseProjector(at(s1.start), at(s2.end), [s1, s2]);
+    // Единицы длительности при 50% = конец s1 (он же логический стык с s2).
+    expect(inv(50)).toBeCloseTo(at(s1.end), 5);
+  });
+
+  it('края оси клампятся к границам окна', () => {
+    const inv = makeInverseProjector(at(s1.start), at(s2.end), [s1, s2]);
+    expect(inv(-10)).toBe(at(s1.start));
+    expect(inv(150)).toBe(at(s2.end));
   });
 });

@@ -20,6 +20,52 @@ export function CalendarIcon({ className }: IconProps) {
   );
 }
 
+/** Прицел (crosshair) — тумблер вертикального time-line. */
+export function CrosshairIcon({ className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      width="1em"
+      height="1em"
+      aria-hidden="true"
+    >
+      <path d="M12 16v5m0-18v5m4 4h5M3 12h5" />
+    </svg>
+  );
+}
+
+/** Прямоугольник — тумблер подсветки дней (рамка-контейнер вокруг каждого дня). */
+export function DayBoxIcon({ className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      width="1em"
+      height="1em"
+      aria-hidden="true"
+    >
+      <rect
+        x="3"
+        y="3"
+        width="18"
+        height="18"
+        rx="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** Часы (feather-стиль) — для сессии биржи в тайм-лайн-фильтре. */
 export function ClockIcon({ className }: IconProps) {
   return (

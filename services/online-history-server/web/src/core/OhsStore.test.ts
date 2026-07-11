@@ -216,12 +216,12 @@ describe('OhsStore timeframe → window', () => {
     store.stop();
   });
 
-  it('окно дня «полные сутки»: сессия растянута на 24ч от МСК-полуночи', () => {
+  it('окно дня «полные сутки» (Full, сессия не выбрана): день растянут на 24ч от МСК-полуночи', () => {
     const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
     store.start();
 
     store.setTimeframe({ kind: 'sessions', unit: 'D', count: 1, includeWeekends: true });
-    store.setTimelineFilter({ dayWindow: { mode: 'full' } });
+    store.setTimelineFilter({ fullDay: true, session: { mode: 'none' } });
 
     const s = store.sessions$.value;
     expect(s).toHaveLength(1);
@@ -230,6 +230,25 @@ describe('OhsStore timeframe → window', () => {
     expect(span).toBe(24 * 60 * 60 * 1000);
     // Старт окна — МСК-полночь = 21:00 UTC предыдущих суток.
     expect(new Date(day.start).getUTCHours()).toBe(21);
+    // Сессия не выбрана — зон подсветки нет.
+    expect(day.sessionStart).toBeUndefined();
+    store.stop();
+  });
+
+  it('Full + сессия MOEX: день 24ч + границы сессии в sessionStart/End (зоны pre/session/post)', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    store.start();
+
+    store.setTimeframe({ kind: 'sessions', unit: 'D', count: 1, includeWeekends: true });
+    store.setTimelineFilter({ fullDay: true, session: { mode: 'session', exchange: 'MOEX' } });
+
+    const day = store.sessions$.value[0];
+    expect(Date.parse(day.end) - Date.parse(day.start)).toBe(24 * 60 * 60 * 1000);
+    expect(day.sessionStart).toBeDefined();
+    expect(day.sessionEnd).toBeDefined();
+    // Границы сессии — строго внутри суток.
+    expect(Date.parse(day.sessionStart!)).toBeGreaterThanOrEqual(Date.parse(day.start));
+    expect(Date.parse(day.sessionEnd!)).toBeLessThanOrEqual(Date.parse(day.end));
     store.stop();
   });
 

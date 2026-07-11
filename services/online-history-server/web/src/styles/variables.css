@@ -13,6 +13,7 @@
 
   --color-border: #dee2e6;
   --color-border-focus: #86b7fe;
+  --light-border-color: #ced4da;
 
   --color-accent: #0d6efd;
   --color-accent-hover: #0b5ed7;
@@ -62,6 +63,7 @@
 
   --color-border: #373a40;
   --color-border-focus: #4dabf7;
+  --light-border-color: #414850;
 
   --color-accent: #4dabf7;
   --color-accent-hover: #74c0fc;

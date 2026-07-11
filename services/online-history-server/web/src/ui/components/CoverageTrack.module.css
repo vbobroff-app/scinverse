@@ -2,9 +2,38 @@
   position: relative;
   height: 18px;
   background: var(--color-bg-input);
-  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   overflow: hidden;
+}
+
+/* Контейнер одного дня: пакует зоны [pre | session | post] всех дней в один div. */
+.dayBox {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+/* Подсветка дней (тумблер): обрамляем каждый день рамкой + скруглением. */
+.dayBoxOn {
+  border: 1px solid var(--light-border-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.zonePre,
+.zoneSession,
+.zonePost {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+/* Внесессионные зоны приглушены, сессия — прозрачная (чистая область). */
+.zonePre,
+.zonePost {
+  background: var(--color-text-muted);
+  opacity: 0.14;
 }
 
 .nowLine {

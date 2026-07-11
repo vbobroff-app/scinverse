@@ -41,6 +41,12 @@ function hmTz(ms: number, offMin: number): string {
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
+/** То же, но полночь на правом крае окна показываем как «24:00» (конец суток, не начало). */
+function hmEndTz(ms: number, offMin: number): string {
+  const s = hmTz(ms, offMin);
+  return s === '00:00' ? '24:00' : s;
+}
+
 /** Дата как dd.MM в заданном ТЗ. */
 function dmTz(ms: number, offMin: number): string {
   const d = tzDateOf(ms, offMin);
@@ -125,7 +131,7 @@ export function TimeAxis({ window, sessions, tzOffsetMin }: Props) {
       return [
         { left: 0, label: hmTz(fromMs, tzOffsetMin), edge: 'start' },
         ...inner,
-        { left: 100, label: hmTz(toMs, tzOffsetMin), edge: 'end' },
+        { left: 100, label: hmEndTz(toMs, tzOffsetMin), edge: 'end' },
       ];
     }
 

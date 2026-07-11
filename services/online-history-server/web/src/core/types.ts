@@ -70,6 +70,13 @@ export interface SessionDto {
   start: string;
   end: string;
   weekend: boolean;
+  /**
+   * Границы торговой сессии внутри отображаемого дня `[start,end]` — только для режима
+   * «Full + сессия»: полные сутки с подсветкой зон `[pre | session | post]`. Клиентское поле
+   * (проставляется тайм-лайн-фильтром), бэкенд его не заполняет.
+   */
+  sessionStart?: string;
+  sessionEnd?: string;
 }
 
 /** Границы покрытия данными (для таймфрейма All). */
@@ -100,19 +107,26 @@ export type Timeframe =
  * - `custom` — пользовательское окно `[fromMin, toMin]` (минуты от полуночи МСК).
  * (`history`/`set` — дат-точные и пользовательские расписания — придут в phase 7c.)
  */
-export type DayWindowMode =
-  | { mode: 'full' }
+/**
+ * Окно сессии внутри дня — взаимоисключающая группа тайм-лайн-фильтра:
+ * `none` (сессия не выбрана), сессия биржи, пользовательское расписание t1–t2, `smart` (авто).
+ */
+export type SessionWindowMode =
+  | { mode: 'none' }
   | { mode: 'smart' }
   | { mode: 'session'; exchange: string }
   | { mode: 'custom'; fromMin: number; toMin: number };
 
 /**
- * Тайм-лайн-фильтр оси Ганта: какие дни недели показывать (0=вс..6=сб) и какое окно внутри дня.
- * Применяется чисто на клиенте (пере-проекция оси), одинаково ко всем строкам.
+ * Тайм-лайн-фильтр оси Ганта: какие дни недели показывать (0=вс..6=сб), полные ли сутки и какое
+ * окно сессии. `fullDay` — независимый тумблер; в сочетании с выбранной сессией даёт режим
+ * `[pre | session | post]` (видны внесессионные сделки + границы сессии). Применяется чисто на
+ * клиенте (пере-проекция оси), одинаково ко всем строкам.
  */
 export interface TimelineFilter {
   weekdays: ReadonlySet<number>;
-  dayWindow: DayWindowMode;
+  fullDay: boolean;
+  session: SessionWindowMode;
 }
 
 /**

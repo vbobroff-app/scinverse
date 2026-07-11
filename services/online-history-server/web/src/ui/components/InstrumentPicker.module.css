@@ -1,8 +1,93 @@
 .picker {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+}
+
+/* On/off вертикального time-line: стиль как у иконок-кнопок фильтров, прозрачность 0.28 → 1 на hover. */
+.crosshairToggle {
+  position: absolute;
+  right: 14px;
+  bottom: 55px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-input);
+  color: var(--color-text-muted);
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0.28;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.crosshairToggle:hover,
+.crosshairToggle:focus-visible {
+  opacity: 1;
+  border-color: var(--color-border-focus);
+  background: var(--color-bg-hover);
+  color: var(--color-accent);
+  outline: none;
+}
+
+/* Toggled без hover: без синего — просто полностью видимая, с рамкой и чуть светлее фоном.
+   Hover по-прежнему подсвечивает акцентом (из базового правила .crosshairToggle:hover). */
+.crosshairToggleOn {
+  opacity: 0.28;
+  border-color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+
+/* Тумблер подсветки дней — зеркало crosshair-кнопки, но у левого края колонки Ганта
+   (после левой панели инструментов: её max-ширина 315px + gap). */
+.dayToggle {
+  position: absolute;
+  left: calc(315px + var(--spacing-sm) + 14px);
+  bottom: 55px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-input);
+  color: var(--color-text-muted);
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0.28;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.dayToggle:hover,
+.dayToggle:focus-visible {
+  opacity: 1;
+  border-color: var(--color-border-focus);
+  background: var(--color-bg-hover);
+  color: var(--color-accent);
+  outline: none;
+}
+
+.dayToggleOn {
+  opacity: 0.28;
+  border-color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+
+.crosshairToggleIcon {
+  width: 1em;
+  height: 1em;
 }
 
 .axisBar,
@@ -251,6 +336,11 @@
   border-radius: var(--radius-md);
   background: var(--color-bg-panel);
   min-width: 0;
+}
+
+/* Подсветка контейнера колбасок — только при включённом time-line (тумблер crosshair). */
+.pickerCrosshair .right:hover {
+  border-color: var(--color-border-focus);
 }
 
 .right > * {

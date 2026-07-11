@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, type CSSProperties } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { useNow } from '../hooks/useNow';
@@ -7,8 +7,11 @@ import { Button } from './Button';
 import { TimeAxis } from './TimeAxis';
 import { TimeframePanel } from './TimeframePanel';
 import { CoverageTrack } from './CoverageTrack';
+import { CrosshairOverlay } from './CrosshairOverlay';
+import { CrosshairIcon, DayBoxIcon } from './icons';
+import { showCrosshair, hideCrosshair } from '../../core/crosshair';
 import { seriesKey, type CoverageWindow } from '../../core/OhsStore';
-import { makeProjector } from '../../core/sessionProjection';
+import { makeProjector, makeInverseProjector } from '../../core/sessionProjection';
 import { exchangeForBoard } from '../../core/exchange';
 import type {
   ConnectionDto,
@@ -69,7 +72,7 @@ interface RowProps {
   expanded: boolean;
   seriesBusy: boolean;
   seriesRecordingCount: number;
-  tzOffsetMin: number;
+  highlightDays: boolean;
   onToggleFutures: (instrument: InstrumentDto) => void;
   onToggleSeries: (futuresId: number, expiration: string) => void;
   onToggleSelect: (instrumentId: number) => void;
@@ -91,7 +94,7 @@ const Row = memo(function Row({
   expanded,
   seriesBusy,
   seriesRecordingCount,
-  tzOffsetMin,
+  highlightDays,
   onToggleFutures,
   onToggleSeries,
   onToggleSelect,
@@ -209,7 +212,13 @@ const Row = memo(function Row({
       </div>
 
       <div className={styles.right}>
-        <CoverageTrack window={window} segments={segments} sourceCodeById={sourceCodeById} sessions={sessions} tzOffsetMin={tzOffsetMin} />
+        <CoverageTrack
+          window={window}
+          segments={segments}
+          sourceCodeById={sourceCodeById}
+          sessions={sessions}
+          highlightDays={highlightDays}
+        />
       </div>
     </div>
   );
@@ -293,6 +302,82 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
 
   const onNearEnd = useCallback(() => store.loadMoreInstruments(), [store]);
   const virtual = useVirtualRows(rows.length, ROW_HEIGHT, { overscan: 8, onNearEnd });
+  const axisCellRef = useRef<HTMLDivElement>(null);
+  const [crosshairOn, setCrosshairOn] = useState(true);
+  const [highlightDays, setHighlightDays] = useState(false);
+  const frameRef = useRef(0);
+
+  const invert = useMemo(
+    () => makeInverseProjector(Date.parse(window.from), Date.parse(window.to), sessions),
+    [window.from, window.to, sessions],
+  );
+
+  useEffect(() => () => {
+    if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    hideCrosshair();
+  }, []);
+
+  useEffect(() => {
+    if (!crosshairOn) hideCrosshair();
+  }, [crosshairOn]);
+
+  /** Вертикальный time-line по всей колонке Ганта (не только по колбаске). */
+  const onPickerPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!crosshairOn) return;
+      const axis = axisCellRef.current;
+      const scroll = virtual.ref.current;
+      if (!axis || !scroll) return;
+
+      const clientX = e.clientX;
+      const clientY = e.clientY;
+      if (frameRef.current) return;
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = 0;
+        const aRect = axis.getBoundingClientRect();
+        const sRect = scroll.getBoundingClientRect();
+        // Линейка (метки) живёт в контентной части ячейки оси — вычитаем её горизонтальные паддинги,
+        // иначе синий time-line рассинхронится с горизонтальной шкалой.
+        const cs = getComputedStyle(axis);
+        const padL = parseFloat(cs.paddingLeft) || 0;
+        const padR = parseFloat(cs.paddingRight) || 0;
+        const trackLeft = aRect.left + padL;
+        const trackRight = aRect.right - padR;
+        const trackWidth = Math.max(1, trackRight - trackLeft);
+        const top = sRect.top;
+        const bottom = aRect.bottom;
+
+        // Пороги: левый/правый край колонки Ганта, верх скролла, низ оси.
+        // Вертикальное движение внутри — не гасит линию (в отличие от leave по каждой колбаске).
+        if (clientX < trackLeft || clientX > trackRight || clientY < top || clientY > bottom) {
+          hideCrosshair();
+          return;
+        }
+
+        let pctPos = ((clientX - trackLeft) / trackWidth) * 100;
+        if (clientX <= trackLeft + 2) pctPos = 0;
+        else if (clientX >= trackRight - 2) pctPos = 100;
+
+        showCrosshair({
+          x: clientX,
+          trackLeft,
+          trackRight,
+          ms: invert(pctPos),
+          tzOffsetMin,
+          atEnd: pctPos >= 100,
+        });
+      });
+    },
+    [crosshairOn, invert, tzOffsetMin, virtual.ref],
+  );
+
+  const onPickerPointerLeave = useCallback(() => {
+    if (frameRef.current) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = 0;
+    }
+    hideCrosshair();
+  }, []);
 
   const onToggleFutures = useCallback((inst: InstrumentDto) => store.toggleFutures(inst), [store]);
   const onToggleSeries = useCallback(
@@ -323,7 +408,11 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const visible = rows.slice(virtual.start, virtual.end);
 
   return (
-    <div className={styles.picker}>
+    <div
+      className={[styles.picker, crosshairOn ? styles.pickerCrosshair : ''].filter(Boolean).join(' ')}
+      onPointerMove={onPickerPointerMove}
+      onPointerLeave={onPickerPointerLeave}
+    >
       <div className={styles.scroll} ref={virtual.ref} onScroll={virtual.onScroll} style={scrollStyle}>
         <div style={{ height: virtual.topPad }} />
         {visible.map((row) => {
@@ -372,7 +461,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               expanded={expanded}
               seriesBusy={row.kind === 'series' && seriesBusy.has(sKey)}
               seriesRecordingCount={seriesRecordingCount}
-              tzOffsetMin={tzOffsetMin}
+              highlightDays={highlightDays}
               onToggleFutures={onToggleFutures}
               onToggleSeries={onToggleSeries}
               onToggleSelect={onToggleSelect}
@@ -394,10 +483,32 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
           </span>
           <TimeframePanel />
         </div>
-        <div className={styles.axisCell}>
+        <div className={styles.axisCell} ref={axisCellRef}>
           <TimeAxis window={window} sessions={sessions} tzOffsetMin={tzOffsetMin} />
         </div>
       </div>
+
+      <button
+        type="button"
+        className={[styles.dayToggle, highlightDays ? styles.dayToggleOn : ''].filter(Boolean).join(' ')}
+        aria-pressed={highlightDays}
+        title={highlightDays ? 'Не подсвечивать дни' : 'Подсвечивать дни'}
+        onClick={() => setHighlightDays((v) => !v)}
+      >
+        <DayBoxIcon className={styles.crosshairToggleIcon} />
+      </button>
+
+      <button
+        type="button"
+        className={[styles.crosshairToggle, crosshairOn ? styles.crosshairToggleOn : ''].filter(Boolean).join(' ')}
+        aria-pressed={crosshairOn}
+        title={crosshairOn ? 'Выключить вертикальный time-line' : 'Включить вертикальный time-line'}
+        onClick={() => setCrosshairOn((v) => !v)}
+      >
+        <CrosshairIcon className={styles.crosshairToggleIcon} />
+      </button>
+
+      {crosshairOn && <CrosshairOverlay scrollRef={virtual.ref} axisRef={axisCellRef} />}
     </div>
   );
 }

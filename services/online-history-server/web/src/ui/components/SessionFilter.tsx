@@ -70,9 +70,9 @@ export function SessionFilter() {
     };
   }, [open]);
 
-  const dw = filter.dayWindow;
+  const sess = filter.session;
   const isAllDays = filter.weekdays.size === 7;
-  const active = dw.mode !== 'full' || !isAllDays;
+  const active = !(isAllDays && sess.mode === 'none');
 
   const toggleDay = (dow: number) => {
     const next = new Set(filter.weekdays);
@@ -86,17 +86,29 @@ export function SessionFilter() {
     store.setTimelineFilter({ weekdays: next });
   };
 
+  const isSessionMoex = sess.mode === 'session' && sess.exchange === 'MOEX';
+
+  const toggleFull = () => store.setTimelineFilter({ fullDay: !filter.fullDay });
+
+  // Клик по активной кнопке группы снимает её (→ сессия не выбрана); по неактивной — выбирает.
+  const selectMoex = () =>
+    store.setTimelineFilter({ session: isSessionMoex ? { mode: 'none' } : { mode: 'session', exchange: 'MOEX' } });
+  const selectSmart = () =>
+    store.setTimelineFilter({ session: sess.mode === 'smart' ? { mode: 'none' } : { mode: 'smart' } });
+
   const setCustomWindow = () => {
-    const fromMin = dw.mode === 'custom' ? dw.fromMin : 10 * 60;
-    const toMin = dw.mode === 'custom' ? dw.toMin : 19 * 60;
-    store.setTimelineFilter({ dayWindow: { mode: 'custom', fromMin, toMin } });
+    if (sess.mode === 'custom') {
+      store.setTimelineFilter({ session: { mode: 'none' } });
+      return;
+    }
+    store.setTimelineFilter({ session: { mode: 'custom', fromMin: 10 * 60, toMin: 19 * 60 } });
   };
 
   const patchCustom = (patch: { fromMin?: number; toMin?: number }) => {
-    if (dw.mode !== 'custom') {
+    if (sess.mode !== 'custom') {
       return;
     }
-    store.setTimelineFilter({ dayWindow: { ...dw, ...patch } });
+    store.setTimelineFilter({ session: { ...sess, ...patch } });
   };
 
   return (
@@ -170,18 +182,17 @@ export function SessionFilter() {
             <div className={styles.chips}>
               <button
                 type="button"
-                className={[styles.chip, dw.mode === 'full' ? styles.chipOn : ''].filter(Boolean).join(' ')}
-                onClick={() => store.setTimelineFilter({ dayWindow: { mode: 'full' } })}
-                title="Полные сутки 00:00–24:00 (кросс-биржевой режим)"
+                className={[styles.chip, filter.fullDay ? styles.chipOn : ''].filter(Boolean).join(' ')}
+                onClick={toggleFull}
+                title="Полные сутки 00:00–24:00. С выбранной сессией — режим [pre | session | post] (видны внесессионные сделки)."
               >
                 Full
               </button>
+              <span className={styles.divider} />
               <button
                 type="button"
-                className={[styles.chip, dw.mode === 'session' && dw.exchange === 'MOEX' ? styles.chipOn : '']
-                  .filter(Boolean)
-                  .join(' ')}
-                onClick={() => store.setTimelineFilter({ dayWindow: { mode: 'session', exchange: 'MOEX' } })}
+                className={[styles.chip, isSessionMoex ? styles.chipOn : ''].filter(Boolean).join(' ')}
+                onClick={selectMoex}
                 title="Сессия MOEX по сегодняшнему расписанию, спроецирована на историю"
               >
                 <ClockIcon className={styles.chipIcon} />moex
@@ -199,7 +210,7 @@ export function SessionFilter() {
             <div className={styles.chips}>
               <button
                 type="button"
-                className={[styles.chip, dw.mode === 'custom' ? styles.chipOn : ''].filter(Boolean).join(' ')}
+                className={[styles.chip, sess.mode === 'custom' ? styles.chipOn : ''].filter(Boolean).join(' ')}
                 onClick={setCustomWindow}
                 title="Пользовательское окно t1–t2"
               >
@@ -207,33 +218,33 @@ export function SessionFilter() {
               </button>
               <button
                 type="button"
-                className={[styles.chip, dw.mode === 'smart' ? styles.chipOn : ''].filter(Boolean).join(' ')}
-                onClick={() => store.setTimelineFilter({ dayWindow: { mode: 'smart' } })}
-                title="Авто: одна биржа в выборке → её сессия, микс → полные сутки. Ниже — дат-точные расписания."
+                className={[styles.chip, sess.mode === 'smart' ? styles.chipOn : ''].filter(Boolean).join(' ')}
+                onClick={selectSmart}
+                title="Авто: одна биржа в выборке → её сессия, микс → сессия не выбрана. Ниже — дат-точные расписания."
               >
                 Smart
               </button>
             </div>
 
-            {dw.mode === 'custom' && (
+            {sess.mode === 'custom' && (
               <div className={styles.timeRow}>
                 <input
                   type="time"
                   className={styles.time}
-                  value={minToHhmm(dw.fromMin)}
+                  value={minToHhmm(sess.fromMin)}
                   onChange={(e) => patchCustom({ fromMin: hhmmToMin(e.target.value) })}
                 />
                 <span className={styles.dash}>—</span>
                 <input
                   type="time"
                   className={styles.time}
-                  value={minToHhmm(dw.toMin)}
+                  value={minToHhmm(sess.toMin)}
                   onChange={(e) => patchCustom({ toMin: hhmmToMin(e.target.value) })}
                 />
               </div>
             )}
 
-            {dw.mode === 'smart' && (
+            {sess.mode === 'smart' && (
               <div className={styles.chips}>
                 <button type="button" className={styles.chipMuted} disabled title="Дат-точное расписание MOEX из ISS — phase 7c">
                   MOEX history

@@ -16,7 +16,6 @@ import {
 import type {
   ConnectionDto,
   CoverageSegmentDto,
-  DayWindowMode,
   DisplayTz,
   FilterKey,
   InstrumentDto,
@@ -25,6 +24,7 @@ import type {
   LiveEvent,
   RecordingDto,
   SessionDto,
+  SessionWindowMode,
   SourceDto,
   StartRecordingRequest,
   Timeframe,
@@ -65,35 +65,60 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const ALL_WEEKDAYS: readonly number[] = [0, 1, 2, 3, 4, 5, 6];
 /** Домашняя биржа (расписание по умолчанию, пока мультибиржа не наполнена). */
 const HOME_EXCHANGE = 'MOEX';
-/** Стартовый пресет: все дни, окно = сессия MOEX (спроецированное текущее расписание). */
+/** Стартовый пресет: все дни, сессия MOEX (свёрнутая, как раньше), полные сутки выключены. */
 const STARTUP_TIMELINE: TimelineFilter = {
   weekdays: new Set(ALL_WEEKDAYS),
-  dayWindow: { mode: 'session', exchange: HOME_EXCHANGE },
+  fullDay: false,
+  session: { mode: 'session', exchange: HOME_EXCHANGE },
+};
+/** Нейтраль тайм-лайн-фильтра: все дни, полные сутки, сессия не выбрана. */
+const NEUTRAL_TIMELINE: TimelineFilter = {
+  weekdays: new Set(ALL_WEEKDAYS),
+  fullDay: true,
+  session: { mode: 'none' },
 };
 /** Стандарт времени по умолчанию — МСК (UTC+3). */
 const DEFAULT_DISPLAY_TZ: DisplayTz = { preset: 'msk', offsetMin: 180 };
 
 /**
- * Пере-строение границ дня под окно тайм-лайн-фильтра. `dayWindow` уже разрешён
- * (без `smart`). Для `session` в MVP оставляем сгенерированные границы MOEX;
- * при мультибирже здесь будет пересчёт по расписанию `dayWindow.exchange`.
+ * Пере-строение границ дня под тайм-лайн-фильтр. `mode` уже разрешён (без `smart`).
+ *
+ * - сессия не выбрана (`none`) → полные сутки одной колбаской `[00:00, 24:00]`;
+ * - сессия выбрана, `fullDay=false` → сворачиваем день до окна сессии (одна колбаска);
+ * - сессия выбрана, `fullDay=true` → полные сутки + границы сессии в `sessionStart/End`
+ *   (рендерятся как зоны `[pre | session | post]`).
+ *
+ * Для `session` в MVP используем сгенерированные границы MOEX; при мультибирже здесь будет
+ * пересчёт по расписанию `mode.exchange`.
  */
-function reshapeDay(session: SessionDto, dayWindow: DayWindowMode): SessionDto {
-  switch (dayWindow.mode) {
+function reshapeDay(session: SessionDto, fullDay: boolean, mode: SessionWindowMode): SessionDto {
+  const midnight = mskMidnightMsFromIso(session.date);
+  const dayStart = new Date(midnight).toISOString();
+  const dayEnd = new Date(midnight + DAY_MS).toISOString();
+
+  let ss: string | null = null;
+  let se: string | null = null;
+  switch (mode.mode) {
     case 'session':
-    case 'smart':
-      return session;
-    case 'full': {
-      const midnight = mskMidnightMsFromIso(session.date);
-      return { ...session, start: new Date(midnight).toISOString(), end: new Date(midnight + DAY_MS).toISOString() };
-    }
-    case 'custom': {
-      const midnight = mskMidnightMsFromIso(session.date);
-      const startMs = midnight + dayWindow.fromMin * 60_000;
-      const endMs = midnight + dayWindow.toMin * 60_000;
-      return { ...session, start: new Date(startMs).toISOString(), end: new Date(endMs).toISOString() };
-    }
+    case 'smart': // разрешается в resolveSession; сюда `smart` не доходит
+      ss = session.start;
+      se = session.end;
+      break;
+    case 'custom':
+      ss = new Date(midnight + mode.fromMin * 60_000).toISOString();
+      se = new Date(midnight + mode.toMin * 60_000).toISOString();
+      break;
+    case 'none':
+      break;
   }
+
+  if (!ss || !se) {
+    return { ...session, start: dayStart, end: dayEnd, sessionStart: undefined, sessionEnd: undefined };
+  }
+  if (!fullDay) {
+    return { ...session, start: ss, end: se, sessionStart: undefined, sessionEnd: undefined };
+  }
+  return { ...session, start: dayStart, end: dayEnd, sessionStart: ss, sessionEnd: se };
 }
 
 /** Ключ раскрытой опционной серии: `${futuresId}:${expiration}`. */
@@ -224,16 +249,22 @@ export class OhsStore {
     }
   }
 
-  /** Меняет тайм-лайн-фильтр (дни недели / окно дня) и пере-проецирует ось. */
+  /** Меняет тайм-лайн-фильтр (дни / полные сутки / окно сессии) и пере-проецирует ось. */
   setTimelineFilter(patch: Partial<TimelineFilter>): void {
-    this.timelineFilter$.next({ ...this.timelineFilter$.value, ...patch });
+    const next = this.normalizeTimeline({ ...this.timelineFilter$.value, ...patch });
+    this.timelineFilter$.next(next);
     this.applyTimeframe(this.timeframe$.value);
   }
 
-  /** Сброс тайм-лайн-фильтра в нейтраль (все дни + полные сутки). */
+  /** Сброс тайм-лайн-фильтра в нейтраль (все дни + полные сутки, сессия не выбрана). */
   resetTimelineFilter(): void {
-    this.timelineFilter$.next({ weekdays: new Set(ALL_WEEKDAYS), dayWindow: { mode: 'full' } });
+    this.timelineFilter$.next({ ...NEUTRAL_TIMELINE, weekdays: new Set(ALL_WEEKDAYS) });
     this.applyTimeframe(this.timeframe$.value);
+  }
+
+  /** Окно должно быть определено: без выбранной сессии показываем полные сутки. */
+  private normalizeTimeline(f: TimelineFilter): TimelineFilter {
+    return f.session.mode === 'none' && !f.fullDay ? { ...f, fullDay: true } : f;
   }
 
   /** Меняет стандарт времени отображения (единый на систему). */
@@ -259,23 +290,23 @@ export class OhsStore {
     return HOME_EXCHANGE;
   }
 
-  /** Разворачивает `smart` в конкретный режим окна дня (session выбранной биржи или full). */
-  private resolveDayWindow(dw: DayWindowMode): DayWindowMode {
-    if (dw.mode !== 'smart') {
-      return dw;
+  /** Разворачивает `smart` в конкретное окно сессии (сессия выбранной биржи или «не выбрана»). */
+  private resolveSession(mode: SessionWindowMode): SessionWindowMode {
+    if (mode.mode !== 'smart') {
+      return mode;
     }
     const ex = this.pickSmartExchange();
-    return ex ? { mode: 'session', exchange: ex } : { mode: 'full' };
+    return ex ? { mode: 'session', exchange: ex } : { mode: 'none' };
   }
 
   /** Фильтрует дни по набору дней недели и переразмечает окно дня. */
   private shapeSessions(sessions: SessionDto[]): SessionDto[] {
-    const { weekdays, dayWindow } = this.timelineFilter$.value;
-    const resolved = this.resolveDayWindow(dayWindow);
+    const { weekdays, fullDay, session } = this.timelineFilter$.value;
+    const resolved = this.resolveSession(session);
     const out: SessionDto[] = [];
     for (const s of sessions) {
       if (weekdays.has(weekdayOfIso(s.date))) {
-        out.push(reshapeDay(s, resolved));
+        out.push(reshapeDay(s, fullDay, resolved));
       }
     }
     return out;

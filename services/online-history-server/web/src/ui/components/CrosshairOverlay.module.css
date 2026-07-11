@@ -1,0 +1,24 @@
+.line {
+  position: fixed;
+  z-index: 900;
+  width: 1px;
+  pointer-events: none;
+  background: var(--color-accent);
+  opacity: 0.7;
+}
+
+.label {
+  position: fixed;
+  z-index: 901;
+  transform: translateY(-50%);
+  pointer-events: none;
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 11px;
+  font-synthesis: none;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
