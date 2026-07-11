@@ -5,6 +5,7 @@
   gap: 6px;
   min-width: 0;
   flex-wrap: nowrap;
+  margin-right: 10px;
 }
 
 .chipWrap {
@@ -16,13 +17,14 @@
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 7px;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-bg-input);
   color: var(--color-text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
@@ -45,8 +47,9 @@
 }
 
 .calIcon {
-  font-size: 11px;
-  line-height: 1;
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 
 /* Общее меню таймфреймов — раскрывается ВВЕРХ (панель внизу экрана). */

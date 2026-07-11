@@ -69,6 +69,7 @@ interface RowProps {
   expanded: boolean;
   seriesBusy: boolean;
   seriesRecordingCount: number;
+  tzOffsetMin: number;
   onToggleFutures: (instrument: InstrumentDto) => void;
   onToggleSeries: (futuresId: number, expiration: string) => void;
   onToggleSelect: (instrumentId: number) => void;
@@ -90,6 +91,7 @@ const Row = memo(function Row({
   expanded,
   seriesBusy,
   seriesRecordingCount,
+  tzOffsetMin,
   onToggleFutures,
   onToggleSeries,
   onToggleSelect,
@@ -207,7 +209,7 @@ const Row = memo(function Row({
       </div>
 
       <div className={styles.right}>
-        <CoverageTrack window={window} segments={segments} sourceCodeById={sourceCodeById} sessions={sessions} />
+        <CoverageTrack window={window} segments={segments} sourceCodeById={sourceCodeById} sessions={sessions} tzOffsetMin={tzOffsetMin} />
       </div>
     </div>
   );
@@ -229,6 +231,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const seriesBusy = useBehavior(store.seriesBusy$);
   const window = useBehavior(store.window$);
   const sessions = useBehavior(store.sessions$);
+  const tzOffsetMin = useBehavior(store.displayTz$).offsetMin;
   const now = useNow(1000);
 
   // Подключением считаем оба «живых» статуса: active (идут данные) и waiting (тишина).
@@ -369,6 +372,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               expanded={expanded}
               seriesBusy={row.kind === 'series' && seriesBusy.has(sKey)}
               seriesRecordingCount={seriesRecordingCount}
+              tzOffsetMin={tzOffsetMin}
               onToggleFutures={onToggleFutures}
               onToggleSeries={onToggleSeries}
               onToggleSelect={onToggleSelect}
@@ -385,13 +389,13 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
       <div className={styles.axisBar}>
         <div className={styles.tfCell}>
           <span className={styles.footer}>
-            {loading ? 'Загрузка…' : `Показано ${instruments.length} из ${total}`}
+            {loading ? 'Загрузка…' : `${instruments.length} из ${total}`}
             {selected.size > 0 ? ` · выбрано ${selected.size}` : ''}
           </span>
           <TimeframePanel />
         </div>
         <div className={styles.axisCell}>
-          <TimeAxis window={window} sessions={sessions} />
+          <TimeAxis window={window} sessions={sessions} tzOffsetMin={tzOffsetMin} />
         </div>
       </div>
     </div>

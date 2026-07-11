@@ -92,6 +92,39 @@ export type Timeframe =
   | { kind: 'all' }
   | { kind: 'range'; from: string; to: string; includeWeekends: boolean };
 
+/**
+ * Окно показа внутри дня (тайм-лайн-фильтр):
+ * - `full` — полные сутки 00:00–24:00 (кросс-биржевой нейтраль);
+ * - `smart` — авто: одна биржа в выборке → её сессия, микс/ничего → полные сутки;
+ * - `session` — сессия конкретной биржи по её сегодняшнему расписанию, спроецированная на историю;
+ * - `custom` — пользовательское окно `[fromMin, toMin]` (минуты от полуночи МСК).
+ * (`history`/`set` — дат-точные и пользовательские расписания — придут в phase 7c.)
+ */
+export type DayWindowMode =
+  | { mode: 'full' }
+  | { mode: 'smart' }
+  | { mode: 'session'; exchange: string }
+  | { mode: 'custom'; fromMin: number; toMin: number };
+
+/**
+ * Тайм-лайн-фильтр оси Ганта: какие дни недели показывать (0=вс..6=сб) и какое окно внутри дня.
+ * Применяется чисто на клиенте (пере-проекция оси), одинаково ко всем строкам.
+ */
+export interface TimelineFilter {
+  weekdays: ReadonlySet<number>;
+  dayWindow: DayWindowMode;
+}
+
+/**
+ * Стандарт времени отображения — единый на всю систему (ось, тултипы, подписи).
+ * `offsetMin` — смещение от UTC в минутах (МСК = +180). Сессии бирж остаются
+ * привязанными к своим ТЗ; меняется только форматирование при выводе.
+ */
+export interface DisplayTz {
+  preset: 'utc' | 'msk' | 'custom';
+  offsetMin: number;
+}
+
 export interface GapDto {
   from: string;
   to: string;

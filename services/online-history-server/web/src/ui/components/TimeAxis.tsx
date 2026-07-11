@@ -1,12 +1,11 @@
 import { useMemo } from 'react';
 import type { CoverageWindow } from '../../core/OhsStore';
 import type { SessionDto } from '../../core/types';
-import { mskDateOf } from '../../core/moexSession';
+import { tzDateOf } from '../../core/moexSession';
 import { makeProjector } from '../../core/sessionProjection';
 import { useElementWidth } from '../hooks/useElementWidth';
 import styles from './TimeAxis.module.css';
 
-const MSK_MS = 3 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
@@ -20,6 +19,8 @@ const HOUR_STEPS = [1, 2, 3, 4, 6, 8, 12];
 interface Props {
   window: CoverageWindow;
   sessions?: SessionDto[];
+  /** Смещение стандарта времени отображения от UTC, минуты (МСК = +180). */
+  tzOffsetMin: number;
 }
 
 type Edge = 'start' | 'end' | undefined;
@@ -34,15 +35,15 @@ function pctFn(fromMs: number, span: number) {
   return (t: number) => Math.min(100, Math.max(0, ((t - fromMs) / span) * 100));
 }
 
-/** Время в МСК как HH:mm. */
-function mskHm(ms: number): string {
-  const d = new Date(ms + MSK_MS);
+/** Время как HH:mm в заданном ТЗ. */
+function hmTz(ms: number, offMin: number): string {
+  const d = new Date(ms + offMin * 60_000);
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
-/** Дата в МСК как dd.MM. */
-function dmMs(ms: number): string {
-  const d = mskDateOf(ms);
+/** Дата как dd.MM в заданном ТЗ. */
+function dmTz(ms: number, offMin: number): string {
+  const d = tzDateOf(ms, offMin);
   return `${String(d.day).padStart(2, '0')}.${String(d.month).padStart(2, '0')}`;
 }
 
@@ -56,10 +57,16 @@ function dmyIso(iso: string): string {
   return `${d}.${m}.${y.slice(2)}`;
 }
 
-/** Инстант МСК-полуночи для даты момента `ms`. */
-function mskMidnight(ms: number): number {
-  const d = mskDateOf(ms);
-  return Date.UTC(d.year, d.month - 1, d.day, -3, 0);
+/** Инстант полуночи (в заданном ТЗ) для даты момента `ms`. */
+function midnightTz(ms: number, offMin: number): number {
+  const d = tzDateOf(ms, offMin);
+  return Date.UTC(d.year, d.month - 1, d.day, 0, 0) - offMin * 60_000;
+}
+
+/** ISO `yyyy-MM-dd` для момента в заданном ТЗ (для форматирования с годом). */
+function isoTz(ms: number, offMin: number): string {
+  const d = tzDateOf(ms, offMin);
+  return `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
 }
 
 /** Наименьший «красивый» шаг, дающий не больше `maxCount` меток. */
@@ -70,7 +77,7 @@ function pickStride(total: number, maxCount: number, steps: number[]): number {
   return steps[steps.length - 1];
 }
 
-export function TimeAxis({ window, sessions }: Props) {
+export function TimeAxis({ window, sessions, tzOffsetMin }: Props) {
   const [ref, width] = useElementWidth<HTMLDivElement>();
   const fromMs = Date.parse(window.from);
   const toMs = Date.parse(window.to);
@@ -106,19 +113,19 @@ export function TimeAxis({ window, sessions }: Props) {
     if (spanH <= 36) {
       const baseStep = spanH <= 4 ? 1 : spanH <= 10 ? 2 : 3;
       const stepH = pickStride(spanH / baseStep, maxLabels, HOUR_STEPS) * baseStep;
-      const base = mskDateOf(fromMs);
+      const mid = midnightTz(fromMs, tzOffsetMin);
       const pad = span * 0.04;
       const inner: Mark[] = [];
       for (let h = 0; h <= 48; h += stepH) {
-        const t = Date.UTC(base.year, base.month - 1, base.day, h - 3, 0);
+        const t = mid + h * HOUR_MS;
         if (t > fromMs + pad && t < toMs - pad) {
-          inner.push({ left: p(t), label: mskHm(t) });
+          inner.push({ left: p(t), label: hmTz(t, tzOffsetMin) });
         }
       }
       return [
-        { left: 0, label: mskHm(fromMs), edge: 'start' },
+        { left: 0, label: hmTz(fromMs, tzOffsetMin), edge: 'start' },
         ...inner,
-        { left: 100, label: mskHm(toMs), edge: 'end' },
+        { left: 100, label: hmTz(toMs, tzOffsetMin), edge: 'end' },
       ];
     }
 
@@ -128,29 +135,29 @@ export function TimeAxis({ window, sessions }: Props) {
     const withYear = days > 300;
     const pad = span * 0.02;
     const inner: Mark[] = [];
-    for (let t = mskMidnight(fromMs) + stepD * DAY_MS; t < toMs - pad; t += stepD * DAY_MS) {
+    for (let t = midnightTz(fromMs, tzOffsetMin) + stepD * DAY_MS; t < toMs - pad; t += stepD * DAY_MS) {
       if (t > fromMs + pad) {
-        inner.push({ left: p(t), label: withYear ? dmyIso(mskDateIso(t)) : dmMs(t) });
+        inner.push({ left: p(t), label: withYear ? dmyIso(isoTz(t, tzOffsetMin)) : dmTz(t, tzOffsetMin) });
       }
     }
     return [
-      { left: 0, label: dmMs(fromMs), edge: 'start' },
+      { left: 0, label: dmTz(fromMs, tzOffsetMin), edge: 'start' },
       ...inner,
-      { left: 100, label: dmMs(toMs), edge: 'end' },
+      { left: 100, label: dmTz(toMs, tzOffsetMin), edge: 'end' },
     ];
-  }, [fromMs, toMs, span, sessions, width]);
+  }, [fromMs, toMs, span, sessions, width, tzOffsetMin]);
 
   return (
     <div className={styles.axis} ref={ref}>
       {marks.map((m, i) => {
-        const align = m.edge ?? (m.left < 4 ? 'start' : m.left > 96 ? 'end' : undefined);
+        const edge = m.edge ?? (m.left < 4 ? 'start' : m.left > 96 ? 'end' : undefined);
         return (
         <span
           key={`m${i}`}
           className={[
             styles.mark,
-            align === 'start' ? styles.markStart : '',
-            align === 'end' ? styles.markEnd : '',
+            edge === 'start' ? styles.markStart : '',
+            edge === 'end' ? styles.markEnd : '',
           ]
             .filter(Boolean)
             .join(' ')}
@@ -165,10 +172,4 @@ export function TimeAxis({ window, sessions }: Props) {
       })}
     </div>
   );
-}
-
-/** ISO `yyyy-MM-dd` для момента (МСК) — для форматирования с годом. */
-function mskDateIso(ms: number): string {
-  const d = mskDateOf(ms);
-  return `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
 }

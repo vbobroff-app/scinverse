@@ -203,15 +203,33 @@ describe('OhsStore timeframe → window', () => {
     store.stop();
   });
 
-  it('W1 без выходных: 5 будних сессий (выходные схлопнуты фильтром)', () => {
+  it('W1, только будни через тайм-лайн-фильтр: 5 будних сессий', () => {
     const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
     store.start();
 
-    store.setTimeframe({ kind: 'sessions', unit: 'W', count: 1, includeWeekends: false });
+    store.setTimelineFilter({ weekdays: new Set([1, 2, 3, 4, 5]) });
+    store.setTimeframe({ kind: 'sessions', unit: 'W', count: 1, includeWeekends: true });
 
     const s = store.sessions$.value;
     expect(s).toHaveLength(5);
     expect(s.every((x) => !x.weekend)).toBe(true);
+    store.stop();
+  });
+
+  it('окно дня «полные сутки»: сессия растянута на 24ч от МСК-полуночи', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    store.start();
+
+    store.setTimeframe({ kind: 'sessions', unit: 'D', count: 1, includeWeekends: true });
+    store.setTimelineFilter({ dayWindow: { mode: 'full' } });
+
+    const s = store.sessions$.value;
+    expect(s).toHaveLength(1);
+    const day = s[0];
+    const span = Date.parse(day.end) - Date.parse(day.start);
+    expect(span).toBe(24 * 60 * 60 * 1000);
+    // Старт окна — МСК-полночь = 21:00 UTC предыдущих суток.
+    expect(new Date(day.start).getUTCHours()).toBe(21);
     store.stop();
   });
 

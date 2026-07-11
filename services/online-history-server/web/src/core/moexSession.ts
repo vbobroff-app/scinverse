@@ -36,6 +36,16 @@ export function mskDateOf(ms: number = Date.now()): MskDate {
   };
 }
 
+/** Календарная дата момента `ms` в произвольном ТЗ (смещение в минутах от UTC). */
+export function tzDateOf(ms: number, offsetMin: number): MskDate {
+  const shifted = new Date(ms + offsetMin * 60_000);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+  };
+}
+
 /** День недели (0=вс..6=сб) для даты МСК. */
 function weekday({ year, month, day }: MskDate): number {
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
@@ -68,6 +78,18 @@ export function todaySession(now: number = Date.now()): SessionBounds {
 export function mskDateFromIso(iso: string): MskDate {
   const [y, m, d] = iso.split('-').map(Number);
   return { year: y, month: m, day: d };
+}
+
+/** Инстант UTC для МСК-полуночи даты `yyyy-MM-dd` (для окна дня). */
+export function mskMidnightMsFromIso(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number);
+  return Date.UTC(y, m - 1, d, -3, 0);
+}
+
+/** День недели (0=вс..6=сб) для ISO-даты `yyyy-MM-dd`. */
+export function weekdayOfIso(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 }
 
 /** Сдвигает дату МСК на `months` месяцев назад (для таймфреймов M/Q/Y). */

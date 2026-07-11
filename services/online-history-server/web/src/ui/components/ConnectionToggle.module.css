@@ -68,7 +68,7 @@
 
 .active .knob {
   transform: translateX(24px);
-  background-color: color-mix(in srgb, var(--color-accent) 40%, white);
+  background-color: color-mix(in srgb, var(--color-accent) 25%, white);
 }
 
 /* Подключён · ожидание (данных нет) — зелёный, кнопка справа. */
@@ -79,7 +79,7 @@
 
 .waiting .knob {
   transform: translateX(24px);
-  background-color: color-mix(in srgb, var(--color-success) 40%, white);
+  background-color: color-mix(in srgb, var(--color-success) 25%, white);
 }
 
 /* Ошибка — красный, кнопка слева. */

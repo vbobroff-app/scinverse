@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { DateRangePicker } from './DateRangePicker';
+import { SessionFilter } from './SessionFilter';
+import { CalendarIcon } from './icons';
 import type { TimeframeUnit } from '../../core/types';
 import styles from './TimeframePanel.module.css';
 
@@ -86,7 +88,7 @@ export function TimeframePanel() {
           title="Произвольный диапазон дат"
           aria-expanded={openRange}
         >
-          <span className={styles.calIcon}>🗓</span>
+          <CalendarIcon className={styles.calIcon} />
           {rangeLabel ?? 'Диапазон'}
         </button>
 
@@ -156,6 +158,8 @@ export function TimeframePanel() {
       >
         All
       </button>
+
+      <SessionFilter />
     </div>
   );
 }

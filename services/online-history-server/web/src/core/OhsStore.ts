@@ -5,15 +5,19 @@ import { createLiveStream } from './live';
 import {
   mskDateFromIso,
   mskDateOf,
+  mskMidnightMsFromIso,
   recentSessions,
   sessionBounds,
   sessionsFrom,
   shiftMonths,
   todaySession,
+  weekdayOfIso,
 } from './moexSession';
 import type {
   ConnectionDto,
   CoverageSegmentDto,
+  DayWindowMode,
+  DisplayTz,
   FilterKey,
   InstrumentDto,
   InstrumentGroupDto,
@@ -25,6 +29,7 @@ import type {
   StartRecordingRequest,
   Timeframe,
   TimeframeUnit,
+  TimelineFilter,
   UpsertConnectionRequest,
   ValidateConnectionResult,
 } from './types';
@@ -54,6 +59,42 @@ const SESSIONS_PER_WEEK = { workdays: 5, withWeekends: 7 } as const;
  * показываем как отдельные слоты (не схлопываем); схлопывание станет отдельным фильтром.
  */
 const DEFAULT_TIMEFRAME: Timeframe = { kind: 'sessions', unit: 'D', count: 1, includeWeekends: true };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Все дни недели (0=вс..6=сб). */
+const ALL_WEEKDAYS: readonly number[] = [0, 1, 2, 3, 4, 5, 6];
+/** Домашняя биржа (расписание по умолчанию, пока мультибиржа не наполнена). */
+const HOME_EXCHANGE = 'MOEX';
+/** Стартовый пресет: все дни, окно = сессия MOEX (спроецированное текущее расписание). */
+const STARTUP_TIMELINE: TimelineFilter = {
+  weekdays: new Set(ALL_WEEKDAYS),
+  dayWindow: { mode: 'session', exchange: HOME_EXCHANGE },
+};
+/** Стандарт времени по умолчанию — МСК (UTC+3). */
+const DEFAULT_DISPLAY_TZ: DisplayTz = { preset: 'msk', offsetMin: 180 };
+
+/**
+ * Пере-строение границ дня под окно тайм-лайн-фильтра. `dayWindow` уже разрешён
+ * (без `smart`). Для `session` в MVP оставляем сгенерированные границы MOEX;
+ * при мультибирже здесь будет пересчёт по расписанию `dayWindow.exchange`.
+ */
+function reshapeDay(session: SessionDto, dayWindow: DayWindowMode): SessionDto {
+  switch (dayWindow.mode) {
+    case 'session':
+    case 'smart':
+      return session;
+    case 'full': {
+      const midnight = mskMidnightMsFromIso(session.date);
+      return { ...session, start: new Date(midnight).toISOString(), end: new Date(midnight + DAY_MS).toISOString() };
+    }
+    case 'custom': {
+      const midnight = mskMidnightMsFromIso(session.date);
+      const startMs = midnight + dayWindow.fromMin * 60_000;
+      const endMs = midnight + dayWindow.toMin * 60_000;
+      return { ...session, start: new Date(startMs).toISOString(), end: new Date(endMs).toISOString() };
+    }
+  }
+}
 
 /** Ключ раскрытой опционной серии: `${futuresId}:${expiration}`. */
 export const seriesKey = (futuresId: number, expiration: string): string =>
@@ -116,6 +157,10 @@ export class OhsStore {
   readonly timeframe$ = new BehaviorSubject<Timeframe>(DEFAULT_TIMEFRAME);
   /** Границы сессий внутри окна (для сепараторов оси); пусто для M/Q/Y/All/range. */
   readonly sessions$ = new BehaviorSubject<SessionDto[]>([]);
+  /** Тайм-лайн-фильтр оси: дни недели + окно дня (клиентская пере-проекция). */
+  readonly timelineFilter$ = new BehaviorSubject<TimelineFilter>(STARTUP_TIMELINE);
+  /** Стандарт времени отображения — единый на всю систему (ось/тултипы). */
+  readonly displayTz$ = new BehaviorSubject<DisplayTz>(DEFAULT_DISPLAY_TZ);
 
   private liveSub?: Subscription;
   private windowTimer?: ReturnType<typeof setInterval>;
@@ -179,6 +224,75 @@ export class OhsStore {
     }
   }
 
+  /** Меняет тайм-лайн-фильтр (дни недели / окно дня) и пере-проецирует ось. */
+  setTimelineFilter(patch: Partial<TimelineFilter>): void {
+    this.timelineFilter$.next({ ...this.timelineFilter$.value, ...patch });
+    this.applyTimeframe(this.timeframe$.value);
+  }
+
+  /** Сброс тайм-лайн-фильтра в нейтраль (все дни + полные сутки). */
+  resetTimelineFilter(): void {
+    this.timelineFilter$.next({ weekdays: new Set(ALL_WEEKDAYS), dayWindow: { mode: 'full' } });
+    this.applyTimeframe(this.timeframe$.value);
+  }
+
+  /** Меняет стандарт времени отображения (единый на систему). */
+  setDisplayTz(tz: DisplayTz): void {
+    this.displayTz$.next(tz);
+  }
+
+  /** Нужно ли генерировать выходные (для счётчика сессий) — по набору дней недели. */
+  private genIncludeWeekends(): boolean {
+    const w = this.timelineFilter$.value.weekdays;
+    return w.has(0) || w.has(6);
+  }
+
+  /** Биржа для режима `smart`: одна выбранная → она; микс → null (=полные сутки); ничего → домашняя. */
+  private pickSmartExchange(): string | null {
+    const ex = this.instrumentQuery$.value.exchanges;
+    if (ex && ex.length === 1) {
+      return ex[0];
+    }
+    if (ex && ex.length > 1) {
+      return null;
+    }
+    return HOME_EXCHANGE;
+  }
+
+  /** Разворачивает `smart` в конкретный режим окна дня (session выбранной биржи или full). */
+  private resolveDayWindow(dw: DayWindowMode): DayWindowMode {
+    if (dw.mode !== 'smart') {
+      return dw;
+    }
+    const ex = this.pickSmartExchange();
+    return ex ? { mode: 'session', exchange: ex } : { mode: 'full' };
+  }
+
+  /** Фильтрует дни по набору дней недели и переразмечает окно дня. */
+  private shapeSessions(sessions: SessionDto[]): SessionDto[] {
+    const { weekdays, dayWindow } = this.timelineFilter$.value;
+    const resolved = this.resolveDayWindow(dayWindow);
+    const out: SessionDto[] = [];
+    for (const s of sessions) {
+      if (weekdays.has(weekdayOfIso(s.date))) {
+        out.push(reshapeDay(s, resolved));
+      }
+    }
+    return out;
+  }
+
+  /** Применяет тайм-лайн-фильтр к набору сессий и выставляет sessions$/window$. */
+  private publishSessions(ordered: SessionDto[]): void {
+    const shaped = this.shapeSessions(ordered);
+    this.sessions$.next(shaped);
+    if (shaped.length === 0) {
+      const t = todaySession();
+      this.setWindow({ from: new Date(t.startMs).toISOString(), to: new Date(t.endMs).toISOString() });
+      return;
+    }
+    this.setWindow({ from: shaped[0].start, to: shaped[shaped.length - 1].end });
+  }
+
   /** Пересчёт окна для текущего таймфрейма (по таймеру); для range ничего не делает. */
   private refreshTimeframeWindow(): void {
     if (this.timeframe$.value.kind === 'range') {
@@ -204,27 +318,22 @@ export class OhsStore {
   private applySessionsTimeframe(
     tf: Extract<Timeframe, { kind: 'sessions' }>,
   ): void {
-    const toMs = todaySession().endMs;
+    // Выходные для генерации берём из тайм-лайн-фильтра (набор дней недели), а не из tf.
+    const iw = this.genIncludeWeekends();
 
     // Календарные единицы (M/Q/Y) — сдвиг назад на n месяцев/кварталов/лет, но ось тоже
     // посессионная: каждый торговый день — доля, ночь/разрывы схлопнуты (как D/W, только длиннее).
     if (tf.unit === 'M' || tf.unit === 'Q' || tf.unit === 'Y') {
       const fromDate = shiftMonths(mskDateOf(), monthsPerUnit(tf.unit) * tf.count);
       const fromMs = sessionBounds(fromDate).startMs;
-      const ordered = sessionsFrom(fromMs, tf.includeWeekends);
-      this.sessions$.next(ordered);
-      const leftMs = ordered.length > 0 ? Date.parse(ordered[0].start) : fromMs;
-      this.setWindow({ from: new Date(leftMs).toISOString(), to: new Date(toMs).toISOString() });
+      this.publishSessions(sessionsFrom(fromMs, iw));
       return;
     }
 
     // Посессионные (D/W): календарные сессии (выходные — отдельные слоты, не схлопываем).
     // Считаем локально — ось должна показывать и пустые выходные, которых нет в данных.
-    const count = sessionCount(tf.unit, tf.count, tf.includeWeekends);
-    const ordered = recentSessions(count, tf.includeWeekends);
-    this.sessions$.next(ordered);
-    const fromMs = ordered.length > 0 ? Date.parse(ordered[0].start) : todaySession().startMs;
-    this.setWindow({ from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() });
+    const count = sessionCount(tf.unit, tf.count, iw);
+    this.publishSessions(recentSessions(count, iw));
   }
 
   private applyAllTimeframe(): void {
@@ -249,11 +358,7 @@ export class OhsStore {
     const bEnd = sessionBounds(mskDateFromIso(tf.to)).endMs;
     const loMs = Math.min(aStart, bEnd);
     const hiMs = Math.max(aStart, bEnd);
-    const ordered = sessionsFrom(loMs, tf.includeWeekends, hiMs);
-    this.sessions$.next(ordered);
-    const leftMs = ordered.length > 0 ? Date.parse(ordered[0].start) : loMs;
-    const rightMs = ordered.length > 0 ? Date.parse(ordered[ordered.length - 1].end) : hiMs;
-    this.setWindow({ from: new Date(leftMs).toISOString(), to: new Date(rightMs).toISOString() });
+    this.publishSessions(sessionsFrom(loMs, this.genIncludeWeekends(), hiMs));
   }
 
   /** Переключает пометку инструмента; при активном условии «Выделенные» — пере-применяет фильтр. */

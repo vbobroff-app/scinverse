@@ -14,7 +14,8 @@
 
 .axisBar {
   align-items: center;
-  padding: var(--spacing-sm) 4px 0 0;
+  /* 4px как у .scroll + 8px под скроллбар, чтобы ось совпала с дорожками */
+  padding: 12px 12px 0 0;
   box-shadow: 0 -10px 10px -10px rgba(0, 0, 0, 0.6);
 }
 
@@ -28,7 +29,8 @@
 
 .axisCell {
   min-width: 0;
-  padding: 0 var(--spacing-md);
+  /* spacing-md как у .right + 2px (border .right + border .track) */
+  padding: 0 calc(var(--spacing-md) + 2px);
 }
 
 .scroll {
@@ -36,6 +38,7 @@
   min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .rowWrap {

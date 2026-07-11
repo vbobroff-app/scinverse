@@ -1,36 +1,27 @@
 .axis {
   position: relative;
   height: 18px;
+  margin-top: -12px;
 }
 
-/* Метка = короткая засечка сверху + подпись под ней (линия не перечёркивает цифры). */
+/* left% = точная позиция штриха; подпись центрируется под ним отдельно. */
 .mark {
   position: absolute;
   top: 0;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.markStart {
-  transform: translateX(0);
-  align-items: flex-start;
-}
-
-.markEnd {
-  transform: translateX(-100%);
-  align-items: flex-end;
 }
 
 .tickMark {
+  display: block;
   width: 1px;
   height: 3px;
   background: var(--color-border);
 }
 
 .label {
-  margin-top: 2px;
+  position: absolute;
+  top: 5px;
+  left: 0;
+  transform: translateX(-50%);
   font-size: 11px;
   line-height: 1;
   color: var(--color-text-muted);

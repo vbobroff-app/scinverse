@@ -10,13 +10,13 @@ interface Props {
   segments: CoverageSegmentDto[];
   sourceCodeById: Map<number, string>;
   sessions?: SessionDto[];
+  /** Смещение стандарта времени отображения от UTC, минуты (МСК = +180). */
+  tzOffsetMin: number;
 }
 
-const MSK_MS = 3 * 60 * 60 * 1000;
-
-/** Момент в МСК как `dd.MM HH:mm` (для нативного title колбаски). */
-function mskStamp(iso: string): string {
-  const d = new Date(Date.parse(iso) + MSK_MS);
+/** Момент как `dd.MM HH:mm` в заданном ТЗ (для нативного title колбаски). */
+function stampTz(iso: string, offMin: number): string {
+  const d = new Date(Date.parse(iso) + offMin * 60_000);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(d.getUTCDate())}.${p(d.getUTCMonth() + 1)} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }
@@ -26,7 +26,7 @@ function mskStamp(iso: string): string {
  * сессии и now-линия управляются CSS-переменной `--now-pct` (ставится на скролл-контейнере),
  * поэтому тик времени не ре-рендерит строки — компонент мемоизирован.
  */
-export const CoverageTrack = memo(function CoverageTrack({ window, segments, sourceCodeById, sessions }: Props) {
+export const CoverageTrack = memo(function CoverageTrack({ window, segments, sourceCodeById, sessions, tzOffsetMin }: Props) {
   const pct = makeProjector(Date.parse(window.from), Date.parse(window.to), sessions);
   // При большом числе сессий (M/Q/Y) не рисуем поштучные слоты/швы — было бы шумно и тяжело.
   const showSessionDetail = !!sessions && sessions.length > 1 && sessions.length <= 40;
@@ -65,7 +65,7 @@ export const CoverageTrack = memo(function CoverageTrack({ window, segments, sou
           ? { left: `${left}%`, right: 'calc(100% - var(--now-pct, 100) * 1%)', background: color }
           : { left: `${left}%`, width: `${Math.max(0.4, pct(Date.parse(seg.to as string)) - left)}%`, background: color };
 
-        const rangeText = `${mskStamp(seg.from)} — ${open ? 'сейчас' : mskStamp(seg.to as string)}`;
+        const rangeText = `${stampTz(seg.from, tzOffsetMin)} — ${open ? 'сейчас' : stampTz(seg.to as string, tzOffsetMin)}`;
         const gapsText = seg.gaps.length > 0 ? ` · разрывов: ${seg.gaps.length}` : '';
 
         return (
@@ -73,7 +73,7 @@ export const CoverageTrack = memo(function CoverageTrack({ window, segments, sou
             key={seg.segmentId}
             className={[styles.bar, open ? styles.live : ''].filter(Boolean).join(' ')}
             style={style}
-            title={`${rangeText} · ${seg.status} · сделок: ${seg.tradeCount}${gapsText} (МСК)`}
+            title={`${rangeText} · ${seg.status} · сделок: ${seg.tradeCount}${gapsText}`}
           />
         );
       })}
@@ -87,7 +87,7 @@ export const CoverageTrack = memo(function CoverageTrack({ window, segments, sou
               key={`${seg.segmentId}-gap-${i}`}
               className={styles.gap}
               style={{ left: `${gapLeft}%`, width: `${gapWidth}%` }}
-              title={`разрыв: ${mskStamp(g.from)} — ${mskStamp(g.to)} (МСК)`}
+              title={`разрыв: ${stampTz(g.from, tzOffsetMin)} — ${stampTz(g.to, tzOffsetMin)}`}
             />
           );
         }),

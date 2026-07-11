@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useOhsStore } from './ui/context';
 import { useBehavior } from './ui/hooks/useObservable';
-import { ThemeToggle } from './ui/components/ThemeToggle';
+import { HeaderControls } from './ui/components/HeaderControls';
 import { ConnectionsPanel } from './ui/pages/ConnectionsPanel';
 import { ProviderCard } from './ui/pages/ProviderCard';
 import styles from './App.module.css';
@@ -29,7 +29,7 @@ export function App() {
           <span className={styles.logo}>Scinverse</span>
           <span className={styles.sub}>OHS · админка записи</span>
         </div>
-        <ThemeToggle />
+        <HeaderControls />
       </header>
 
       <main className={styles.main}>
