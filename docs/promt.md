@@ -73,12 +73,13 @@ scinverse/
 | 5 | Мультиисточник (V004, `source_id`) | DONE | [phase5](./dev/phase5/report.md) |
 | 6a | Схема+запись (coverage_segment, RecordingManager) | DONE | [phase6a](./dev/phase6a/report.md) |
 | 6b | Control-plane (REST + WS, фабрика коннекторов) | DONE | [phase6b](./dev/phase6b/report.md) |
-| 6c | Иерархия деривативов (V007, группировки) | IN PROGRESS | [phase6c](./dev/phase6c/report.md) |
+| 6c | Иерархия деривативов (V007, группировки) | DONE | [phase6c](./dev/phase6c/report.md) |
 | 7 | Админ-фронт (список, Гант, старт/стоп, подключения) | IN PROGRESS | [phase7](./dev/phase7/report.md) |
 | 7b | Таймфреймы + сессионное окно (панель D/W/M/Q/Y/All/диапазон) | DONE | [phase7b](./dev/phase7b/report.md) |
 | 7c | Реальное расписание MOEX (ISS) + страница «Биржи → Структура» | PLANNED | [phase7c](./dev/phase7c/report.md) |
-| 7d | Динамические фильтры каталога (плашки Инструменты/Выбор/Биржи + поиск справа) | IN PROGRESS | [phase7d](./dev/phase7d/report.md) |
-| 7e | Управление подключениями (UI Transaq: создание/креды/realtime-connect) | PLANNED | [phase7e](./dev/phase7e/report.md) |
+| 7d | Динамические фильтры каталога (плашки Инструмент/Выбор/Биржи + поиск справа) | IN PROGRESS (UI готов, тесты) | [phase7d](./dev/phase7d/report.md) |
+| **7e** | **Управление подключениями (провайдеры): создание/креды/realtime-connect** | **IN PROGRESS (UI готов; realtime + тесты)** | [phase7e](./dev/phase7e/report.md) |
+| 7f | Тайм-лайн-фильтр оси + стандарт времени + вертикальный crosshair + подсветка дней | MVP DONE | [phase7f](./dev/phase7f/report.md) |
 | 8 | CI/CD (GitHub Actions + compose `migrator`) | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` | TODO | — |
 | 10 | Multi-user & auth (Keycloak + `user_settings` + роли) | PLANNED | [phase10](./dev/phase10/plan.md) |
@@ -98,6 +99,16 @@ scinverse/
   по сессиям, ширина доли ∝ длительности торгов, неторговые разрывы схлопнуты в шов. Выходные
   **не схлопываем** — короче + подсветка (схлопывание станет опциональным фильтром). D/W/M/Q/Y и
   произвольный диапазон — все посессионные. Ось адаптивна по ширине (плотность подписей).
+- **Тайм-лайн-фильтр оси** (phase 7f, `SessionFilter` + `OhsStore.timelineFilter$`): модель
+  «Full + сессия» — `Full` тогглится независимо; режим сессии (`MOEX`/`custom`/`smart`) — группа.
+  `Full + сессия` рисует день из зон `[pre | session | post]` (внесессионное приглушено), что
+  наглядно показывает запись вне торгового окна. Сессия — **атрибут площадки**, не глобальная
+  константа (задел под мультибиржу и дат-точные календари 7c). Проекция — чисто клиентская, поверх
+  `sessions$`/`window$`.
+- **Стандарт времени** (единый на систему, `displayTz$` = UTC/МСК/UTC+N) — вынесен в шапку. Ось и
+  crosshair показывают время в нём; конец суток — `24:00` вместо `00:00`.
+- **Вертикальный crosshair** (`crosshair.ts` + `CrosshairOverlay`) и **подсветка дней** (тумблер:
+  каждый день в своём контейнере со скруглением + рамкой) — тумблеры в углах области Ганта.
 
 ## 5. Как запустить (локально)
 
@@ -119,19 +130,43 @@ scinverse/
 
 ## 7. Текущий момент и следующие шаги
 
-Только что завершён блок по **таймлайну** (посессионная ось, выходные, M/Q/Y, диапазон,
-адаптивные подписи, тултипы с датой) — см. [phase7b/report.md](./dev/phase7b/report.md). Footer готов.
+**Область Ганта фактически собрана.** Завершены: посессионная ось + таймфреймы D/W/M/Q/Y/диапазон
+(phase 7b), тайм-лайн-фильтр «Full + сессия» + единый стандарт времени в шапке, вертикальный
+crosshair, подсветка дней (phase 7f — MVP DONE). Динамические фильтры каталога (плашки
+Инструмент/Выбор/Биржи + поиск) — реализованы (phase 7d, остались тесты). Footer готов.
 
-**Дальше по фронту:**
-1. **Header** (шапка) — состав обсуждается.
-2. **Фильтры** каталога — динамические плашки, оформлено фазой [7d](./dev/phase7d/plan.md) (IN PROGRESS).
-3. **Портал-тултип** для колбасок (вместо нативного `title`) — запланирован в
-   [phase7b/report.md → Follow-up](./dev/phase7b/report.md).
+### ➡️ Следующий блок (для нового чата): ПРОВАЙДЕРЫ — [phase 7e](./dev/phase7e/plan.md)
 
-**Крупный задел:** [phase 7c](./dev/phase7c/plan.md) — интеграция MOEX ISS API: реальное расписание
-торгов, страница «Биржи → Структура» (движки/рынки/борды + торгуемые инструменты) и **лента
-новостей/событий** (ISS `sitenews`/`events` + новостной канал коннектора). Все ссылки на
-ISS-эндпоинты — в [phase7c/apply.md](./dev/phase7c/apply.md).
+Управление подключениями (провайдерами) к источникам данных из админки.
+
+**Что уже готово (7e.1–7e.5, UI-слой):**
+- Форма создания/редактирования подключения `ConnectionForm` (`kind = transaq | synthetic`, source,
+  settings, логин/пароль в попапе), кнопка `+` в `ConnectionsPanel`.
+- Тумблер статуса `ConnectionToggle`: 4 состояния цветом — Отключен (серый) → Подключение (жёлтый) →
+  Подключён Актив. (синий, идут данные) → Подключён Ожид. (зелёный, тишина ≥5 c); error = красный.
+  Активность/ожидание решает **бэкенд** (`ConnectionManager` по потоку данных коннектор→биржа).
+- Редактирование/удаление провайдера: ПКМ-меню (✎/✕) + `ConfirmDialog`; backend
+  `PUT`/`DELETE /connections/{id}` (удаление гасит сессию и чистит креды; факты в БД остаются).
+- `synthetic-local` эмулирует флоу для демо: Connecting (2–3 c) → Waiting (5 c) → Active.
+
+**Что осталось по провайдерам (задачи нового чата):**
+1. **Реальный Transaq realtime-connect с живого рынка** — креды/DLL-путь, проверить подключение и
+   рост колбасок на реальных торгах (в т.ч. сценарий выходных торгов MOEX).
+2. **Тесты 7e.6** — vitest на команды `OhsStore` (upsert/credentials/test → вызов api + merge),
+   опц. api-smoke на upsert+credentials (секреты не должны попадать в `connections$`/ответы API).
+3. **Статус инструмента по расписанию борда** в карточке (Открыто/Закрыто/Пре-опен) — авторитетно,
+   не lagging; для записываемых — «активность записи» по времени последней сделки (порог ~30 c).
+   Завязано на [phase 7c](./dev/phase7c/plan.md).
+
+**Код провайдеров:** backend — `Scinverse.Ohs.Connectors.Transaq` (коннекторы TRANSAQ/SyntheticLive,
+фабрика, `ConnectionManager`, `ICredentialStore`), control-plane REST/WS — `Scinverse.Ohs.Host`
+(phase 6b). Frontend — `web/src/ui/pages/{ConnectionsPanel,ProviderCard}`,
+`web/src/ui/components/{ConnectionForm,ConnectionToggle}`, команды — `web/src/core/OhsStore.ts`.
+Детали фазы — [phase7e/{plan,apply,report}.md](./dev/phase7e/report.md).
+
+**Крупный задел рядом:** [phase 7c](./dev/phase7c/plan.md) — интеграция MOEX ISS API: реальное
+расписание торгов, страница «Биржи → Структура» (движки/рынки/борды + торгуемые инструменты) и
+**лента новостей/событий**. Все ссылки на ISS-эндпоинты — в [phase7c/apply.md](./dev/phase7c/apply.md).
 
 ---
 

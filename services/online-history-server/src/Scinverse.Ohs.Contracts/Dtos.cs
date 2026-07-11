@@ -88,6 +88,20 @@ public sealed record CoverageSegmentDto(
     string Status,
     IReadOnlyList<GapDto> Gaps);
 
+/// <summary>
+/// Присутствие сделок по бакетам (слой сделок на Ганте): старты непустых бакетов инструмента.
+/// Качественно (есть/нет), без объёма. Разрыв = отсутствие бакета.
+/// </summary>
+public sealed record TradeActivityDto(long InstrumentId, IReadOnlyList<DateTimeOffset> Buckets);
+
+/// <summary>Запрос присутствия сделок: окно + размер бакета + источник + список инструментов.</summary>
+public sealed record TradeActivityRequest(
+    DateTimeOffset From,
+    DateTimeOffset To,
+    int BucketSeconds,
+    short SourceId,
+    IReadOnlyList<long> InstrumentIds);
+
 /// <summary>Активная запись.</summary>
 public sealed record RecordingDto(
     long InstrumentId,

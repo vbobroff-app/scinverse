@@ -32,6 +32,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IInstrumentStore, InstrumentStore>();
 builder.Services.AddSingleton<ISourceStore, SourceStore>();
 builder.Services.AddSingleton<ICoverageStore, CoverageStore>();
+builder.Services.AddSingleton<ITradeActivityStore, TradeActivityStore>();
 builder.Services.AddSingleton<IConnectionStore, ConnectionStore>();
 builder.Services.AddSingleton<ITradeWriter, TimescaleTradeWriter>();
 builder.Services.AddSingleton<IDerivativeSpecParser, MoexFortsSpecParser>();

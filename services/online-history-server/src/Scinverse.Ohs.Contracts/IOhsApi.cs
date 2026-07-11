@@ -31,6 +31,10 @@ public interface IOhsApi
     Task<IReadOnlyList<CoverageSegmentDto>> GetCoverageAsync(
         DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default);
 
+    /// <summary>POST /api/coverage/activity — присутствие сделок по бакетам (слой сделок).</summary>
+    Task<IReadOnlyList<TradeActivityDto>> GetTradeActivityAsync(
+        TradeActivityRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>GET /api/recordings</summary>
     Task<IReadOnlyList<RecordingDto>> GetRecordingsAsync(CancellationToken cancellationToken = default);
 

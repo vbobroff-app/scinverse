@@ -55,6 +55,15 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
         GetListAsync<CoverageSegmentDto>(
             $"/api/coverage?from={Encode(from)}&to={Encode(to)}", cancellationToken);
 
+    public async Task<IReadOnlyList<TradeActivityDto>> GetTradeActivityAsync(
+        TradeActivityRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsJsonAsync("/api/coverage/activity", request, Json, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<List<TradeActivityDto>>(Json, cancellationToken);
+        return result ?? [];
+    }
+
     public Task<IReadOnlyList<RecordingDto>> GetRecordingsAsync(CancellationToken cancellationToken = default) =>
         GetListAsync<RecordingDto>("/api/recordings", cancellationToken);
 

@@ -110,6 +110,16 @@ public static class OhsEndpoints
             return result;
         });
 
+        api.MapPost("/coverage/activity", async (
+            TradeActivityRequest request, ITradeActivityStore store, CancellationToken ct) =>
+        {
+            var activity = await store.QueryActivityAsync(
+                request.InstrumentIds, request.SourceId, request.From, request.To,
+                TimeSpan.FromSeconds(request.BucketSeconds), ct);
+
+            return activity.Select(a => new TradeActivityDto(a.InstrumentId, a.Buckets)).ToList();
+        });
+
         api.MapGet("/recordings", (RecordingManager recordings) =>
             recordings.List().Select(ToDto).ToList());
 
