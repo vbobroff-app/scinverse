@@ -90,7 +90,12 @@ public sealed class SyntheticLiveConnector : IMarketConnector
         return new DemoSecurity(ticker, "OPT", "OPT", shortName, 1m, 0);
     }
 
+    /// <summary>Демо-инструмент для авто-показа жизненного цикла статуса (waiting → active).</summary>
+    private static readonly InstrumentKey DemoKey = new("SBER", "TQBR");
+
     private readonly TimeSpan _interval;
+    private readonly TimeSpan _connectDelay;
+    private readonly TimeSpan _initialDataDelay;
     private readonly int _tradesPerTick;
     private readonly Random _random = new(20260701);
     private readonly ConcurrentDictionary<InstrumentKey, State> _subscribed = new();
@@ -103,10 +108,17 @@ public sealed class SyntheticLiveConnector : IMarketConnector
     private CancellationTokenSource? _loopCts;
     private Task? _loopTask;
 
-    public SyntheticLiveConnector(TimeSpan? interval = null, int tradesPerTick = 5)
+    public SyntheticLiveConnector(
+        TimeSpan? interval = null,
+        int tradesPerTick = 5,
+        TimeSpan? connectDelay = null,
+        TimeSpan? initialDataDelay = null)
     {
         _interval = interval ?? TimeSpan.FromMilliseconds(500);
         _tradesPerTick = tradesPerTick;
+        // Эмуляция фаз для демо: «подключается» ~2.5с, затем «ожидание» ~5с до первых данных.
+        _connectDelay = connectDelay ?? TimeSpan.FromSeconds(2.5);
+        _initialDataDelay = initialDataDelay ?? TimeSpan.FromSeconds(5);
     }
 
     public string SourceCode => "synthetic";
@@ -115,17 +127,22 @@ public sealed class SyntheticLiveConnector : IMarketConnector
 
     public bool IsConnected { get; private set; }
 
-    public Task ConnectAsync(CancellationToken cancellationToken)
+    public async Task ConnectAsync(CancellationToken cancellationToken)
     {
+        // Эмуляция установления соединения — на фронте видно жёлтый «Подключается…».
+        await Task.Delay(_connectDelay, cancellationToken).ConfigureAwait(false);
+
         IsConnected = true;
 
         // Регистрируем весь демо-каталог сразу при подключении: справочник + дерево деривативов
         // наполняются до первой подписки (плоский список и дерево видны без старта записи).
         _messages.Writer.TryWrite(BuildSecurities(DemoCatalog));
 
+        // Демо-подписка, чтобы статус сам прошёл waiting → active (см. RunLoopAsync).
+        _subscribed.TryAdd(DemoKey, new State { Key = DemoKey });
+
         _loopCts = new CancellationTokenSource();
         _loopTask = RunLoopAsync(_loopCts.Token);
-        return Task.CompletedTask;
     }
 
     public Task SubscribeTradesAsync(IReadOnlyCollection<InstrumentKey> instruments, CancellationToken cancellationToken)
@@ -182,6 +199,16 @@ public sealed class SyntheticLiveConnector : IMarketConnector
 
     private async Task RunLoopAsync(CancellationToken cancellationToken)
     {
+        // Пауза перед первыми данными: на фронте видно зелёный «ожидание» (waiting) до «active».
+        try
+        {
+            await Task.Delay(_initialDataDelay, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
         using var timer = new PeriodicTimer(_interval);
         while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
         {

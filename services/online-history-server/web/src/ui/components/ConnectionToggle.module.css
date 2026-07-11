@@ -1,0 +1,108 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.track {
+  position: relative;
+  width: 52px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-input);
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.track:disabled {
+  cursor: default;
+}
+
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+/* Отключён — серый, кнопка слева. */
+.off {
+  background: var(--color-bg-input);
+  border-color: var(--color-border);
+}
+
+.off .knob {
+  background-color: var(--color-text-muted);
+}
+
+/* Подключается — жёлтый, кнопка посередине + пульс. */
+.connecting {
+  background: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.connecting .knob {
+  transform: translateX(13px);
+  background-color: color-mix(in srgb, var(--color-warning) 40%, white);
+  animation: pulse 0.9s ease-in-out infinite;
+}
+
+/* Подключён · активность (идут данные) — голубой, кнопка справа. */
+.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.active .knob {
+  transform: translateX(24px);
+  background-color: color-mix(in srgb, var(--color-accent) 40%, white);
+}
+
+/* Подключён · ожидание (данных нет) — зелёный, кнопка справа. */
+.waiting {
+  background: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.waiting .knob {
+  transform: translateX(24px);
+  background-color: color-mix(in srgb, var(--color-success) 40%, white);
+}
+
+/* Ошибка — красный, кнопка слева. */
+.error {
+  background: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.error .knob {
+  background-color: color-mix(in srgb, var(--color-error) 40%, white);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}

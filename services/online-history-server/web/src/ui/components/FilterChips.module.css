@@ -56,8 +56,9 @@
 }
 
 .caret {
-  font-size: 10px;
-  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 1;
+  color: var(--color-text-secondary);
   transition: transform 0.12s ease;
 }
 

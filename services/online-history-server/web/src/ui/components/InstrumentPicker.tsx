@@ -67,11 +67,15 @@ interface RowProps {
   connected: boolean;
   selected: boolean;
   expanded: boolean;
+  seriesBusy: boolean;
+  seriesRecordingCount: number;
   onToggleFutures: (instrument: InstrumentDto) => void;
   onToggleSeries: (futuresId: number, expiration: string) => void;
   onToggleSelect: (instrumentId: number) => void;
   onStart: (instrumentId: number) => void;
   onStop: (instrumentId: number) => void;
+  onStartSeries: (futuresId: number, expiration: string) => void;
+  onStopSeries: (futuresId: number, expiration: string) => void;
 }
 
 const Row = memo(function Row({
@@ -84,34 +88,60 @@ const Row = memo(function Row({
   connected,
   selected,
   expanded,
+  seriesBusy,
+  seriesRecordingCount,
   onToggleFutures,
   onToggleSeries,
   onToggleSelect,
   onStart,
   onStop,
+  onStartSeries,
+  onStopSeries,
 }: RowProps) {
   if (row.kind === 'series') {
     const exp = row.group.expiration ?? row.group.key;
+    const recCount = seriesRecordingCount;
     return (
       <div className={styles.rowWrap} style={{ height: ROW_HEIGHT }}>
-        <button
-          className={styles.seriesRow}
-          style={{ paddingLeft: INDENT }}
-          onClick={() => onToggleSeries(row.futuresId, exp)}
-          aria-expanded={expanded}
-        >
-          <span className={[styles.chevron, expanded ? styles.chevronOpen : ''].filter(Boolean).join(' ')}>
-            ▸
-          </span>
-          <span className={styles.seriesLabel}>{row.group.label}</span>
-          {row.group.badge && (
-            <span className={[styles.badge, badgeKindClass(row.group.badge)].join(' ')}>
-              {row.group.badge}
+        <div className={styles.seriesRow} style={{ paddingLeft: INDENT }}>
+          <button
+            className={styles.seriesExpand}
+            onClick={() => onToggleSeries(row.futuresId, exp)}
+            aria-expanded={expanded}
+          >
+            <span className={[styles.chevron, expanded ? styles.chevronOpen : ''].filter(Boolean).join(' ')}>
+              ▸
             </span>
+            <span className={styles.seriesLabel}>{row.group.label}</span>
+            {row.group.badge && (
+              <span className={[styles.badge, badgeKindClass(row.group.badge)].join(' ')}>
+                {row.group.badge}
+              </span>
+            )}
+            <span className={styles.seriesExp}>exp {formatExpiration(row.group.expiration)}</span>
+            <span className={styles.count}>
+              {recCount > 0 ? `${recCount}/${row.group.count}` : row.group.count}
+            </span>
+          </button>
+
+          {seriesBusy ? (
+            <Button variant="default" disabled>
+              …
+            </Button>
+          ) : recCount > 0 ? (
+            <Button variant="danger" onClick={() => onStopSeries(row.futuresId, exp)}>
+              Стоп серии
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              disabled={!connected}
+              onClick={() => onStartSeries(row.futuresId, exp)}
+            >
+              Старт серии
+            </Button>
           )}
-          <span className={styles.seriesExp}>exp {formatExpiration(row.group.expiration)}</span>
-          <span className={styles.count}>{row.group.count}</span>
-        </button>
+        </div>
       </div>
     );
   }
@@ -196,11 +226,13 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const expandedSeries = useBehavior(store.expandedSeries$);
   const seriesByFutures = useBehavior(store.seriesByFutures$);
   const strikesBySeries = useBehavior(store.strikesBySeries$);
+  const seriesBusy = useBehavior(store.seriesBusy$);
   const window = useBehavior(store.window$);
   const sessions = useBehavior(store.sessions$);
   const now = useNow(1000);
 
-  const connected = connection.status === 'connected';
+  // Подключением считаем оба «живых» статуса: active (идут данные) и waiting (тишина).
+  const connected = connection.status === 'active' || connection.status === 'waiting';
 
   const sourceCodeById = useMemo(
     () => new Map(sources.map((s) => [s.sourceId, s.code])),
@@ -274,6 +306,15 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
     [store, connection.connectionId],
   );
   const onStop = useCallback((instrumentId: number) => store.stopRecording(instrumentId), [store]);
+  const onStartSeries = useCallback(
+    (futuresId: number, expiration: string) =>
+      store.startSeries(futuresId, expiration, connection.connectionId),
+    [store, connection.connectionId],
+  );
+  const onStopSeries = useCallback(
+    (futuresId: number, expiration: string) => store.stopSeries(futuresId, expiration),
+    [store],
+  );
 
   const scrollStyle = { '--now-pct': nowPct } as unknown as CSSProperties;
   const visible = rows.slice(virtual.start, virtual.end);
@@ -291,9 +332,25 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
                 : -1;
           const rec = instrumentId >= 0 ? recordingByInstrument.get(instrumentId) : undefined;
           const recordingHere = rec != null && rec.connectionId === connection.connectionId;
+
+          let sKey = '';
+          let seriesRecordingCount = 0;
+          if (row.kind === 'series') {
+            sKey = seriesKey(row.futuresId, row.group.expiration ?? row.group.key);
+            const strikes = strikesBySeries.get(sKey);
+            if (strikes) {
+              for (const option of strikes) {
+                const r = recordingByInstrument.get(option.instrumentId);
+                if (r != null && r.connectionId === connection.connectionId) {
+                  seriesRecordingCount += 1;
+                }
+              }
+            }
+          }
+
           const expanded =
             row.kind === 'series'
-              ? expandedSeries.has(seriesKey(row.futuresId, row.group.expiration ?? row.group.key))
+              ? expandedSeries.has(sKey)
               : row.kind === 'inst'
                 ? expandedFutures.has(row.instrument.instrumentId)
                 : false;
@@ -310,11 +367,15 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               connected={connected}
               selected={instrumentId >= 0 && selected.has(instrumentId)}
               expanded={expanded}
+              seriesBusy={row.kind === 'series' && seriesBusy.has(sKey)}
+              seriesRecordingCount={seriesRecordingCount}
               onToggleFutures={onToggleFutures}
               onToggleSeries={onToggleSeries}
               onToggleSelect={onToggleSelect}
               onStart={onStart}
               onStop={onStop}
+              onStartSeries={onStartSeries}
+              onStopSeries={onStopSeries}
             />
           );
         })}

@@ -147,6 +147,19 @@ export interface ConnectionCredentialsRequest {
   password: string;
 }
 
+/** Проверка настроек подключения без записи в БД (поднять коннектор и погасить). */
+export interface ValidateConnectionRequest {
+  kind: string;
+  settings: string;
+  login?: string;
+  password?: string;
+}
+
+export interface ValidateConnectionResult {
+  ok: boolean;
+  message?: string | null;
+}
+
 // Live-события WebSocket `/ws` (дискриминатор — поле `type`).
 export type LiveEvent =
   | { type: 'recordingStarted'; instrumentId: number; sourceId: number; connectionId: number; segmentId: number }

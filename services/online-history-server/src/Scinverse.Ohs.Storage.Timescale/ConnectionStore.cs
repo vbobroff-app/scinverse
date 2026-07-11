@@ -50,6 +50,36 @@ public sealed class ConnectionStore(NpgsqlDataSource dataSource) : IConnectionSt
             cancellationToken: cancellationToken));
     }
 
+    public async Task<ConnectorConnection?> UpdateAsync(
+        long connectionId, short sourceId, string name, string kind, string settings, bool enabled, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<ConnectorConnection>(new CommandDefinition(
+            $"""
+            UPDATE connector_connection SET
+                source_id  = @sourceId,
+                name       = @name,
+                kind       = @kind,
+                settings   = @settings::jsonb,
+                enabled    = @enabled,
+                updated_at = now()
+            WHERE connection_id = @connectionId
+            RETURNING {SelectColumns};
+            """,
+            new { connectionId, sourceId, name, kind, settings, enabled },
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<bool> DeleteAsync(long connectionId, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var affected = await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM connector_connection WHERE connection_id = @connectionId;",
+            new { connectionId },
+            cancellationToken: cancellationToken));
+        return affected > 0;
+    }
+
     public async Task SetEnabledAsync(long connectionId, bool enabled, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);

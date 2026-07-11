@@ -1,4 +1,5 @@
-import { BehaviorSubject, type Observable, type Subscription } from 'rxjs';
+import { BehaviorSubject, from, of, throwError, type Observable, type Subscription } from 'rxjs';
+import { catchError, finalize, map, mergeMap, switchMap, tap, toArray } from 'rxjs/operators';
 import { OhsApi, type OhsApiClient } from './api';
 import { createLiveStream } from './live';
 import {
@@ -24,6 +25,8 @@ import type {
   StartRecordingRequest,
   Timeframe,
   TimeframeUnit,
+  UpsertConnectionRequest,
+  ValidateConnectionResult,
 } from './types';
 
 /** Флаги условий плашки «Выбор» (проекция query-параметров для чек-листа). */
@@ -34,6 +37,11 @@ export interface SelectionConditions {
 }
 
 const DEFAULT_PAGE_SIZE = 100;
+
+/** Максимум параллельных стартов/остановок при записи всей опционной серии. */
+const SERIES_CONCURRENCY = 6;
+/** Потолок числа страйков, подтягиваемых для серии (одна страница). */
+const SERIES_STRIKES_LIMIT = 500;
 
 /** Как часто перезапрашивать покрытие (живые гэпы внутри активной сессии). */
 const COVERAGE_POLL_MS = 12_000;
@@ -96,6 +104,8 @@ export class OhsStore {
   readonly expandedSeries$ = new BehaviorSubject<ReadonlySet<string>>(new Set());
   readonly seriesByFutures$ = new BehaviorSubject<ReadonlyMap<number, InstrumentGroupDto[]>>(new Map());
   readonly strikesBySeries$ = new BehaviorSubject<ReadonlyMap<string, InstrumentDto[]>>(new Map());
+  /** Ключи серий, по которым сейчас идёт массовый старт/стоп записи (для блокировки кнопки). */
+  readonly seriesBusy$ = new BehaviorSubject<ReadonlySet<string>>(new Set());
   readonly sources$ = new BehaviorSubject<SourceDto[]>([]);
   readonly connections$ = new BehaviorSubject<ConnectionDto[]>([]);
   readonly recordings$ = new BehaviorSubject<RecordingDto[]>([]);
@@ -381,16 +391,123 @@ export class OhsStore {
   }
 
   private loadStrikes(futuresId: number, expiration: string): void {
-    this.api
-      .getInstruments({ underlyingId: futuresId, expiration, secType: 'OPT', limit: 500, offset: 0 })
-      .subscribe({
-        next: (page) => {
-          const map = new Map(this.strikesBySeries$.value);
-          map.set(seriesKey(futuresId, expiration), page.items);
-          this.strikesBySeries$.next(map);
-        },
-        error: (err) => console.error('loadStrikes', err),
-      });
+    this.ensureStrikes(futuresId, expiration).subscribe({
+      error: (err) => console.error('loadStrikes', err),
+    });
+  }
+
+  /** Возвращает страйки серии из кэша либо подтягивает их (и кладёт в кэш). */
+  private ensureStrikes(futuresId: number, expiration: string): Observable<InstrumentDto[]> {
+    const key = seriesKey(futuresId, expiration);
+    const cached = this.strikesBySeries$.value.get(key);
+    if (cached) {
+      return of(cached);
+    }
+    return this.api
+      .getInstruments({ underlyingId: futuresId, expiration, secType: 'OPT', limit: SERIES_STRIKES_LIMIT, offset: 0 })
+      .pipe(
+        map((page) => page.items),
+        tap((items) => {
+          const next = new Map(this.strikesBySeries$.value);
+          next.set(key, items);
+          this.strikesBySeries$.next(next);
+        }),
+      );
+  }
+
+  private setSeriesBusy(key: string, busy: boolean): void {
+    const next = new Set(this.seriesBusy$.value);
+    if (busy) {
+      next.add(key);
+    } else {
+      next.delete(key);
+    }
+    this.seriesBusy$.next(next);
+  }
+
+  /**
+   * Ставит на запись всю опционную серию: подтягивает страйки (если ещё не загружены)
+   * и стартует запись по каждому торгуемому, ещё не записываемому инструменту
+   * (ограниченная параллельность). Ошибки по отдельным страйкам не прерывают пакет.
+   */
+  startSeries(futuresId: number, expiration: string, connectionId: number): void {
+    const key = seriesKey(futuresId, expiration);
+    if (this.seriesBusy$.value.has(key)) {
+      return;
+    }
+    this.setSeriesBusy(key, true);
+    this.ensureStrikes(futuresId, expiration)
+      .pipe(
+        switchMap((strikes) => {
+          const recording = new Set(this.recordings$.value.map((r) => r.instrumentId));
+          const targets = strikes.filter((o) => o.active && !recording.has(o.instrumentId));
+          if (targets.length === 0) {
+            return of<unknown[]>([]);
+          }
+          return from(targets).pipe(
+            mergeMap(
+              (o) =>
+                this.api.startRecording({ instrumentId: o.instrumentId, connectionId }).pipe(
+                  catchError((err) => {
+                    console.error('startSeries item', o.instrumentId, err);
+                    return of(null);
+                  }),
+                ),
+              SERIES_CONCURRENCY,
+            ),
+            toArray(),
+          );
+        }),
+        finalize(() => {
+          this.setSeriesBusy(key, false);
+          this.refreshRecordings();
+          this.refreshCoverage();
+        }),
+      )
+      .subscribe({ error: (err) => console.error('startSeries', err) });
+  }
+
+  /**
+   * Останавливает запись всей серии: гасит запись по всем страйкам серии,
+   * которые сейчас пишутся (ограниченная параллельность).
+   */
+  stopSeries(futuresId: number, expiration: string): void {
+    const key = seriesKey(futuresId, expiration);
+    if (this.seriesBusy$.value.has(key)) {
+      return;
+    }
+    this.setSeriesBusy(key, true);
+    this.ensureStrikes(futuresId, expiration)
+      .pipe(
+        switchMap((strikes) => {
+          const members = new Set(strikes.map((o) => o.instrumentId));
+          const targets = this.recordings$.value
+            .filter((r) => members.has(r.instrumentId))
+            .map((r) => r.instrumentId);
+          if (targets.length === 0) {
+            return of<unknown[]>([]);
+          }
+          return from(targets).pipe(
+            mergeMap(
+              (id) =>
+                this.api.stopRecording(id).pipe(
+                  catchError((err) => {
+                    console.error('stopSeries item', id, err);
+                    return of(null);
+                  }),
+                ),
+              SERIES_CONCURRENCY,
+            ),
+            toArray(),
+          );
+        }),
+        finalize(() => {
+          this.setSeriesBusy(key, false);
+          this.refreshRecordings();
+          this.refreshCoverage();
+        }),
+      )
+      .subscribe({ error: (err) => console.error('stopSeries', err) });
   }
 
   /** Догружает следующую страницу каталога (infinite scroll). */
@@ -461,9 +578,15 @@ export class OhsStore {
   }
 
   connect(connectionId: number): void {
+    // Оптимистичный промежуточный статус: connect на бэке синхронный, но пока
+    // POST в полёте — показываем «подключается» (жёлтый), затем connected/error.
+    this.patchConnectionStatus(connectionId, 'connecting');
     this.api.connect(connectionId).subscribe({
       next: (c) => this.upsertConnection(c),
-      error: (err) => console.error('connect', err),
+      error: (err) => {
+        console.error('connect', err);
+        this.patchConnectionStatus(connectionId, 'error');
+      },
     });
   }
 
@@ -471,6 +594,100 @@ export class OhsStore {
     this.api.disconnect(connectionId).subscribe({
       next: (c) => this.upsertConnection(c),
       error: (err) => console.error('disconnect', err),
+    });
+  }
+
+  /**
+   * Создаёт подключение с обязательной проверкой: validate (без записи) →
+   * upsert → setCredentials. Если проверка не прошла — в БД ничего не создаётся,
+   * вызывается `onError(message)`. При успехе — `onSuccess(connection)`.
+   */
+  createConnection(
+    request: UpsertConnectionRequest,
+    credentials: { login: string; password: string } | null,
+    callbacks: { onSuccess: (c: ConnectionDto) => void; onError: (message: string) => void },
+  ): void {
+    const creds = credentials && credentials.login.trim() ? credentials : null;
+    this.api
+      .validateConnection({
+        kind: request.kind,
+        settings: request.settings,
+        login: creds?.login,
+        password: creds?.password,
+      })
+      .pipe(
+        switchMap((res) =>
+          res.ok
+            ? this.api.upsertConnection(request)
+            : throwError(() => new Error(res.message ?? 'Проверка подключения не пройдена')),
+        ),
+        switchMap((connection) =>
+          creds
+            ? this.api.setCredentials(connection.connectionId, creds).pipe(map(() => connection))
+            : of(connection),
+        ),
+      )
+      .subscribe({
+        next: (connection) => {
+          this.upsertConnection(connection);
+          callbacks.onSuccess(connection);
+        },
+        error: (err) => callbacks.onError(err instanceof Error ? err.message : String(err)),
+      });
+  }
+
+  /**
+   * Обновляет подключение по id. Если переданы креды — сначала проверка (validate),
+   * затем PUT и сохранение кред; без кред проверка пропускается (креды не меняются).
+   */
+  updateConnection(
+    connectionId: number,
+    request: UpsertConnectionRequest,
+    credentials: { login: string; password: string } | null,
+    callbacks: { onSuccess: (c: ConnectionDto) => void; onError: (message: string) => void },
+  ): void {
+    const creds = credentials && credentials.login.trim() ? credentials : null;
+    const validate$ = creds
+      ? this.api.validateConnection({
+          kind: request.kind,
+          settings: request.settings,
+          login: creds.login,
+          password: creds.password,
+        })
+      : of<ValidateConnectionResult>({ ok: true });
+
+    validate$
+      .pipe(
+        switchMap((res) =>
+          res.ok
+            ? this.api.updateConnection(connectionId, request)
+            : throwError(() => new Error(res.message ?? 'Проверка подключения не пройдена')),
+        ),
+        switchMap((connection) =>
+          creds
+            ? this.api.setCredentials(connection.connectionId, creds).pipe(map(() => connection))
+            : of(connection),
+        ),
+      )
+      .subscribe({
+        next: (connection) => {
+          this.upsertConnection(connection);
+          callbacks.onSuccess(connection);
+        },
+        error: (err) => callbacks.onError(err instanceof Error ? err.message : String(err)),
+      });
+  }
+
+  /** Удаляет подключение; при успехе убирает его из списка и вызывает `onDone`. */
+  deleteConnection(connectionId: number, onDone?: () => void): void {
+    this.api.deleteConnection(connectionId).subscribe({
+      next: () => {
+        this.connections$.next(
+          this.connections$.value.filter((c) => c.connectionId !== connectionId),
+        );
+        onDone?.();
+      },
+      error: (err) => console.error('deleteConnection', err),
     });
   }
 
@@ -545,6 +762,15 @@ export class OhsStore {
     if (!hasActive) {
       this.refreshCoverage();
     }
+  }
+
+  /** Локально меняет только статус подключения (оптимистичные переходы UI). */
+  private patchConnectionStatus(connectionId: number, status: string): void {
+    this.connections$.next(
+      this.connections$.value.map((c) =>
+        c.connectionId === connectionId ? { ...c, status } : c,
+      ),
+    );
   }
 
   private upsertConnection(connection: ConnectionDto): void {

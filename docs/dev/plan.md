@@ -11,7 +11,7 @@
 | Stage | Тема | Фазы | Статус |
 | ----- | ---- | ---- | ------ |
 | 0 | Data foundation: создание БД / инфраструктура миграций | phase0, phase1, phase3 | DONE |
-| 1 | OHS apply + admin frontend: управление записью + панель покрытия (Гант) | phase4–phase9 | IN PROGRESS |
+| 1 | OHS apply + admin frontend: управление записью + панель покрытия (Гант) | phase4–phase10 | IN PROGRESS |
 | 2 | OrderLog / Plaza2 (event sourcing) | — | FUTURE |
 
 ---
@@ -69,19 +69,28 @@ Stage 1 (архитектура, модель данных, API/WS, границ
 | 5 | Мультиисточник: `V004` (`data_source` + `source_id`), сквозной `SourceId` | DONE | [phase5](phase5/report.md) — PK+source_id, нахлёст источников |
 | 6a | Схема + запись: `V005` (coverage_segment), `V006` (connector_connection), `RecordingManager`, `CoverageStore` | DONE | [phase6a](phase6a/report.md) — сегменты покрытия, E2E `trade_count=500` |
 | 6b | Control-plane сеть: хост → ASP.NET Core, REST (Minimal API + контракт `IOhsApi`) + WebSocket, фабрика коннекторов, in-memory креды | DONE | [phase6b](phase6b/report.md) — 31 тест, живой хост отвечает |
-| 6c | Иерархия инструментов: наполнение `derivative` (`V007`), read-model группировки (`/api/instruments/groups`), фильтры цепочки | IN PROGRESS | [phase6c](phase6c/report.md) — разблокирует дерево (см. [issue](phase7/issue.md)) |
-| 7 | Админ-фронт (React + Vite + TS): список инструментов, Гант, старт/стоп, управление подключениями | IN PROGRESS | [phase7](phase7/report.md) — срез ур.3 готов; дерево ждёт 6c ([issue](phase7/issue.md)) |
+| 6c | Иерархия инструментов: наполнение `derivative` (`V007`), read-model группировки (`/api/instruments/groups`), фильтры цепочки | DONE | [phase6c](phase6c/report.md) — питает фильтры каталога (дерево descoped) |
+| 7 | Админ-фронт (React + Vite + TS): список инструментов, Гант, старт/стоп, управление подключениями | IN PROGRESS | [phase7](phase7/report.md) — ур.3 готов; далее ур.2/ур.1 (дерево снято, см. [issue](phase7/issue.md)) |
 | 7b | Таймфреймы и сессионное окно: панель `D/W/M/Q/Y/All/диапазон`, сессионная модель MOEX, сепараторы сессий | DONE | [phase7b](phase7b/report.md) — `/api/sessions`, `/api/coverage/extent`, `TimeframePanel` + `DateRangePicker` |
 | 7c | Реальное расписание MOEX (ISS): производств. календарь + `session_schedule`, страница «Биржи → Структура» (движки/рынки/борды/инструменты) | PLANNED | [phase7c](phase7c/report.md) — ISS-клиент, кэш `V008`, fallback `MoexSchedule` |
 | 7d | Динамические фильтры каталога: плашки (Инструменты/Выбор/Биржи) + `[+]`/`[×]`, поиск справа; бэкенд-фильтры `nonEmpty`/`instrumentIds`/`exchanges` | IN PROGRESS | [phase7d](phase7d/report.md) — chips-паттерн (как `mars`), рефактор `FilterBar` |
+| 7e | Управление подключениями: UI создания/редактирования коннектора (Transaq), ввод кред, realtime-connect | PLANNED | [phase7e](phase7e/report.md) — форма над control-plane (phase 6b), бэкенд уже готов |
 | 8 | CI/CD: GitHub Actions (build + unit + integration) + compose-сервис `migrator` | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` (бэкфилл, `source=qscalp`) — поздний этап | TODO | — |
+| 10 | Multi-user & auth: Keycloak (OIDC/JWT для .NET+Python), таблица `user_settings`, примитивные роли | PLANNED | [phase10](phase10/plan.md) — единая identity, настройки в своём Postgres |
+| 11 | Центр уведомлений: сквозная лента событий (severity Info/Warning/Critical/Error × тип User/System/External), нижний док, MFE | PLANNED | [phase11](phase11/plan.md) — singleton-шина (RxJS) + WS `notification` + бэклог |
 
 Порядок и зависимости: 4 → 5 → 6a → 6b → 7 (фронт можно начинать параллельно на моках); 6c
-вклинивается между итерациями phase7 (разблокирует древовидный каталог); 7b расширяет phase7
+вклинивается между итерациями phase7 (даёт иерархию деривативов; отдельный «древовидный» вид
+descoped — навигация по структуре решается фильтрами 7d, `groups` питает значения фильтра); 7b расширяет phase7
 (управление окном Ганта); 7c заменяет эвристику расписания на реальные данные MOEX ISS и добавляет
-страницу «Биржи → Структура»; 7d добавляет динамические фильтры-плашки каталога (параллельно 7c) →
-8 (можно рано) → 9.
+страницу «Биржи → Структура»; 7d добавляет динамические фильтры-плашки каталога (параллельно 7c);
+7e даёт UI управления подключениями (Transaq realtime) поверх готового control-plane (phase 6b) →
+8 (можно рано) → 9. Фаза 10 (multi-user & auth на Keycloak + `user_settings` + роли) — сквозная
+по всей системе (.NET горячий + Python холодный контуры валидируют один OIDC-токен), стартует
+независимо, когда потребуется многопользовательский режим. Фаза 11 (центр уведомлений — сквозная
+лента событий, нижний док, MFE) — тоже сквозная: singleton-шина (RxJS) поверх WS-транспорта
+(phase 6b), персистенция состояния — при наличии phase 10; стартует независимо.
 Каждая фаза документируется как `phaseN/{plan,apply,report}.md` по общему шаблону.
 
 ---

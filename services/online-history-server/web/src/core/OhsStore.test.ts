@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import { of, Subject } from 'rxjs';
+import { of, Subject, type Observable } from 'rxjs';
 import { OhsStore } from './OhsStore';
 import type { OhsApiClient } from './api';
 import { todaySession } from './moexSession';
@@ -8,9 +8,11 @@ import type {
   CoverageExtentDto,
   CoverageSegmentDto,
   InstrumentPage,
+  InstrumentQueryParams,
   LiveEvent,
   RecordingDto,
   SessionDto,
+  ValidateConnectionResult,
 } from './types';
 
 function connection(overrides: Partial<ConnectionDto> = {}): ConnectionDto {
@@ -57,6 +59,9 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
     disconnect: () => of(connection({ status: 'disconnected' })),
     test: () => of(connection()),
     upsertConnection: () => of(connection()),
+    updateConnection: () => of(connection()),
+    deleteConnection: () => of(undefined),
+    validateConnection: () => of<ValidateConnectionResult>({ ok: true }),
     setCredentials: () => of(undefined),
   };
   return { ...base, ...overrides };
@@ -134,7 +139,9 @@ describe('OhsStore фильтры-плашки', () => {
   });
 
   it('при активном условии «Выделенные» смена выделения пере-запрашивает каталог', () => {
-    const getInstruments = vi.fn(() => of<InstrumentPage>({ items: [], total: 0, limit: 100, offset: 0 }));
+    const getInstruments = vi.fn<(params: InstrumentQueryParams) => Observable<InstrumentPage>>(
+      () => of<InstrumentPage>({ items: [], total: 0, limit: 100, offset: 0 }),
+    );
     const store = new OhsStore(fakeApi({ getInstruments }), new Subject<LiveEvent>());
     store.start();
 

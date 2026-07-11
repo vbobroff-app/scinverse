@@ -78,8 +78,11 @@ scinverse/
 | 7b | Таймфреймы + сессионное окно (панель D/W/M/Q/Y/All/диапазон) | DONE | [phase7b](./dev/phase7b/report.md) |
 | 7c | Реальное расписание MOEX (ISS) + страница «Биржи → Структура» | PLANNED | [phase7c](./dev/phase7c/report.md) |
 | 7d | Динамические фильтры каталога (плашки Инструменты/Выбор/Биржи + поиск справа) | IN PROGRESS | [phase7d](./dev/phase7d/report.md) |
+| 7e | Управление подключениями (UI Transaq: создание/креды/realtime-connect) | PLANNED | [phase7e](./dev/phase7e/report.md) |
 | 8 | CI/CD (GitHub Actions + compose `migrator`) | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` | TODO | — |
+| 10 | Multi-user & auth (Keycloak + `user_settings` + роли) | PLANNED | [phase10](./dev/phase10/plan.md) |
+| 11 | Центр уведомлений (сквозная лента событий, нижний док, MFE) | PLANNED | [phase11](./dev/phase11/plan.md) |
 
 ## 4. Ключевые доменные факты (быстрый ввод)
 

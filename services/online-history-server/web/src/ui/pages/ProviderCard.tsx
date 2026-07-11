@@ -1,6 +1,5 @@
 import { useOhsStore } from '../context';
-import { Button } from '../components/Button';
-import { StatusDot } from '../components/StatusDot';
+import { ConnectionToggle } from '../components/ConnectionToggle';
 import { FilterBar } from '../components/FilterBar';
 import { InstrumentPicker } from '../components/InstrumentPicker';
 import type { ConnectionDto } from '../../core/types';
@@ -8,7 +7,6 @@ import styles from './ProviderCard.module.css';
 
 export function ProviderCard({ connection }: { connection: ConnectionDto }) {
   const store = useOhsStore();
-  const connected = connection.status === 'connected';
 
   return (
     <section className={styles.card}>
@@ -20,16 +18,11 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
           </span>
         </div>
         <div className={styles.headRight}>
-          <StatusDot status={connection.status} />
-          {connected ? (
-            <Button variant="danger" onClick={() => store.disconnect(connection.connectionId)}>
-              Отключить
-            </Button>
-          ) : (
-            <Button variant="primary" onClick={() => store.connect(connection.connectionId)}>
-              Подключить
-            </Button>
-          )}
+          <ConnectionToggle
+            status={connection.status}
+            onConnect={() => store.connect(connection.connectionId)}
+            onDisconnect={() => store.disconnect(connection.connectionId)}
+          />
         </div>
       </header>
 

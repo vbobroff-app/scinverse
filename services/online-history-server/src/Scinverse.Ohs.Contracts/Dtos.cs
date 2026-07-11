@@ -122,3 +122,12 @@ public sealed record UpsertConnectionRequest(
 
 /// <summary>Учётные данные подключения (write-only, в БД не сохраняются).</summary>
 public sealed record ConnectionCredentialsRequest(string Login, string Password);
+
+/// <summary>
+/// Проверка настроек подключения без записи в БД: поднять коннектор из
+/// <paramref name="Kind"/>+<paramref name="Settings"/>(+креды) и сразу закрыть.
+/// </summary>
+public sealed record ValidateConnectionRequest(string Kind, string Settings, string? Login, string? Password);
+
+/// <summary>Результат проверки настроек подключения.</summary>
+public sealed record ValidateConnectionResult(bool Ok, string? Message);

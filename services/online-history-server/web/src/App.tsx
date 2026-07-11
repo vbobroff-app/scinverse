@@ -18,6 +18,8 @@ export function App() {
     }
   }, [connections, selectedId]);
 
+  const handleSelect = (id: number | null) => setSelectedId(id);
+
   const selected = connections.find((c) => c.connectionId === selectedId) ?? null;
 
   return (
@@ -31,7 +33,7 @@ export function App() {
       </header>
 
       <main className={styles.main}>
-        <ConnectionsPanel selectedId={selectedId} onSelect={setSelectedId} />
+        <ConnectionsPanel selectedId={selectedId} onSelect={handleSelect} />
         {selected ? (
           <ProviderCard connection={selected} />
         ) : (

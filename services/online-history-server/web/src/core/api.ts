@@ -13,6 +13,8 @@ import type {
   SourceDto,
   StartRecordingRequest,
   UpsertConnectionRequest,
+  ValidateConnectionRequest,
+  ValidateConnectionResult,
 } from './types';
 
 const BASE = '/api';
@@ -41,6 +43,12 @@ function buildInstrumentsQuery(params: InstrumentQueryParams): string {
 
 function post<T>(path: string, body?: unknown): Observable<T> {
   return ajax<T>({ url: `${BASE}${path}`, method: 'POST', headers: JSON_HEADERS, body }).pipe(
+    map((r) => r.response),
+  );
+}
+
+function put<T>(path: string, body?: unknown): Observable<T> {
+  return ajax<T>({ url: `${BASE}${path}`, method: 'PUT', headers: JSON_HEADERS, body }).pipe(
     map((r) => r.response),
   );
 }
@@ -86,6 +94,15 @@ export const OhsApi = {
   test: (connectionId: number) => post<ConnectionDto>(`/connections/${connectionId}/test`),
 
   upsertConnection: (body: UpsertConnectionRequest) => post<ConnectionDto>('/connections', body),
+
+  updateConnection: (connectionId: number, body: UpsertConnectionRequest) =>
+    put<ConnectionDto>(`/connections/${connectionId}`, body),
+
+  deleteConnection: (connectionId: number): Observable<void> =>
+    ajax({ url: `${BASE}/connections/${connectionId}`, method: 'DELETE' }).pipe(map(() => undefined)),
+
+  validateConnection: (body: ValidateConnectionRequest) =>
+    post<ValidateConnectionResult>('/connections/validate', body),
 
   setCredentials: (connectionId: number, body: ConnectionCredentialsRequest): Observable<void> =>
     ajax({

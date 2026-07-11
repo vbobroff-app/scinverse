@@ -22,10 +22,15 @@ public sealed class ConnectionManager(
     CoverageTracker coverageTracker,
     WebSocketBroadcaster broadcaster,
     ILoggerFactory loggerFactory,
-    ILogger<ConnectionManager> logger)
+    ILogger<ConnectionManager> logger) : IDisposable
 {
+    /// <summary>Порог тишины: нет данных от коннектора дольше — статус «ожидание» (waiting).</summary>
+    private static readonly TimeSpan IdleThreshold = TimeSpan.FromSeconds(5);
+
     private readonly ConcurrentDictionary<long, ConnectorSession> _sessions = new();
     private readonly ConcurrentDictionary<long, string> _status = new();
+    private readonly ConcurrentDictionary<long, DateTimeOffset> _lastData = new();
+    private Timer? _idleMonitor;
 
     public string GetStatus(long connectionId) =>
         _status.TryGetValue(connectionId, out var status) ? status : "disconnected";
@@ -52,13 +57,26 @@ public sealed class ConnectionManager(
 
         var session = new ConnectorSession(
             connector, parser, registry, sourceStore, normalizer, batcher, coverageTracker,
-            loggerFactory.CreateLogger<ConnectorSession>());
+            loggerFactory.CreateLogger<ConnectorSession>(),
+            onData: () => ReportActivity(connectionId));
         await session.StartAsync(cancellationToken).ConfigureAwait(false);
 
         _sessions[connectionId] = session;
-        SetStatus(connectionId, "connected");
+        // Подключено, но данных ещё нет → «ожидание» (перейдёт в «active» при первой сделке).
+        SetStatus(connectionId, "waiting");
+        EnsureIdleMonitor();
         logger.LogInformation("Подключение {ConnectionId} ({Kind}) установлено", connectionId, connection.Kind);
-        return "connected";
+        return "waiting";
+    }
+
+    /// <summary>Отмечает поступление данных от коннектора: waiting → active (idle-монитор вернёт назад).</summary>
+    public void ReportActivity(long connectionId)
+    {
+        _lastData[connectionId] = DateTimeOffset.UtcNow;
+        if (GetStatus(connectionId) == "waiting")
+        {
+            SetStatus(connectionId, "active");
+        }
     }
 
     public async Task<string> DisconnectAsync(long connectionId, CancellationToken cancellationToken)
@@ -68,6 +86,7 @@ public sealed class ConnectionManager(
             await session.StopAsync().ConfigureAwait(false);
         }
 
+        _lastData.TryRemove(connectionId, out _);
         SetStatus(connectionId, "disconnected");
         return "disconnected";
     }
@@ -103,6 +122,37 @@ public sealed class ConnectionManager(
         }
     }
 
+    /// <summary>
+    /// Проверяет настройки/креды без персистентности: поднимает коннектор из
+    /// переданных <paramref name="kind"/>/<paramref name="settings"/> и сразу гасит.
+    /// Ничего не пишет в БД и не трогает <see cref="ICredentialStore"/>.
+    /// </summary>
+    public async Task<(bool Ok, string? Message)> ValidateAsync(
+        string kind, string settings, ConnectorCredentials? creds, CancellationToken cancellationToken)
+    {
+        IMarketConnector? connector = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(settings) ? "{}" : settings);
+            connector = factory.Create(kind, doc.RootElement, creds);
+            await connector.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            await connector.DisconnectAsync(cancellationToken).ConfigureAwait(false);
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Валидация настроек подключения ({Kind}) не удалась", kind);
+            return (false, ex.Message);
+        }
+        finally
+        {
+            if (connector is not null)
+            {
+                await connector.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
     public async Task StopAllAsync(CancellationToken cancellationToken)
     {
         foreach (var connectionId in _sessions.Keys)
@@ -116,4 +166,29 @@ public sealed class ConnectionManager(
         _status[connectionId] = status;
         broadcaster.Broadcast(new ConnectionStatusChangedEvent(connectionId, status));
     }
+
+    /// <summary>Лениво запускает опрос простоя (тик 1с) при первом подключении.</summary>
+    private void EnsureIdleMonitor() =>
+        _idleMonitor ??= new Timer(_ => SweepIdle(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+
+    /// <summary>Опрос активных сессий: active → waiting, если данных нет дольше <see cref="IdleThreshold"/>.</summary>
+    private void SweepIdle()
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var connectionId in _sessions.Keys)
+        {
+            if (GetStatus(connectionId) != "active")
+            {
+                continue;
+            }
+
+            var last = _lastData.TryGetValue(connectionId, out var t) ? t : DateTimeOffset.MinValue;
+            if (now - last > IdleThreshold)
+            {
+                SetStatus(connectionId, "waiting");
+            }
+        }
+    }
+
+    public void Dispose() => _idleMonitor?.Dispose();
 }

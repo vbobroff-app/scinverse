@@ -145,10 +145,42 @@ public static class OhsEndpoints
             return Results.Ok(ToDto(connection, manager.GetStatus(connection.ConnectionId)));
         });
 
+        api.MapPut("/connections/{id:long}", async (long id, UpsertConnectionRequest request, IConnectionStore store, ConnectionManager manager, CancellationToken ct) =>
+        {
+            var updated = await store.UpdateAsync(id, request.SourceId, request.Name, request.Kind, request.Settings, request.Enabled, ct);
+            return updated is null
+                ? Results.NotFound()
+                : Results.Ok(ToDto(updated, manager.GetStatus(id)));
+        });
+
+        api.MapDelete("/connections/{id:long}", async (long id, IConnectionStore store, ConnectionManager manager, ICredentialStore credentials, CancellationToken ct) =>
+        {
+            var existing = await store.GetAsync(id, ct);
+            if (existing is null)
+            {
+                return Results.NotFound();
+            }
+
+            // Гасим живую сессию и чистим креды из памяти перед удалением строки.
+            await manager.DisconnectAsync(id, ct);
+            credentials.Clear(id);
+            await store.DeleteAsync(id, ct);
+            return Results.NoContent();
+        });
+
         api.MapPut("/connections/{id:long}/credentials", (long id, ConnectionCredentialsRequest request, ICredentialStore credentials) =>
         {
             credentials.Set(id, new ConnectorCredentials(request.Login, request.Password));
             return Results.NoContent();
+        });
+
+        api.MapPost("/connections/validate", async (ValidateConnectionRequest request, ConnectionManager manager, CancellationToken ct) =>
+        {
+            var creds = string.IsNullOrWhiteSpace(request.Login)
+                ? null
+                : new ConnectorCredentials(request.Login, request.Password ?? string.Empty);
+            var (ok, message) = await manager.ValidateAsync(request.Kind, request.Settings, creds, ct);
+            return Results.Ok(new ValidateConnectionResult(ok, message));
         });
 
         api.MapPost("/connections/{id:long}/connect", (long id, ConnectionManager manager, IConnectionStore store, CancellationToken ct) =>

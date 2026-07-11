@@ -16,7 +16,8 @@ public sealed class ConnectorSession(
     TradeNormalizer normalizer,
     TradeBatcher batcher,
     CoverageTracker coverageTracker,
-    ILogger<ConnectorSession> logger)
+    ILogger<ConnectorSession> logger,
+    Action? onData = null)
 {
     private CancellationTokenSource? _cts;
     private Task? _pumpTask;
@@ -79,6 +80,7 @@ public sealed class ConnectorSession(
                         case TradeEvent trade when normalizer.TryNormalize(trade, sourceId, out var record):
                             await batcher.EnqueueAsync(record, cancellationToken).ConfigureAwait(false);
                             coverageTracker.Track(trade.Key);
+                            onData?.Invoke();
                             break;
 
                         case TradeEvent trade:
