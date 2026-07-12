@@ -125,6 +125,19 @@ public static class OhsEndpoints
             return activity.Select(a => new TradeActivityDto(a.InstrumentId, a.Buckets)).ToList();
         });
 
+        api.MapPost("/coverage/liveness", async (
+            LivenessQueryRequest request, ICaptureLivenessStore store, CancellationToken ct) =>
+        {
+            var ids = new[] { request.SourceId };
+            var intervals = await store.QueryAsync(ids, request.From, request.To, ct);
+            var gaps = await store.QueryGapsAsync(ids, request.From, request.To, ct);
+            return new CaptureLivenessDto(
+                intervals.Select(i => new LivenessIntervalDto(
+                    i.From, i.To, i.Open, i.CloseReason is null ? null : ToLivenessReasonDto(i.CloseReason.Value))).ToList(),
+                gaps.Select(g => new CaptureGapDto(
+                    g.From, g.To, ToLivenessReasonDto(g.Cause))).ToList());
+        });
+
         api.MapGet("/recordings", (RecordingManager recordings) =>
             recordings.List().Select(ToDto).ToList());
 
@@ -366,4 +379,13 @@ public static class OhsEndpoints
     private static ConnectionDto ToDto(ConnectorConnection connection, string status) => new(
         connection.ConnectionId, connection.SourceId, connection.Name, connection.Kind, connection.Settings,
         connection.Enabled, status);
+
+    private static string ToLivenessReasonDto(CaptureCloseReason reason) => reason switch
+    {
+        CaptureCloseReason.Stopped => "stopped",
+        CaptureCloseReason.ServerDown => "server_down",
+        CaptureCloseReason.PingFailed => "ping_failed",
+        CaptureCloseReason.Interrupted => "interrupted",
+        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
+    };
 }

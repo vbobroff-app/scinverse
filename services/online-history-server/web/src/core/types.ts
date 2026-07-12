@@ -173,6 +173,30 @@ export interface TradeActivityRequest {
   instrumentIds: number[];
 }
 
+export interface LivenessIntervalDto {
+  from: string;
+  to: string;
+  open: boolean;
+  closeReason: string | null;
+}
+
+export interface CaptureGapDto {
+  from: string;
+  to: string | null;
+  cause: string;
+}
+
+export interface LivenessQueryRequest {
+  from: string;
+  to: string;
+  sourceId: number;
+}
+
+export interface CaptureLivenessDto {
+  intervals: LivenessIntervalDto[];
+  gaps: CaptureGapDto[];
+}
+
 export interface RecordingDto {
   instrumentId: number;
   ticker: string;

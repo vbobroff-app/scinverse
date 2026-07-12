@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import { of, Subject, type Observable } from 'rxjs';
+import { of, Subject, throwError, type Observable } from 'rxjs';
 import { OhsStore } from './OhsStore';
 import type { OhsApiClient } from './api';
 import { todaySession } from './moexSession';
@@ -54,6 +54,7 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
     getSessions: () => of<SessionDto[]>([]),
     getCoverageExtent: () => of<CoverageExtentDto>({ from: null, to: null }),
     getTradeActivity: () => of([]),
+    getCaptureLiveness: () => of({ intervals: [], gaps: [] }),
     startRecording: () => of({} as RecordingDto),
     stopRecording: () => of(undefined),
     connect: () => of(connection({ status: 'connected' })),
@@ -205,6 +206,36 @@ describe('OhsStore timeframe → window', () => {
     const today = todaySession();
     expect(Date.parse(store.window$.value.to)).toBe(today.endMs);
     expect(store.sessions$.value).toHaveLength(1);
+    store.stop();
+  });
+
+  it('D1: часы сессии подменяются из getSessions (ISS)', () => {
+    const issDay: SessionDto = {
+      date: '2026-07-08',
+      start: '2026-07-08T04:00:00.000Z',
+      end: '2026-07-08T21:00:00.000Z',
+      weekend: false,
+    };
+    const getSessions = vi.fn(() => of([issDay]));
+    const store = new OhsStore(fakeApi({ getSessions }), new Subject<LiveEvent>());
+    store.start();
+
+    expect(getSessions).toHaveBeenCalledWith(1, true, 'futures');
+    const day = store.sessions$.value[0];
+    expect(day.date).toBe('2026-07-08');
+    expect(day.start).toBe(issDay.start);
+    expect(day.end).toBe(issDay.end);
+    store.stop();
+  });
+
+  it('D1: при ошибке getSessions — фолбэк на локальную эвристику', () => {
+    const getSessions = vi.fn(() => throwError(() => new Error('iss down')));
+    const store = new OhsStore(fakeApi({ getSessions }), new Subject<LiveEvent>());
+    store.start();
+
+    const today = todaySession();
+    expect(store.sessions$.value).toHaveLength(1);
+    expect(Date.parse(store.sessions$.value[0].start)).toBe(today.startMs);
     store.stop();
   });
 

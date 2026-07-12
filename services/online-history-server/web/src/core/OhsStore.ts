@@ -7,6 +7,7 @@ import { DEFAULT_SECTION, type NavSectionId } from './navigation';
 import {
   mskDateFromIso,
   mskDateOf,
+  mergeSessionHours,
   mskMidnightMsFromIso,
   recentSessions,
   sessionBounds,
@@ -16,6 +17,7 @@ import {
   weekdayOfIso,
 } from './moexSession';
 import type {
+  CaptureGapDto,
   ConnectionDto,
   CoverageSegmentDto,
   DisplayTz,
@@ -23,6 +25,7 @@ import type {
   InstrumentDto,
   InstrumentGroupDto,
   InstrumentQueryParams,
+  LivenessIntervalDto,
   LiveEvent,
   RecordingDto,
   SessionDto,
@@ -51,6 +54,12 @@ export interface SelectionConditions {
 export interface TradeActivityState {
   bucketMs: number;
   byInstrument: ReadonlyMap<number, number[]>;
+}
+
+/** Живость захвата + журнал разрывов (phase 7h) на подключение (source). */
+export interface LivenessState {
+  intervals: LivenessIntervalDto[];
+  gaps: CaptureGapDto[];
 }
 
 /** Контекст запроса слоя сделок: какие инструменты и по какому источнику сейчас видно. */
@@ -83,6 +92,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const ALL_WEEKDAYS: readonly number[] = [0, 1, 2, 3, 4, 5, 6];
 /** Домашняя биржа (расписание по умолчанию, пока мультибиржа не наполнена). */
 const HOME_EXCHANGE = 'MOEX';
+/** Движок ISS для часов сессии MOEX/FORTS (см. GET /api/sessions?engine=). */
+const HOME_ENGINE = 'futures';
 /** Стартовый пресет: все дни, сессия MOEX (свёрнутая, как раньше), полные сутки выключены. */
 const STARTUP_TIMELINE: TimelineFilter = {
   weekdays: new Set(ALL_WEEKDAYS),
@@ -106,8 +117,7 @@ const DEFAULT_DISPLAY_TZ: DisplayTz = { preset: 'msk', offsetMin: 180 };
  * - сессия выбрана, `fullDay=true` → полные сутки + границы сессии в `sessionStart/End`
  *   (рендерятся как зоны `[pre | session | post]`).
  *
- * Для `session` в MVP используем сгенерированные границы MOEX; при мультибирже здесь будет
- * пересчёт по расписанию `mode.exchange`.
+ * Для `session` границы `sessionStart/End` — из `SessionDto` (D/W: часы ISS с бэка).
  */
 function reshapeDay(session: SessionDto, fullDay: boolean, mode: SessionWindowMode): SessionDto {
   const midnight = mskMidnightMsFromIso(session.date);
@@ -198,8 +208,12 @@ export class OhsStore {
 
   /** Слой сделок: присутствие по бакетам для видимых инструментов (см. setActivityContext). */
   readonly activity$ = new BehaviorSubject<TradeActivityState>({ bucketMs: 30_000, byInstrument: new Map() });
+  /** Живость захвата и разрывы связи (честная подложка, phase 7h). */
+  readonly liveness$ = new BehaviorSubject<LivenessState>({ intervals: [], gaps: [] });
   /** Что запрашивать в слое сделок; задаётся UI (видимые строки + источник провайдера). */
   private activityContext: ActivityContext | null = null;
+  /** Источник провайдера для живости захвата (один на подключение). */
+  private livenessSourceId: number | null = null;
 
   // --- Таймфрейм и сессионное окно. ---
   readonly timeframe$ = new BehaviorSubject<Timeframe>(DEFAULT_TIMEFRAME);
@@ -240,6 +254,7 @@ export class OhsStore {
     this.coveragePollTimer = setInterval(() => {
       this.refreshCoverage();
       this.refreshActivity();
+      this.refreshLiveness();
     }, COVERAGE_POLL_MS);
   }
 
@@ -397,10 +412,16 @@ export class OhsStore {
       return;
     }
 
-    // Посессионные (D/W): календарные сессии (выходные — отдельные слоты, не схлопываем).
-    // Считаем локально — ось должна показывать и пустые выходные, которых нет в данных.
+    // D/W: календарный скелет локально (включая пустые выходные), часы — ISS с бэка.
     const count = sessionCount(tf.unit, tf.count, iw);
-    this.publishSessions(recentSessions(count, iw));
+    const calendar = recentSessions(count, iw);
+    this.api.getSessions(count, iw, HOME_ENGINE).subscribe({
+      next: (api) => this.publishSessions(mergeSessionHours(calendar, api)),
+      error: (err) => {
+        console.error('getSessions', err);
+        this.publishSessions(calendar);
+      },
+    });
   }
 
   private applyAllTimeframe(): void {
@@ -759,6 +780,29 @@ export class OhsStore {
     if (changed) {
       this.refreshActivity();
     }
+    this.setLivenessSource(sourceId);
+  }
+
+  /** Задаёт источник для живости захвата (обычно `connection.sourceId` провайдера). */
+  setLivenessSource(sourceId: number): void {
+    if (this.livenessSourceId !== sourceId) {
+      this.livenessSourceId = sourceId;
+      this.refreshLiveness();
+    }
+  }
+
+  /** Догружает интервалы живости и журнал разрывов для текущего окна и источника. */
+  refreshLiveness(): void {
+    const sourceId = this.livenessSourceId;
+    if (sourceId === null) {
+      this.liveness$.next({ intervals: [], gaps: [] });
+      return;
+    }
+    const { from, to } = this.window$.value;
+    this.api.getCaptureLiveness({ from, to, sourceId }).subscribe({
+      next: (dto) => this.liveness$.next({ intervals: dto.intervals, gaps: dto.gaps }),
+      error: (err) => console.error('getCaptureLiveness', err),
+    });
   }
 
   /** Догружает слой сделок для текущего контекста, окна и бакета таймфрейма (батч-запрос). */
@@ -797,6 +841,7 @@ export class OhsStore {
     this.window$.next(window);
     this.refreshCoverage();
     this.refreshActivity();
+    this.refreshLiveness();
   }
 
   connect(connectionId: number): void {

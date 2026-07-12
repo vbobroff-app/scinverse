@@ -1,6 +1,6 @@
-import { memo } from 'react';
+import { memo, type ReactNode } from 'react';
 import type { CoverageWindow } from '../../core/OhsStore';
-import type { CoverageSegmentDto, SessionDto } from '../../core/types';
+import type { CaptureGapDto, CoverageSegmentDto, LivenessIntervalDto, SessionDto } from '../../core/types';
 import { colorForSourceCode } from '../../core/sourceColors';
 import { makeProjector } from '../../core/sessionProjection';
 import styles from './CoverageTrack.module.css';
@@ -17,6 +17,10 @@ interface Props {
   activitySourceId?: number;
   /** Смещение отображаемого ТЗ от UTC (мин) — для подписи времени в тултипах ячеек. */
   tzOffsetMin?: number;
+  /** Интервалы живости захвата (source) — честная подложка = намерение ∩ живость. */
+  livenessIntervals?: LivenessIntervalDto[];
+  /** Журнал разрывов захвата (красная разметка). */
+  captureGaps?: CaptureGapDto[];
   sessions?: SessionDto[];
   /** Подсветка дней: каждый день обрамляется рамкой + скруглением (тумблер в Ганте). */
   highlightDays?: boolean;
@@ -31,6 +35,19 @@ function hhmm(ms: number, offMin: number): string {
   const d = new Date(ms + offMin * 60_000);
   return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
 }
+
+/** Пересечение двух полуинтервалов [a0,a1) ∩ [b0,b1) в ms; null если пусто. */
+function intersectMs(a0: number, a1: number, b0: number, b1: number): { from: number; to: number } | null {
+  const from = Math.max(a0, b0);
+  const to = Math.min(a1, b1);
+  return from < to ? { from, to } : null;
+}
+
+const GAP_CAUSE_LABEL: Record<string, string> = {
+  server_down: 'Обрыв связи',
+  ping_failed: 'Связь потеряна (пинг)',
+  interrupted: 'Прервано (краш/рестарт)',
+};
 
 /**
  * Одна дорожка Ганта (колбаски одного инструмента) на div-ах. «Ползущий» правый край открытой
@@ -47,10 +64,13 @@ export const CoverageTrack = memo(function CoverageTrack({
   activityBucketMs,
   activitySourceId,
   tzOffsetMin = 180,
+  livenessIntervals,
+  captureGaps,
   sessions,
   highlightDays,
 }: Props) {
   const pct = makeProjector(Date.parse(window.from), Date.parse(window.to), sessions);
+  const honestMode = (livenessIntervals?.length ?? 0) > 0;
   // При большом числе сессий (M/Q/Y) не рисуем поштучные слоты/швы — было бы шумно и тяжело.
   const showSessionDetail = !!sessions && sessions.length > 1 && sessions.length <= 40;
   // Контейнер дня рисуем во всех посессионных режимах (D/W), но не для длинных окон.
@@ -108,24 +128,69 @@ export const CoverageTrack = memo(function CoverageTrack({
           ),
         )}
 
-      {/* Подложка: намерение/покрытие записи (тёмная, до now). Честность по связи — phase 7h. */}
-      {segments.map((seg) => {
-        const left = pct(Date.parse(seg.from));
+      {/* Подложка: намерение ∩ живость (phase 7h). Без данных живости — старое поведение (намерение). */}
+      {segments.flatMap((seg) => {
+        const segFrom = Date.parse(seg.from);
+        const segTo = seg.to ? Date.parse(seg.to) : Date.parse(window.to);
         const open = seg.to === null;
 
-        const style = open
-          ? { left: `${left}%`, right: 'calc(100% - var(--now-pct, 100) * 1%)' }
-          : { left: `${left}%`, width: `${Math.max(0.4, pct(Date.parse(seg.to as string)) - left)}%` };
+        if (!honestMode) {
+          const left = pct(segFrom);
+          const style = open
+            ? { left: `${left}%`, right: 'calc(100% - var(--now-pct, 100) * 1%)' }
+            : { left: `${left}%`, width: `${Math.max(0.4, pct(segTo) - left)}%` };
+          return [
+            <div
+              key={seg.segmentId}
+              className={[styles.bar, open ? styles.live : ''].filter(Boolean).join(' ')}
+              style={style}
+              title="В записи (покрытие). Была ли торговля — по ярким ячейкам сделок."
+            />,
+          ];
+        }
 
-        return (
-          <div
-            key={seg.segmentId}
-            className={[styles.bar, open ? styles.live : ''].filter(Boolean).join(' ')}
-            style={style}
-            title="В записи (покрытие). Была ли торговля — по ярким ячейкам сделок."
-          />
-        );
+        const bars: ReactNode[] = [];
+        for (let i = 0; i < (livenessIntervals?.length ?? 0); i++) {
+          const liv = livenessIntervals![i];
+          const inter = intersectMs(segFrom, segTo, Date.parse(liv.from), Date.parse(liv.to));
+          if (!inter) continue;
+          const left = pct(inter.from);
+          bars.push(
+            <div
+              key={`${seg.segmentId}-liv-${i}`}
+              className={[styles.bar, open && liv.open ? styles.live : ''].filter(Boolean).join(' ')}
+              style={{ left: `${left}%`, width: `${Math.max(0.4, pct(inter.to) - left)}%` }}
+              title="Захват жив (связь ok)"
+            />,
+          );
+        }
+        return bars;
       })}
+
+      {/* Разрывы захвата (красная штриховка) внутри намерения записи. */}
+      {honestMode &&
+        segments.flatMap((seg) => {
+          const segFrom = Date.parse(seg.from);
+          const segTo = seg.to ? Date.parse(seg.to) : Date.parse(window.to);
+          const gaps: ReactNode[] = [];
+          for (let i = 0; i < (captureGaps?.length ?? 0); i++) {
+            const gap = captureGaps![i];
+            const gapTo = gap.to ? Date.parse(gap.to) : segTo;
+            const inter = intersectMs(segFrom, segTo, Date.parse(gap.from), gapTo);
+            if (!inter) continue;
+            const left = pct(inter.from);
+            const label = GAP_CAUSE_LABEL[gap.cause] ?? gap.cause;
+            gaps.push(
+              <div
+                key={`${seg.segmentId}-gap-${i}`}
+                className={styles.captureGap}
+                style={{ left: `${left}%`, width: `${Math.max(0.4, pct(inter.to) - left)}%` }}
+                title={`${label} · ${hhmm(inter.from, tzOffsetMin)}–${hhmm(inter.to, tzOffsetMin)}`}
+              />,
+            );
+          }
+          return gaps;
+        })}
 
       {/* Слой сделок: яркие ячейки непустых бакетов поверх подложки (была торговля = есть ячейка). */}
       {activityBuckets && activityBucketMs

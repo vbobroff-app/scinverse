@@ -6,6 +6,7 @@ import type {
   CalendarDayDto,
   ConnectionCredentialsRequest,
   ConnectionDto,
+  CaptureLivenessDto,
   CoverageExtentDto,
   CoverageSegmentDto,
   EngineDto,
@@ -13,6 +14,7 @@ import type {
   InstrumentGroupDto,
   InstrumentPage,
   InstrumentQueryParams,
+  LivenessQueryRequest,
   IssSecurityDto,
   MarketDto,
   RecordingDto,
@@ -82,9 +84,9 @@ export const OhsApi = {
       `/coverage?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
     ),
 
-  getSessions: (count: number, includeWeekends: boolean) =>
+  getSessions: (count: number, includeWeekends: boolean, engine = 'futures') =>
     getJSON<SessionDto[]>(
-      `/sessions?count=${count}&includeWeekends=${includeWeekends ? 'true' : 'false'}`,
+      `/sessions?count=${count}&includeWeekends=${includeWeekends ? 'true' : 'false'}&engine=${encodeURIComponent(engine)}`,
     ),
 
   getCoverageExtent: (sourceId?: number) =>
@@ -94,6 +96,9 @@ export const OhsApi = {
 
   getTradeActivity: (body: TradeActivityRequest) =>
     post<TradeActivityDto[]>('/coverage/activity', body),
+
+  getCaptureLiveness: (body: LivenessQueryRequest) =>
+    post<CaptureLivenessDto>('/coverage/liveness', body),
 
   startRecording: (body: StartRecordingRequest) => post<RecordingDto>('/recordings', body),
 

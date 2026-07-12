@@ -1,8 +1,7 @@
-// Клиентское зеркало Scinverse.Ohs.Domain.MoexSchedule: часы торговой сессии MOEX.
-// Нужно для вычисления «конца сегодняшней сессии» (правый край окна) и снапа
-// произвольного диапазона к границам сессий. Единый источник правды — бэкенд
-// (GET /api/sessions), но границы для «сегодня»/произвольных дат считаем локально,
-// т.к. данных за них может ещё не быть. МСК = UTC+3 без перехода на летнее время.
+// Клиентское зеркало Scinverse.Ohs.Domain.MoexSchedule: эвристика часов MOEX.
+// D/W: календарный скелет оси (recentSessions) + часы из GET /api/sessions (ISS) через
+// mergeSessionHours. M/Q/Y/range и фолбэк при ошибке API — только локально.
+// МСК = UTC+3 без перехода на летнее время.
 
 import type { SessionDto } from './types';
 
@@ -112,10 +111,24 @@ export function isoDate({ year, month, day }: MskDate): string {
 }
 
 /**
+ * Накладывает часы из бэкенда (ISS) на календарный скелет оси: для совпадающих `date`
+ * подменяет `start`/`end`/`weekend`, прочие дни остаются с эвристикой.
+ */
+export function mergeSessionHours(calendar: SessionDto[], api: SessionDto[]): SessionDto[] {
+  if (api.length === 0) {
+    return calendar;
+  }
+  const byDate = new Map(api.map((s) => [s.date, s]));
+  return calendar.map((s) => {
+    const fromApi = byDate.get(s.date);
+    return fromApi ? { ...s, start: fromApi.start, end: fromApi.end, weekend: fromApi.weekend } : s;
+  });
+}
+
+/**
  * Последние `count` календарных сессий (по МСК), заканчивая сегодняшней. Выходные включаются
- * как отдельные слоты (не схлопываются); при `includeWeekends = false` они пропускаются —
- * это станет опциональным фильтром «схлопнуть выходные». Праздничные исключения игнорируются
- * (уточним в phase7c из ISS-календаря).
+ * как отдельные слоты (не схлопываются); при `includeWeekends = false` они пропускаются.
+ * Часы — эвристика; для D/W поверх накладываются ISS-часы из `/api/sessions`.
  */
 export function recentSessions(
   count: number,

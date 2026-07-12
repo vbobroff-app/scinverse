@@ -102,6 +102,24 @@ public sealed record TradeActivityRequest(
     short SourceId,
     IReadOnlyList<long> InstrumentIds);
 
+/// <summary>Интервал живости захвата (связь жива) на подключение (source).</summary>
+public sealed record LivenessIntervalDto(
+    DateTimeOffset From,
+    DateTimeOffset To,
+    bool Open,
+    string? CloseReason);
+
+/// <summary>Разрыв захвата (производное от интервалов живости): [From, To), причина обрыва.</summary>
+public sealed record CaptureGapDto(DateTimeOffset From, DateTimeOffset? To, string Cause);
+
+/// <summary>Запрос живости/разрывов захвата для окна Ганта.</summary>
+public sealed record LivenessQueryRequest(DateTimeOffset From, DateTimeOffset To, short SourceId);
+
+/// <summary>Живость + журнал разрывов захвата (честная подложка, phase 7h).</summary>
+public sealed record CaptureLivenessDto(
+    IReadOnlyList<LivenessIntervalDto> Intervals,
+    IReadOnlyList<CaptureGapDto> Gaps);
+
 /// <summary>Активная запись.</summary>
 public sealed record RecordingDto(
     long InstrumentId,

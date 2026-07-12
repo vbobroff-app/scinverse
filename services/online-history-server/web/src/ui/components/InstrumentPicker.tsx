@@ -14,10 +14,12 @@ import { seriesKey, type CoverageWindow } from '../../core/OhsStore';
 import { makeProjector, makeInverseProjector } from '../../core/sessionProjection';
 import { exchangeForBoard } from '../../core/exchange';
 import type {
+  CaptureGapDto,
   ConnectionDto,
   CoverageSegmentDto,
   InstrumentDto,
   InstrumentGroupDto,
+  LivenessIntervalDto,
   SessionDto,
 } from '../../core/types';
 import styles from './InstrumentPicker.module.css';
@@ -67,6 +69,8 @@ interface RowProps {
   activityBuckets?: number[];
   activityBucketMs: number;
   activitySourceId: number;
+  livenessIntervals?: LivenessIntervalDto[];
+  captureGaps?: CaptureGapDto[];
   tzOffsetMin: number;
   sessions: SessionDto[];
   sourceCodeById: Map<number, string>;
@@ -93,6 +97,8 @@ const Row = memo(function Row({
   activityBuckets,
   activityBucketMs,
   activitySourceId,
+  livenessIntervals,
+  captureGaps,
   tzOffsetMin,
   sessions,
   sourceCodeById,
@@ -226,6 +232,8 @@ const Row = memo(function Row({
           activityBuckets={activityBuckets}
           activityBucketMs={activityBucketMs}
           activitySourceId={activitySourceId}
+          livenessIntervals={livenessIntervals}
+          captureGaps={captureGaps}
           tzOffsetMin={tzOffsetMin}
           sourceCodeById={sourceCodeById}
           sessions={sessions}
@@ -244,6 +252,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const recordings = useBehavior(store.recordings$);
   const coverage = useBehavior(store.coverage$);
   const activity = useBehavior(store.activity$);
+  const liveness = useBehavior(store.liveness$);
   const sources = useBehavior(store.sources$);
   const selected = useBehavior(store.selectedInstruments$);
   const expandedFutures = useBehavior(store.expandedFutures$);
@@ -486,6 +495,8 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               activityBuckets={instrumentId >= 0 ? activity.byInstrument.get(instrumentId) : undefined}
               activityBucketMs={activity.bucketMs}
               activitySourceId={connection.sourceId}
+              livenessIntervals={liveness.intervals}
+              captureGaps={liveness.gaps}
               tzOffsetMin={tzOffsetMin}
               sessions={sessions}
               sourceCodeById={sourceCodeById}
