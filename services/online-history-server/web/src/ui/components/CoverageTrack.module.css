@@ -65,31 +65,24 @@
   pointer-events: none;
 }
 
+/* Подложка (намерение записи): тёмная, без скругления/тени — только «стояло на запись». */
 .bar {
   position: absolute;
   top: 2px;
   bottom: 2px;
-  border-radius: 3px;
-  opacity: 0.85;
+  background: #2f506a;
 }
 
+/* Активная запись мигает (pulse), но без свечения — честность по связи придёт в phase 7h. */
 .live {
-  box-shadow: 0 0 6px currentColor;
   animation: pulse 1.4s ease-in-out infinite;
 }
 
-.gap {
+/* Слой сделок: яркая ячейка непустого бакета (была торговля). Цвет источника задаётся инлайн. */
+.trade {
   position: absolute;
   top: 2px;
   bottom: 2px;
-  background-image: repeating-linear-gradient(
-    45deg,
-    rgba(0, 0, 0, 0.55),
-    rgba(0, 0, 0, 0.55) 3px,
-    transparent 3px,
-    transparent 6px
-  );
-  border-radius: 2px;
 }
 
 @keyframes pulse {

@@ -79,7 +79,7 @@ public sealed class ConnectorSession(
 
                         case TradeEvent trade when normalizer.TryNormalize(trade, sourceId, out var record):
                             await batcher.EnqueueAsync(record, cancellationToken).ConfigureAwait(false);
-                            coverageTracker.Track(trade.Key);
+                            coverageTracker.Track(trade.Key, record.Timestamp);
                             onData?.Invoke();
                             break;
 

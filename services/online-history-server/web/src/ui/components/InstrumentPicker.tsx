@@ -64,6 +64,10 @@ interface RowProps {
   row: TreeRow;
   window: CoverageWindow;
   segments: CoverageSegmentDto[];
+  activityBuckets?: number[];
+  activityBucketMs: number;
+  activitySourceId: number;
+  tzOffsetMin: number;
   sessions: SessionDto[];
   sourceCodeById: Map<number, string>;
   recording: boolean;
@@ -86,6 +90,10 @@ const Row = memo(function Row({
   row,
   window,
   segments,
+  activityBuckets,
+  activityBucketMs,
+  activitySourceId,
+  tzOffsetMin,
   sessions,
   sourceCodeById,
   recording,
@@ -215,6 +223,10 @@ const Row = memo(function Row({
         <CoverageTrack
           window={window}
           segments={segments}
+          activityBuckets={activityBuckets}
+          activityBucketMs={activityBucketMs}
+          activitySourceId={activitySourceId}
+          tzOffsetMin={tzOffsetMin}
           sourceCodeById={sourceCodeById}
           sessions={sessions}
           highlightDays={highlightDays}
@@ -231,6 +243,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const loading = useBehavior(store.instrumentsLoading$);
   const recordings = useBehavior(store.recordings$);
   const coverage = useBehavior(store.coverage$);
+  const activity = useBehavior(store.activity$);
   const sources = useBehavior(store.sources$);
   const selected = useBehavior(store.selectedInstruments$);
   const expandedFutures = useBehavior(store.expandedFutures$);
@@ -294,6 +307,23 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
     }
     return out;
   }, [instruments, expandedFutures, expandedSeries, seriesByFutures, strikesBySeries]);
+
+  // Слой сделок запрашиваем батчем по всем видимым инструментам дорожки + источнику провайдера.
+  const activityIds = useMemo(() => {
+    const ids: number[] = [];
+    for (const r of rows) {
+      if (r.kind === 'inst') {
+        ids.push(r.instrument.instrumentId);
+      } else if (r.kind === 'strike') {
+        ids.push(r.option.instrumentId);
+      }
+    }
+    return ids;
+  }, [rows]);
+
+  useEffect(() => {
+    store.setActivityContext(activityIds, connection.sourceId);
+  }, [store, activityIds, connection.sourceId]);
 
   const nowPct = useMemo(
     () => makeProjector(Date.parse(window.from), Date.parse(window.to), sessions)(now),
@@ -453,6 +483,10 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               row={row}
               window={window}
               segments={instrumentId >= 0 ? segmentsByInstrument.get(instrumentId) ?? EMPTY_SEGMENTS : EMPTY_SEGMENTS}
+              activityBuckets={instrumentId >= 0 ? activity.byInstrument.get(instrumentId) : undefined}
+              activityBucketMs={activity.bucketMs}
+              activitySourceId={connection.sourceId}
+              tzOffsetMin={tzOffsetMin}
               sessions={sessions}
               sourceCodeById={sourceCodeById}
               recording={recordingHere}

@@ -21,6 +21,8 @@ public sealed class CoverageTracker(
         public short SourceId { get; } = sourceId;
         public long PendingDelta;
         public long TotalCount;
+        /// <summary>UTC-тики времени последней принятой сделки (для живого края слоя сделок).</summary>
+        public long LastTradeTicks;
     }
 
     private readonly ConcurrentDictionary<InstrumentKey, Entry> _active = new();
@@ -38,12 +40,25 @@ public sealed class CoverageTracker(
         return (segmentId, startedAt);
     }
 
-    public void Track(InstrumentKey key)
+    public void Track(InstrumentKey key, DateTimeOffset timestamp)
     {
-        if (_active.TryGetValue(key, out var entry))
+        if (!_active.TryGetValue(key, out var entry))
         {
-            Interlocked.Increment(ref entry.PendingDelta);
-            Interlocked.Increment(ref entry.TotalCount);
+            return;
+        }
+
+        Interlocked.Increment(ref entry.PendingDelta);
+        Interlocked.Increment(ref entry.TotalCount);
+
+        // Держим максимум времени сделки (сделки почти монотонны, но CAS-петля страхует от гонок).
+        var ticks = timestamp.UtcTicks;
+        long current;
+        while (ticks > (current = Interlocked.Read(ref entry.LastTradeTicks)))
+        {
+            if (Interlocked.CompareExchange(ref entry.LastTradeTicks, ticks, current) == current)
+            {
+                break;
+            }
         }
     }
 
@@ -96,8 +111,12 @@ public sealed class CoverageTracker(
             }
 
             await coverageStore.ExtendAsync(entry.SegmentId, delta, cancellationToken).ConfigureAwait(false);
+
+            // `To` = время последней принятой сделки (живой край слоя сделок, а не настенные часы).
+            var lastTicks = Interlocked.Read(ref entry.LastTradeTicks);
+            var lastTradeTs = lastTicks > 0 ? new DateTimeOffset(lastTicks, TimeSpan.Zero) : timeProvider.GetUtcNow();
             broadcaster.Broadcast(new CoverageExtendedEvent(
-                entry.InstrumentId, entry.SourceId, timeProvider.GetUtcNow(), Interlocked.Read(ref entry.TotalCount)));
+                entry.InstrumentId, entry.SourceId, lastTradeTs, Interlocked.Read(ref entry.TotalCount)));
         }
     }
 }

@@ -15,6 +15,13 @@ public interface ICoverageStore
     /// <summary>Закрывает сегмент (ended_at + статус).</summary>
     Task CloseAsync(long segmentId, DateTimeOffset endedAt, string status, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Recovery на старте хоста: закрывает «осиротевшие» открытые сегменты (ended_at IS NULL) прошлого
+    /// процесса статусом <c>interrupted</c>, проставляя ended_at = время последней сделки сегмента
+    /// (иначе started_at). Возвращает число закрытых сегментов.
+    /// </summary>
+    Task<int> RecoverOpenSegmentsAsync(CancellationToken cancellationToken);
+
     /// <summary>Сегменты, пересекающие окно [from, to] (для Ганта покрытия).</summary>
     Task<IReadOnlyList<CoverageSegment>> QuerySegmentsAsync(
         DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken);

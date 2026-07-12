@@ -33,6 +33,7 @@ builder.Services.AddSingleton<IInstrumentStore, InstrumentStore>();
 builder.Services.AddSingleton<ISourceStore, SourceStore>();
 builder.Services.AddSingleton<ICoverageStore, CoverageStore>();
 builder.Services.AddSingleton<ITradeActivityStore, TradeActivityStore>();
+builder.Services.AddSingleton<ICaptureLivenessStore, CaptureLivenessStore>();
 builder.Services.AddSingleton<IConnectionStore, ConnectionStore>();
 builder.Services.AddSingleton<ITradeWriter, TimescaleTradeWriter>();
 builder.Services.AddSingleton<IDerivativeSpecParser, MoexFortsSpecParser>();
@@ -97,6 +98,22 @@ app.MapOhsApi();
 
 // Прогреваем реестр инструментов до старта приёма запросов (команды записи резолвят инструмент).
 await app.Services.GetRequiredService<IInstrumentRegistry>().InitializeAsync(CancellationToken.None);
+
+// Recovery (phase 7h): аккуратно закрываем «осиротевшие» открытые сегменты покрытия и интервалы
+// живости прошлого процесса (аварийный рестарт), иначе подложка ложно «склеится» до now.
+{
+    using var recoveryScope = app.Logger.BeginScope("startup-recovery");
+    var recoveredSegments = await app.Services.GetRequiredService<ICoverageStore>()
+        .RecoverOpenSegmentsAsync(CancellationToken.None);
+    var recoveredLiveness = await app.Services.GetRequiredService<ICaptureLivenessStore>()
+        .RecoverOpenIntervalsAsync(CancellationToken.None);
+    if (recoveredSegments > 0 || recoveredLiveness > 0)
+    {
+        app.Logger.LogWarning(
+            "Recovery: закрыто осиротевших сегментов {Segments}, интервалов живости {Liveness}",
+            recoveredSegments, recoveredLiveness);
+    }
+}
 
 app.Run();
 

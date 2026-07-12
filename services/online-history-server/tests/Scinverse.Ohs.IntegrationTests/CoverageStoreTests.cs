@@ -151,6 +151,51 @@ public sealed class CoverageStoreTests : IClassFixture<TimescaleFixture>, IAsync
         extent.To.Should().BeNull();
     }
 
+    [Fact]
+    public async Task RecoverOpenSegmentsAsync_ClosesOrphan_AtLastTradeTime()
+    {
+        var started = new DateTimeOffset(2026, 7, 6, 10, 0, 0, TimeSpan.Zero);
+        var segmentId = await _store.OpenAsync(_fixture.InstrumentId, TransaqSource, started, CancellationToken.None);
+        await InsertTradeAsync(started.AddMinutes(5), 1);
+        var lastTrade = started.AddMinutes(20);
+        await InsertTradeAsync(lastTrade, 2);
+
+        var closed = await _store.RecoverOpenSegmentsAsync(CancellationToken.None);
+
+        closed.Should().Be(1);
+        var row = await ReadAsync(segmentId);
+        row.EndedAt.Should().Be(lastTrade, "осиротевший сегмент закрывается по времени последней сделки");
+        row.Status.Should().Be("interrupted");
+    }
+
+    [Fact]
+    public async Task RecoverOpenSegmentsAsync_ClosesEmptyOrphan_AtStartedAt()
+    {
+        var started = new DateTimeOffset(2026, 7, 6, 10, 0, 0, TimeSpan.Zero);
+        var segmentId = await _store.OpenAsync(_fixture.InstrumentId, TransaqSource, started, CancellationToken.None);
+
+        var closed = await _store.RecoverOpenSegmentsAsync(CancellationToken.None);
+
+        closed.Should().Be(1);
+        var row = await ReadAsync(segmentId);
+        row.EndedAt.Should().Be(started, "без сделок закрываем по started_at (пустой сегмент)");
+        row.Status.Should().Be("interrupted");
+    }
+
+    [Fact]
+    public async Task RecoverOpenSegmentsAsync_LeavesClosedSegments_Untouched()
+    {
+        var started = new DateTimeOffset(2026, 7, 6, 10, 0, 0, TimeSpan.Zero);
+        var segmentId = await _store.OpenAsync(_fixture.InstrumentId, TransaqSource, started, CancellationToken.None);
+        await _store.CloseAsync(segmentId, started.AddMinutes(3), "stopped", CancellationToken.None);
+
+        var closed = await _store.RecoverOpenSegmentsAsync(CancellationToken.None);
+
+        closed.Should().Be(0, "закрытые сегменты recovery не трогает");
+        var row = await ReadAsync(segmentId);
+        row.Status.Should().Be("stopped");
+    }
+
     private async Task InsertTradeAsync(DateTimeOffset ts, long tradeNo)
     {
         await using var connection = await _fixture.DataSource.OpenConnectionAsync();

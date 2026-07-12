@@ -12,7 +12,11 @@ namespace Scinverse.Ohs.Storage.Timescale;
 /// </summary>
 public sealed class TradeActivityStore(NpgsqlDataSource dataSource, TimeProvider timeProvider) : ITradeActivityStore
 {
-    private sealed record Row(long InstrumentId, DateTimeOffset Bucket);
+    // Bucket маппится как DateTime (Npgsql отдаёт timestamptz как DateTime Utc); наружу — DateTimeOffset.
+    private sealed record Row(long InstrumentId, DateTime Bucket);
+
+    private static DateTimeOffset ToUtcOffset(DateTime bucket) =>
+        new(DateTime.SpecifyKind(bucket, DateTimeKind.Unspecified), TimeSpan.Zero);
 
     public async Task<IReadOnlyList<InstrumentActivity>> QueryActivityAsync(
         IReadOnlyCollection<long> instrumentIds, short sourceId,
@@ -53,7 +57,7 @@ public sealed class TradeActivityStore(NpgsqlDataSource dataSource, TimeProvider
 
             foreach (var r in cached)
             {
-                result[r.InstrumentId].Add(r.Bucket);
+                result[r.InstrumentId].Add(ToUtcOffset(r.Bucket));
             }
         }
 
@@ -64,7 +68,7 @@ public sealed class TradeActivityStore(NpgsqlDataSource dataSource, TimeProvider
             var live = await QueryBucketsAsync(connection, ids, sourceId, liveFrom, toUtc, bucket, cancellationToken);
             foreach (var r in live)
             {
-                result[r.InstrumentId].Add(r.Bucket);
+                result[r.InstrumentId].Add(ToUtcOffset(r.Bucket));
             }
         }
 

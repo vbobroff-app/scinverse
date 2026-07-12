@@ -155,6 +155,24 @@ export interface CoverageSegmentDto {
   gaps: GapDto[];
 }
 
+/**
+ * Присутствие сделок по бакетам (слой сделок на Ганте): старты непустых бакетов инструмента
+ * (ISO). Качественно (была торговля или нет), без объёма. Разрыв = отсутствие бакета.
+ */
+export interface TradeActivityDto {
+  instrumentId: number;
+  buckets: string[];
+}
+
+/** Запрос присутствия сделок: окно + размер бакета (сек) + источник + список инструментов. */
+export interface TradeActivityRequest {
+  from: string;
+  to: string;
+  bucketSeconds: number;
+  sourceId: number;
+  instrumentIds: number[];
+}
+
 export interface RecordingDto {
   instrumentId: number;
   ticker: string;

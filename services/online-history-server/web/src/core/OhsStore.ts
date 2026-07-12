@@ -1,5 +1,6 @@
 import { BehaviorSubject, from, of, throwError, type Observable, type Subscription } from 'rxjs';
 import { catchError, finalize, map, mergeMap, switchMap, tap, toArray } from 'rxjs/operators';
+import { bucketSecondsForTimeframe } from './activityBucket';
 import { OhsApi, type OhsApiClient } from './api';
 import { createLiveStream } from './live';
 import {
@@ -39,6 +40,22 @@ export interface SelectionConditions {
   recording: boolean;
   nonEmpty: boolean;
   selected: boolean;
+}
+
+/**
+ * Слой сделок (phase 7g): присутствие сделок по бакетам. `bucketMs` — текущий шаг бакета (из
+ * таймфрейма, для геометрии ячеек); `byInstrument` — старты непустых бакетов (ms) на инструмент.
+ * Отсутствие бакета = разрыв (нейтрально; классификация тихо/обрыв — phase 7h).
+ */
+export interface TradeActivityState {
+  bucketMs: number;
+  byInstrument: ReadonlyMap<number, number[]>;
+}
+
+/** Контекст запроса слоя сделок: какие инструменты и по какому источнику сейчас видно. */
+interface ActivityContext {
+  instrumentIds: readonly number[];
+  sourceId: number;
 }
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -178,6 +195,11 @@ export class OhsStore {
   readonly coverage$ = new BehaviorSubject<CoverageSegmentDto[]>([]);
   readonly window$ = new BehaviorSubject<CoverageWindow>(defaultWindow());
 
+  /** Слой сделок: присутствие по бакетам для видимых инструментов (см. setActivityContext). */
+  readonly activity$ = new BehaviorSubject<TradeActivityState>({ bucketMs: 30_000, byInstrument: new Map() });
+  /** Что запрашивать в слое сделок; задаётся UI (видимые строки + источник провайдера). */
+  private activityContext: ActivityContext | null = null;
+
   // --- Таймфрейм и сессионное окно. ---
   readonly timeframe$ = new BehaviorSubject<Timeframe>(DEFAULT_TIMEFRAME);
   /** Границы сессий внутри окна (для сепараторов оси); пусто для M/Q/Y/All/range. */
@@ -211,7 +233,10 @@ export class OhsStore {
     // Периодический пересчёт окна ловит смену суток и рост экстента (для range — no-op).
     // Покрытие перезапрашивается чаще — свежие гэпы внутри активной сессии.
     this.windowTimer = setInterval(() => this.refreshTimeframeWindow(), WINDOW_REFRESH_MS);
-    this.coveragePollTimer = setInterval(() => this.refreshCoverage(), COVERAGE_POLL_MS);
+    this.coveragePollTimer = setInterval(() => {
+      this.refreshCoverage();
+      this.refreshActivity();
+    }, COVERAGE_POLL_MS);
   }
 
   stop(): void {
@@ -708,9 +733,59 @@ export class OhsStore {
     });
   }
 
+  /**
+   * Задаёт, для каких инструментов и по какому источнику показывать слой сделок (обычно —
+   * видимые строки провайдера + его `sourceId`). Пере-запрашивает активность при изменении.
+   */
+  setActivityContext(instrumentIds: readonly number[], sourceId: number): void {
+    const prev = this.activityContext;
+    const changed =
+      prev === null ||
+      prev.sourceId !== sourceId ||
+      prev.instrumentIds.length !== instrumentIds.length ||
+      instrumentIds.some((id, i) => prev.instrumentIds[i] !== id);
+    this.activityContext = { instrumentIds: [...instrumentIds], sourceId };
+    if (changed) {
+      this.refreshActivity();
+    }
+  }
+
+  /** Догружает слой сделок для текущего контекста, окна и бакета таймфрейма (батч-запрос). */
+  refreshActivity(): void {
+    const ctx = this.activityContext;
+    const bucketSeconds = bucketSecondsForTimeframe(this.timeframe$.value);
+    if (ctx === null || ctx.instrumentIds.length === 0) {
+      this.activity$.next({ bucketMs: bucketSeconds * 1000, byInstrument: new Map() });
+      return;
+    }
+    const { from, to } = this.window$.value;
+    this.api
+      .getTradeActivity({
+        from,
+        to,
+        bucketSeconds,
+        sourceId: ctx.sourceId,
+        instrumentIds: [...ctx.instrumentIds],
+      })
+      .subscribe({
+        next: (rows) => {
+          const byInstrument = new Map<number, number[]>();
+          for (const r of rows) {
+            byInstrument.set(
+              r.instrumentId,
+              r.buckets.map((b) => Date.parse(b)),
+            );
+          }
+          this.activity$.next({ bucketMs: bucketSeconds * 1000, byInstrument });
+        },
+        error: (err) => console.error('getTradeActivity', err),
+      });
+  }
+
   setWindow(window: CoverageWindow): void {
     this.window$.next(window);
     this.refreshCoverage();
+    this.refreshActivity();
   }
 
   connect(connectionId: number): void {
@@ -859,7 +934,7 @@ export class OhsStore {
         break;
 
       case 'coverageExtended':
-        this.applyCoverageExtended(event.instrumentId, event.sourceId, event.tradeCount);
+        this.applyCoverageExtended(event.instrumentId, event.sourceId, event.tradeCount, event.to);
         break;
 
       case 'recordingStarted':
@@ -874,7 +949,12 @@ export class OhsStore {
     }
   }
 
-  private applyCoverageExtended(instrumentId: number, sourceId: number, tradeCount: number): void {
+  private applyCoverageExtended(
+    instrumentId: number,
+    sourceId: number,
+    tradeCount: number,
+    lastTradeTs: string,
+  ): void {
     // Обновляем счётчик активной записи (плавный рост без перезапроса).
     this.recordings$.next(
       this.recordings$.value.map((r) =>
@@ -891,6 +971,9 @@ export class OhsStore {
       ),
     );
 
+    // Живой край слоя сделок: бакет последней сделки добавляем локально (без перезапроса).
+    this.appendActivityBucket(instrumentId, sourceId, lastTradeTs);
+
     // Если активного сегмента ещё нет в окне — подтягиваем coverage.
     const hasActive = this.coverage$.value.some(
       (s) => s.instrumentId === instrumentId && s.sourceId === sourceId && s.to === null,
@@ -898,6 +981,32 @@ export class OhsStore {
     if (!hasActive) {
       this.refreshCoverage();
     }
+  }
+
+  /**
+   * Живой апдейт слоя сделок: добавляет бакет последней сделки в activity$ (append-only, без
+   * полного перезапроса). Выравнивание бакета — floor к эпохе (совпадает с `time_bucket` бэкенда).
+   */
+  private appendActivityBucket(instrumentId: number, sourceId: number, lastTradeTs: string): void {
+    if (this.activityContext?.sourceId !== sourceId) {
+      return;
+    }
+    const state = this.activity$.value;
+    const existing = state.byInstrument.get(instrumentId);
+    if (existing === undefined) {
+      return;
+    }
+    const lastMs = Date.parse(lastTradeTs);
+    if (Number.isNaN(lastMs)) {
+      return;
+    }
+    const bucketStart = Math.floor(lastMs / state.bucketMs) * state.bucketMs;
+    if (existing.length > 0 && existing[existing.length - 1] >= bucketStart) {
+      return;
+    }
+    const byInstrument = new Map(state.byInstrument);
+    byInstrument.set(instrumentId, [...existing, bucketStart]);
+    this.activity$.next({ ...state, byInstrument });
   }
 
   /** Локально меняет только статус подключения (оптимистичные переходы UI). */

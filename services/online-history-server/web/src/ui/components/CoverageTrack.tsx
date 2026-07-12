@@ -9,9 +9,27 @@ interface Props {
   window: CoverageWindow;
   segments: CoverageSegmentDto[];
   sourceCodeById: Map<number, string>;
+  /** Слой сделок: старты непустых бакетов (ms), выровнены к шагу `activityBucketMs`. */
+  activityBuckets?: number[];
+  /** Шаг бакета слоя сделок (ms) — ширина ячейки во времени. */
+  activityBucketMs?: number;
+  /** Источник слоя сделок (для цвета ярких ячеек) — `sourceId` провайдера дорожки. */
+  activitySourceId?: number;
+  /** Смещение отображаемого ТЗ от UTC (мин) — для подписи времени в тултипах ячеек. */
+  tzOffsetMin?: number;
   sessions?: SessionDto[];
   /** Подсветка дней: каждый день обрамляется рамкой + скруглением (тумблер в Ганте). */
   highlightDays?: boolean;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** `HH:MM` в заданном ТЗ (для тултипа бакета слоя сделок). */
+function hhmm(ms: number, offMin: number): string {
+  const d = new Date(ms + offMin * 60_000);
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
 }
 
 /**
@@ -25,6 +43,10 @@ export const CoverageTrack = memo(function CoverageTrack({
   window,
   segments,
   sourceCodeById,
+  activityBuckets,
+  activityBucketMs,
+  activitySourceId,
+  tzOffsetMin = 180,
   sessions,
   highlightDays,
 }: Props) {
@@ -86,37 +108,43 @@ export const CoverageTrack = memo(function CoverageTrack({
           ),
         )}
 
+      {/* Подложка: намерение/покрытие записи (тёмная, до now). Честность по связи — phase 7h. */}
       {segments.map((seg) => {
-        const color = colorForSourceCode(sourceCodeById.get(seg.sourceId));
         const left = pct(Date.parse(seg.from));
         const open = seg.to === null;
 
         const style = open
-          ? { left: `${left}%`, right: 'calc(100% - var(--now-pct, 100) * 1%)', background: color }
-          : { left: `${left}%`, width: `${Math.max(0.4, pct(Date.parse(seg.to as string)) - left)}%`, background: color };
+          ? { left: `${left}%`, right: 'calc(100% - var(--now-pct, 100) * 1%)' }
+          : { left: `${left}%`, width: `${Math.max(0.4, pct(Date.parse(seg.to as string)) - left)}%` };
 
         return (
           <div
             key={seg.segmentId}
             className={[styles.bar, open ? styles.live : ''].filter(Boolean).join(' ')}
             style={style}
+            title="В записи (покрытие). Была ли торговля — по ярким ячейкам сделок."
           />
         );
       })}
 
-      {segments.flatMap((seg) =>
-        seg.gaps.map((g, i) => {
-          const gapLeft = pct(Date.parse(g.from));
-          const gapWidth = Math.max(0.3, pct(Date.parse(g.to)) - gapLeft);
-          return (
-            <span
-              key={`${seg.segmentId}-gap-${i}`}
-              className={styles.gap}
-              style={{ left: `${gapLeft}%`, width: `${gapWidth}%` }}
-            />
-          );
-        }),
-      )}
+      {/* Слой сделок: яркие ячейки непустых бакетов поверх подложки (была торговля = есть ячейка). */}
+      {activityBuckets && activityBucketMs
+        ? (() => {
+            const color = colorForSourceCode(sourceCodeById.get(activitySourceId ?? -1));
+            return activityBuckets.map((b) => {
+              const cellLeft = pct(b);
+              const cellWidth = Math.max(0.25, pct(b + activityBucketMs) - cellLeft);
+              return (
+                <span
+                  key={b}
+                  className={styles.trade}
+                  style={{ left: `${cellLeft}%`, width: `${cellWidth}%`, background: color }}
+                  title={`Торговля была · ${hhmm(b, tzOffsetMin)}–${hhmm(b + activityBucketMs, tzOffsetMin)}`}
+                />
+              );
+            });
+          })()
+        : null}
     </div>
   );
 });

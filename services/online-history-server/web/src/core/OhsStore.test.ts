@@ -53,6 +53,7 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
     getCoverage: () => of([segment()]),
     getSessions: () => of<SessionDto[]>([]),
     getCoverageExtent: () => of<CoverageExtentDto>({ from: null, to: null }),
+    getTradeActivity: () => of([]),
     startRecording: () => of({} as RecordingDto),
     stopRecording: () => of(undefined),
     connect: () => of(connection({ status: 'connected' })),
@@ -95,6 +96,39 @@ describe('OhsStore live merge', () => {
     });
 
     expect(store.coverage$.value[0].tradeCount).toBe(42);
+    store.stop();
+  });
+
+  it('заполняет activity$ батчем по setActivityContext', () => {
+    const bucketTs = '2026-01-05T10:00:00.000Z';
+    const store = new OhsStore(
+      fakeApi({ getTradeActivity: () => of([{ instrumentId: 100, buckets: [bucketTs] }]) }),
+      new Subject<LiveEvent>(),
+    );
+    store.start();
+
+    store.setActivityContext([100], 2);
+
+    expect(store.activity$.value.byInstrument.get(100)).toEqual([Date.parse(bucketTs)]);
+    store.stop();
+  });
+
+  it('живой край: coverageExtended добавляет бакет последней сделки', () => {
+    const live = new Subject<LiveEvent>();
+    const store = new OhsStore(
+      fakeApi({ getTradeActivity: () => of([{ instrumentId: 100, buckets: [] }]) }),
+      live,
+    );
+    store.start();
+    store.setActivityContext([100], 2);
+    expect(store.activity$.value.byInstrument.get(100)).toEqual([]);
+
+    const ts = '2026-01-05T10:00:17.000Z';
+    live.next({ type: 'coverageExtended', instrumentId: 100, sourceId: 2, to: ts, tradeCount: 1 });
+
+    const { bucketMs, byInstrument } = store.activity$.value;
+    const expected = Math.floor(Date.parse(ts) / bucketMs) * bucketMs;
+    expect(byInstrument.get(100)).toEqual([expected]);
     store.stop();
   });
 

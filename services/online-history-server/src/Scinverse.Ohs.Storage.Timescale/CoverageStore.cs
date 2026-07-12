@@ -56,6 +56,23 @@ public sealed class CoverageStore(NpgsqlDataSource dataSource) : ICoverageStore
             cancellationToken: cancellationToken));
     }
 
+    public async Task<int> RecoverOpenSegmentsAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE coverage_segment s
+            SET ended_at = COALESCE(
+                    (SELECT max(t.ts) FROM md_trade t
+                     WHERE t.instrument_id = s.instrument_id AND t.source_id = s.source_id
+                       AND t.ts >= s.started_at),
+                    s.started_at),
+                status = 'interrupted'
+            WHERE s.ended_at IS NULL;
+            """,
+            cancellationToken: cancellationToken));
+    }
+
     public async Task<IReadOnlyList<CoverageSegment>> QuerySegmentsAsync(
         DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken)
     {

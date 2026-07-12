@@ -12,6 +12,8 @@ import type {
   SessionDto,
   SourceDto,
   StartRecordingRequest,
+  TradeActivityDto,
+  TradeActivityRequest,
   UpsertConnectionRequest,
   ValidateConnectionRequest,
   ValidateConnectionResult,
@@ -82,6 +84,9 @@ export const OhsApi = {
     getJSON<CoverageExtentDto>(
       sourceId != null ? `/coverage/extent?sourceId=${sourceId}` : '/coverage/extent',
     ),
+
+  getTradeActivity: (body: TradeActivityRequest) =>
+    post<TradeActivityDto[]>('/coverage/activity', body),
 
   startRecording: (body: StartRecordingRequest) => post<RecordingDto>('/recordings', body),
 
