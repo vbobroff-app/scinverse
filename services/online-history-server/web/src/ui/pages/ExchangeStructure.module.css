@@ -75,6 +75,42 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+/* Блокировка панели на время загрузки: не кликается + приглушена. */
+.disabled {
+  pointer-events: none;
+  opacity: 0.5;
+  user-select: none;
+}
+
+/* ── Примитивный спиннер (кружок + текст) ── */
+.spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spinnerCircle {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-border-focus);
+  animation: ohs-spin 0.7s linear infinite;
+}
+
+@keyframes ohs-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinnerCircle {
+    animation-duration: 1.6s;
+  }
+}
+
 /* ── Плашки категорий (динамический фильтр) ── */
 .chips {
   display: flex;
@@ -270,6 +306,21 @@
   width: 100%;
   border-collapse: collapse;
   font-size: var(--font-size-sm);
+  /* Фикс. раскладка + одна строка на ячейку → строго ROW_HEIGHT на строку (иначе виртуализация моргает). */
+  table-layout: fixed;
+}
+
+/* Ширины колонок (colgroup). «Название» — оставшееся место с усечением «…». */
+.colCode {
+  width: 132px;
+}
+
+.colShort {
+  width: 210px;
+}
+
+.colNum {
+  width: 84px;
 }
 
 .table th {
@@ -289,7 +340,31 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.table tbody tr:hover {
+/* Одна строка на ячейку с усечением — держит высоту строки постоянной (см. ROW_HEIGHT). */
+.table th,
+.table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Фиксированная высота строки — обязательна для виртуализации (см. ROW_HEIGHT). */
+.table tbody tr {
+  height: 30px;
+}
+
+/* Спейсеры сверху/снизу окна: только высота, без паддинга/границы/ховера. */
+.spacer {
+  padding: 0 !important;
+  border: 0 !important;
+  height: inherit;
+}
+
+.table tbody tr:has(> .spacer):hover {
+  background: transparent;
+}
+
+.table tbody tr:not(:has(> .spacer)):hover {
   background: var(--color-bg-hover);
 }
 

@@ -1,7 +1,13 @@
 import { useEffect, useMemo } from 'react';
 import { ExchangeCatalogStore, isCollapsedMarket, marketKey } from '../../core/ExchangeCatalogStore';
-import { CONTRACT_TYPE_LABELS, contractType } from '../../core/futuresContract';
+import {
+  CONTRACT_TYPE_LABELS,
+  contractType,
+  OPTION_SERIES_LABELS,
+  optionSeries,
+} from '../../core/futuresContract';
 import { useBehavior } from '../hooks/useObservable';
+import { useVirtualRows } from '../hooks/useVirtualRows';
 import { FilterBar } from '../components/filters/FilterBar';
 import { FilterChips } from '../components/filters/FilterChips';
 import type { FilterMenuItem, FilterSpec } from '../components/filters/filterModel';
@@ -16,9 +22,12 @@ const CATEGORY_LABELS: Record<string, string> = {
   commodity: 'Товары',
   other: 'Прочее',
 };
-/** Порядок категорий/типов в опциях. */
+/** Порядок категорий/типов/серий в опциях. */
 const CATEGORY_ORDER = ['index', 'shares', 'currency', 'rate', 'commodity', 'other'];
 const TYPE_ORDER = ['perpetual', 'quarterly', 'monthly'];
+const SERIES_ORDER = ['weekly', 'monthly', 'quarterly'];
+/** Фикс. высота строки таблицы (px) для виртуализации — синхронизирована со стилем `.table tbody tr`. */
+const ROW_HEIGHT = 30;
 
 /**
  * Раздел «Биржи → Структура»: дерево движки → рынки → борды (лениво из MOEX ISS) слева,
@@ -34,16 +43,28 @@ export function ExchangeStructure() {
   }, [store]);
 
   const error = useBehavior(store.error$);
+  // Пока грузится борд — блокируем дерево (чтобы не накликали ещё) и показываем крутилку в таблице.
+  const loading = useBehavior(store.securitiesLoading$);
 
   return (
     <div className={styles.wrap}>
       <Toolbar store={store} />
       {error && <div className={styles.error}>{error}</div>}
       <div className={styles.panes}>
-        <StructureTree store={store} />
+        <StructureTree store={store} disabled={loading} />
         <SecuritiesTable store={store} />
       </div>
     </div>
+  );
+}
+
+/** Примитивный спиннер: крутящийся кружок + текст. */
+function Spinner({ label = 'Загрузка' }: { label?: string }) {
+  return (
+    <span className={styles.spinner}>
+      <span className={styles.spinnerCircle} aria-hidden="true" />
+      {label}…
+    </span>
   );
 }
 
@@ -68,13 +89,13 @@ function Toolbar({ store }: { store: ExchangeCatalogStore }) {
         onClick={() => store.refreshAssetClasses()}
         disabled={refreshing}
       >
-        {refreshing ? 'Актуализация…' : 'Актуализировать из ISS'}
+        {refreshing ? <Spinner label="Актуализация" /> : 'Актуализировать из ISS'}
       </button>
     </div>
   );
 }
 
-function StructureTree({ store }: { store: ExchangeCatalogStore }) {
+function StructureTree({ store, disabled }: { store: ExchangeCatalogStore; disabled?: boolean }) {
   const engines = useBehavior(store.engines$);
   const enginesLoading = useBehavior(store.enginesLoading$);
   const expandedEngines = useBehavior(store.expandedEngines$);
@@ -85,9 +106,12 @@ function StructureTree({ store }: { store: ExchangeCatalogStore }) {
   const selected = useBehavior(store.selectedBoard$);
 
   return (
-    <div className={styles.tree}>
+    <div
+      className={[styles.tree, disabled ? styles.disabled : ''].filter(Boolean).join(' ')}
+      aria-busy={disabled}
+    >
       <div className={styles.treeHead}>Структура · MOEX</div>
-      {enginesLoading && <div className={styles.hint}>Загрузка движков…</div>}
+      {enginesLoading && <div className={styles.hint}><Spinner label="Загрузка движков" /></div>}
       {!enginesLoading && engines.length === 0 && <div className={styles.hint}>Нет данных</div>}
 
       <ul className={styles.nodeList}>
@@ -199,12 +223,14 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
   const activeFilters = useBehavior(store.activeFilters$);
   const categoryFilter = useBehavior(store.categoryFilter$);
   const typeFilter = useBehavior(store.typeFilter$);
+  const seriesFilter = useBehavior(store.seriesFilter$);
   const search = useBehavior(store.search$);
 
-  // Набор фильтров зависит от вида инструмента: пока плашки только для FORTS-фьючерсов.
+  // Набор фильтров зависит от вида инструмента: фьючерсы FORTS и опционы имеют свои плашки.
   const isFutures = selected?.engine === 'futures' && selected?.market === 'forts';
+  const isOptions = selected?.engine === 'futures' && selected?.market === 'options';
 
-  // Обогащаем строки категорией базового актива (join по assetCode) и типом контракта.
+  // Обогащаем строки категорией БА (join по assetCode), типом контракта (фьюч.) и серией (опцион).
   const enriched = useMemo(
     () =>
       securities.map((s) => {
@@ -213,10 +239,11 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
         return {
           s,
           cat: hit?.category ?? (s.assetCode ? 'other' : ''),
-          type: contractType(s),
+          type: isFutures ? contractType(s) : '',
+          series: isOptions ? optionSeries(s) : '',
         };
       }),
-    [securities, assetClasses],
+    [securities, assetClasses, isFutures, isOptions],
   );
 
   const categoryOptions = useMemo(() => {
@@ -247,6 +274,20 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
     }));
   }, [enriched]);
 
+  const seriesOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const e of enriched) {
+      if (e.series) {
+        counts.set(e.series, (counts.get(e.series) ?? 0) + 1);
+      }
+    }
+    return SERIES_ORDER.filter((s) => counts.has(s)).map((s) => ({
+      id: s,
+      label: OPTION_SERIES_LABELS[s as keyof typeof OPTION_SERIES_LABELS],
+      count: counts.get(s),
+    }));
+  }, [enriched]);
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     return enriched
@@ -255,6 +296,9 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
           return false;
         }
         if (typeFilter.size > 0 && !typeFilter.has(e.type)) {
+          return false;
+        }
+        if (seriesFilter.size > 0 && !seriesFilter.has(e.series)) {
           return false;
         }
         if (q) {
@@ -266,20 +310,25 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
         return true;
       })
       .map((e) => e.s);
-  }, [enriched, categoryFilter, typeFilter, search]);
+  }, [enriched, categoryFilter, typeFilter, seriesFilter, search]);
 
   const available: FilterMenuItem[] = isFutures
     ? [
-        { key: 'category', name: 'Категория' },
+        { key: 'category', name: 'Категория БА' },
         { key: 'type', name: 'Тип' },
       ]
-    : [];
+    : isOptions
+      ? [
+          { key: 'category', name: 'Категория БА' },
+          { key: 'series', name: 'Серия' },
+        ]
+      : [];
 
   const specs = useMemo<Record<string, FilterSpec>>(
     () => ({
       category: {
         key: 'category',
-        name: 'Категория',
+        name: 'Категория БА',
         mode: 'multi',
         options: categoryOptions,
         selected: [...categoryFilter],
@@ -293,9 +342,21 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
         selected: [...typeFilter],
         onChange: (sel) => store.setTypeFilter(sel),
       },
+      series: {
+        key: 'series',
+        name: 'Серия',
+        mode: 'multi',
+        options: seriesOptions,
+        selected: [...seriesFilter],
+        onChange: (sel) => store.setSeriesFilter(sel),
+      },
     }),
-    [categoryOptions, typeOptions, categoryFilter, typeFilter, store],
+    [categoryOptions, typeOptions, seriesOptions, categoryFilter, typeFilter, seriesFilter, store],
   );
+
+  // Виртуализация: борды опционов отдают десятки тысяч серий — рендерим только видимое окно строк.
+  const virtual = useVirtualRows(visible.length, ROW_HEIGHT, { overscan: 12 });
+  const rows = visible.slice(virtual.start, virtual.end);
 
   if (!selected) {
     return (
@@ -314,7 +375,7 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
         </span>
       </div>
 
-      <div className={styles.filterRow}>
+      <div className={[styles.filterRow, loading ? styles.disabled : ''].filter(Boolean).join(' ')}>
         <FilterBar
           key={selected.board}
           total={visible.length}
@@ -331,13 +392,20 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
         </FilterBar>
       </div>
 
-      {loading && <div className={styles.hint}>Загрузка инструментов…</div>}
+      {loading && <div className={styles.hint}><Spinner label="Загрузка инструментов" /></div>}
 
       {!loading && securities.length === 0 && <div className={styles.hint}>Нет торгуемых инструментов</div>}
 
       {!loading && securities.length > 0 && (
-        <div className={styles.tableScroll}>
+        <div className={styles.tableScroll} ref={virtual.ref} onScroll={virtual.onScroll}>
           <table className={styles.table}>
+            <colgroup>
+              <col className={styles.colCode} />
+              <col className={styles.colShort} />
+              <col />
+              <col className={styles.colNum} />
+              <col className={styles.colNum} />
+            </colgroup>
             <thead>
               <tr>
                 <th>Код</th>
@@ -348,15 +416,25 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
               </tr>
             </thead>
             <tbody>
-              {visible.map((s) => (
+              {virtual.topPad > 0 && (
+                <tr aria-hidden="true" style={{ height: virtual.topPad }}>
+                  <td className={styles.spacer} colSpan={5} />
+                </tr>
+              )}
+              {rows.map((s) => (
                 <tr key={s.secId}>
-                  <td className={styles.mono}>{s.secId}</td>
-                  <td>{s.shortName ?? '—'}</td>
-                  <td className={styles.muted}>{s.name ?? '—'}</td>
+                  <td className={styles.mono} title={s.secId}>{s.secId}</td>
+                  <td title={s.shortName ?? undefined}>{s.shortName ?? '—'}</td>
+                  <td className={styles.muted} title={s.name ?? undefined}>{s.name ?? '—'}</td>
                   <td className={styles.num}>{s.lotSize ?? '—'}</td>
                   <td className={styles.num}>{s.minStep ?? '—'}</td>
                 </tr>
               ))}
+              {virtual.bottomPad > 0 && (
+                <tr aria-hidden="true" style={{ height: virtual.bottomPad }}>
+                  <td className={styles.spacer} colSpan={5} />
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

@@ -70,8 +70,10 @@ export class ExchangeCatalogStore {
   readonly activeFilters$ = new BehaviorSubject<string[]>([]);
   /** Выбранные категории базового актива (плашка «Категория», ИЛИ). */
   readonly categoryFilter$ = new BehaviorSubject<ReadonlySet<string>>(new Set());
-  /** Выбранные типы контракта (плашка «Тип», ИЛИ). */
+  /** Выбранные типы контракта фьючерса (плашка «Тип», ИЛИ). */
   readonly typeFilter$ = new BehaviorSubject<ReadonlySet<string>>(new Set());
+  /** Выбранные серии опционов (плашка «Серия»: недельные/месячные/квартальные, ИЛИ). */
+  readonly seriesFilter$ = new BehaviorSubject<ReadonlySet<string>>(new Set());
 
   private enginesLoaded = false;
   private assetClassesLoaded = false;
@@ -224,6 +226,8 @@ export class ExchangeCatalogStore {
       this.categoryFilter$.next(new Set());
     } else if (key === 'type') {
       this.typeFilter$.next(new Set());
+    } else if (key === 'series') {
+      this.seriesFilter$.next(new Set());
     }
   }
 
@@ -232,6 +236,7 @@ export class ExchangeCatalogStore {
     this.activeFilters$.next([]);
     this.categoryFilter$.next(new Set());
     this.typeFilter$.next(new Set());
+    this.seriesFilter$.next(new Set());
   }
 
   setCategoryFilter(categories: string[]): void {
@@ -242,12 +247,17 @@ export class ExchangeCatalogStore {
     this.typeFilter$.next(new Set(types));
   }
 
+  setSeriesFilter(series: string[]): void {
+    this.seriesFilter$.next(new Set(series));
+  }
+
   /** Полный сброс фильтров и поиска (при смене борда). */
   private resetFilters(): void {
     this.search$.next('');
     this.activeFilters$.next([]);
     this.categoryFilter$.next(new Set());
     this.typeFilter$.next(new Set());
+    this.seriesFilter$.next(new Set());
   }
 
   /** Выбирает борд и загружает его инструменты. */

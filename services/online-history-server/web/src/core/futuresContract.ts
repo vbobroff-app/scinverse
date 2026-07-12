@@ -28,3 +28,38 @@ export function contractType(sec: IssSecurityDto): ContractType {
   const month = new Date(ms).getUTCMonth() + 1;
   return month === 3 || month === 6 || month === 9 || month === 12 ? 'quarterly' : 'monthly';
 }
+
+/** Серия опциона (плашка «Серия»); '' — не удалось определить. */
+export type OptionSeries = 'weekly' | 'monthly' | 'quarterly' | '';
+
+/** Русские названия серий опционов для плашки/опций. */
+export const OPTION_SERIES_LABELS: Record<Exclude<OptionSeries, ''>, string> = {
+  weekly: 'Недельные',
+  monthly: 'Месячные',
+  quarterly: 'Квартальные',
+};
+
+// Недельный опцион: SECID оканчивается буквой недели A..E после цифры года (напр. `Si80000BG6A`).
+// Совпадает с логикой домена MoexSeries («W»-хвост краткого кода); у месячных/квартальных хвоста нет.
+const WEEK_TAIL = /\d[A-E]$/;
+
+/**
+ * Серия опциона по данным ISS:
+ * - недельные (weekly) — SECID с «W»-хвостом (буква недели A..E), напр. `Si80000BG6A`;
+ * - квартальные — экспирация в мартовском цикле (месяцы 3/6/9/12);
+ * - месячные — экспирация в прочие месяцы.
+ */
+export function optionSeries(sec: IssSecurityDto): OptionSeries {
+  if (WEEK_TAIL.test(sec.secId)) {
+    return 'weekly';
+  }
+  if (!sec.expiration) {
+    return '';
+  }
+  const ms = Date.parse(sec.expiration);
+  if (Number.isNaN(ms)) {
+    return '';
+  }
+  const month = new Date(ms).getUTCMonth() + 1;
+  return month === 3 || month === 6 || month === 9 || month === 12 ? 'quarterly' : 'monthly';
+}
