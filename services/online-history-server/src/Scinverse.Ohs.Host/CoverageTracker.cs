@@ -65,6 +65,8 @@ public sealed class CoverageTracker(
     public long CurrentCount(InstrumentKey key) =>
         _active.TryGetValue(key, out var entry) ? Interlocked.Read(ref entry.TotalCount) : 0;
 
+    public bool IsActive(InstrumentKey key) => _active.ContainsKey(key);
+
     public async Task RunHeartbeatAsync(TimeSpan interval, CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(interval);
@@ -85,7 +87,8 @@ public sealed class CoverageTracker(
         }
     }
 
-    public async Task CloseAsync(InstrumentKey key, string status, CancellationToken cancellationToken)
+    public async Task CloseAsync(
+        InstrumentKey key, string status, CancellationToken cancellationToken, DateTimeOffset? endedAt = null)
     {
         if (!_active.TryRemove(key, out var entry))
         {
@@ -95,7 +98,7 @@ public sealed class CoverageTracker(
         var delta = Interlocked.Exchange(ref entry.PendingDelta, 0);
         await coverageStore.ExtendAsync(entry.SegmentId, delta, cancellationToken).ConfigureAwait(false);
         await coverageStore
-            .CloseAsync(entry.SegmentId, timeProvider.GetUtcNow(), status, cancellationToken)
+            .CloseAsync(entry.SegmentId, endedAt ?? timeProvider.GetUtcNow(), status, cancellationToken)
             .ConfigureAwait(false);
         logger.LogInformation("Покрытие {Instrument}: сегмент {SegmentId} закрыт ({Status})", key, entry.SegmentId, status);
     }

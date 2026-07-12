@@ -87,6 +87,23 @@ describe('OhsStore live merge', () => {
     store.stop();
   });
 
+  it('обновляет статус подключения по connectionStateChanged', () => {
+    const live = new Subject<LiveEvent>();
+    const store = new OhsStore(fakeApi(), live);
+    store.start();
+
+    live.next({
+      type: 'connectionStateChanged',
+      connectionId: 1,
+      state: 'Down',
+      since: '2026-07-12T10:00:00.000Z',
+      reason: 'server_status',
+    });
+
+    expect(store.connections$.value[0].status).toBe('disconnected');
+    store.stop();
+  });
+
   it('двигает счётчик активной колбаски по coverageExtended без перезапроса', () => {
     const live = new Subject<LiveEvent>();
     const store = new OhsStore(fakeApi(), live);

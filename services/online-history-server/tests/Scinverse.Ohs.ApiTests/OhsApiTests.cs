@@ -101,7 +101,7 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         var synthetic = (await api.GetConnectionsAsync()).First(c => c.Kind == "synthetic");
 
         var connected = await api.ConnectConnectionAsync(synthetic.ConnectionId);
-        connected.Status.Should().Be("connected");
+        connected.Status.Should().Be("waiting");
 
         var recording = await api.StartRecordingAsync(
             new StartRecordingRequest(factory.SberInstrumentId, synthetic.ConnectionId));

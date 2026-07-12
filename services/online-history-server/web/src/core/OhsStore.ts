@@ -3,7 +3,7 @@ import { catchError, finalize, map, mergeMap, switchMap, tap, toArray } from 'rx
 import { bucketSecondsForTimeframe } from './activityBucket';
 import { OhsApi, type OhsApiClient } from './api';
 import { gapsFromLivenessIntervals } from './coverageGeometry';
-import { createLiveStream } from './live';
+import { createLiveStream, linkStateToConnectionStatus } from './live';
 import { loadSelectedInstruments, persistSelectedInstruments } from './selectedInstrumentsStorage';
 import { DEFAULT_SECTION, type NavSectionId } from './navigation';
 import {
@@ -235,7 +235,7 @@ export class OhsStore {
 
   constructor(
     private readonly api: OhsApiClient = OhsApi,
-    private readonly live: Observable<LiveEvent> = createLiveStream(),
+    private readonly live?: Observable<LiveEvent>,
   ) {}
 
   /** Загружает справочники, применяет таймфрейм и подписывается на live-поток. */
@@ -245,7 +245,15 @@ export class OhsStore {
     this.refreshConnections();
     this.refreshRecordings();
     this.applyTimeframe(this.timeframe$.value);
-    this.liveSub = this.live.subscribe({
+    const stream =
+      this.live ??
+      createLiveStream(undefined, () => {
+        this.refreshConnections();
+        this.refreshRecordings();
+        this.refreshCoverage();
+        this.refreshLiveness();
+      });
+    this.liveSub = stream.subscribe({
       next: (event) => this.onLive(event),
       error: (err) => console.error('live stream error', err),
     });
@@ -995,6 +1003,20 @@ export class OhsStore {
           ),
         );
         break;
+
+      case 'connectionStateChanged': {
+        const status = linkStateToConnectionStatus(event.state);
+        this.connections$.next(
+          this.connections$.value.map((c) =>
+            c.connectionId === event.connectionId ? { ...c, status } : c,
+          ),
+        );
+        this.refreshLiveness();
+        if (status === 'disconnected' || status === 'error') {
+          this.refreshCoverage();
+        }
+        break;
+      }
 
       case 'coverageExtended':
         this.applyCoverageExtended(event.instrumentId, event.sourceId, event.tradeCount, event.to);

@@ -330,4 +330,11 @@ export type LiveEvent =
   | { type: 'recordingStarted'; instrumentId: number; sourceId: number; connectionId: number; segmentId: number }
   | { type: 'recordingStopped'; instrumentId: number }
   | { type: 'coverageExtended'; instrumentId: number; sourceId: number; to: string; tradeCount: number }
-  | { type: 'connectionStatusChanged'; connectionId: number; status: string };
+  | { type: 'connectionStatusChanged'; connectionId: number; status: string }
+  | {
+      type: 'connectionStateChanged';
+      connectionId: number;
+      state: string;
+      since: string;
+      reason: string | null;
+    };

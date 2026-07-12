@@ -25,6 +25,7 @@ public sealed class ConnectionManager(
     CoverageTracker coverageTracker,
     WebSocketBroadcaster broadcaster,
     Lazy<ILivenessWriter> liveness,
+    Lazy<RecordingManager> recordings,
     TransaqConnectorOptions transaqDefaults,
     ILoggerFactory loggerFactory,
     ILogger<ConnectionManager> logger) : IDisposable
@@ -36,7 +37,12 @@ public sealed class ConnectionManager(
     private readonly ConcurrentDictionary<long, short> _sourceIds = new();
     private readonly ConcurrentDictionary<long, string> _status = new();
     private readonly ConcurrentDictionary<long, DateTimeOffset> _lastData = new();
+    private readonly ConcurrentDictionary<long, ConnectorLinkState> _linkStates = new();
+    private readonly ConcurrentDictionary<long, DateTimeOffset> _linkSince = new();
     private Timer? _idleMonitor;
+
+    public ConnectorLinkState? GetLinkState(long connectionId) =>
+        _linkStates.TryGetValue(connectionId, out var state) ? state : null;
 
     public string GetStatus(long connectionId) =>
         _status.TryGetValue(connectionId, out var status) ? status : "disconnected";
@@ -120,6 +126,8 @@ public sealed class ConnectionManager(
 
         _sourceIds.TryRemove(connectionId, out _);
         _lastData.TryRemove(connectionId, out _);
+        _linkStates.TryRemove(connectionId, out _);
+        _linkSince.TryRemove(connectionId, out _);
         await liveness.Value.OnDisconnectedAsync(connectionId, cancellationToken).ConfigureAwait(false);
         SetStatus(connectionId, "disconnected");
         return "disconnected";
@@ -214,33 +222,80 @@ public sealed class ConnectionManager(
             : null;
     }
 
-    /// <summary>Реакция на <c>server_status</c> от коннектора (phase 7h.3); полный автомат — 7h.4.</summary>
-    private void HandleLinkState(long connectionId, ConnectorLinkStateChange change)
+    /// <summary>Реакция на <c>server_status</c> от коннектора (phase 7h.4).</summary>
+    private void HandleLinkState(long connectionId, ConnectorLinkStateChange change) =>
+        _ = HandleLinkStateAsync(connectionId, change);
+
+    private async Task HandleLinkStateAsync(long connectionId, ConnectorLinkStateChange change)
     {
+        var hadState = _linkStates.TryGetValue(connectionId, out var previous);
+        _linkStates[connectionId] = change.State;
+        _linkSince[connectionId] = change.At;
+        PublishLinkState(connectionId, change);
+
         switch (change.State)
         {
             case ConnectorLinkState.Live:
             case ConnectorLinkState.Degraded:
-                if (GetStatus(connectionId) is "disconnected" or "error")
+            {
+                var recovering = hadState && previous is ConnectorLinkState.Down or ConnectorLinkState.Error;
+                if (recovering)
                 {
-                    SetStatus(connectionId, "waiting");
+                    await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
+                    SetStatus(connectionId, StatusForLinkState(change.State));
+                }
+                else if (change.State == ConnectorLinkState.Degraded && GetStatus(connectionId) is "disconnected" or "error")
+                {
+                    SetStatus(connectionId, StatusForLinkState(change.State));
                 }
 
                 logger.LogInformation(
-                    "Подключение {ConnectionId}: связь {State}",
-                    connectionId, change.State);
+                    "Подключение {ConnectionId}: связь {State}{Recovering}",
+                    connectionId, change.State, recovering ? " (ре-подписка)" : "");
                 break;
+            }
 
             case ConnectorLinkState.Down:
             case ConnectorLinkState.Error:
+            {
+                var wasUp = !hadState || previous is ConnectorLinkState.Live or ConnectorLinkState.Degraded;
+                if (!wasUp)
+                {
+                    break;
+                }
+
+                var segmentStatus = change.State == ConnectorLinkState.Error ? "error" : "disconnected";
                 logger.LogWarning(
                     "Подключение {ConnectionId}: связь {State} ({Detail})",
                     connectionId, change.State, change.Detail);
-                _ = liveness.Value.OnServerDownAsync(connectionId, change.At, CancellationToken.None);
-                SetStatus(connectionId, "disconnected");
+
+                await liveness.Value.OnServerDownAsync(connectionId, change.At, CancellationToken.None)
+                    .ConfigureAwait(false);
+                await recordings.Value.OnLinkDownAsync(connectionId, segmentStatus, change.At, CancellationToken.None)
+                    .ConfigureAwait(false);
+                SetStatus(connectionId, StatusForLinkState(change.State));
                 break;
+            }
         }
     }
+
+    private void PublishLinkState(long connectionId, ConnectorLinkStateChange change)
+    {
+        broadcaster.Broadcast(new ConnectionStateChangedEvent(
+            connectionId,
+            change.State.ToString(),
+            change.At,
+            change.Detail));
+    }
+
+    private static string StatusForLinkState(ConnectorLinkState state) => state switch
+    {
+        ConnectorLinkState.Live => "waiting",
+        ConnectorLinkState.Degraded => "waiting",
+        ConnectorLinkState.Down => "disconnected",
+        ConnectorLinkState.Error => "error",
+        _ => "disconnected",
+    };
 
     /// <summary>Лениво запускает опрос простоя (тик 1с) при первом подключении.</summary>
     private void EnsureIdleMonitor() =>

@@ -69,6 +69,7 @@ builder.Services.AddSingleton<CoverageTracker>();
 builder.Services.AddSingleton<LivenessProbe>();
 builder.Services.AddSingleton<ILivenessWriter>(sp => sp.GetRequiredService<LivenessProbe>());
 builder.Services.AddSingleton(sp => new Lazy<ILivenessWriter>(() => sp.GetRequiredService<ILivenessWriter>()));
+builder.Services.AddSingleton(sp => new Lazy<RecordingManager>(() => sp.GetRequiredService<RecordingManager>()));
 builder.Services.AddSingleton<ConnectionManager>();
 builder.Services.AddSingleton<RecordingManager>();
 builder.Services.AddHostedService<OhsWorker>();

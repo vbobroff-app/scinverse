@@ -14,3 +14,11 @@ public sealed record CoverageExtendedEvent(long InstrumentId, short SourceId, Da
 
 public sealed record ConnectionStatusChangedEvent(long ConnectionId, string Status)
     : LiveEvent("connectionStatusChanged");
+
+/// <summary>Смена состояния связи коннектора (phase 7h.5): Live/Degraded/Down/Error.</summary>
+public sealed record ConnectionStateChangedEvent(
+    long ConnectionId,
+    string State,
+    DateTimeOffset Since,
+    string? Reason)
+    : LiveEvent("connectionStateChanged");
