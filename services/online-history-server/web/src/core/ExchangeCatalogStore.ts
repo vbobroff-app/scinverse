@@ -14,6 +14,20 @@ export function marketKey(engine: string, market: string): string {
   return `${engine}/${market}`;
 }
 
+/** Совпадение заголовков без учёта регистра/пробелов (для «схлопывания» одноимённого борда в рынок). */
+export function sameTitle(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * Рынок отображается «схлопнутым» (без отдельного уровня борда), если у него ровно один борд с тем же
+ * названием (напр. `Фьючерсы`/forts → `Фьючерсы`/RFUD). Это ПРАВИЛО ОТОБРАЖЕНИЯ поверх реальных данных:
+ * борды всё равно грузятся, поэтому смена структуры MOEX (2-й борд / иной title) автоматически разворачивает узел.
+ */
+export function isCollapsedMarket(market: MarketDto, boards: readonly BoardDto[]): boolean {
+  return boards.length === 1 && sameTitle(boards[0].title, market.title || market.name);
+}
+
 /** Выбранный борд (для загрузки списка инструментов). */
 export interface SelectedBoard {
   engine: string;
@@ -145,7 +159,10 @@ export class ExchangeCatalogStore {
     this.expandedEngines$.next(expanded);
   }
 
-  /** Раскрывает/сворачивает рынок; при первом раскрытии лениво тянет борды. */
+  /**
+   * Раскрывает/сворачивает рынок; при первом раскрытии лениво тянет борды. Если рынок оказывается
+   * «схлопнутым» (один одноимённый борд), сразу выбираем этот борд — узел ведёт себя как лист.
+   */
   toggleMarket(engine: string, market: string): void {
     const key = marketKey(engine, market);
     const expanded = new Set(this.expandedMarkets$.value);
@@ -153,11 +170,33 @@ export class ExchangeCatalogStore {
       expanded.delete(key);
     } else {
       expanded.add(key);
-      if (!this.boardsByMarket$.value.has(key)) {
-        this.loadBoards(engine, market);
+      const existing = this.boardsByMarket$.value.get(key);
+      if (existing) {
+        this.maybeAutoSelect(engine, market, existing);
+      } else {
+        this.loadBoards(engine, market, (boards) => this.maybeAutoSelect(engine, market, boards));
       }
     }
     this.expandedMarkets$.next(expanded);
+  }
+
+  /** Заголовок рынка из загруженного списка (для сравнения при схлопывании). */
+  private marketTitle(engine: string, market: string): string {
+    const found = (this.marketsByEngine$.value.get(engine) ?? []).find((m) => m.name === market);
+    return found?.title || market;
+  }
+
+  /** Если рынок схлопнут (один одноимённый борд) и он ещё не выбран — выбираем его борд. */
+  private maybeAutoSelect(engine: string, market: string, boards: BoardDto[]): void {
+    if (boards.length !== 1 || !sameTitle(boards[0].title, this.marketTitle(engine, market))) {
+      return;
+    }
+    const board = boards[0];
+    const sel = this.selectedBoard$.value;
+    if (sel && sel.engine === engine && sel.market === market && sel.board === board.boardId) {
+      return;
+    }
+    this.selectBoard(engine, market, board);
   }
 
   /** Категория базового актива инструмента как код ('index'|…|'other'|'' если неизвестен вид). */
@@ -244,7 +283,7 @@ export class ExchangeCatalogStore {
     });
   }
 
-  private loadBoards(engine: string, market: string): void {
+  private loadBoards(engine: string, market: string, onLoaded?: (boards: BoardDto[]) => void): void {
     const key = marketKey(engine, market);
     this.setBusy(key, true);
     this.api.getBoards(engine, market).subscribe({
@@ -252,6 +291,7 @@ export class ExchangeCatalogStore {
         const next = new Map(this.boardsByMarket$.value);
         next.set(key, boards);
         this.boardsByMarket$.next(next);
+        onLoaded?.(boards);
       },
       error: (err) => {
         this.setBusy(key, false);

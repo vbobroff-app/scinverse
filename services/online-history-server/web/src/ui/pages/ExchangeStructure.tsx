@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { ExchangeCatalogStore, marketKey } from '../../core/ExchangeCatalogStore';
+import { ExchangeCatalogStore, isCollapsedMarket, marketKey } from '../../core/ExchangeCatalogStore';
 import { CONTRACT_TYPE_LABELS, contractType } from '../../core/futuresContract';
 import { useBehavior } from '../hooks/useObservable';
 import { FilterBar } from '../components/filters/FilterBar';
@@ -109,6 +109,32 @@ function StructureTree({ store }: { store: ExchangeCatalogStore }) {
                     const key = marketKey(engine.name, market.name);
                     const marketOpen = expandedMarkets.has(key);
                     const boards = boardsByMarket.get(key) ?? [];
+
+                    // Схлопнутый рынок (один одноимённый борд) рисуем одной строкой = лист, выбирающий борд.
+                    if (isCollapsedMarket(market, boards)) {
+                      const board = boards[0];
+                      const isSel =
+                        selected?.engine === engine.name &&
+                        selected?.market === market.name &&
+                        selected?.board === board.boardId;
+                      return (
+                        <li key={key}>
+                          <button
+                            className={[styles.leaf, isSel ? styles.leafActive : ''].filter(Boolean).join(' ')}
+                            onClick={() => store.selectBoard(engine.name, market.name, board)}
+                            title={board.isTraded ? 'Торгуется' : 'Не торгуется'}
+                          >
+                            <span className={styles.chevron} aria-hidden="true" />
+                            <span className={styles.nodeLabel}>{market.title || market.name}</span>
+                            <span
+                              className={[styles.dot, board.isTraded ? styles.dotOn : styles.dotOff].join(' ')}
+                            />
+                            <span className={styles.nodeCode}>{board.boardId}</span>
+                          </button>
+                        </li>
+                      );
+                    }
+
                     return (
                       <li key={key}>
                         <button
