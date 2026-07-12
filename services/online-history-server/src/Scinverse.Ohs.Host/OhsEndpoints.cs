@@ -232,6 +232,17 @@ public static class OhsEndpoints
         api.MapPost("/connections/{id:long}/test", (long id, ConnectionManager manager, IConnectionStore store, CancellationToken ct) =>
             RunConnectionActionAsync(id, store, manager, () => manager.TestAsync(id, ct), ct));
 
+        if (app.Environment.IsDevelopment())
+        {
+            api.MapPost("/connections/{id:long}/debug/drop", (long id, int? seconds, ConnectionManager manager) =>
+            {
+                var duration = TimeSpan.FromSeconds(Math.Clamp(seconds ?? 30, 1, 300));
+                return manager.TryDebugDrop(id, duration)
+                    ? Results.Ok(new { ok = true, seconds = duration.TotalSeconds })
+                    : Results.BadRequest(new { error = "Инжект обрыва доступен только для synthetic-коннектора" });
+            });
+        }
+
         MapExchanges(api);
     }
 

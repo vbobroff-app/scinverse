@@ -101,6 +101,14 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
     public Task<ConnectionDto> TestConnectionAsync(long id, CancellationToken cancellationToken = default) =>
         PostAsync<ConnectionDto>($"/api/connections/{id}/test", cancellationToken);
 
+    /// <summary>Эмуляция обрыва (Development, только synthetic).</summary>
+    public async Task<bool> DebugDropAsync(long connectionId, int seconds = 2, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsync(
+            $"/api/connections/{connectionId}/debug/drop?seconds={seconds}", null, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
     public Task<IReadOnlyList<EngineDto>> GetEnginesAsync(CancellationToken cancellationToken = default) =>
         GetListAsync<EngineDto>("/api/exchanges/engines", cancellationToken);
 

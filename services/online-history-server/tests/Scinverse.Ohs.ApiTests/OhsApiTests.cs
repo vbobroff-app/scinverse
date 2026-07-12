@@ -133,6 +133,71 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
     }
 
     [Fact]
+    public async Task DebugDrop_synthetic_emits_connection_state_events()
+    {
+        var api = CreateApi();
+        var client = new OhsApiClient(factory.CreateClient());
+        var synthetic = (await api.GetConnectionsAsync()).First(c => c.Kind == "synthetic");
+        await api.ConnectConnectionAsync(synthetic.ConnectionId);
+
+        try
+        {
+            (await client.DebugDropAsync(synthetic.ConnectionId, seconds: 1)).Should().BeTrue();
+
+            var sawDown = await PollConnectionStatusAsync(synthetic.ConnectionId, "disconnected", TimeSpan.FromSeconds(5));
+            sawDown.Should().BeTrue("обрыв должен перевести подключение в disconnected");
+
+            var sawLive = await PollConnectionStatusAsync(
+                synthetic.ConnectionId, s => s is "waiting" or "active" or "degraded", TimeSpan.FromSeconds(10));
+            sawLive.Should().BeTrue("после recover связь должна восстановиться");
+        }
+        finally
+        {
+            await api.DisconnectConnectionAsync(synthetic.ConnectionId);
+        }
+    }
+
+    private async Task<bool> PollConnectionStatusAsync(
+        long connectionId, string expected, TimeSpan timeout)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+        while (!cts.Token.IsCancellationRequested)
+        {
+            var api = new OhsApiClient(factory.CreateClient());
+            var row = (await api.GetConnectionsAsync(cts.Token))
+                .FirstOrDefault(c => c.ConnectionId == connectionId);
+            if (row?.Status == expected)
+            {
+                return true;
+            }
+
+            await Task.Delay(200, cts.Token);
+        }
+
+        return false;
+    }
+
+    private async Task<bool> PollConnectionStatusAsync(
+        long connectionId, Func<string, bool> predicate, TimeSpan timeout)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+        while (!cts.Token.IsCancellationRequested)
+        {
+            var api = new OhsApiClient(factory.CreateClient());
+            var row = (await api.GetConnectionsAsync(cts.Token))
+                .FirstOrDefault(c => c.ConnectionId == connectionId);
+            if (row is not null && predicate(row.Status))
+            {
+                return true;
+            }
+
+            await Task.Delay(200, cts.Token);
+        }
+
+        return false;
+    }
+
+    [Fact]
     public async Task WebSocket_pushes_coverage_extended_event()
     {
         var api = CreateApi();

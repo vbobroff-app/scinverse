@@ -53,6 +53,16 @@ const GAP_CAUSE_LABEL: Record<string, string> = {
   interrupted: 'Прервано (краш/рестарт)',
 };
 
+const SEGMENT_STATUS_LABEL: Record<string, string> = {
+  recording: 'Запись',
+  stopped: 'Остановлено вручную',
+  disconnected: 'Обрыв связи',
+  error: 'Ошибка соединения',
+  interrupted: 'Прервано (краш/рестарт)',
+};
+
+const BREAK_SEGMENT_STATUSES = new Set(['disconnected', 'error', 'interrupted']);
+
 /** Подложка «стояло на запись» по границам сегмента намерения. */
 function intentBar(
   seg: CoverageSegmentDto,
@@ -67,17 +77,24 @@ function intentBar(
   const style = open
     ? { left: `${left}%`, right: 'calc(100% - var(--now-pct, 100) * 1%)' }
     : { left: `${left}%`, width: `${Math.max(0.4, pct(segTo) - left)}%` };
+  const statusLabel = SEGMENT_STATUS_LABEL[seg.status] ?? seg.status;
+  const stopped = seg.status === 'stopped';
   return (
     <div
       key={`${seg.segmentId}${dim ? '-intent' : ''}`}
-      className={[styles.bar, dim ? styles.barIntent : '', live ? styles.live : '']
+      className={[
+        styles.bar,
+        dim ? styles.barIntent : '',
+        stopped ? styles.barStopped : '',
+        live ? styles.live : '',
+      ]
         .filter(Boolean)
         .join(' ')}
       style={style}
       title={
         dim
-          ? 'Намерение записи (стояло на запись)'
-          : 'В записи (покрытие). Была ли торговля — по ярким ячейкам сделок.'
+          ? `${statusLabel} · намерение записи`
+          : `${statusLabel} · в записи. Торговля — по ярким ячейкам.`
       }
     />
   );
@@ -176,7 +193,7 @@ export const CoverageTrack = memo(function CoverageTrack({
         const open = seg.to === null;
 
         if (!honestMode) {
-          return [intentBar(seg, segFrom, segTo, open, pct, open)];
+          return [intentBar(seg, segFrom, segTo, open, pct, open && seg.status !== 'stopped')];
         }
 
         const bars: ReactNode[] = [intentBar(seg, segFrom, segTo, open, pct, false, true)];
@@ -186,12 +203,30 @@ export const CoverageTrack = memo(function CoverageTrack({
           const inter = intersectMs(segFrom, segTo, Date.parse(liv.from), livTo);
           if (!inter) continue;
           const left = pct(inter.from);
+          const stopped = seg.status === 'stopped';
           bars.push(
             <div
               key={`${seg.segmentId}-liv-${i}`}
-              className={[styles.bar, open && liv.open ? styles.live : ''].filter(Boolean).join(' ')}
+              className={[
+                styles.bar,
+                stopped ? styles.barStopped : '',
+                open && liv.open ? styles.live : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
               style={{ left: `${left}%`, width: `${Math.max(0.4, pct(inter.to) - left)}%` }}
               title="Захват жив (связь ok)"
+            />,
+          );
+        }
+        if (!open && BREAK_SEGMENT_STATUSES.has(seg.status)) {
+          const seamLeft = pct(segTo);
+          bars.push(
+            <span
+              key={`${seg.segmentId}-seam`}
+              className={styles.breakSeam}
+              style={{ left: `${seamLeft}%` }}
+              title={`${SEGMENT_STATUS_LABEL[seg.status] ?? seg.status} · ${hhmm(segTo, tzOffsetMin)}`}
             />,
           );
         }

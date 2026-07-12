@@ -204,6 +204,21 @@ public sealed class ConnectionManager(
         }
     }
 
+    /// <summary>
+    /// Эмуляция обрыва связи (phase 7h.7, только synthetic в Development).
+    /// Возвращает false, если коннектор не поддерживает инжект.
+    /// </summary>
+    public bool TryDebugDrop(long connectionId, TimeSpan duration)
+    {
+        if (GetConnector(connectionId) is not SyntheticLiveConnector synthetic)
+        {
+            return false;
+        }
+
+        _ = synthetic.SimulateDropAsync(duration, CancellationToken.None);
+        return true;
+    }
+
     private void SetStatus(long connectionId, string status)
     {
         _status[connectionId] = status;
@@ -242,11 +257,15 @@ public sealed class ConnectionManager(
                 if (recovering)
                 {
                     await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
-                    SetStatus(connectionId, StatusForLinkState(change.State));
                 }
-                else if (change.State == ConnectorLinkState.Degraded && GetStatus(connectionId) is "disconnected" or "error")
+
+                if (change.State == ConnectorLinkState.Degraded)
                 {
                     SetStatus(connectionId, StatusForLinkState(change.State));
+                }
+                else if (recovering || GetStatus(connectionId) is "disconnected" or "error" or "degraded")
+                {
+                    SetStatus(connectionId, StatusForLinkState(ConnectorLinkState.Live));
                 }
 
                 logger.LogInformation(
@@ -291,7 +310,7 @@ public sealed class ConnectionManager(
     private static string StatusForLinkState(ConnectorLinkState state) => state switch
     {
         ConnectorLinkState.Live => "waiting",
-        ConnectorLinkState.Degraded => "waiting",
+        ConnectorLinkState.Degraded => "degraded",
         ConnectorLinkState.Down => "disconnected",
         ConnectorLinkState.Error => "error",
         _ => "disconnected",

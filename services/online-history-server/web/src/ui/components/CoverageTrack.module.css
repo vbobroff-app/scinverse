@@ -79,6 +79,24 @@
   pointer-events: none;
 }
 
+/* Ручная остановка записи — нейтральная серая подложка. */
+.barStopped {
+  background: var(--color-text-muted);
+  opacity: 0.55;
+}
+
+/* Шов обрыва на правом крае закрытого сегмента (disconnected/error/interrupted). */
+.breakSeam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  z-index: 4;
+  background: var(--color-error);
+  pointer-events: auto;
+}
+
 /* Активная запись мигает (pulse), но без свечения — честность по связи придёт в phase 7h. */
 .live {
   animation: pulse 1.4s ease-in-out infinite;

@@ -1,6 +1,6 @@
 import styles from './ConnectionToggle.module.css';
 
-type Phase = 'off' | 'connecting' | 'active' | 'waiting' | 'error';
+type Phase = 'off' | 'connecting' | 'active' | 'waiting' | 'degraded' | 'error';
 
 interface Props {
   status: string;
@@ -15,6 +15,8 @@ function toPhase(status: string): Phase {
     case 'waiting':
     case 'connected':
       return 'waiting';
+    case 'degraded':
+      return 'degraded';
     case 'connecting':
     case 'disconnecting':
       return 'connecting';
@@ -30,12 +32,13 @@ const LABEL: Record<Phase, string> = {
   connecting: 'Подключение…',
   active: 'Подключён',
   waiting: 'Подключён',
+  degraded: 'Восстановление…',
   error: 'Ошибка',
 };
 
 export function ConnectionToggle({ status, onConnect, onDisconnect }: Props) {
   const phase = toPhase(status);
-  const connected = phase === 'active' || phase === 'waiting';
+  const connected = phase === 'active' || phase === 'waiting' || phase === 'degraded';
   const busy = phase === 'connecting';
 
   const toggle = () => {

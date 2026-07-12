@@ -104,6 +104,23 @@ describe('OhsStore live merge', () => {
     store.stop();
   });
 
+  it('маппит Degraded в статус degraded', () => {
+    const live = new Subject<LiveEvent>();
+    const store = new OhsStore(fakeApi(), live);
+    store.start();
+
+    live.next({
+      type: 'connectionStateChanged',
+      connectionId: 1,
+      state: 'Degraded',
+      since: '2026-07-12T10:00:00.000Z',
+      reason: 'recover',
+    });
+
+    expect(store.connections$.value[0].status).toBe('degraded');
+    store.stop();
+  });
+
   it('двигает счётчик активной колбаски по coverageExtended без перезапроса', () => {
     const live = new Subject<LiveEvent>();
     const store = new OhsStore(fakeApi(), live);

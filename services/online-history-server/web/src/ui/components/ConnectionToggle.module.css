@@ -82,6 +82,18 @@
   background-color: color-mix(in srgb, var(--color-success) 25%, white);
 }
 
+/* Восстановление после обрыва (recover) — жёлтый, кнопка справа. */
+.degraded {
+  background: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.degraded .knob {
+  transform: translateX(24px);
+  background-color: color-mix(in srgb, var(--color-warning) 35%, white);
+  animation: pulse 0.9s ease-in-out infinite;
+}
+
 /* Ошибка — красный, кнопка слева. */
 .error {
   background: var(--color-error);

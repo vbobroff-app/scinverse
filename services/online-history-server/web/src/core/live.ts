@@ -11,8 +11,9 @@ function defaultWsUrl(): string {
 export function linkStateToConnectionStatus(state: string): string {
   switch (state) {
     case 'Live':
-    case 'Degraded':
       return 'waiting';
+    case 'Degraded':
+      return 'degraded';
     case 'Error':
       return 'error';
     case 'Down':

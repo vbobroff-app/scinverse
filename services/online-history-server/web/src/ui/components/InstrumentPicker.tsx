@@ -298,7 +298,10 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const now = useNow(1000);
 
   // Подключением считаем оба «живых» статуса: active (идут данные) и waiting (тишина).
-  const connected = connection.status === 'active' || connection.status === 'waiting';
+  const connected =
+    connection.status === 'active' ||
+    connection.status === 'waiting' ||
+    connection.status === 'degraded';
 
   const sourceCodeById = useMemo(
     () => new Map(sources.map((s) => [s.sourceId, s.code])),
