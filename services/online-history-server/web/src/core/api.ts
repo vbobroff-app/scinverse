@@ -1,13 +1,19 @@
 import { ajax } from 'rxjs/ajax';
 import { map, type Observable } from 'rxjs';
 import type {
+  AssetClassRefreshResultDto,
+  BoardDto,
   ConnectionCredentialsRequest,
   ConnectionDto,
   CoverageExtentDto,
   CoverageSegmentDto,
+  EngineDto,
+  FuturesAssetClassDto,
   InstrumentGroupDto,
   InstrumentPage,
   InstrumentQueryParams,
+  IssSecurityDto,
+  MarketDto,
   RecordingDto,
   SessionDto,
   SourceDto,
@@ -116,6 +122,20 @@ export const OhsApi = {
       headers: JSON_HEADERS,
       body,
     }).pipe(map(() => undefined)),
+
+  // Структура биржи (MOEX ISS, прокси/кэш на бэке).
+  getEngines: () => getJSON<EngineDto[]>('/exchanges/engines'),
+  getMarkets: (engine: string) => getJSON<MarketDto[]>(`/exchanges/${encodeURIComponent(engine)}/markets`),
+  getBoards: (engine: string, market: string) =>
+    getJSON<BoardDto[]>(`/exchanges/${encodeURIComponent(engine)}/${encodeURIComponent(market)}/boards`),
+  getBoardSecurities: (engine: string, market: string, board: string) =>
+    getJSON<IssSecurityDto[]>(
+      `/exchanges/${encodeURIComponent(engine)}/${encodeURIComponent(market)}/${encodeURIComponent(board)}/securities`,
+    ),
+
+  // Справочник классов базового актива фьючерсов + актуализация из ISS (по кнопке).
+  getAssetClasses: () => getJSON<FuturesAssetClassDto[]>('/exchanges/asset-classes'),
+  refreshAssetClasses: () => post<AssetClassRefreshResultDto>('/exchanges/asset-classes/refresh'),
 };
 
 export type OhsApiClient = typeof OhsApi;

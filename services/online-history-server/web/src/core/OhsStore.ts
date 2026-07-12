@@ -3,6 +3,7 @@ import { catchError, finalize, map, mergeMap, switchMap, tap, toArray } from 'rx
 import { bucketSecondsForTimeframe } from './activityBucket';
 import { OhsApi, type OhsApiClient } from './api';
 import { createLiveStream } from './live';
+import { DEFAULT_SECTION, type NavSectionId } from './navigation';
 import {
   mskDateFromIso,
   mskDateOf,
@@ -209,6 +210,9 @@ export class OhsStore {
   /** Стандарт времени отображения — единый на всю систему (ось/тултипы). */
   readonly displayTz$ = new BehaviorSubject<DisplayTz>(DEFAULT_DISPLAY_TZ);
 
+  /** Активный раздел верхнего уровня (левый рейл): провайдеры/биржи/новости/… */
+  readonly activeSection$ = new BehaviorSubject<NavSectionId>(DEFAULT_SECTION);
+
   private liveSub?: Subscription;
   private windowTimer?: ReturnType<typeof setInterval>;
   private coveragePollTimer?: ReturnType<typeof setInterval>;
@@ -248,6 +252,13 @@ export class OhsStore {
     if (this.coveragePollTimer !== undefined) {
       clearInterval(this.coveragePollTimer);
       this.coveragePollTimer = undefined;
+    }
+  }
+
+  /** Переключает активный раздел верхнего уровня (левый рейл). */
+  setActiveSection(section: NavSectionId): void {
+    if (this.activeSection$.value !== section) {
+      this.activeSection$.next(section);
     }
   }
 

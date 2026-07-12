@@ -14,6 +14,9 @@ public sealed class OhsOptions
     /// <summary>Origin dev-фронта (Vite) для CORS-политики админки.</summary>
     public string? AdminOrigin { get; set; }
 
+    /// <summary>Базовый URL публичного MOEX ISS (каталог структуры биржи, расписания).</summary>
+    public string IssBaseUrl { get; set; } = "https://iss.moex.com/iss/";
+
     /// <summary>Инструменты для подписки на ленту сделок.</summary>
     public IList<InstrumentRef> Instruments { get; } = new List<InstrumentRef>();
 }

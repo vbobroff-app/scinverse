@@ -61,4 +61,24 @@ public interface IOhsApi
 
     /// <summary>POST /api/connections/{id}/test</summary>
     Task<ConnectionDto> TestConnectionAsync(long id, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/exchanges/engines — движки биржи (MOEX ISS).</summary>
+    Task<IReadOnlyList<EngineDto>> GetEnginesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/exchanges/{engine}/markets</summary>
+    Task<IReadOnlyList<MarketDto>> GetMarketsAsync(string engine, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/exchanges/{engine}/{market}/boards</summary>
+    Task<IReadOnlyList<BoardDto>> GetBoardsAsync(
+        string engine, string market, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/exchanges/{engine}/{market}/{board}/securities</summary>
+    Task<IReadOnlyList<IssSecurityDto>> GetBoardSecuritiesAsync(
+        string engine, string market, string board, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/exchanges/asset-classes — справочник классов базового актива фьючерсов.</summary>
+    Task<IReadOnlyList<FuturesAssetClassDto>> GetAssetClassesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>POST /api/exchanges/asset-classes/refresh — актуализация справочника из ISS (по кнопке).</summary>
+    Task<AssetClassRefreshResultDto> RefreshAssetClassesAsync(CancellationToken cancellationToken = default);
 }

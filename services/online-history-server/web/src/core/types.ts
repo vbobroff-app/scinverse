@@ -225,6 +225,55 @@ export interface ValidateConnectionResult {
   message?: string | null;
 }
 
+// Структура биржи из MOEX ISS (раздел «Биржи → Структура»).
+
+/** Движок (торговая система): stock/futures/currency/… */
+export interface EngineDto {
+  name: string;
+  title: string;
+}
+
+/** Рынок движка (shares/forts/…). */
+export interface MarketDto {
+  name: string;
+  title: string;
+}
+
+/** Режим торгов (борд) рынка. */
+export interface BoardDto {
+  boardId: string;
+  title: string;
+  isTraded: boolean;
+}
+
+/** Торгуемый инструмент борда (статика ISS). */
+export interface IssSecurityDto {
+  secId: string;
+  shortName: string | null;
+  name: string | null;
+  minStep: number | null;
+  lotSize: number | null;
+  decimals: number | null;
+  assetCode: string | null;
+}
+
+/** Класс базового актива фьючерса (справочник futures_asset_class) для группировки/фильтров. */
+export interface FuturesAssetClassDto {
+  assetCode: string;
+  category: string;
+  subcategory: string | null;
+  title: string | null;
+  source: string;
+  confirmed: boolean;
+}
+
+/** Итог актуализации справочника классов из ISS: всего кодов, новых, не распознано. */
+export interface AssetClassRefreshResultDto {
+  total: number;
+  inserted: number;
+  unresolved: number;
+}
+
 // Live-события WebSocket `/ws` (дискриминатор — поле `type`).
 export type LiveEvent =
   | { type: 'recordingStarted'; instrumentId: number; sourceId: number; connectionId: number; segmentId: number }

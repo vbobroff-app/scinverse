@@ -1,6 +1,7 @@
 using Scinverse.Ohs.Connectors.Transaq;
 using Scinverse.Ohs.Contracts;
 using Scinverse.Ohs.Domain;
+using Scinverse.Ohs.Domain.Moex;
 using Scinverse.Ohs.Ingestion;
 
 namespace Scinverse.Ohs.Host;
@@ -201,6 +202,82 @@ public static class OhsEndpoints
 
         api.MapPost("/connections/{id:long}/test", (long id, ConnectionManager manager, IConnectionStore store, CancellationToken ct) =>
             RunConnectionActionAsync(id, store, manager, () => manager.TestAsync(id, ct), ct));
+
+        MapExchanges(api);
+    }
+
+    /// <summary>Структура биржи из MOEX ISS (движки → рынки → борды → инструменты). Прокси/кэш над ISS.</summary>
+    private static void MapExchanges(RouteGroupBuilder api)
+    {
+        var exchanges = api.MapGroup("/exchanges");
+
+        exchanges.MapGet("/engines", (IExchangeCatalog catalog, CancellationToken ct) =>
+            IssAsync(async token =>
+            {
+                var engines = await catalog.GetEnginesAsync(token);
+                return engines.Select(e => new EngineDto(e.Name, e.Title)).ToList();
+            }, ct));
+
+        exchanges.MapGet("/{engine}/markets", (string engine, IExchangeCatalog catalog, CancellationToken ct) =>
+            IssAsync(async token =>
+            {
+                var markets = await catalog.GetMarketsAsync(engine, token);
+                return markets.Select(m => new MarketDto(m.Name, m.Title)).ToList();
+            }, ct));
+
+        exchanges.MapGet("/{engine}/{market}/boards", (string engine, string market, IExchangeCatalog catalog, CancellationToken ct) =>
+            IssAsync(async token =>
+            {
+                var boards = await catalog.GetBoardsAsync(engine, market, token);
+                return boards.Select(b => new BoardDto(b.BoardId, b.Title, b.IsTraded)).ToList();
+            }, ct));
+
+        exchanges.MapGet("/{engine}/{market}/{board}/securities", (string engine, string market, string board, IExchangeCatalog catalog, CancellationToken ct) =>
+            IssAsync(async token =>
+            {
+                var securities = await catalog.GetBoardSecuritiesAsync(engine, market, board, token);
+                return securities
+                    .Select(s => new IssSecurityDto(s.SecId, s.ShortName, s.Name, s.MinStep, s.LotSize, s.Decimals, s.AssetCode))
+                    .ToList();
+            }, ct));
+
+        // Справочник классов базового актива фьючерсов (из БД).
+        exchanges.MapGet("/asset-classes", async (IFuturesAssetClassStore store, CancellationToken ct) =>
+        {
+            var rows = await store.ListAsync(ct);
+            return rows
+                .Select(r => new FuturesAssetClassDto(
+                    r.AssetCode, r.Category, r.Subcategory, r.Title, r.Source, r.Confirmed))
+                .ToList();
+        });
+
+        // Актуализация справочника из ISS (по кнопке). Бьёт в ISS → оборачиваем в IssAsync.
+        exchanges.MapPost("/asset-classes/refresh", (FuturesAssetClassifier classifier, CancellationToken ct) =>
+            IssAsync(async token =>
+            {
+                var summary = await classifier.RefreshAsync(token);
+                return new AssetClassRefreshResultDto(summary.Total, summary.Inserted, summary.Unresolved);
+            }, ct));
+    }
+
+    /// <summary>
+    /// Обёртка ISS-запросов: результат → 200; недоступность ISS (сеть/таймаут) → 502 Bad Gateway
+    /// с сообщением, чтобы фронт показал понятную ошибку, а не «упавший» запрос.
+    /// </summary>
+    private static async Task<IResult> IssAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct)
+    {
+        try
+        {
+            return Results.Ok(await action(ct));
+        }
+        catch (HttpRequestException ex)
+        {
+            return Results.Json(new { error = $"MOEX ISS недоступен: {ex.Message}" }, statusCode: StatusCodes.Status502BadGateway);
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Results.Json(new { error = "MOEX ISS: таймаут запроса" }, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
     }
 
     /// <summary>Парсит CSV-параметр (`a,b,c`) в массив непустых значений; null/пусто → null.</summary>

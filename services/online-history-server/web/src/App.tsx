@@ -1,26 +1,26 @@
-import { useEffect, useState } from 'react';
 import { useOhsStore } from './ui/context';
 import { useBehavior } from './ui/hooks/useObservable';
 import { HeaderControls } from './ui/components/HeaderControls';
-import { ConnectionsPanel } from './ui/pages/ConnectionsPanel';
-import { ProviderCard } from './ui/pages/ProviderCard';
+import { IconSidebar } from './ui/components/IconSidebar';
+import { ProvidersSection } from './ui/pages/ProvidersSection';
+import { ExchangesSection } from './ui/pages/ExchangesSection';
+import { PlaceholderSection } from './ui/pages/PlaceholderSection';
+import { NAV_ICONS } from './ui/navigation';
+import { navSection, type NavSectionId } from './core/navigation';
 import styles from './App.module.css';
+
+/** Заглушки-заделы: краткое описание будущих разделов (реальный контент появится в своих фазах). */
+const PLACEHOLDER_TEXT: Partial<Record<NavSectionId, string>> = {
+  news: 'Лента новостей и торговых событий с бирж (MOEX ISS). Phase 7c.',
+  messages: 'Внутренние сообщения и системные уведомления сервиса. Phase 11.',
+  help: 'Справка по админке: горячие клавиши, документация, статус сервисов.',
+  notifications: 'Центр уведомлений — сквозная лента событий записи и соединений. Phase 11.',
+  user: 'Профиль, роли и настройки пользователя. Phase 10 (auth).',
+};
 
 export function App() {
   const store = useOhsStore();
-  const connections = useBehavior(store.connections$);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-
-  // Автовыбор первого провайдера, пока ничего не выбрано.
-  useEffect(() => {
-    if (selectedId === null && connections.length > 0) {
-      setSelectedId(connections[0].connectionId);
-    }
-  }, [connections, selectedId]);
-
-  const handleSelect = (id: number | null) => setSelectedId(id);
-
-  const selected = connections.find((c) => c.connectionId === selectedId) ?? null;
+  const section = useBehavior(store.activeSection$);
 
   return (
     <div className={styles.app}>
@@ -32,14 +32,27 @@ export function App() {
         <HeaderControls />
       </header>
 
-      <main className={styles.main}>
-        <ConnectionsPanel selectedId={selectedId} onSelect={handleSelect} />
-        {selected ? (
-          <ProviderCard connection={selected} />
-        ) : (
-          <div className={styles.placeholder}>Выбери провайдера слева.</div>
-        )}
-      </main>
+      <div className={styles.body}>
+        <IconSidebar />
+        <SectionContent section={section} />
+      </div>
     </div>
+  );
+}
+
+function SectionContent({ section }: { section: NavSectionId }) {
+  if (section === 'providers') {
+    return <ProvidersSection />;
+  }
+  if (section === 'exchanges') {
+    return <ExchangesSection />;
+  }
+  const meta = navSection(section);
+  return (
+    <PlaceholderSection
+      icon={NAV_ICONS[section]}
+      title={meta.label}
+      description={PLACEHOLDER_TEXT[section] ?? 'Раздел в разработке.'}
+    />
   );
 }

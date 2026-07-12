@@ -145,3 +145,34 @@ public sealed record ValidateConnectionRequest(string Kind, string Settings, str
 
 /// <summary>Результат проверки настроек подключения.</summary>
 public sealed record ValidateConnectionResult(bool Ok, string? Message);
+
+/// <summary>Движок (торговая система) биржи из MOEX ISS.</summary>
+public sealed record EngineDto(string Name, string Title);
+
+/// <summary>Рынок движка биржи.</summary>
+public sealed record MarketDto(string Name, string Title);
+
+/// <summary>Режим торгов (борд) рынка.</summary>
+public sealed record BoardDto(string BoardId, string Title, bool IsTraded);
+
+/// <summary>Торгуемый инструмент борда (статика ISS <c>securities</c>).</summary>
+public sealed record IssSecurityDto(
+    string SecId,
+    string? ShortName,
+    string? Name,
+    decimal? MinStep,
+    int? LotSize,
+    short? Decimals,
+    string? AssetCode);
+
+/// <summary>Класс базового актива фьючерса (справочник futures_asset_class) для группировки/фильтров.</summary>
+public sealed record FuturesAssetClassDto(
+    string AssetCode,
+    string Category,
+    string? Subcategory,
+    string? Title,
+    string Source,
+    bool Confirmed);
+
+/// <summary>Итог актуализации справочника классов из ISS: всего кодов, новых, не распознано.</summary>
+public sealed record AssetClassRefreshResultDto(int Total, int Inserted, int Unresolved);

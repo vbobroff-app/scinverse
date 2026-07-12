@@ -101,6 +101,29 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
     public Task<ConnectionDto> TestConnectionAsync(long id, CancellationToken cancellationToken = default) =>
         PostAsync<ConnectionDto>($"/api/connections/{id}/test", cancellationToken);
 
+    public Task<IReadOnlyList<EngineDto>> GetEnginesAsync(CancellationToken cancellationToken = default) =>
+        GetListAsync<EngineDto>("/api/exchanges/engines", cancellationToken);
+
+    public Task<IReadOnlyList<MarketDto>> GetMarketsAsync(string engine, CancellationToken cancellationToken = default) =>
+        GetListAsync<MarketDto>($"/api/exchanges/{Uri.EscapeDataString(engine)}/markets", cancellationToken);
+
+    public Task<IReadOnlyList<BoardDto>> GetBoardsAsync(
+        string engine, string market, CancellationToken cancellationToken = default) =>
+        GetListAsync<BoardDto>(
+            $"/api/exchanges/{Uri.EscapeDataString(engine)}/{Uri.EscapeDataString(market)}/boards", cancellationToken);
+
+    public Task<IReadOnlyList<IssSecurityDto>> GetBoardSecuritiesAsync(
+        string engine, string market, string board, CancellationToken cancellationToken = default) =>
+        GetListAsync<IssSecurityDto>(
+            $"/api/exchanges/{Uri.EscapeDataString(engine)}/{Uri.EscapeDataString(market)}/{Uri.EscapeDataString(board)}/securities",
+            cancellationToken);
+
+    public Task<IReadOnlyList<FuturesAssetClassDto>> GetAssetClassesAsync(CancellationToken cancellationToken = default) =>
+        GetListAsync<FuturesAssetClassDto>("/api/exchanges/asset-classes", cancellationToken);
+
+    public Task<AssetClassRefreshResultDto> RefreshAssetClassesAsync(CancellationToken cancellationToken = default) =>
+        PostAsync<AssetClassRefreshResultDto>("/api/exchanges/asset-classes/refresh", cancellationToken);
+
     private async Task<IReadOnlyList<T>> GetListAsync<T>(string uri, CancellationToken cancellationToken)
     {
         var result = await http.GetFromJsonAsync<List<T>>(uri, Json, cancellationToken);

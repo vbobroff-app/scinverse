@@ -1,0 +1,300 @@
+.wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--spacing-sm);
+}
+
+.error {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-error) 15%, transparent);
+  border: 1px solid var(--color-error);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.panes {
+  flex: 1;
+  display: flex;
+  gap: var(--spacing-md);
+  min-height: 0;
+}
+
+/* ── Тулбар справочника классов ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.toolbarTitle {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+}
+
+.toolbarMeta,
+.toolbarResult {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-mono);
+}
+
+.refreshBtn {
+  margin-left: auto;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-focus);
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.refreshBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-border-focus) 20%, transparent);
+}
+
+.refreshBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.toolbarResult {
+  margin-left: 0;
+}
+
+/* ── Плашки категорий (динамический фильтр) ── */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  background: var(--color-bg-hover);
+}
+
+.chipActive {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-focus);
+  color: var(--color-text);
+}
+
+.tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* ── Дерево структуры ── */
+.tree {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
+  overflow: auto;
+}
+
+.treeHead {
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
+.nodeList {
+  list-style: none;
+  padding-left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.nodeList .nodeList {
+  padding-left: 16px;
+}
+
+.node,
+.leaf {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  text-align: left;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.node:hover,
+.leaf:hover {
+  background: var(--color-bg-hover);
+}
+
+.leafActive {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-focus);
+}
+
+.nodeLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nodeCode {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-mono);
+}
+
+.chevron {
+  display: inline-block;
+  width: 12px;
+  color: var(--color-text-muted);
+  transition: transform 0.12s ease;
+  font-size: 10px;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotOn {
+  background: var(--color-success);
+}
+
+.dotOff {
+  background: var(--color-text-muted);
+  opacity: 0.5;
+}
+
+.hint {
+  padding: 4px 8px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  list-style: none;
+}
+
+/* ── Таблица инструментов ── */
+.tableWrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  padding: var(--spacing-lg);
+  text-align: center;
+}
+
+.tableHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tableTitle {
+  font-weight: 600;
+}
+
+.tableMeta {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-mono);
+}
+
+.tableScroll {
+  flex: 1;
+  overflow: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  background: var(--color-bg-panel);
+  text-align: left;
+  padding: 8px 12px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table tbody tr:hover {
+  background: var(--color-bg-hover);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--font-family-mono);
+}
+
+.muted {
+  color: var(--color-text-secondary);
+}

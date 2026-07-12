@@ -1,6 +1,7 @@
 using Npgsql;
 using Scinverse.Ohs.Connectors.Transaq;
 using Scinverse.Ohs.Domain;
+using Scinverse.Ohs.Domain.Moex;
 using Scinverse.Ohs.Host;
 using Scinverse.Ohs.Ingestion;
 using Scinverse.Ohs.Storage.Timescale;
@@ -35,6 +36,7 @@ builder.Services.AddSingleton<ICoverageStore, CoverageStore>();
 builder.Services.AddSingleton<ITradeActivityStore, TradeActivityStore>();
 builder.Services.AddSingleton<ICaptureLivenessStore, CaptureLivenessStore>();
 builder.Services.AddSingleton<IConnectionStore, ConnectionStore>();
+builder.Services.AddSingleton<IFuturesAssetClassStore, FuturesAssetClassStore>();
 builder.Services.AddSingleton<ITradeWriter, TimescaleTradeWriter>();
 builder.Services.AddSingleton<IDerivativeSpecParser, MoexFortsSpecParser>();
 builder.Services.AddSingleton<IInstrumentRegistry, InstrumentRegistry>();
@@ -45,6 +47,16 @@ builder.Services.AddSingleton<ITransaqParser, TransaqXmlParser>();
 // Коннекторы: фабрика по kind + in-memory креды (секреты в БД не хранятся).
 builder.Services.AddSingleton<IConnectorFactory, ConnectorFactory>();
 builder.Services.AddSingleton<ICredentialStore, InMemoryCredentialStore>();
+
+// MOEX ISS: каталог структуры биржи (engines/markets/boards/securities) с кэшем в памяти.
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient<IExchangeCatalog, IssExchangeCatalog>(client =>
+{
+    client.BaseAddress = new Uri(ohsOptions.IssBaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
+// Актуализация справочника классов базового актива фьючерсов из ISS (по кнопке).
+builder.Services.AddSingleton<FuturesAssetClassifier>();
 
 // Control-plane.
 builder.Services.AddSingleton<WebSocketBroadcaster>();
