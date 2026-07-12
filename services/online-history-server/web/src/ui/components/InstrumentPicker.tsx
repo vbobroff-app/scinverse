@@ -20,6 +20,7 @@ import type {
   InstrumentDto,
   InstrumentGroupDto,
   LivenessIntervalDto,
+  RecordingDto,
   SessionDto,
 } from '../../core/types';
 import styles from './InstrumentPicker.module.css';
@@ -27,6 +28,34 @@ import styles from './InstrumentPicker.module.css';
 const ROW_HEIGHT = 50;
 const INDENT = 10;
 const EMPTY_SEGMENTS: CoverageSegmentDto[] = [];
+
+/** Сегменты дорожки: из coverage или синтетический открытый, пока GET /coverage не догнал запись. */
+function trackSegments(
+  instrumentId: number,
+  segmentsByInstrument: Map<number, CoverageSegmentDto[]>,
+  recording: RecordingDto | undefined,
+  connection: ConnectionDto,
+): CoverageSegmentDto[] {
+  const stored = segmentsByInstrument.get(instrumentId);
+  if (stored && stored.length > 0) {
+    return stored;
+  }
+  if (!recording || recording.connectionId !== connection.connectionId) {
+    return EMPTY_SEGMENTS;
+  }
+  return [
+    {
+      segmentId: recording.segmentId,
+      instrumentId: recording.instrumentId,
+      sourceId: connection.sourceId,
+      from: recording.startedAt,
+      to: null,
+      tradeCount: recording.tradeCount,
+      status: 'recording',
+      gaps: [],
+    },
+  ];
+}
 
 type TreeRow =
   | { kind: 'inst'; key: string; instrument: InstrumentDto }
@@ -81,6 +110,7 @@ interface RowProps {
   seriesBusy: boolean;
   seriesRecordingCount: number;
   highlightDays: boolean;
+  nowMs: number;
   onToggleFutures: (instrument: InstrumentDto) => void;
   onToggleSeries: (futuresId: number, expiration: string) => void;
   onToggleSelect: (instrumentId: number) => void;
@@ -109,6 +139,7 @@ const Row = memo(function Row({
   seriesBusy,
   seriesRecordingCount,
   highlightDays,
+  nowMs,
   onToggleFutures,
   onToggleSeries,
   onToggleSelect,
@@ -238,6 +269,7 @@ const Row = memo(function Row({
           sourceCodeById={sourceCodeById}
           sessions={sessions}
           highlightDays={highlightDays}
+          nowMs={nowMs}
         />
       </div>
     </div>
@@ -491,7 +523,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               key={row.key}
               row={row}
               window={window}
-              segments={instrumentId >= 0 ? segmentsByInstrument.get(instrumentId) ?? EMPTY_SEGMENTS : EMPTY_SEGMENTS}
+              segments={instrumentId >= 0 ? trackSegments(instrumentId, segmentsByInstrument, rec, connection) : EMPTY_SEGMENTS}
               activityBuckets={instrumentId >= 0 ? activity.byInstrument.get(instrumentId) : undefined}
               activityBucketMs={activity.bucketMs}
               activitySourceId={connection.sourceId}
@@ -507,6 +539,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               seriesBusy={row.kind === 'series' && seriesBusy.has(sKey)}
               seriesRecordingCount={seriesRecordingCount}
               highlightDays={highlightDays}
+              nowMs={now}
               onToggleFutures={onToggleFutures}
               onToggleSeries={onToggleSeries}
               onToggleSelect={onToggleSelect}

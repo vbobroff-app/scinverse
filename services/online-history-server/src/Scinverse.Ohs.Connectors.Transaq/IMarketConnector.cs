@@ -14,6 +14,9 @@ public interface IMarketConnector : IAsyncDisposable
 
     ChannelReader<string> Messages { get; }
 
+    /// <summary>Непрерывные смены состояния связи (<c>server_status</c>, phase 7h.3).</summary>
+    ChannelReader<ConnectorLinkStateChange> LinkStateChanges { get; }
+
     bool IsConnected { get; }
 
     Task ConnectAsync(CancellationToken cancellationToken);
@@ -23,4 +26,10 @@ public interface IMarketConnector : IAsyncDisposable
     Task UnsubscribeTradesAsync(IReadOnlyCollection<InstrumentKey> instruments, CancellationToken cancellationToken);
 
     Task DisconnectAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Дешёвая проверка связи в сессионной тишине (phase 7h.2). Синхронный ответ SendCommand или
+    /// <see cref="IsConnected"/> для демо-коннекторов.
+    /// </summary>
+    Task<bool> ProbeConnectionAsync(CancellationToken cancellationToken);
 }

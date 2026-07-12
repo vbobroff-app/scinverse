@@ -11,6 +11,11 @@ public sealed class OhsOptions
     /// <summary>Порог (сек) для детекции внутрисессионных разрывов на Ганте покрытия.</summary>
     public double GapThresholdSeconds { get; set; } = 60;
 
+    /// <summary>
+    /// Шаг опроса живости захвата (сек), phase 7h.2. По умолчанию 15 = min_bucket/2 (бакет 30 c).
+    /// </summary>
+    public double LivenessProbeSeconds { get; set; } = 15;
+
     /// <summary>Origin dev-фронта (Vite) для CORS-политики админки.</summary>
     public string? AdminOrigin { get; set; }
 

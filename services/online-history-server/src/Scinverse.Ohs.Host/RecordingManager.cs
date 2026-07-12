@@ -15,6 +15,7 @@ public sealed class RecordingManager(
     IInstrumentRegistry registry,
     ISourceStore sourceStore,
     WebSocketBroadcaster broadcaster,
+    Lazy<ILivenessWriter> liveness,
     ILogger<RecordingManager> logger)
 {
     private sealed record Recording(
@@ -44,6 +45,7 @@ public sealed class RecordingManager(
         var recording = new Recording(instrument.Key, instrumentId, sourceId, connectionId, segmentId, startedAt);
         _recordings[instrumentId] = recording;
         broadcaster.Broadcast(new RecordingStartedEvent(instrumentId, sourceId, connectionId, segmentId));
+        await liveness.Value.OnDataAsync(connectionId, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Старт записи {Instrument} через подключение {ConnectionId}", instrument.Key, connectionId);
         return ToInfo(recording);
     }
@@ -63,6 +65,7 @@ public sealed class RecordingManager(
 
         await coverage.CloseAsync(recording.Key, "stopped", cancellationToken).ConfigureAwait(false);
         broadcaster.Broadcast(new RecordingStoppedEvent(instrumentId));
+        await liveness.Value.OnRecordingStoppedAsync(recording.ConnectionId, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Стоп записи {Instrument}", recording.Key);
     }
 
@@ -75,6 +78,9 @@ public sealed class RecordingManager(
     }
 
     public IReadOnlyList<RecordingInfo> List() => _recordings.Values.Select(ToInfo).ToList();
+
+    public bool HasRecordingsOnConnection(long connectionId) =>
+        _recordings.Values.Any(r => r.ConnectionId == connectionId);
 
     private RecordingInfo ToInfo(Recording recording) => new(
         recording.InstrumentId,

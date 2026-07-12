@@ -2,7 +2,9 @@ import { BehaviorSubject, from, of, throwError, type Observable, type Subscripti
 import { catchError, finalize, map, mergeMap, switchMap, tap, toArray } from 'rxjs/operators';
 import { bucketSecondsForTimeframe } from './activityBucket';
 import { OhsApi, type OhsApiClient } from './api';
+import { gapsFromLivenessIntervals } from './coverageGeometry';
 import { createLiveStream } from './live';
+import { loadSelectedInstruments, persistSelectedInstruments } from './selectedInstrumentsStorage';
 import { DEFAULT_SECTION, type NavSectionId } from './navigation';
 import {
   mskDateFromIso,
@@ -188,7 +190,7 @@ export class OhsStore {
     limit: DEFAULT_PAGE_SIZE,
     offset: 0,
   });
-  readonly selectedInstruments$ = new BehaviorSubject<ReadonlySet<number>>(new Set());
+  readonly selectedInstruments$ = new BehaviorSubject<ReadonlySet<number>>(loadSelectedInstruments());
 
   /** Активные плашки-фильтры каталога (порядок = порядок добавления). */
   readonly activeFilters$ = new BehaviorSubject<FilterKey[]>([]);
@@ -458,6 +460,7 @@ export class OhsStore {
       next.add(instrumentId);
     }
     this.selectedInstruments$.next(next);
+    persistSelectedInstruments(next);
 
     if (this.instrumentQuery$.value.instrumentIds !== undefined) {
       this.setInstrumentFilter({ instrumentIds: [...next] });
@@ -800,7 +803,11 @@ export class OhsStore {
     }
     const { from, to } = this.window$.value;
     this.api.getCaptureLiveness({ from, to, sourceId }).subscribe({
-      next: (dto) => this.liveness$.next({ intervals: dto.intervals, gaps: dto.gaps }),
+      next: (dto) => {
+        const gaps =
+          dto.intervals.length > 0 ? gapsFromLivenessIntervals(dto.intervals) : dto.gaps;
+        this.liveness$.next({ intervals: dto.intervals, gaps });
+      },
       error: (err) => console.error('getCaptureLiveness', err),
     });
   }

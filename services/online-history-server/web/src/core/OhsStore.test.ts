@@ -1,7 +1,8 @@
-import { vi } from 'vitest';
+import { vi, afterEach } from 'vitest';
 import { of, Subject, throwError, type Observable } from 'rxjs';
 import { OhsStore } from './OhsStore';
 import type { OhsApiClient } from './api';
+import { loadSelectedInstruments } from './selectedInstrumentsStorage';
 import { todaySession } from './moexSession';
 import type {
   ConnectionDto,
@@ -68,6 +69,10 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
   };
   return { ...base, ...overrides };
 }
+
+afterEach(() => {
+  localStorage.removeItem('ohs:selectedInstruments');
+});
 
 describe('OhsStore live merge', () => {
   it('обновляет статус подключения по connectionStatusChanged', () => {
@@ -187,6 +192,17 @@ describe('OhsStore фильтры-плашки', () => {
     expect(getInstruments).toHaveBeenCalledTimes(1);
     expect(getInstruments.mock.calls[0][0].instrumentIds).toEqual([3]);
     store.stop();
+  });
+
+  it('сохраняет выделение в localStorage и восстанавливает после перезагрузки', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    store.toggleInstrumentSelection(11);
+    store.toggleInstrumentSelection(22);
+
+    expect([...loadSelectedInstruments()].sort((a, b) => a - b)).toEqual([11, 22]);
+
+    const reloaded = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    expect([...reloaded.selectedInstruments$.value].sort((a, b) => a - b)).toEqual([11, 22]);
   });
 });
 

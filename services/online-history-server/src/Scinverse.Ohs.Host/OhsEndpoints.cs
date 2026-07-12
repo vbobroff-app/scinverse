@@ -202,6 +202,18 @@ public static class OhsEndpoints
             return Results.NoContent();
         });
 
+        // ВРЕМЕННО (dev): префилл формы подключения из appsettings.Local.json.
+        api.MapGet("/connections/transaq-local-defaults", (IWebHostEnvironment env, TransaqConnectorOptions options) =>
+        {
+            if (!env.IsDevelopment())
+            {
+                return Results.NotFound();
+            }
+
+            var creds = DevLocalTransaqCredentials.TryCreate(options);
+            return Results.Ok(new TransaqLocalDefaultsDto(creds?.Login, creds?.Password));
+        });
+
         api.MapPost("/connections/validate", async (ValidateConnectionRequest request, ConnectionManager manager, CancellationToken ct) =>
         {
             var creds = string.IsNullOrWhiteSpace(request.Login)

@@ -23,6 +23,7 @@ import type {
   StartRecordingRequest,
   TradeActivityDto,
   TradeActivityRequest,
+  TransaqLocalDefaultsDto,
   UpsertConnectionRequest,
   ValidateConnectionRequest,
   ValidateConnectionResult,
@@ -120,6 +121,9 @@ export const OhsApi = {
 
   validateConnection: (body: ValidateConnectionRequest) =>
     post<ValidateConnectionResult>('/connections/validate', body),
+
+  /** ВРЕМЕННО (dev): префилл логина/пароля из appsettings.Local.json. */
+  getTransaqLocalDefaults: () => getJSON<TransaqLocalDefaultsDto>('/connections/transaq-local-defaults'),
 
   setCredentials: (connectionId: number, body: ConnectionCredentialsRequest): Observable<void> =>
     ajax({

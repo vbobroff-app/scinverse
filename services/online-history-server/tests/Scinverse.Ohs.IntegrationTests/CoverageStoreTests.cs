@@ -152,6 +152,31 @@ public sealed class CoverageStoreTests : IClassFixture<TimescaleFixture>, IAsync
     }
 
     [Fact]
+    public async Task RecoverOpenSegmentsAsync_ClosesOrphan_AtLastLivenessWhenLaterThanTrade()
+    {
+        var started = new DateTimeOffset(2026, 7, 6, 10, 0, 0, TimeSpan.Zero);
+        var segmentId = await _store.OpenAsync(_fixture.InstrumentId, TransaqSource, started, CancellationToken.None);
+        await InsertTradeAsync(started.AddMinutes(5), 1);
+        var lastTrade = started.AddMinutes(20);
+        await InsertTradeAsync(lastTrade, 2);
+
+        var lastLiveness = started.AddMinutes(35);
+        await using (var connection = await _fixture.DataSource.OpenConnectionAsync())
+        {
+            await connection.ExecuteAsync(
+                "INSERT INTO capture_liveness (source_id, from_ts, to_ts, open) VALUES (@sourceId, @from, @to, true);",
+                new { sourceId = TransaqSource, from = started.UtcDateTime, to = lastLiveness.UtcDateTime });
+        }
+
+        var closed = await _store.RecoverOpenSegmentsAsync(CancellationToken.None);
+
+        closed.Should().Be(1);
+        var row = await ReadAsync(segmentId);
+        row.EndedAt.Should().Be(lastLiveness, "осиротевший сегмент тянется до последнего хартбита живости");
+        row.Status.Should().Be("interrupted");
+    }
+
+    [Fact]
     public async Task RecoverOpenSegmentsAsync_ClosesOrphan_AtLastTradeTime()
     {
         var started = new DateTimeOffset(2026, 7, 6, 10, 0, 0, TimeSpan.Zero);

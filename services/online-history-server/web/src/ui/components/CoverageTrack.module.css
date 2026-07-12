@@ -73,6 +73,12 @@
   background: #2f506a;
 }
 
+/* Намерение под честной подложкой (phase 7h): приглушённый фон всего сегмента записи. */
+.barIntent {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 /* Активная запись мигает (pulse), но без свечения — честность по связи придёт в phase 7h. */
 .live {
   animation: pulse 1.4s ease-in-out infinite;
@@ -83,21 +89,23 @@
   position: absolute;
   top: 2px;
   bottom: 2px;
+  z-index: 2;
 }
 
 /* Разрыв захвата (нет живости внутри намерения записи) — красная штриховка. */
 .captureGap {
   position: absolute;
-  top: 2px;
-  bottom: 2px;
+  top: 1px;
+  bottom: 1px;
+  z-index: 3;
   background: repeating-linear-gradient(
     -45deg,
     transparent,
     transparent 2px,
-    rgba(220, 53, 69, 0.55) 2px,
-    rgba(220, 53, 69, 0.55) 4px
+    rgba(220, 53, 69, 0.85) 2px,
+    rgba(220, 53, 69, 0.85) 4px
   );
-  background-color: rgba(220, 53, 69, 0.25);
+  background-color: rgba(220, 53, 69, 0.45);
   pointer-events: auto;
 }
 

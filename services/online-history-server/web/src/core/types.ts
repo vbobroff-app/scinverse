@@ -249,6 +249,12 @@ export interface ValidateConnectionResult {
   message?: string | null;
 }
 
+/** ВРЕМЕННО (dev): креды Transaq из appsettings.Local.json для префилла формы. */
+export interface TransaqLocalDefaultsDto {
+  login: string | null;
+  password: string | null;
+}
+
 // Структура биржи из MOEX ISS (раздел «Биржи → Структура»).
 
 /** Движок (торговая система): stock/futures/currency/… */

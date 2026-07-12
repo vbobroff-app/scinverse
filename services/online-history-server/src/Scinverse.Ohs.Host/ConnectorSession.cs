@@ -17,10 +17,12 @@ public sealed class ConnectorSession(
     TradeBatcher batcher,
     CoverageTracker coverageTracker,
     ILogger<ConnectorSession> logger,
-    Action? onData = null)
+    Action? onData = null,
+    Action<ConnectorLinkStateChange>? onLinkState = null)
 {
     private CancellationTokenSource? _cts;
     private Task? _pumpTask;
+    private Task? _linkPumpTask;
 
     public IMarketConnector Connector => connector;
 
@@ -29,6 +31,7 @@ public sealed class ConnectorSession(
         var sourceId = await sourceStore.ResolveIdAsync(connector.SourceCode, cancellationToken).ConfigureAwait(false);
         _cts = new CancellationTokenSource();
         _pumpTask = PumpAsync(sourceId, _cts.Token);
+        _linkPumpTask = PumpLinkStateAsync(_cts.Token);
     }
 
     public async Task StopAsync()
@@ -47,6 +50,18 @@ public sealed class ConnectorSession(
             catch (OperationCanceledException)
             {
                 // Штатная остановка pump.
+            }
+        }
+
+        if (_linkPumpTask is not null)
+        {
+            try
+            {
+                await _linkPumpTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Штатная остановка link pump.
             }
         }
 
@@ -93,6 +108,21 @@ public sealed class ConnectorSession(
         catch (OperationCanceledException)
         {
             // Штатное завершение pump.
+        }
+    }
+
+    private async Task PumpLinkStateAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var change in connector.LinkStateChanges.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                onLinkState?.Invoke(change);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Штатное завершение link pump.
         }
     }
 }

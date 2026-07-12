@@ -104,6 +104,10 @@ public sealed class SyntheticLiveConnector : IMarketConnector
         SingleReader = true,
         SingleWriter = false
     });
+    private readonly Channel<ConnectorLinkStateChange> _linkState = Channel.CreateUnbounded<ConnectorLinkStateChange>(
+        new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+
+    private ConnectorLinkState? _currentLinkState;
 
     private CancellationTokenSource? _loopCts;
     private Task? _loopTask;
@@ -125,6 +129,8 @@ public sealed class SyntheticLiveConnector : IMarketConnector
 
     public ChannelReader<string> Messages => _messages.Reader;
 
+    public ChannelReader<ConnectorLinkStateChange> LinkStateChanges => _linkState.Reader;
+
     public bool IsConnected { get; private set; }
 
     public async Task ConnectAsync(CancellationToken cancellationToken)
@@ -133,6 +139,7 @@ public sealed class SyntheticLiveConnector : IMarketConnector
         await Task.Delay(_connectDelay, cancellationToken).ConfigureAwait(false);
 
         IsConnected = true;
+        PublishLinkState(ConnectorLinkState.Live);
 
         // Регистрируем весь демо-каталог сразу при подключении: справочник + дерево деривативов
         // наполняются до первой подписки (плоский список и дерево видны без старта записи).
@@ -168,9 +175,13 @@ public sealed class SyntheticLiveConnector : IMarketConnector
         return Task.CompletedTask;
     }
 
+    public Task<bool> ProbeConnectionAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(IsConnected);
+
     public async Task DisconnectAsync(CancellationToken cancellationToken)
     {
         IsConnected = false;
+        PublishLinkState(ConnectorLinkState.Down, "disconnect");
         if (_loopCts is not null)
         {
             await _loopCts.CancelAsync().ConfigureAwait(false);
@@ -189,7 +200,62 @@ public sealed class SyntheticLiveConnector : IMarketConnector
         }
 
         _messages.Writer.TryComplete();
+        _linkState.Writer.TryComplete();
     }
+
+    /// <summary>Инжект смены <c>server_status</c> для эмуляции обрыва (phase 7h.3/7h.7).</summary>
+    public void InjectLinkState(ConnectorLinkState state, string? detail = null)
+    {
+        if (state is ConnectorLinkState.Live or ConnectorLinkState.Degraded)
+        {
+            IsConnected = true;
+        }
+        else
+        {
+            IsConnected = false;
+        }
+
+        _messages.Writer.TryWrite(BuildServerStatusXml(state, detail));
+        PublishLinkState(state, detail);
+    }
+
+    /// <summary>Пауза «обрыва» → recover → live (сценарий 7h.7).</summary>
+    public async Task SimulateDropAsync(TimeSpan duration, CancellationToken cancellationToken)
+    {
+        InjectLinkState(ConnectorLinkState.Down);
+        try
+        {
+            await Task.Delay(duration, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        InjectLinkState(ConnectorLinkState.Degraded);
+        InjectLinkState(ConnectorLinkState.Live);
+    }
+
+    private void PublishLinkState(ConnectorLinkState state, string? detail = null)
+    {
+        if (_currentLinkState == state)
+        {
+            return;
+        }
+
+        _currentLinkState = state;
+        _linkState.Writer.TryWrite(new ConnectorLinkStateChange(state, DateTimeOffset.UtcNow, detail));
+    }
+
+    private static string BuildServerStatusXml(ConnectorLinkState state, string? detail) => state switch
+    {
+        ConnectorLinkState.Live => "<server_status connected=\"true\"/>",
+        ConnectorLinkState.Degraded => "<server_status connected=\"true\" recover=\"true\"/>",
+        ConnectorLinkState.Down => "<server_status connected=\"false\"/>",
+        ConnectorLinkState.Error =>
+            $"<server_status connected=\"error\"><text>{System.Security.SecurityElement.Escape(detail ?? "error")}</text></server_status>",
+        _ => "<server_status connected=\"false\"/>",
+    };
 
     public async ValueTask DisposeAsync()
     {

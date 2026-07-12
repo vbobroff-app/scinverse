@@ -15,10 +15,14 @@ public sealed class FakeReplayConnector(IEnumerable<string> fragments) : IMarket
         SingleReader = true,
         SingleWriter = true
     });
+    private readonly Channel<ConnectorLinkStateChange> _linkState = Channel.CreateUnbounded<ConnectorLinkStateChange>(
+        new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
 
     public string SourceCode => "synthetic";
 
     public ChannelReader<string> Messages => _messages.Reader;
+
+    public ChannelReader<ConnectorLinkStateChange> LinkStateChanges => _linkState.Reader;
 
     public bool IsConnected { get; private set; }
 
@@ -42,6 +46,9 @@ public sealed class FakeReplayConnector(IEnumerable<string> fragments) : IMarket
     public Task UnsubscribeTradesAsync(IReadOnlyCollection<InstrumentKey> instruments, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 
+    public Task<bool> ProbeConnectionAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(IsConnected);
+
     public Task DisconnectAsync(CancellationToken cancellationToken)
     {
         IsConnected = false;
@@ -52,6 +59,7 @@ public sealed class FakeReplayConnector(IEnumerable<string> fragments) : IMarket
     public ValueTask DisposeAsync()
     {
         _messages.Writer.TryComplete();
+        _linkState.Writer.TryComplete();
         return ValueTask.CompletedTask;
     }
 }

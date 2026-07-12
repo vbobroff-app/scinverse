@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { OhsApi } from '../../core/api';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { Button } from './Button';
@@ -59,6 +60,24 @@ export function ConnectionForm({ onClose, onSaved, connection }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const isTransaq = kind === 'transaq';
+
+  // ВРЕМЕННО (dev): префилл кред из appsettings.Local.json, если заданы.
+  useEffect(() => {
+    if (!isTransaq) {
+      return;
+    }
+    const sub = OhsApi.getTransaqLocalDefaults().subscribe({
+      next: (defaults) => {
+        if (defaults.login) {
+          setLogin(defaults.login);
+        }
+        if (defaults.password) {
+          setPassword(defaults.password);
+        }
+      },
+    });
+    return () => sub.unsubscribe();
+  }, [isTransaq]);
 
   // Автоподбор источника под тип коннектора (по коду), иначе первый доступный.
   const resolvedSourceId = useMemo<number | ''>(() => {

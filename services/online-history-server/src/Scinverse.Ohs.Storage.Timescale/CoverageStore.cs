@@ -62,11 +62,16 @@ public sealed class CoverageStore(NpgsqlDataSource dataSource) : ICoverageStore
         return await connection.ExecuteAsync(new CommandDefinition(
             """
             UPDATE coverage_segment s
-            SET ended_at = COALESCE(
-                    (SELECT max(t.ts) FROM md_trade t
-                     WHERE t.instrument_id = s.instrument_id AND t.source_id = s.source_id
-                       AND t.ts >= s.started_at),
-                    s.started_at),
+            SET ended_at = GREATEST(
+                    COALESCE(
+                        (SELECT max(t.ts) FROM md_trade t
+                         WHERE t.instrument_id = s.instrument_id AND t.source_id = s.source_id
+                           AND t.ts >= s.started_at),
+                        s.started_at),
+                    COALESCE(
+                        (SELECT max(cl.to_ts) FROM capture_liveness cl
+                         WHERE cl.source_id = s.source_id AND cl.open),
+                        s.started_at)),
                 status = 'interrupted'
             WHERE s.ended_at IS NULL;
             """,

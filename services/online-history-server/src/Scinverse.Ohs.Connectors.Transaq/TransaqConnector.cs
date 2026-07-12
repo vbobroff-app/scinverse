@@ -23,11 +23,14 @@ public sealed class TransaqConnector : IMarketConnector
 
     private readonly TransaqConnectorOptions _options;
     private readonly Channel<string> _messages;
+    private readonly Channel<ConnectorLinkStateChange> _linkState;
 
     // Держим ссылку на делегат, чтобы GC не собрал его, пока DLL хранит указатель.
     private readonly CallbackDelegate _callback;
 
     private bool _initialized;
+    private bool _sessionEstablished;
+    private ConnectorLinkState? _currentLinkState;
 
     // Сигнал асинхронного подтверждения соединения (server_status connected="true").
     private volatile TaskCompletionSource<bool>? _connectedSignal;
@@ -41,7 +44,14 @@ public sealed class TransaqConnector : IMarketConnector
             SingleReader = true,
             SingleWriter = true
         });
+        _linkState = Channel.CreateUnbounded<ConnectorLinkStateChange>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = true
+        });
     }
+
+    public ChannelReader<ConnectorLinkStateChange> LinkStateChanges => _linkState.Reader;
 
     public string SourceCode => "transaq";
 
@@ -94,6 +104,8 @@ public sealed class TransaqConnector : IMarketConnector
         }
 
         IsConnected = true;
+        _sessionEstablished = true;
+        PublishLinkState(ConnectorLinkState.Live, DateTimeOffset.UtcNow);
     }
 
     public Task SubscribeTradesAsync(IReadOnlyCollection<InstrumentKey> instruments, CancellationToken cancellationToken)
@@ -137,9 +149,30 @@ public sealed class TransaqConnector : IMarketConnector
         {
             EnsureSuccess(SendCommand("<command id=\"disconnect\"/>"), "disconnect");
             IsConnected = false;
+            _sessionEstablished = false;
+            PublishLinkState(ConnectorLinkState.Down, DateTimeOffset.UtcNow, "disconnect");
         }
 
         return Task.CompletedTask;
+    }
+
+    public Task<bool> ProbeConnectionAsync(CancellationToken cancellationToken)
+    {
+        if (!IsConnected)
+        {
+            return Task.FromResult(false);
+        }
+
+        try
+        {
+            // Лёгкая синхронная команда: ответ success=true → связь жива.
+            EnsureSuccess(SendCommand("<command id=\"get_servtime_difference\"/>"), "probe");
+            return Task.FromResult(true);
+        }
+        catch (InvalidOperationException)
+        {
+            return Task.FromResult(false);
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -160,6 +193,7 @@ public sealed class TransaqConnector : IMarketConnector
         }
 
         _messages.Writer.TryComplete();
+        _linkState.Writer.TryComplete();
     }
 
     private bool OnRawData(IntPtr data)
@@ -167,47 +201,64 @@ public sealed class TransaqConnector : IMarketConnector
         var xml = Marshal.PtrToStringUTF8(data);
         if (xml is not null)
         {
-            TryCompleteConnect(xml);
+            HandleServerStatus(xml);
             _messages.Writer.TryWrite(xml);
         }
 
         return true;
     }
 
-    // Ловим асинхронный ответ на connect. Дешёвый префикс-фильтр, чтобы не парсить каждое сообщение.
-    private void TryCompleteConnect(string xml)
+    /// <summary>
+    /// Непрерывная обработка <c>server_status</c>: сигнал connect + публикация
+    /// <see cref="ConnectorLinkStateChange"/> (phase 7h.3).
+    /// </summary>
+    private void HandleServerStatus(string xml)
     {
+        if (!TransaqServerStatusParser.TryParse(xml, out var parsed))
+        {
+            return;
+        }
+
         var signal = _connectedSignal;
-        if (signal is null || signal.Task.IsCompleted)
+        if (signal is not null && !signal.Task.IsCompleted)
         {
-            return;
-        }
-
-        if (!xml.StartsWith("<server_status", StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        try
-        {
-            var root = XDocument.Parse(xml).Root;
-            var connected = root?.Attribute("connected")?.Value;
-
-            if (string.Equals(connected, "true", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(parsed.Connected, "true", StringComparison.OrdinalIgnoreCase))
             {
                 signal.TrySetResult(true);
             }
-            else if (string.Equals(connected, "error", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(parsed.Connected, "error", StringComparison.OrdinalIgnoreCase))
             {
-                var message = (string?)root?.Element("text") ?? root?.Value ?? "connection error";
+                var message = parsed.Text ?? "connection error";
                 signal.TrySetException(new InvalidOperationException($"TRANSAQ connect failed: {message}"));
             }
+
             // connected="false" на этапе установки соединения игнорируем: ждём "true" или таймаут.
+            if (!_sessionEstablished)
+            {
+                return;
+            }
         }
-        catch (System.Xml.XmlException)
+
+        if (!_sessionEstablished)
         {
-            // Битый server_status — пропускаем, дождёмся корректного.
+            return;
         }
+
+        var state = TransaqServerStatusParser.ToLinkState(parsed);
+        var at = DateTimeOffset.UtcNow;
+        IsConnected = state is ConnectorLinkState.Live or ConnectorLinkState.Degraded;
+        PublishLinkState(state, at, parsed.Text);
+    }
+
+    private void PublishLinkState(ConnectorLinkState state, DateTimeOffset at, string? detail = null)
+    {
+        if (_currentLinkState == state)
+        {
+            return;
+        }
+
+        _currentLinkState = state;
+        _linkState.Writer.TryWrite(new ConnectorLinkStateChange(state, at, detail));
     }
 
     private static void EnsureSuccess(IntPtr resultPtr, string operation)

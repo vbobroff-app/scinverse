@@ -164,6 +164,9 @@ public sealed record ValidateConnectionRequest(string Kind, string Settings, str
 /// <summary>Результат проверки настроек подключения.</summary>
 public sealed record ValidateConnectionResult(bool Ok, string? Message);
 
+/// <summary>ВРЕМЕННО (dev): дефолтные креды Transaq из appsettings.Local.json для префилла формы.</summary>
+public sealed record TransaqLocalDefaultsDto(string? Login, string? Password);
+
 /// <summary>Движок (торговая система) биржи из MOEX ISS.</summary>
 public sealed record EngineDto(string Name, string Title);
 

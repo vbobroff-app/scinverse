@@ -20,9 +20,12 @@ builder.Services.AddSerilog((services, loggerConfiguration) => loggerConfigurati
 
 var ohsOptions = builder.Configuration.GetSection(OhsOptions.SectionName).Get<OhsOptions>() ?? new OhsOptions();
 var batcherOptions = builder.Configuration.GetSection(TradeBatcherOptions.SectionName).Get<TradeBatcherOptions>() ?? new TradeBatcherOptions();
+var transaqOptions = builder.Configuration.GetSection(TransaqConnectorOptions.SectionName).Get<TransaqConnectorOptions>()
+    ?? new TransaqConnectorOptions();
 
 builder.Services.AddSingleton(ohsOptions);
 builder.Services.AddSingleton(batcherOptions);
+builder.Services.AddSingleton(transaqOptions);
 
 var connectionString = builder.Configuration.GetConnectionString("Timescale")
     ?? "Host=localhost;Port=5432;Database=scinverse;Username=scinverse;Password=scinverse";
@@ -63,6 +66,9 @@ builder.Services.AddSingleton<IMarketCalendar, MarketCalendar>();
 // Control-plane.
 builder.Services.AddSingleton<WebSocketBroadcaster>();
 builder.Services.AddSingleton<CoverageTracker>();
+builder.Services.AddSingleton<LivenessProbe>();
+builder.Services.AddSingleton<ILivenessWriter>(sp => sp.GetRequiredService<LivenessProbe>());
+builder.Services.AddSingleton(sp => new Lazy<ILivenessWriter>(() => sp.GetRequiredService<ILivenessWriter>()));
 builder.Services.AddSingleton<ConnectionManager>();
 builder.Services.AddSingleton<RecordingManager>();
 builder.Services.AddHostedService<OhsWorker>();
@@ -128,6 +134,9 @@ await app.Services.GetRequiredService<IInstrumentRegistry>().InitializeAsync(Can
             recoveredSegments, recoveredLiveness);
     }
 }
+
+// ВРЕМЕННО (dev): креды Transaq из appsettings.Local.json → in-memory store (toggle после рестарта).
+await DevLocalTransaqCredentials.SeedInMemoryStoreAsync(app.Services, app.Logger, CancellationToken.None);
 
 app.Run();
 
