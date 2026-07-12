@@ -45,7 +45,33 @@
   font-size: var(--font-size-sm);
 }
 
+.searchWithClear {
+  padding-right: 26px;
+}
+
 .search:focus {
   outline: none;
   border-color: var(--color-border-focus);
+}
+
+.searchClear {
+  position: absolute;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.searchClear:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
 }

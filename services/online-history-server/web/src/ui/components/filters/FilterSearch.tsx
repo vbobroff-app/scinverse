@@ -27,6 +27,12 @@ export function FilterSearch({ initial, placeholder = 'Поиск…', onSearch 
     onSearchRef.current(debounced);
   }, [debounced]);
 
+  const clear = () => {
+    setText('');
+    // Сразу, без ожидания debounce — крестик должен снимать фильтр мгновенно.
+    onSearchRef.current('');
+  };
+
   return (
     <div className={styles.searchWrap}>
       <svg className={styles.searchIcon} viewBox="0 0 16 16" aria-hidden="true">
@@ -39,11 +45,22 @@ export function FilterSearch({ initial, placeholder = 'Поиск…', onSearch 
         />
       </svg>
       <input
-        className={styles.search}
+        className={[styles.search, text ? styles.searchWithClear : ''].filter(Boolean).join(' ')}
         placeholder={placeholder}
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
+      {text && (
+        <button
+          type="button"
+          className={styles.searchClear}
+          onClick={clear}
+          title="Очистить поиск"
+          aria-label="Очистить поиск"
+        >
+          ×
+        </button>
+      )}
     </div>
   );
 }
