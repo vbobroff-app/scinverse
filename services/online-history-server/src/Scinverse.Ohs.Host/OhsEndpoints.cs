@@ -77,11 +77,15 @@ public static class OhsEndpoints
         });
 
         api.MapGet("/sessions", async (
-            int? count, bool? includeWeekends, ICoverageStore store, CancellationToken ct) =>
+            int? count, bool? includeWeekends, string? engine,
+            ICoverageStore store, IMarketCalendar calendar, CancellationToken ct) =>
         {
+            // Дни — из наших данных (учитывают реальные торги, вкл. записанные ДСВД-выходные); часы —
+            // дат-точные из ISS-календаря движка (сокращённые/регламентные), праздники исключаются.
             var days = await store.QueryTradingDaysAsync(count ?? 1, includeWeekends ?? false, ct);
-            return days
-                .Select(MoexSchedule.Session)
+            var sessions = await calendar.ShapeSessionsAsync(
+                string.IsNullOrWhiteSpace(engine) ? "futures" : engine, days, ct);
+            return sessions
                 .Select(s => new SessionDto(s.Date, s.Start, s.End, s.Weekend))
                 .ToList();
         });
@@ -260,7 +264,39 @@ public static class OhsEndpoints
                 var summary = await classifier.RefreshAsync(token);
                 return new AssetClassRefreshResultDto(summary.Total, summary.Inserted, summary.Unresolved);
             }, ct));
+
+        // Торговый календарь движка (бесплатный /iss/engines/{engine}: timetable+dailytable).
+        exchanges.MapGet("/{engine}/calendar", (
+            string engine, DateOnly? from, DateOnly? till, IExchangeCatalog catalog, CancellationToken ct) =>
+            IssAsync(async token =>
+            {
+                var calendar = await catalog.GetEngineCalendarAsync(engine, token);
+                var today = DateOnly.FromDateTime(DateTime.UtcNow.Add(MoexSchedule.MoscowOffset));
+                var start = from ?? new DateOnly(today.Year, today.Month, 1);
+                var end = till ?? start.AddMonths(3).AddDays(-1);
+                if (end < start)
+                {
+                    (start, end) = (end, start);
+                }
+
+                var days = new List<CalendarDayDto>();
+                for (var date = start; date <= end && days.Count < 500; date = date.AddDays(1))
+                {
+                    var info = calendar.Describe(date);
+                    days.Add(new CalendarDayDto(
+                        date, info.IsTrading, info.Weekend, info.Exception, ClassifyKind(info), info.Open, info.Close));
+                }
+
+                return days;
+            }, ct));
     }
+
+    /// <summary>Классифицирует день для UI: regular · transfer (рабочий перенос) · dsvd (выходной торговый) · weekend · holiday.</summary>
+    private static string ClassifyKind(EngineCalendarDay day) =>
+        !day.IsTrading ? (day.Weekend ? "weekend" : "holiday")
+        : day.Weekend ? "dsvd"
+        : day.Exception ? "transfer"
+        : "regular";
 
     /// <summary>
     /// Обёртка ISS-запросов: результат → 200; недоступность ISS (сеть/таймаут) → 502 Bad Gateway

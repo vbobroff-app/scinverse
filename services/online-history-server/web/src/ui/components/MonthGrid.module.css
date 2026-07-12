@@ -1,0 +1,17 @@
+.weekdays,
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.weekday {
+  text-align: center;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  padding-bottom: 3px;
+}
+
+.empty {
+  min-height: 0;
+}

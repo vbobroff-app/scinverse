@@ -42,18 +42,20 @@ public static class MoexSchedule
     private static readonly TimeOnly WeekendStart = new(9, 50);
     private static readonly TimeOnly WeekendEnd = new(19, 0);
 
-    /// <summary>Возвращает границы сессии для указанной календарной даты (МСК).</summary>
+    /// <summary>Возвращает границы сессии для указанной календарной даты (МСК), эвристические часы.</summary>
     public static TradingSession Session(DateOnly date)
     {
         var weekend = date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
         var (start, end) = weekend ? (WeekendStart, WeekendEnd) : (WeekdayStart, WeekdayEnd);
-
-        return new TradingSession
-        {
-            Date = date,
-            Start = new DateTimeOffset(date.ToDateTime(start), MoscowOffset),
-            End = new DateTimeOffset(date.ToDateTime(end), MoscowOffset),
-            Weekend = weekend,
-        };
+        return Session(date, start, end);
     }
+
+    /// <summary>Границы сессии с явными часами (напр. дат-точными из ISS-календаря). МСК+3.</summary>
+    public static TradingSession Session(DateOnly date, TimeOnly start, TimeOnly end) => new()
+    {
+        Date = date,
+        Start = new DateTimeOffset(date.ToDateTime(start), MoscowOffset),
+        End = new DateTimeOffset(date.ToDateTime(end), MoscowOffset),
+        Weekend = date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
+    };
 }

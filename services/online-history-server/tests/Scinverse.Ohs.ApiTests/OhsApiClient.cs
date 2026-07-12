@@ -124,6 +124,25 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
     public Task<AssetClassRefreshResultDto> RefreshAssetClassesAsync(CancellationToken cancellationToken = default) =>
         PostAsync<AssetClassRefreshResultDto>("/api/exchanges/asset-classes/refresh", cancellationToken);
 
+    public Task<IReadOnlyList<CalendarDayDto>> GetEngineCalendarAsync(
+        string engine, DateOnly? from = null, DateOnly? till = null, CancellationToken cancellationToken = default)
+    {
+        var parts = new List<string>();
+        if (from is { } f)
+        {
+            parts.Add($"from={f:yyyy-MM-dd}");
+        }
+
+        if (till is { } t)
+        {
+            parts.Add($"till={t:yyyy-MM-dd}");
+        }
+
+        var query = parts.Count > 0 ? "?" + string.Join('&', parts) : string.Empty;
+        return GetListAsync<CalendarDayDto>(
+            $"/api/exchanges/{Uri.EscapeDataString(engine)}/calendar{query}", cancellationToken);
+    }
+
     private async Task<IReadOnlyList<T>> GetListAsync<T>(string uri, CancellationToken cancellationToken)
     {
         var result = await http.GetFromJsonAsync<List<T>>(uri, Json, cancellationToken);

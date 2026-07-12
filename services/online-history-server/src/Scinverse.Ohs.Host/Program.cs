@@ -57,6 +57,8 @@ builder.Services.AddHttpClient<IExchangeCatalog, IssExchangeCatalog>(client =>
 });
 // Актуализация справочника классов базового актива фьючерсов из ISS (по кнопке).
 builder.Services.AddSingleton<FuturesAssetClassifier>();
+// Расписание сессий из бесплатного ISS-календаря движка (часы дней + праздники), фолбэк MoexSchedule.
+builder.Services.AddSingleton<IMarketCalendar, MarketCalendar>();
 
 // Control-plane.
 builder.Services.AddSingleton<WebSocketBroadcaster>();

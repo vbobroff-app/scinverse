@@ -34,9 +34,9 @@
 | ------- | -------- | ---- | ------ | ------ |
 | 7 | Каркас React/Vite/TS, ядро RxJS, уровень 3 (карточка провайдера), Start/Stop | 1 | IN PROGRESS (ур.2/1 остаются; дерево снято) | [plan](plan.md) · [issue](issue.md) |
 | 7b | Таймфреймы `D/W/M/Q/Y/All/диапазон`, сессионное окно MOEX | 2 | DONE | [7b](../phase7b/report.md) |
-| 7c | Реальное расписание MOEX (ISS): календарь + `session_schedule`, «Биржи→Структура» | 3 | PLANNED | [7c](../phase7c/plan.md) |
-| 7d | Динамические фильтры каталога (плашки Инструменты/Выбор/Биржи, поиск) | 1 | IN PROGRESS | [7d](../phase7d/report.md) |
-| 7e | Управление подключениями (форма Transaq, ввод кред, realtime-connect) | 1 | PLANNED | [7e](../phase7e/plan.md) |
+| 7c | Реальное расписание MOEX (ISS): календарь + `session_schedule`, «Биржи→Структура» | 3 | MVP DONE | [7c](../phase7c/report.md) — бесплатный `/iss/engines`, «Структура»+«Календарь», категоризация фьючерсов; новости/статус борда отложены |
+| 7d | Динамические фильтры каталога (плашки Инструменты/Выбор/Биржи, поиск) | 1 | MVP DONE | [7d](../phase7d/report.md) — плашки+поиск, generic `FilterChips`/`FilterBar` (переисп. в 7c), бэк-поля `nonEmpty`/`instrumentIds`/`exchanges` |
+| 7e | Управление подключениями (форма Transaq, ввод кред, realtime-connect) | 1 | MVP DONE | [7e](../phase7e/report.md) — `ConnectionForm` (create/edit transaq+synthetic, префилл+PUT, кредшы), список + connect |
 | 7f | Тайм-лайн-фильтр оси (дни + окно дня) + единый стандарт времени | 1, 2 | MVP DONE | [7f](../phase7f/report.md) |
 | 7g | Слой сделок: присутствие торгов по бакетам (лесенка), app-кэш, `/coverage/activity` | 2 | DONE | [7g](../phase7g/plan.md) |
 | **7h** | **Честная подложка: recovery, живость захвата, автомат связи, красная разметка разрывов** | **2** | **IN PROGRESS** | [7h](../phase7h/plan.md) |

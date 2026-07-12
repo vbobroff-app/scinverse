@@ -28,4 +28,11 @@ public interface IExchangeCatalog
     /// авторитетный сигнал MOEX (Акции/Валюта/Индексы/Товары/Ставки). null, если не найдено.
     /// </summary>
     Task<string?> ResolveContractGroupTypeAsync(string secid, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Бесплатный машиночитаемый календарь движка (<c>/iss/engines/{engine}</c>: <c>timetable</c> +
+    /// <c>dailytable</c>) — торговые/неторговые дни и внешние часы дня (праздники, переносы,
+    /// сокращённые дни, вкл. будущие). Реализация кэширует ответ.
+    /// </summary>
+    Task<EngineCalendar> GetEngineCalendarAsync(string engine, CancellationToken cancellationToken);
 }

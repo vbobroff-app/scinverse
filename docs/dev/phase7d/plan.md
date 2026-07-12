@@ -5,8 +5,9 @@
 Stage 1 — в [../apply.md](../apply.md); особенности реализации — в [apply.md](apply.md); статус — в
 [report.md](report.md).
 
-**Статус:** `PLANNED`. **Stage:** 1. **Зависимости:** phase 7 (`FilterBar`, `OhsStore`,
-`/api/instruments`), phase 6c (категории/деривативы).
+**Статус:** `MVP DONE` (2026-07-12). **Stage:** 1. **Зависимости:** phase 7 (`FilterBar`, `OhsStore`,
+`/api/instruments`), phase 6c (категории/деривативы). Компоненты фильтров переиспользованы разделом
+«Биржи» (7c) — см. [report.md](report.md).
 
 ## Мотивация
 

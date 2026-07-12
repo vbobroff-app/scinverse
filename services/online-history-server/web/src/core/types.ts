@@ -278,6 +278,23 @@ export interface AssetClassRefreshResultDto {
   unresolved: number;
 }
 
+/** Вид дня торгового календаря движка. */
+export type CalendarDayKind = 'regular' | 'transfer' | 'dsvd' | 'weekend' | 'holiday';
+
+/**
+ * День торгового календаря движка (бесплатный `/iss/engines/{engine}`): торговый ли день, его вид
+ * и внешние часы (МСК, `HH:mm:ss`; заполнены только у торгового дня). `date` — `yyyy-MM-dd`.
+ */
+export interface CalendarDayDto {
+  date: string;
+  isTrading: boolean;
+  weekend: boolean;
+  exception: boolean;
+  kind: CalendarDayKind;
+  open: string | null;
+  close: string | null;
+}
+
 // Live-события WebSocket `/ws` (дискриминатор — поле `type`).
 export type LiveEvent =
   | { type: 'recordingStarted'; instrumentId: number; sourceId: number; connectionId: number; segmentId: number }

@@ -1,5 +1,6 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ExchangeCatalogStore, isCollapsedMarket, marketKey } from '../../core/ExchangeCatalogStore';
+import { ExchangeCalendar } from './ExchangeCalendar';
 import {
   CONTRACT_TYPE_LABELS,
   contractType,
@@ -34,8 +35,11 @@ const ROW_HEIGHT = 30;
  * список торгуемых инструментов выбранного борда — справа. Для фьючерсов показывается класс
  * базового актива (справочник futures_asset_class), актуализируемый из ISS по кнопке.
  */
+type StructureTab = 'markets' | 'calendar';
+
 export function ExchangeStructure() {
   const store = useMemo(() => new ExchangeCatalogStore(), []);
+  const [tab, setTab] = useState<StructureTab>('markets');
 
   useEffect(() => {
     store.loadEngines();
@@ -48,13 +52,39 @@ export function ExchangeStructure() {
 
   return (
     <div className={styles.wrap}>
-      <Toolbar store={store} />
-      {error && <div className={styles.error}>{error}</div>}
-      <div className={styles.panes}>
-        <StructureTree store={store} disabled={loading} />
-        <SecuritiesTable store={store} />
+      <div className={styles.tabs} role="tablist" aria-label="Раздел структуры">
+        <Tab id="markets" active={tab} label="Рынки" onSelect={setTab} />
+        <Tab id="calendar" active={tab} label="Календарь" onSelect={setTab} />
       </div>
+
+      {tab === 'markets' ? (
+        <>
+          <Toolbar store={store} />
+          {error && <div className={styles.error}>{error}</div>}
+          <div className={styles.panes}>
+            <StructureTree store={store} disabled={loading} />
+            <SecuritiesTable store={store} />
+          </div>
+        </>
+      ) : (
+        <ExchangeCalendar />
+      )}
     </div>
+  );
+}
+
+function Tab({
+  id, active, label, onSelect,
+}: { id: StructureTab; active: StructureTab; label: string; onSelect: (t: StructureTab) => void }) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active === id}
+      className={[styles.tab, active === id ? styles.tabActive : ''].filter(Boolean).join(' ')}
+      onClick={() => onSelect(id)}
+    >
+      {label}
+    </button>
   );
 }
 

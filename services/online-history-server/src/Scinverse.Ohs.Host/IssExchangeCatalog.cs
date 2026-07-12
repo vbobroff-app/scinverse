@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using Scinverse.Ohs.Domain.Moex;
 
@@ -16,6 +18,7 @@ public sealed class IssExchangeCatalog(HttpClient http, IMemoryCache cache, ILog
 {
     private static readonly TimeSpan StructureTtl = TimeSpan.FromHours(6);
     private static readonly TimeSpan SecuritiesTtl = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan CalendarTtl = TimeSpan.FromHours(12);
 
     public Task<IReadOnlyList<IssEngine>> GetEnginesAsync(CancellationToken cancellationToken) =>
         GetOrFetchAsync("engines", "engines.json?iss.meta=off&lang=ru", StructureTtl, static table =>
@@ -130,6 +133,52 @@ public sealed class IssExchangeCatalog(HttpClient http, IMemoryCache cache, ILog
         cache.Set(cacheKey, groupType, groupType is null ? TimeSpan.FromMinutes(2) : SecuritiesTtl);
         return groupType;
     }
+
+    public async Task<EngineCalendar> GetEngineCalendarAsync(string engine, CancellationToken cancellationToken)
+    {
+        var cacheKey = $"calendar:{engine}";
+        if (cache.TryGetValue<EngineCalendar>(cacheKey, out var cached) && cached is not null)
+        {
+            return cached;
+        }
+
+        // Один запрос отдаёт обе таблицы: недельное расписание + исключения по датам (вкл. будущие).
+        var url = $"engines/{Esc(engine)}.json?iss.only=timetable,dailytable&iss.meta=off&lang=ru";
+        var json = await http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+
+        using var document = JsonDocument.Parse(json);
+        var timetable = IssTable.Parse(document.RootElement, "timetable");
+        var dailytable = IssTable.Parse(document.RootElement, "dailytable");
+
+        var weekRules = timetable.Rows.Select(r => (
+            WeekDay: r.GetInt("week_day") ?? 0,
+            Work: r.GetBool("is_work_day"),
+            Start: ParseTime(r.GetString("start_time")),
+            End: ParseTime(r.GetString("stop_time"))));
+
+        var dayRules = dailytable.Rows
+            .Select(r => (
+                Date: ParseDate(r.GetString("date")),
+                Work: r.GetBool("is_work_day"),
+                Start: ParseTime(r.GetString("start_time")),
+                End: ParseTime(r.GetString("stop_time"))))
+            .Where(x => x.Date is not null)
+            .Select(x => (x.Date!.Value, x.Work, x.Start, x.End));
+
+        var calendar = EngineCalendar.Build(weekRules, dayRules);
+        logger.LogDebug(
+            "ISS calendar {Engine}: {WeekRules} week rules, {DayExceptions} day exceptions",
+            engine, timetable.Count, dailytable.Count);
+
+        cache.Set(cacheKey, calendar, CalendarTtl);
+        return calendar;
+    }
+
+    private static TimeOnly? ParseTime(string? value) =>
+        TimeOnly.TryParse(value, CultureInfo.InvariantCulture, out var time) ? time : null;
+
+    private static DateOnly? ParseDate(string? value) =>
+        DateOnly.TryParse(value, CultureInfo.InvariantCulture, out var date) ? date : null;
 
     private async Task<IReadOnlyList<T>> GetOrFetchAsync<T>(
         string cacheKey,

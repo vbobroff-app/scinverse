@@ -81,4 +81,8 @@ public interface IOhsApi
 
     /// <summary>POST /api/exchanges/asset-classes/refresh — актуализация справочника из ISS (по кнопке).</summary>
     Task<AssetClassRefreshResultDto> RefreshAssetClassesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/exchanges/{engine}/calendar?from=&amp;till= — торговый календарь движка (ISS).</summary>
+    Task<IReadOnlyList<CalendarDayDto>> GetEngineCalendarAsync(
+        string engine, DateOnly? from = null, DateOnly? till = null, CancellationToken cancellationToken = default);
 }

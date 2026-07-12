@@ -178,3 +178,17 @@ public sealed record FuturesAssetClassDto(
 
 /// <summary>Итог актуализации справочника классов из ISS: всего кодов, новых, не распознано.</summary>
 public sealed record AssetClassRefreshResultDto(int Total, int Inserted, int Unresolved);
+
+/// <summary>
+/// День торгового календаря движка (бесплатный <c>/iss/engines/{engine}</c>): торговый ли день,
+/// его вид и внешние часы (МСК). <c>Kind</c>: <c>regular</c>|<c>transfer</c>|<c>dsvd</c>|
+/// <c>weekend</c>|<c>holiday</c>. <c>Open</c>/<c>Close</c> заполнены только у торгового дня.
+/// </summary>
+public sealed record CalendarDayDto(
+    DateOnly Date,
+    bool IsTrading,
+    bool Weekend,
+    bool Exception,
+    string Kind,
+    TimeOnly? Open,
+    TimeOnly? Close);

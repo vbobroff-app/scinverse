@@ -3,6 +3,7 @@ import { map, type Observable } from 'rxjs';
 import type {
   AssetClassRefreshResultDto,
   BoardDto,
+  CalendarDayDto,
   ConnectionCredentialsRequest,
   ConnectionDto,
   CoverageExtentDto,
@@ -136,6 +137,15 @@ export const OhsApi = {
   // Справочник классов базового актива фьючерсов + актуализация из ISS (по кнопке).
   getAssetClasses: () => getJSON<FuturesAssetClassDto[]>('/exchanges/asset-classes'),
   refreshAssetClasses: () => post<AssetClassRefreshResultDto>('/exchanges/asset-classes/refresh'),
+
+  // Торговый календарь движка (бесплатный /iss/engines/{engine}).
+  getEngineCalendar: (engine: string, from?: string, till?: string) => {
+    const q = new URLSearchParams();
+    if (from) q.set('from', from);
+    if (till) q.set('till', till);
+    const suffix = q.toString() ? `?${q.toString()}` : '';
+    return getJSON<CalendarDayDto[]>(`/exchanges/${encodeURIComponent(engine)}/calendar${suffix}`);
+  },
 };
 
 export type OhsApiClient = typeof OhsApi;

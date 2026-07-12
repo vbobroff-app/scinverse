@@ -1,0 +1,230 @@
+.wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--spacing-sm);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 0 var(--spacing-md);
+}
+
+.navBtn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.navBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.navTitle {
+  min-width: 220px;
+  text-align: center;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.navToday {
+  margin-left: var(--spacing-sm);
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.navToday:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.navToday:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.engines {
+  display: flex;
+  gap: 4px;
+}
+
+.engineBtn {
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.engineBtn:hover {
+  background: var(--color-bg-hover);
+}
+
+.engineBtnActive {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-focus);
+  color: var(--color-text);
+}
+
+/* ── Легенда ── */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+}
+
+.error {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-error) 15%, transparent);
+  border: 1px solid var(--color-error);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.hint {
+  padding: var(--spacing-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* ── Сетка месяцев ── */
+.months {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--spacing-md);
+  align-content: start;
+}
+
+.month {
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
+}
+
+.monthTitle {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  padding: 2px 4px var(--spacing-xs);
+}
+
+.weekHead,
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.weekDay {
+  text-align: center;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  padding-bottom: 3px;
+}
+
+.pad {
+  aspect-ratio: 1 / 1;
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.dayNum {
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.dayHours {
+  font-size: 8.5px;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-mono);
+  line-height: 1.1;
+  margin-top: 1px;
+}
+
+.today {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: -2px;
+}
+
+/* ── Виды дня (совпадают с CalendarDayKind) ── */
+.regular {
+  background: transparent;
+}
+
+.transfer {
+  background: color-mix(in srgb, var(--color-border-focus) 22%, transparent);
+  border-color: var(--color-border-focus);
+}
+
+.dsvd {
+  background: color-mix(in srgb, var(--color-success) 22%, transparent);
+  border-color: var(--color-success);
+}
+
+.weekend {
+  background: color-mix(in srgb, var(--color-text-muted) 12%, transparent);
+  color: var(--color-text-muted);
+}
+
+.holiday {
+  background: color-mix(in srgb, var(--color-error) 20%, transparent);
+  border-color: var(--color-error);
+}

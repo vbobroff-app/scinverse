@@ -15,6 +15,36 @@
   font-size: var(--font-size-sm);
 }
 
+/* ── Вкладки раздела (Рынки · Календарь) ── */
+.tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+  padding: 7px 16px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  margin-bottom: -1px;
+}
+
+.tab:hover {
+  background: var(--color-bg-hover);
+}
+
+.tabActive {
+  background: var(--color-bg-panel);
+  border-color: var(--color-border);
+  border-bottom-color: var(--color-bg-panel);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
 .panes {
   flex: 1;
   display: flex;
