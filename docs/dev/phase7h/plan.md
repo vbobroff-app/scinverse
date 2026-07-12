@@ -102,11 +102,16 @@ Disconnected → Connecting → Live ⇄ Degraded → Down/Error → (reconnect)
   (`ended_at IS NULL`) прошлого процесса: `status='interrupted'`, `ended_at` = время последней сделки
   сегмента (иначе `started_at`). Чинит «склейку» после аварийного рестарта. Миграция: добавить статус
   `interrupted` в `ck_coverage_status`. Полностью тестируемо (Testcontainers), без DLL.
-- **7h.1 storage: живость (`capture_liveness`, интервалы).** Миграция
+- **7h.1 storage: живость (`capture_liveness`, интервалы).** ✅ DONE. Миграция `V010`
   `capture_liveness(liveness_id, source_id, from_ts, to_ts, open)` + уникальный индекс на один открытый
-  интервал на source. `ICaptureLivenessStore`: `HeartbeatAsync(sourceId, ts)` (открыть/продлить `to_ts`),
-  `CloseAsync(sourceId, ts)` (закрыть открытый), `QueryAsync(sourceIds, from, to)` (интервалы окна). Без
-  сырого лога/кэша — форма уже компактная.
+  интервал на source; `V011` добавляет `close_reason` (`stopped|server_down|ping_failed|interrupted`) +
+  инвариант «open ⟺ reason NULL». `ICaptureLivenessStore`: `HeartbeatAsync` (открыть/продлить `to_ts`,
+  split при пропуске тиков > maxGap = `interrupted`), `CloseAsync(sourceId, reason, atTs?)` (закрыть с
+  причиной; `atTs` = точное время события, напр. `server_down`, сдвигает `to_ts`), `QueryAsync` (интервалы
+  окна), **`QueryGapsAsync`** (журнал разрывов — производное: негативное пространство между интервалами,
+  причина = `close_reason` предыдущего, `stopped` исключён), `RecoverOpenIntervalsAsync` (→ `interrupted`).
+  Разрыв строкой НЕ хранится (положительная модель, crash-safe). Тесты: split/close-reason/server_down
+  `to_ts`/журнал разрывов (исключение `stopped`, длящийся разрыв `To=null`) — зелёные.
 - **7h.2 host: писатель хартбита + пинг.** Периодический тик **15 c = min_bucket/2** (Найквист: сэмпл
   вдвое чаще самого мелкого бакета 30 c → край разрыва локализуется с точностью до **одного** бакета;
   ловит кейс «в бакете были сделки, но захват рвался внутри» → подозрительный бакет для backfill). На тик:
