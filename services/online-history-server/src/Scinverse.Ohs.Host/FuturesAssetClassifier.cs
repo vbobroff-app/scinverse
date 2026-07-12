@@ -22,41 +22,44 @@ public sealed class FuturesAssetClassifier(
     {
         var futures = await catalog.GetFortsFuturesAsync(cancellationToken).ConfigureAwait(false);
 
-        // Уникальные коды базового актива + образец имени (для читаемого title, если нет в сид-карте).
+        // Уникальные коды базового актива → представитель-контракт (SECID + имя) для запроса GROUPTYPE.
         var byCode = futures
-            .Where(f => !string.IsNullOrWhiteSpace(f.AssetCode))
+            .Where(f => !string.IsNullOrWhiteSpace(f.AssetCode) && f.SecId.Length > 0)
             .GroupBy(f => f.AssetCode!, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First().ShortName, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         var rows = new List<FuturesAssetClass>(byCode.Count);
-        var toResolve = new List<KeyValuePair<string, string?>>();
-        foreach (var pair in byCode)
+        var toResolve = new List<IssFuturesRef>();
+        foreach (var (assetCode, sample) in byCode)
         {
-            if (FuturesAssetTaxonomy.TryClassifySeed(pair.Key, out var seed))
+            if (FuturesAssetTaxonomy.TryClassifySeed(assetCode, out var seed))
             {
                 rows.Add(new FuturesAssetClass(
-                    pair.Key, seed.Category, seed.Sub, seed.Title, "seed", Confirmed: false));
+                    assetCode, seed.Category, seed.Sub, seed.Title, "seed", Confirmed: false));
             }
             else
             {
-                toResolve.Add(pair);
+                toResolve.Add(sample);
             }
         }
 
-        // Ограниченный по времени и параллелизму резолв спот-группы; сбой/таймаут кода → other.
+        // Ограниченный по времени и параллелизму резолв «Группы контрактов» (GROUPTYPE) представителя;
+        // сбой/таймаут кода → other. GROUPTYPE — авторитетный сигнал MOEX (Акции/Валюта/Индексы/…).
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(ResolveBudget);
         using var gate = new SemaphoreSlim(ResolveConcurrency);
 
-        var resolved = await Task.WhenAll(toResolve.Select(async pair =>
+        var resolved = await Task.WhenAll(toResolve.Select(async rep =>
         {
             await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                var group = await catalog.ResolveAssetGroupAsync(pair.Key, budget.Token).ConfigureAwait(false);
+                var groupType = await catalog
+                    .ResolveContractGroupTypeAsync(rep.SecId, budget.Token)
+                    .ConfigureAwait(false);
                 return new FuturesAssetClass(
-                    pair.Key, FuturesAssetTaxonomy.CategoryFromIssGroup(group),
-                    Subcategory: null, pair.Value, "iss_auto", Confirmed: false);
+                    rep.AssetCode!, FuturesAssetTaxonomy.CategoryFromGroupType(groupType),
+                    Subcategory: null, rep.ShortName, "iss_auto", Confirmed: false);
             }
             finally
             {

@@ -237,7 +237,9 @@ public static class OhsEndpoints
             {
                 var securities = await catalog.GetBoardSecuritiesAsync(engine, market, board, token);
                 return securities
-                    .Select(s => new IssSecurityDto(s.SecId, s.ShortName, s.Name, s.MinStep, s.LotSize, s.Decimals, s.AssetCode))
+                    .Select(s => new IssSecurityDto(
+                        s.SecId, s.ShortName, s.Name, s.MinStep, s.LotSize, s.Decimals,
+                        s.AssetCode, s.Expiration, s.SecType))
                     .ToList();
             }, ct));
 

@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { ExchangeCatalogStore, marketKey } from '../../core/ExchangeCatalogStore';
+import { CONTRACT_TYPE_LABELS, contractType } from '../../core/futuresContract';
 import { useBehavior } from '../hooks/useObservable';
+import { FilterBar } from '../components/filters/FilterBar';
+import { FilterChips } from '../components/filters/FilterChips';
+import type { FilterMenuItem, FilterSpec } from '../components/filters/filterModel';
 import styles from './ExchangeStructure.module.css';
 
-/** Русские названия категорий класса базового актива (для плашек/колонки). */
+/** Русские названия категорий базового актива (плашка «Категория»). */
 const CATEGORY_LABELS: Record<string, string> = {
   index: 'Индексы',
   shares: 'Акции',
@@ -12,10 +16,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   commodity: 'Товары',
   other: 'Прочее',
 };
-
-function categoryLabel(category: string): string {
-  return CATEGORY_LABELS[category] ?? category;
-}
+/** Порядок категорий/типов в опциях. */
+const CATEGORY_ORDER = ['index', 'shares', 'currency', 'rate', 'commodity', 'other'];
+const TYPE_ORDER = ['perpetual', 'quarterly', 'monthly'];
 
 /**
  * Раздел «Биржи → Структура»: дерево движки → рынки → борды (лениво из MOEX ISS) слева,
@@ -49,10 +52,17 @@ function Toolbar({ store }: { store: ExchangeCatalogStore }) {
   const result = useBehavior(store.refreshResult$);
   const assetClasses = useBehavior(store.assetClasses$);
 
+  // Одна сводная подпись рядом с заголовком: после актуализации — с новыми/на проверку, иначе — итог справочника.
+  const summary = result
+    ? `Всего ${result.total}, новых ${result.inserted}, на проверку ${result.unresolved}`
+    : `Всего ${assetClasses.size}`;
+
   return (
     <div className={styles.toolbar}>
-      <span className={styles.toolbarTitle}>Классы базового актива</span>
-      <span className={styles.toolbarMeta}>{assetClasses.size} кодов в справочнике</span>
+      <div className={styles.toolbarInfo}>
+        <span className={styles.toolbarTitle}>Классы базового актива</span>
+        <span className={styles.toolbarMeta}>{summary}</span>
+      </div>
       <button
         className={styles.refreshBtn}
         onClick={() => store.refreshAssetClasses()}
@@ -60,11 +70,6 @@ function Toolbar({ store }: { store: ExchangeCatalogStore }) {
       >
         {refreshing ? 'Актуализация…' : 'Актуализировать из ISS'}
       </button>
-      {result && !refreshing && (
-        <span className={styles.toolbarResult}>
-          Всего {result.total}, новых {result.inserted}, на проверку {result.unresolved}
-        </span>
-      )}
     </div>
   );
 }
@@ -165,34 +170,106 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
   const securities = useBehavior(store.securities$);
   const loading = useBehavior(store.securitiesLoading$);
   const assetClasses = useBehavior(store.assetClasses$);
-  const [category, setCategory] = useState<string | null>(null);
+  const activeFilters = useBehavior(store.activeFilters$);
+  const categoryFilter = useBehavior(store.categoryFilter$);
+  const typeFilter = useBehavior(store.typeFilter$);
+  const search = useBehavior(store.search$);
 
-  // Категория каждого инструмента по ASSETCODE (для фьючерсов); прочие рынки → без категории.
-  const categoryOf = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const s of securities) {
-      const code = s.assetCode?.toUpperCase();
-      const hit = code ? assetClasses.get(code) : undefined;
-      map.set(s.secId, hit?.category ?? (s.assetCode ? 'other' : ''));
-    }
-    return map;
-  }, [securities, assetClasses]);
+  // Набор фильтров зависит от вида инструмента: пока плашки только для FORTS-фьючерсов.
+  const isFutures = selected?.engine === 'futures' && selected?.market === 'forts';
 
-  // Плашки категорий, присутствующих в выборке, с количеством (динамический фильтр).
-  const chips = useMemo(() => {
+  // Обогащаем строки категорией базового актива (join по assetCode) и типом контракта.
+  const enriched = useMemo(
+    () =>
+      securities.map((s) => {
+        const code = s.assetCode?.toUpperCase();
+        const hit = code ? assetClasses.get(code) : undefined;
+        return {
+          s,
+          cat: hit?.category ?? (s.assetCode ? 'other' : ''),
+          type: contractType(s),
+        };
+      }),
+    [securities, assetClasses],
+  );
+
+  const categoryOptions = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const s of securities) {
-      const cat = categoryOf.get(s.secId) ?? '';
-      if (cat) {
-        counts.set(cat, (counts.get(cat) ?? 0) + 1);
+    for (const e of enriched) {
+      if (e.cat) {
+        counts.set(e.cat, (counts.get(e.cat) ?? 0) + 1);
       }
     }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [securities, categoryOf]);
+    return CATEGORY_ORDER.filter((c) => counts.has(c)).map((c) => ({
+      id: c,
+      label: CATEGORY_LABELS[c] ?? c,
+      count: counts.get(c),
+    }));
+  }, [enriched]);
 
-  const visible = category
-    ? securities.filter((s) => categoryOf.get(s.secId) === category)
-    : securities;
+  const typeOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const e of enriched) {
+      if (e.type) {
+        counts.set(e.type, (counts.get(e.type) ?? 0) + 1);
+      }
+    }
+    return TYPE_ORDER.filter((t) => counts.has(t)).map((t) => ({
+      id: t,
+      label: CONTRACT_TYPE_LABELS[t as keyof typeof CONTRACT_TYPE_LABELS],
+      count: counts.get(t),
+    }));
+  }, [enriched]);
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return enriched
+      .filter((e) => {
+        if (categoryFilter.size > 0 && !categoryFilter.has(e.cat)) {
+          return false;
+        }
+        if (typeFilter.size > 0 && !typeFilter.has(e.type)) {
+          return false;
+        }
+        if (q) {
+          const hay = `${e.s.secId} ${e.s.shortName ?? ''} ${e.s.name ?? ''}`.toLowerCase();
+          if (!hay.includes(q)) {
+            return false;
+          }
+        }
+        return true;
+      })
+      .map((e) => e.s);
+  }, [enriched, categoryFilter, typeFilter, search]);
+
+  const available: FilterMenuItem[] = isFutures
+    ? [
+        { key: 'category', name: 'Категория' },
+        { key: 'type', name: 'Тип' },
+      ]
+    : [];
+
+  const specs = useMemo<Record<string, FilterSpec>>(
+    () => ({
+      category: {
+        key: 'category',
+        name: 'Категория',
+        mode: 'multi',
+        options: categoryOptions,
+        selected: [...categoryFilter],
+        onChange: (sel) => store.setCategoryFilter(sel),
+      },
+      type: {
+        key: 'type',
+        name: 'Тип',
+        mode: 'multi',
+        options: typeOptions,
+        selected: [...typeFilter],
+        onChange: (sel) => store.setTypeFilter(sel),
+      },
+    }),
+    [categoryOptions, typeOptions, categoryFilter, typeFilter, store],
+  );
 
   if (!selected) {
     return (
@@ -208,29 +285,25 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
         <span className={styles.tableTitle}>{selected.title || selected.board}</span>
         <span className={styles.tableMeta}>
           {selected.engine} · {selected.market} · {selected.board}
-          {!loading && ` · ${visible.length}${category ? ` из ${securities.length}` : ''}`}
         </span>
       </div>
 
-      {!loading && chips.length > 0 && (
-        <div className={styles.chips}>
-          <button
-            className={[styles.chip, category === null ? styles.chipActive : ''].filter(Boolean).join(' ')}
-            onClick={() => setCategory(null)}
-          >
-            Все · {securities.length}
-          </button>
-          {chips.map(([cat, count]) => (
-            <button
-              key={cat}
-              className={[styles.chip, category === cat ? styles.chipActive : ''].filter(Boolean).join(' ')}
-              onClick={() => setCategory(category === cat ? null : cat)}
-            >
-              {categoryLabel(cat)} · {count}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className={styles.filterRow}>
+        <FilterBar
+          key={selected.board}
+          total={visible.length}
+          search={{ initial: search, onSearch: (q) => store.setSearch(q) }}
+        >
+          <FilterChips
+            available={available}
+            active={activeFilters}
+            specs={specs}
+            onAdd={(k) => store.addFilter(k)}
+            onRemove={(k) => store.removeFilter(k)}
+            onClear={() => store.clearFilters()}
+          />
+        </FilterBar>
+      </div>
 
       {loading && <div className={styles.hint}>Загрузка инструментов…</div>}
 
@@ -244,25 +317,20 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
                 <th>Код</th>
                 <th>Краткое</th>
                 <th>Название</th>
-                <th>Категория</th>
                 <th className={styles.num}>Лот</th>
                 <th className={styles.num}>Шаг цены</th>
               </tr>
             </thead>
             <tbody>
-              {visible.map((s) => {
-                const cat = categoryOf.get(s.secId) ?? '';
-                return (
-                  <tr key={s.secId}>
-                    <td className={styles.mono}>{s.secId}</td>
-                    <td>{s.shortName ?? '—'}</td>
-                    <td className={styles.muted}>{s.name ?? '—'}</td>
-                    <td>{cat ? <span className={styles.tag}>{categoryLabel(cat)}</span> : '—'}</td>
-                    <td className={styles.num}>{s.lotSize ?? '—'}</td>
-                    <td className={styles.num}>{s.minStep ?? '—'}</td>
-                  </tr>
-                );
-              })}
+              {visible.map((s) => (
+                <tr key={s.secId}>
+                  <td className={styles.mono}>{s.secId}</td>
+                  <td>{s.shortName ?? '—'}</td>
+                  <td className={styles.muted}>{s.name ?? '—'}</td>
+                  <td className={styles.num}>{s.lotSize ?? '—'}</td>
+                  <td className={styles.num}>{s.minStep ?? '—'}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

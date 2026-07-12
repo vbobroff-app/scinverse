@@ -70,7 +70,9 @@ public sealed class IssExchangeCatalog(HttpClient http, IMemoryCache cache, ILog
                         r.GetDecimal("MINSTEP"),
                         r.GetInt("LOTSIZE"),
                         (short?)r.GetInt("DECIMALS"),
-                        r.GetString("ASSETCODE")))
+                        r.GetString("ASSETCODE"),
+                        r.GetString("LASTTRADEDATE"),
+                        r.GetString("SECTYPE")))
                     .Where(s => s.SecId.Length > 0)
                     .ToList(),
             cancellationToken);
@@ -90,48 +92,43 @@ public sealed class IssExchangeCatalog(HttpClient http, IMemoryCache cache, ILog
                     .ToList(),
             cancellationToken);
 
-    public async Task<string?> ResolveAssetGroupAsync(string assetCode, CancellationToken cancellationToken)
+    public async Task<string?> ResolveContractGroupTypeAsync(string secid, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(assetCode))
+        if (string.IsNullOrWhiteSpace(secid))
         {
             return null;
         }
 
-        var cacheKey = $"asset-group:{assetCode}";
+        var cacheKey = $"grouptype:{secid}";
         if (cache.TryGetValue<string?>(cacheKey, out var cached))
         {
             return cached;
         }
 
-        string? group = null;
+        string? groupType = null;
         try
         {
-            var url = $"securities.json?q={Esc(assetCode)}&iss.meta=off&lang=ru";
+            // Блок description: строки [name, title, value, …]; берём value строки name=GROUPTYPE.
+            var url = $"securities/{Esc(secid)}.json?iss.only=description&iss.meta=off&lang=ru";
             var json = await http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
-            var table = IssTable.Parse(json, "securities");
-
-            // Точное совпадение по secid приоритетнее, иначе — первая строка выдачи.
-            IssRow? match = null;
+            var table = IssTable.Parse(json, "description");
             foreach (var row in table.Rows)
             {
-                match ??= row;
-                if (string.Equals(row.GetString("secid"), assetCode, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(row.GetString("name"), "GROUPTYPE", StringComparison.OrdinalIgnoreCase))
                 {
-                    match = row;
+                    groupType = row.GetString("value");
                     break;
                 }
             }
-
-            group = match?.GetString("group");
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            logger.LogDebug(ex, "ISS resolve group failed for {AssetCode}", assetCode);
+            logger.LogDebug(ex, "ISS resolve GROUPTYPE failed for {SecId}", secid);
         }
 
         // Кэшируем и отрицательный результат (короче), чтобы не долбить ISS повторно в рамках рефреша.
-        cache.Set(cacheKey, group, group is null ? TimeSpan.FromMinutes(2) : SecuritiesTtl);
-        return group;
+        cache.Set(cacheKey, groupType, groupType is null ? TimeSpan.FromMinutes(2) : SecuritiesTtl);
+        return groupType;
     }
 
     private async Task<IReadOnlyList<T>> GetOrFetchAsync<T>(

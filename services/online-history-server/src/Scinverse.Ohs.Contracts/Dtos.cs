@@ -163,7 +163,9 @@ public sealed record IssSecurityDto(
     decimal? MinStep,
     int? LotSize,
     short? Decimals,
-    string? AssetCode);
+    string? AssetCode,
+    string? Expiration,
+    string? SecType);
 
 /// <summary>Класс базового актива фьючерса (справочник futures_asset_class) для группировки/фильтров.</summary>
 public sealed record FuturesAssetClassDto(

@@ -17,7 +17,9 @@ public sealed record IssSecurity(
     decimal? MinStep,
     int? LotSize,
     short? Decimals,
-    string? AssetCode);
+    string? AssetCode,
+    string? Expiration,
+    string? SecType);
 
 /// <summary>Минимальная ссылка на FORTS-фьючерс для классификации: SECID + код базового актива.</summary>
 public sealed record IssFuturesRef(string SecId, string? AssetCode, string? ShortName);

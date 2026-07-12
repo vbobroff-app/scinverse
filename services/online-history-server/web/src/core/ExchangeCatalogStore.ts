@@ -49,6 +49,16 @@ export class ExchangeCatalogStore {
   readonly refreshing$ = new BehaviorSubject<boolean>(false);
   readonly refreshResult$ = new BehaviorSubject<AssetClassRefreshResultDto | null>(null);
 
+  // --- Фильтры таблицы инструментов борда (клиентские, зависят от вида). ---
+  /** Строка поиска по коду/названию (общая для всех видов). */
+  readonly search$ = new BehaviorSubject<string>('');
+  /** Показанные плашки-фильтры борда (ключи, напр. 'category'/'type' для фьючерсов). */
+  readonly activeFilters$ = new BehaviorSubject<string[]>([]);
+  /** Выбранные категории базового актива (плашка «Категория», ИЛИ). */
+  readonly categoryFilter$ = new BehaviorSubject<ReadonlySet<string>>(new Set());
+  /** Выбранные типы контракта (плашка «Тип», ИЛИ). */
+  readonly typeFilter$ = new BehaviorSubject<ReadonlySet<string>>(new Set());
+
   private enginesLoaded = false;
   private assetClassesLoaded = false;
 
@@ -150,9 +160,61 @@ export class ExchangeCatalogStore {
     this.expandedMarkets$.next(expanded);
   }
 
+  /** Категория базового актива инструмента как код ('index'|…|'other'|'' если неизвестен вид). */
+  categoryCodeOf(security: IssSecurityDto): string {
+    const hit = this.categoryOf(security);
+    return hit?.category ?? (security.assetCode ? 'other' : '');
+  }
+
+  /** Задаёт строку поиска (клиентский фильтр по коду/названию). */
+  setSearch(query: string): void {
+    this.search$.next(query);
+  }
+
+  /** Добавляет плашку-фильтр борда (если ещё не добавлена). */
+  addFilter(key: string): void {
+    if (!this.activeFilters$.value.includes(key)) {
+      this.activeFilters$.next([...this.activeFilters$.value, key]);
+    }
+  }
+
+  /** Убирает плашку и очищает её выбор. */
+  removeFilter(key: string): void {
+    this.activeFilters$.next(this.activeFilters$.value.filter((k) => k !== key));
+    if (key === 'category') {
+      this.categoryFilter$.next(new Set());
+    } else if (key === 'type') {
+      this.typeFilter$.next(new Set());
+    }
+  }
+
+  /** Сбрасывает все плашки и их выбор (поиск не трогаем). */
+  clearFilters(): void {
+    this.activeFilters$.next([]);
+    this.categoryFilter$.next(new Set());
+    this.typeFilter$.next(new Set());
+  }
+
+  setCategoryFilter(categories: string[]): void {
+    this.categoryFilter$.next(new Set(categories));
+  }
+
+  setTypeFilter(types: string[]): void {
+    this.typeFilter$.next(new Set(types));
+  }
+
+  /** Полный сброс фильтров и поиска (при смене борда). */
+  private resetFilters(): void {
+    this.search$.next('');
+    this.activeFilters$.next([]);
+    this.categoryFilter$.next(new Set());
+    this.typeFilter$.next(new Set());
+  }
+
   /** Выбирает борд и загружает его инструменты. */
   selectBoard(engine: string, market: string, board: BoardDto): void {
     this.selectedBoard$.next({ engine, market, board: board.boardId, title: board.title });
+    this.resetFilters();
     this.securities$.next([]);
     this.securitiesLoading$.next(true);
     this.error$.next(null);

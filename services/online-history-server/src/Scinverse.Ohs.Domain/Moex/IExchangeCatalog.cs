@@ -24,8 +24,8 @@ public interface IExchangeCatalog
     Task<IReadOnlyList<IssFuturesRef>> GetFortsFuturesAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Группа спот-инструмента ISS по коду (столбец <c>group</c> из глобального поиска <c>/iss/securities</c>);
-    /// используется для авто-классификации акций/индексов. null, если не найдено.
+    /// «Группа контрактов» (<c>GROUPTYPE</c>) из описания контракта <c>/iss/securities/{secid}</c> —
+    /// авторитетный сигнал MOEX (Акции/Валюта/Индексы/Товары/Ставки). null, если не найдено.
     /// </summary>
-    Task<string?> ResolveAssetGroupAsync(string assetCode, CancellationToken cancellationToken);
+    Task<string?> ResolveContractGroupTypeAsync(string secid, CancellationToken cancellationToken);
 }

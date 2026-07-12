@@ -34,6 +34,21 @@ public sealed class FuturesAssetTaxonomyTests
     }
 
     [Theory]
+    [InlineData("Акции", FuturesAssetTaxonomy.Shares)]
+    [InlineData("Валюта", FuturesAssetTaxonomy.Currency)]
+    [InlineData("Индексы", FuturesAssetTaxonomy.Index)]
+    [InlineData("Товары", FuturesAssetTaxonomy.Commodity)]
+    [InlineData("Процентные ставки", FuturesAssetTaxonomy.Rate)]
+    [InlineData("Товарные контракты", FuturesAssetTaxonomy.Commodity)]
+    [InlineData("Неизвестно", FuturesAssetTaxonomy.Other)]
+    [InlineData(null, FuturesAssetTaxonomy.Other)]
+    [InlineData("", FuturesAssetTaxonomy.Other)]
+    public void CategoryFromGroupType_MapsMoexGroups(string? groupType, string expected)
+    {
+        FuturesAssetTaxonomy.CategoryFromGroupType(groupType).Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("stock_shares", FuturesAssetTaxonomy.Shares)]
     [InlineData("stock_dr", FuturesAssetTaxonomy.Shares)]
     [InlineData("stock_index", FuturesAssetTaxonomy.Index)]

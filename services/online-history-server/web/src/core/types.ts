@@ -255,6 +255,10 @@ export interface IssSecurityDto {
   lotSize: number | null;
   decimals: number | null;
   assetCode: string | null;
+  /** Дата экспирации (ISS LASTTRADEDATE, `YYYY-MM-DD`); null для бессрочных/неприменимо. */
+  expiration: string | null;
+  /** Тип бумаги ISS (SECTYPE). */
+  secType: string | null;
 }
 
 /** Класс базового актива фьючерса (справочник futures_asset_class) для группировки/фильтров. */

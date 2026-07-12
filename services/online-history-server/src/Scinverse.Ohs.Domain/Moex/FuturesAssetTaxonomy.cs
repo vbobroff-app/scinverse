@@ -102,6 +102,46 @@ public static class FuturesAssetTaxonomy
         => Seed.TryGetValue(assetCode, out hit);
 
     /// <summary>
+    /// Категория из поля <c>GROUPTYPE</c> («Группа контрактов») описания контракта ISS — авторитетный
+    /// сигнал MOEX: Акции/Валюта/Индексы/Товары/Процентные ставки. Это основной путь классификации.
+    /// </summary>
+    public static string CategoryFromGroupType(string? groupType)
+    {
+        if (string.IsNullOrWhiteSpace(groupType))
+        {
+            return Other;
+        }
+
+        var g = groupType.Trim().ToLowerInvariant();
+        if (g.Contains("акци", StringComparison.Ordinal))
+        {
+            return Shares;
+        }
+
+        if (g.Contains("валют", StringComparison.Ordinal))
+        {
+            return Currency;
+        }
+
+        if (g.Contains("индекс", StringComparison.Ordinal))
+        {
+            return Index;
+        }
+
+        if (g.Contains("товар", StringComparison.Ordinal))
+        {
+            return Commodity;
+        }
+
+        if (g.Contains("ставк", StringComparison.Ordinal) || g.Contains("процент", StringComparison.Ordinal))
+        {
+            return Rate;
+        }
+
+        return Other;
+    }
+
+    /// <summary>
     /// Маппинг «группы» спот-инструмента ISS (столбец group из /iss/securities) в категорию фьючерса.
     /// Примеры групп: stock_shares, stock_dr, stock_index, currency_selt, stock_bonds…
     /// </summary>
