@@ -22,6 +22,7 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
             status={connection.status}
             onConnect={() => store.connect(connection.connectionId)}
             onDisconnect={() => store.disconnect(connection.connectionId)}
+            onCancelConnect={() => store.cancelConnect(connection.connectionId)}
           />
         </div>
       </header>

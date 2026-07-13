@@ -1,5 +1,5 @@
-import { BehaviorSubject, from, of, throwError, type Observable, type Subscription } from 'rxjs';
-import { catchError, finalize, map, mergeMap, switchMap, tap, toArray } from 'rxjs/operators';
+import { BehaviorSubject, EMPTY, from, of, throwError, type Observable, type Subscription } from 'rxjs';
+import { catchError, finalize, map, mergeMap, switchMap, tap, timeout, toArray } from 'rxjs/operators';
 import { bucketSecondsForTimeframe } from './activityBucket';
 import { OhsApi, type OhsApiClient } from './api';
 import { gapsFromLivenessIntervals } from './coverageGeometry';
@@ -863,13 +863,37 @@ export class OhsStore {
     // Оптимистичный промежуточный статус: connect на бэке синхронный, но пока
     // POST в полёте — показываем «подключается» (жёлтый), затем connected/error.
     this.patchConnectionStatus(connectionId, 'connecting');
-    this.api.connect(connectionId).subscribe({
-      next: (c) => this.upsertConnection(c),
-      error: (err) => {
-        console.error('connect', err);
-        this.patchConnectionStatus(connectionId, 'error');
-      },
-    });
+    this.api
+      .connect(connectionId)
+      .pipe(
+        timeout(35_000),
+        catchError((err) => {
+          console.error('connect', err);
+          this.patchConnectionStatus(connectionId, 'error');
+          return EMPTY;
+        }),
+        finalize(() => {
+          const row = this.connections$.value.find((c) => c.connectionId === connectionId);
+          if (row?.status === 'connecting') {
+            this.refreshConnections();
+          }
+        }),
+      )
+      .subscribe({
+        next: (c) => {
+          if (c.status === 'disconnected') {
+            // Бэк не смог поднять сессию (осиротевший коннектор / обрыв сразу после connect).
+            this.patchConnectionStatus(c.connectionId, 'error');
+            return;
+          }
+          this.upsertConnection(c);
+        },
+      });
+  }
+
+  /** Сброс зависшего «подключается…» (тумблер снова кликабелен). */
+  cancelConnect(connectionId: number): void {
+    this.refreshConnections();
   }
 
   disconnect(connectionId: number): void {

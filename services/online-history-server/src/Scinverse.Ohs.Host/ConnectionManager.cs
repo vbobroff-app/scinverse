@@ -74,7 +74,18 @@ public sealed class ConnectionManager(
     {
         if (_sessions.ContainsKey(connectionId))
         {
-            return GetStatus(connectionId);
+            var status = GetStatus(connectionId);
+            if (status is "waiting" or "active" or "degraded")
+            {
+                return status;
+            }
+
+            // Осиротевшая сессия после Down/Error: статус disconnected, но коннектор ещё в памяти —
+            // без этого connect мгновенно возвращает disconnected и тумблер «отскакивает».
+            logger.LogInformation(
+                "Подключение {ConnectionId}: переподключение (предыдущий статус {Status})",
+                connectionId, status);
+            await DisconnectAsync(connectionId, cancellationToken).ConfigureAwait(false);
         }
 
         var connection = await connectionStore.GetAsync(connectionId, cancellationToken).ConfigureAwait(false)

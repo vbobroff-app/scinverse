@@ -157,6 +157,24 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         }
     }
 
+    [Fact]
+    public async Task Connect_after_debug_drop_reconnects()
+    {
+        var api = CreateApi();
+        var client = new OhsApiClient(factory.CreateClient());
+        var synthetic = (await api.GetConnectionsAsync()).First(c => c.Kind == "synthetic");
+
+        await api.ConnectConnectionAsync(synthetic.ConnectionId);
+        (await client.DebugDropAsync(synthetic.ConnectionId, seconds: 30)).Should().BeTrue();
+        var sawDown = await PollConnectionStatusAsync(synthetic.ConnectionId, "disconnected", TimeSpan.FromSeconds(5));
+        sawDown.Should().BeTrue();
+
+        var reconnected = await api.ConnectConnectionAsync(synthetic.ConnectionId);
+        reconnected.Status.Should().Be("waiting", "повторный connect после Down должен поднять сессию заново");
+
+        await api.DisconnectConnectionAsync(synthetic.ConnectionId);
+    }
+
     private async Task<bool> PollConnectionStatusAsync(
         long connectionId, string expected, TimeSpan timeout)
     {

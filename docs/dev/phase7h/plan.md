@@ -4,9 +4,9 @@
 запись», а **реальное покрытие захвата** (запись включена **и** связь жива). Тогда разрыв в потоке
 сделок однозначно классифицируется: «тихий рынок» (подложка есть) vs «обрыв/не писали» (подложки нет).
 Дизайн Stage 1 — в [../apply.md](../apply.md); реализация — в [apply.md](apply.md); статус — в
-[report.md](report.md).
+[report.md](report.md). Справочник по инцидентам/разрывам — [incident.md](incident.md).
 
-**Статус:** `PLANNED`. **Stage:** 1. **Зависимости:** phase 6a/6b (`coverage_segment`,
+**Статус:** `DONE`. **Stage:** 1. **Зависимости:** phase 6a/6b (`coverage_segment`,
 `ConnectionManager`, `ConnectorSession`), phase 7e (провайдеры/тумблер статуса), phase 7g (слой сделок
 поверх подложки). Открывает дорогу к backfill (7c ISS / 9 qsh).
 
@@ -98,7 +98,7 @@ Disconnected → Connecting → Live ⇄ Degraded → Down/Error → (reconnect)
 
 ## Область (in scope)
 
-- **7h.0 host: recovery осиротевших сегментов на старте.** На запуске закрыть открытые сегменты
+- **7h.0 host: recovery осиротевших сегментов на старте.** ✅ DONE. На запуске закрыть открытые сегменты
   (`ended_at IS NULL`) прошлого процесса: `status='interrupted'`, `ended_at` = время последней сделки
   сегмента (иначе `started_at`). Чинит «склейку» после аварийного рестарта. Миграция: добавить статус
   `interrupted` в `ck_coverage_status`. Полностью тестируемо (Testcontainers), без DLL.
@@ -112,7 +112,7 @@ Disconnected → Connecting → Live ⇄ Degraded → Down/Error → (reconnect)
   причина = `close_reason` предыдущего, `stopped` исключён), `RecoverOpenIntervalsAsync` (→ `interrupted`).
   Разрыв строкой НЕ хранится (положительная модель, crash-safe). Тесты: split/close-reason/server_down
   `to_ts`/журнал разрывов (исключение `stopped`, длящийся разрыв `To=null`) — зелёные.
-- **7h.2 host: писатель хартбита + пинг.** Периодический тик **15 c = min_bucket/2** (Найквист: сэмпл
+- **7h.2 host: писатель хартбита + пинг.** ✅ DONE. Периодический тик **15 c = min_bucket/2** (Найквист: сэмпл
   вдвое чаще самого мелкого бакета 30 c → край разрыва локализуется с точностью до **одного** бакета;
   ловит кейс «в бакете были сделки, но захват рвался внутри» → подозрительный бакет для backfill). На тик:
   сделка/свежие данные → `HeartbeatAsync` (двигаем `to_ts`, при потоке сделок пинга НЕТ); тишина → активный
@@ -123,23 +123,20 @@ Disconnected → Connecting → Live ⇄ Degraded → Down/Error → (reconnect)
   снимает риск «пинговать всю ночь/выходные».
   На 7h.3 проверить, не шлёт ли TXmlConnector периодический `server_status` сам — тогда двигать `to_ts` по
   нему, активный пинг в тишине почти не нужен.
-- **7h.3 connector: непрерывный `server_status`.** Вынести обработку из `TryCompleteConnect` в
+- **7h.3 connector: непрерывный `server_status`.** ✅ DONE. Вынести обработку из `TryCompleteConnect` в
   постоянный обработчик; коннектор публикует состояние связи (событие/`ConnectionState`), не только сигнал
   connect. `SyntheticLiveConnector` — уметь инжектить смену `server_status`.
-- **7h.4 host: автомат + ре-подписка + причина.** `ConnectionManager` держит `ConnectorState`, реагирует
+- **7h.4 host: автомат + ре-подписка + причина.** ✅ DONE. `ConnectionManager` держит `ConnectorState`, реагирует
   на события связи; на реконнекте ре-подписывает активные записи; на Down/Error закрывает сегменты с
   причиной, на возврате в Live — открывает новые.
-- **7h.5 WS + core.** Событие `connectionStateChanged { connectionId, state, reason }`; DTO/эндпоинт
+- **7h.5 WS + core.** ✅ DONE. Событие `connectionStateChanged { connectionId, state, reason }`; DTO/эндпоинт
   `/coverage/liveness`; `OhsStore.liveness$` + `refreshLiveness()` (батч по source), статус подключения.
   Правый край живой подложки двигать только пока state=Live.
-- **7h.6 UI.** Подложка = `coverage_segment ∩ liveness` (с честными дырками); красная разметка обрывов
+- **7h.6 UI.** ✅ DONE. Подложка = `coverage_segment ∩ liveness` (с честными дырками); красная разметка обрывов
   (`error`/`disconnected`/`interrupted`), серое для `stopped`; тумблер провайдера учитывает Degraded/Down.
   Тултип: причина разрыва.
-- **7h.7 эмуляция + тесты.** Быстрый визуальный тест — **ручной seed** `capture_liveness` (INSERT двух
-  интервалов с зазором для source) → подложка рвётся честной красной дырой ещё до автоматики. Затем: инжект
-  разрыва в synthetic + дебаг-эндпоинт `POST /connections/{id}/debug/drop`;
-  тесты: recovery закрывает осиротевшие; обрыв рвёт живость и подложку; тихий рынок живость/подложку НЕ
-  рвёт (пинг подтверждает ok); реконнект ре-подписывает; `connectionStateChanged` доходит.
+- **7h.7 эмуляция + тесты.** ✅ DONE. Ручной seed `capture_liveness` (см. `seed-capture-liveness-2026-07-11.sql`);
+  инжект разрыва в synthetic + `POST /connections/{id}/debug/drop`; тесты зелёные.
   `tsc --noEmit` + `vitest` + backend-тесты зелёные.
 
 ## Вне области (out of scope → позже)

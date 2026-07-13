@@ -6,6 +6,7 @@ interface Props {
   status: string;
   onConnect: () => void;
   onDisconnect: () => void;
+  onCancelConnect?: () => void;
 }
 
 function toPhase(status: string): Phase {
@@ -36,13 +37,14 @@ const LABEL: Record<Phase, string> = {
   error: 'Ошибка',
 };
 
-export function ConnectionToggle({ status, onConnect, onDisconnect }: Props) {
+export function ConnectionToggle({ status, onConnect, onDisconnect, onCancelConnect }: Props) {
   const phase = toPhase(status);
   const connected = phase === 'active' || phase === 'waiting' || phase === 'degraded';
   const busy = phase === 'connecting';
 
   const toggle = () => {
     if (busy) {
+      onCancelConnect?.();
       return;
     }
     if (connected) {
@@ -60,7 +62,7 @@ export function ConnectionToggle({ status, onConnect, onDisconnect }: Props) {
         role="switch"
         aria-checked={connected}
         aria-busy={busy}
-        disabled={busy}
+        disabled={false}
         className={[styles.track, styles[phase]].join(' ')}
         onClick={toggle}
         title={LABEL[phase]}

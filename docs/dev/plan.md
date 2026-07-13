@@ -79,7 +79,7 @@ Stage 1 (архитектура, модель данных, API/WS, границ
 | 7e | Управление подключениями: UI создания/редактирования коннектора (Transaq), ввод кред, realtime-connect | MVP DONE | [phase7e](phase7e/report.md) — `ConnectionForm` (create/edit, префилл+PUT, кредшы) над control-plane (phase 6b) |
 | 7f | Тайм-лайн-фильтр оси Ганта (дни + окно дня) + единый стандарт времени (UTC/МСК/UTC+N) в шапке | MVP DONE | [phase7f](phase7f/report.md) — сессия = атрибут площадки; проекция на клиенте; задел под 7c/мультибиржу |
 | 7g | Слой сделок на Ганте: присутствие торгов по бакетам (статическая лесенка), app-кэш `V008`, `/coverage/activity` | DONE | [phase7g](phase7g/plan.md) — двухслойный Гант: подложка записи + яркие ячейки сделок |
-| 7h | Честная подложка: recovery осиротевших (`V009`), живость захвата (`V010` `capture_liveness`), автомат связи + пинг, красная разметка обрывов | IN PROGRESS | [phase7h](phase7h/plan.md) — 7h.0/7h.1 done (фундамент); далее пинг/`server_status`/UI |
+| 7h | Честная подложка: recovery осиротевших (`V009`), живость захвата (`V010` `capture_liveness`), автомат связи + пинг, красная разметка обрывов | DONE | [phase7h](phase7h/report.md) — валидировано на Finam; gaps + ре-подписка |
 | 7i | «Управление записью»: расписание автозаписи (Supervisor) — авто-connect → запись в сессию площадки → авто-stop; мультибиржа/US-tz | PLANNED | [phase7i](phase7i/plan.md) — заменяет ручные Старт/Стоп; решает «фон ночью» |
 | 8 | CI/CD: GitHub Actions (build + unit + integration) + compose-сервис `migrator` | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` (бэкфилл, `source=qscalp`) — поздний этап | TODO | — |

@@ -82,13 +82,13 @@ scinverse/
 | 6c | Иерархия деривативов (V007, группировки) | DONE | [phase6c](./dev/phase6c/report.md) |
 | 7 | Админ-фронт (список, Гант, старт/стоп, подключения) | IN PROGRESS | [phase7](./dev/phase7/report.md) |
 | 7b | Таймфреймы + сессионное окно (панель D/W/M/Q/Y/All/диапазон) | DONE | [phase7b](./dev/phase7b/report.md) |
-| 7c | Реальное расписание MOEX (ISS) + страница «Биржи → Структура» | PLANNED | [phase7c](./dev/phase7c/report.md) |
-| 7d | Динамические фильтры каталога (плашки Инструмент/Выбор/Биржи + поиск справа) | IN PROGRESS (UI готов, тесты) | [phase7d](./dev/phase7d/report.md) |
-| **7e** | **Управление подключениями (провайдеры): создание/креды/realtime-connect** | **IN PROGRESS (UI готов; realtime + тесты)** | [phase7e](./dev/phase7e/report.md) |
+| 7c | Реальное расписание MOEX (ISS) + страница «Биржи → Структура» | MVP DONE | [phase7c](./dev/phase7c/report.md) |
+| 7d | Динамические фильтры каталога (плашки Инструмент/Выбор/Биржи + поиск справа) | MVP DONE | [phase7d](./dev/phase7d/report.md) |
+| 7e | Управление подключениями (провайдеры): создание/креды/realtime-connect | MVP DONE | [phase7e](./dev/phase7e/report.md) |
 | 7f | Тайм-лайн-фильтр оси + стандарт времени + вертикальный crosshair + подсветка дней | MVP DONE | [phase7f](./dev/phase7f/report.md) |
 | 7g | Слой сделок на Ганте: присутствие торгов по бакетам (лесенка), app-кэш `V008`, `/coverage/activity` | DONE | [phase7g](./dev/phase7g/plan.md) |
-| **7h** | **Честная подложка: recovery (`V009`), живость захвата (`V010`), автомат связи + пинг, красная разметка разрывов** | **IN PROGRESS (7h.0/7h.1 done)** | [phase7h](./dev/phase7h/plan.md) |
-| 7i | «Управление записью»: расписание автозаписи (Supervisor, сессия площадки, US-tz) | PLANNED | [phase7i](./dev/phase7i/plan.md) |
+| **7h** | **Честная подложка: recovery (`V009`), живость (`V010`/`V011`), автомат связи + пинг, красная разметка разрывов** | **DONE** | [phase7h/report](./dev/phase7h/report.md), [incident](./dev/phase7h/incident.md) |
+| **7i** | **«Управление записью»: расписание автозаписи (Supervisor, сессия площадки, US-tz)** | **PLANNED → следующий чат** | [phase7i/plan](./dev/phase7i/plan.md) |
 | 8 | CI/CD (GitHub Actions + compose `migrator`) | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` | TODO | — |
 | 10 | Multi-user & auth (Keycloak + `user_settings` + роли) | PLANNED | [phase10](./dev/phase10/plan.md) |
@@ -124,11 +124,12 @@ scinverse/
   (не пиксель); размер по **статической лесенке** (`bucketSecondsForTimeframe`, ~7 ступеней 30с…1д) —
   стабильный ключ кэша. Агрегация: TimescaleDB `time_bucket` **на лету** + свой app-кэш закрытых дней
   (`trade_activity_bucket`/`_computed`); continuous aggregates — на release (см. `mvp-to-release.md`).
-- **Честная подложка / разрывы** (phase 7h, IN PROGRESS) — модель трёх слоёв: **Намерение**
-  (`coverage_segment`) ∩ **Живость** (`capture_liveness`: хартбит/пинг = «связь жива») даёт честный фон;
+- **Честная подложка / разрывы** (phase 7h, **DONE**) — модель трёх слоёв: **Намерение**
+  (`coverage_segment`) ∩ **Живость** (`capture_liveness`: хартбит 15 c / пинг = «связь жива») даёт честный фон;
   дыра в живости внутри намерения = **обрыв связи** (красным), дыра в сделках при живой подложке =
-  **тихий рынок** (не разрыв). На старте хоста — recovery осиротевших сегментов/интервалов (аварийный
-  рестарт не «склеивает» фон).
+  **тихий рынок** (не разрыв). Recovery на старте, автомат связи, WS `connectionStateChanged`.
+  **Вне торговой сессии пинги не идут** — гейт в `LivenessProbe`. Справочник — [phase7h/incident.md](./dev/phase7h/incident.md);
+  отчёт и сценарии проверки — [phase7h/report.md](./dev/phase7h/report.md).
 
 ## 5. Как запустить (локально)
 
@@ -150,55 +151,109 @@ scinverse/
 
 ## 7. Текущий момент и следующие шаги
 
-**Область Ганта фактически собрана.** Завершены: посессионная ось + таймфреймы D/W/M/Q/Y/диапазон
-(phase 7b), тайм-лайн-фильтр «Full + сессия» + единый стандарт времени в шапке, вертикальный
-crosshair, подсветка дней (phase 7f — MVP DONE). Динамические фильтры каталога (плашки
-Инструмент/Выбор/Биржи + поиск) — реализованы (phase 7d, остались тесты). Двухслойный Гант
-(подложка записи + яркие ячейки сделок) — готов (phase 7g). Footer готов.
+**Область Ганта собрана.** Завершены: посессионная ось (7b), фильтры каталога (7d), провайдеры (7e),
+тайм-лайн-фильтр + TZ (7f), слой сделок (7g), **честная подложка и разрывы (7h)** — валидировано на Finam.
 
-Карта всей фазы 7 (цели/подфазы/фокус) — в [phase7/roadmap.md](./dev/phase7/roadmap.md).
+Карта фазы 7 — [phase7/roadmap.md](./dev/phase7/roadmap.md).
 
-### ⚠️ Разделение работ по двум чатам (важно, чтобы не конфликтовать)
+---
 
-- 🟥 **Разрывы + обработка ошибок соединения — [phase 7h](./dev/phase7h/plan.md), ведётся в ОТДЕЛЬНОМ чате.**
-  Не трогать в этом чате: `capture_liveness` (V010) / recovery / автомат связи / отрисовку разрывов
-  (`CoverageTrack` слой подложки ∩ живость) / `ICaptureLivenessStore` / хартбит-пинг. Фундамент 7h.0/7h.1
-  готов (recovery + хранилище живости), дальше — пинг/`server_status`/UI разрывов.
-- 🟦 **Этот чат — ИНТЕРФЕЙСЫ (цель 1 роадмапа):** провайдеры (7e ниже), тесты фильтров (7d), уровни
-  навигации 2/1, общая доводка UX. Безопасно параллелится с 7h.
+## 8. ➡️ НОВЫЙ ЧАТ: phase 7i — «Управление записью» (Supervisor)
 
-### ➡️ Основной трек этого чата: ПРОВАЙДЕРЫ — [phase 7e](./dev/phase7e/plan.md)
+**Прочитай первым:** [docs/dev/phase7i/plan.md](./dev/phase7i/plan.md)
 
-Управление подключениями (провайдерами) к источникам данных из админки.
+### Задача
 
-**Что уже готово (7e.1–7e.5, UI-слой):**
-- Форма создания/редактирования подключения `ConnectionForm` (`kind = transaq | synthetic`, source,
-  settings, логин/пароль в попапе), кнопка `+` в `ConnectionsPanel`.
-- Тумблер статуса `ConnectionToggle`: 4 состояния цветом — Отключен (серый) → Подключение (жёлтый) →
-  Подключён Актив. (синий, идут данные) → Подключён Ожид. (зелёный, тишина ≥5 c); error = красный.
-  Активность/ожидание решает **бэкенд** (`ConnectionManager` по потоку данных коннектор→биржа).
-- Редактирование/удаление провайдера: ПКМ-меню (✎/✕) + `ConfirmDialog`; backend
-  `PUT`/`DELETE /connections/{id}` (удаление гасит сессию и чистит креды; факты в БД остаются).
-- `synthetic-local` эмулирует флоу для демо: Connecting (2–3 c) → Waiting (5 c) → Active.
+Заменить ручные кнопки **Старт/Стоп** на политику записи: **Ручной / По расписанию / Выкл**.
+Supervisor на бэке: в торговое окно площадки → авто-connect → запись → авто-stop; вне окна — не писать.
+Решает «фон ночью» и ручной присмотр.
 
-**Что осталось по провайдерам (задачи нового чата):**
-1. **Реальный Transaq realtime-connect с живого рынка** — креды/DLL-путь, проверить подключение и
-   рост колбасок на реальных торгах (в т.ч. сценарий выходных торгов MOEX).
-2. **Тесты 7e.6** — vitest на команды `OhsStore` (upsert/credentials/test → вызов api + merge),
-   опц. api-smoke на upsert+credentials (секреты не должны попадать в `connections$`/ответы API).
-3. **Статус инструмента по расписанию борда** в карточке (Открыто/Закрыто/Пре-опен) — авторитетно,
-   не lagging; для записываемых — «активность записи» по времени последней сделки (порог ~30 c).
-   Завязано на [phase 7c](./dev/phase7c/plan.md).
+### Почему 7h — обязательная база
 
-**Код провайдеров:** backend — `Scinverse.Ohs.Connectors.Transaq` (коннекторы TRANSAQ/SyntheticLive,
-фабрика, `ConnectionManager`, `ICredentialStore`), control-plane REST/WS — `Scinverse.Ohs.Host`
-(phase 6b). Frontend — `web/src/ui/pages/{ConnectionsPanel,ProviderCard}`,
-`web/src/ui/components/{ConnectionForm,ConnectionToggle}`, команды — `web/src/core/OhsStore.ts`.
-Детали фазы — [phase7e/{plan,apply,report}.md](./dev/phase7e/report.md).
+| Компонент 7h | Роль для 7i |
+|--------------|-------------|
+| `ConnectionManager` + автомат связи | авто-connect / reconnect / ре-подписка |
+| `RecordingManager.StartAsync` / `StopAsync` | arm/disarm записи Supervisor'ом |
+| `LivenessProbe` + гейт торговых часов | **вне сессии пинги не идут**, живость не пишется — Supervisor должен **не вооружать** запись вне окна |
+| `IMarketCalendar` / ISS (7c) | часы сессии площадки для «должен ли писать сейчас?» |
+| Честная подложка | вне окна — нейтральный фон (не ложная дыра) |
 
-**Крупный задел рядом:** [phase 7c](./dev/phase7c/plan.md) — интеграция MOEX ISS API: реальное
-расписание торгов, страница «Биржи → Структура» (движки/рынки/борды + торгуемые инструменты) и
-**лента новостей/событий**. Все ссылки на ISS-эндпоинты — в [phase7c/apply.md](./dev/phase7c/apply.md).
+### Планируемая модель (из plan.md)
+
+- Таблица `recording_schedule` (instrument_id, connection_id, mode, weekdays, window_kind, warmup…).
+- `RecordingSupervisor` — фоновый тик ~1 мин, идемпотентный arm/disarm.
+- API: `GET/PUT /api/recording/schedule`.
+- UI: диалог «Управление записью» вместо Старт/Стоп; индикатор `пишет` / `вооружён` / `вне сессии` / `выкл`.
+- US-инструменты — IANA tz (`America/New_York`), DST.
+
+### Открытый вопрос (решить на живом Finam)
+
+Источник «сейчас торгуется»: (1) TRANSAQ `inst.active`, (2) эмпирика `md_trade`, (3) календарь 7c/ISS.
+Вероятный гибрид — см. конец [phase7i/plan.md](./dev/phase7i/plan.md).
+
+### Ключевые файлы (точки входа)
+
+**Backend (расширять):**
+- `Scinverse.Ohs.Host/RecordingManager.cs` — start/stop, `OnLinkLiveAsync`
+- `Scinverse.Ohs.Host/ConnectionManager.cs` — connect/disconnect, link automaton
+- `Scinverse.Ohs.Host/LivenessProbe.cs` — гейт сессии (не дублировать логику — переиспользовать `IMarketCalendar`)
+- `Scinverse.Ohs.Host/MarketCalendar.cs` — ISS-календарь FORTS
+- `Scinverse.Ohs.Host/OhsWorker.cs` — зарегистрировать Supervisor рядом с `LivenessProbe`
+- `db/migrations/V012__…` — `recording_schedule` (имя уточнить в apply)
+
+**Frontend (менять):**
+- `web/src/ui/components/InstrumentPicker.tsx` — Старт/Стоп → «Управление записью»
+- `web/src/core/OhsStore.ts` — schedule state, команды API
+- `web/src/core/api.ts` + `types.ts` — DTO расписания
+
+**Документация (создать по ходу):**
+- `docs/dev/phase7i/{apply,report}.md` — apply при реализации
+
+### Что уже сделано вне 7i (не ломать)
+
+- Ручной старт/стоп работает (`RecordingManager`, кнопки в `InstrumentPicker`).
+- Finam `connection_id=3`, `source_id=1`; креды временно в `appsettings.Local.json` (`DevLocalTransaqCredentials`).
+- Звёздочки инструментов — `localStorage` (`selectedInstrumentsStorage.ts`).
+- Фикс reconnect после Down: `ConnectAsync` сбрасывает осиротевшую сессию; фронт: `disconnected` на connect → error.
+
+### Критерии приёмки 7i (кратко)
+
+1. `scheduled` — сам старт/стоп по сессии; ночью запись не идёт.
+2. `manual` — как сейчас; ручной старт перекрывает расписание.
+3. US-tz с DST.
+4. Вне окна — нейтральный фон Ганта.
+5. Тесты зелёные.
+
+### Запуск для разработки
+
+```text
+БД: docker-compose + DbUp (миграции до V011)
+Host: Scinverse.Ohs.Host (:5080), appsettings.Local.json для Transaq
+Web:  services/online-history-server/web → pnpm dev
+Тесты: dotnet test; pnpm exec vitest run; pnpm exec tsc --noEmit
+```
+
+### Соседние фазы (не смешивать с 7i)
+
+- **7e follow-up:** статус инструмента по борду (7c.9), тесты credentials — отдельно.
+- **8** CI/CD, **9** qsh backfill, **10** multi-user — позже.
+
+---
+
+## 9. Справка: провайдеры (phase 7e, DONE)
+
+Управление подключениями из админки — [phase7e/report.md](./dev/phase7e/report.md).
+
+- `ConnectionForm`, `ConnectionToggle` (5 фаз + error), `ProviderCard`
+- Backend: `ConnectionManager`, `POST /connections/validate`, synthetic + Transaq
+- Эмуляция обрыва: `POST /api/connections/{id}/debug/drop` (Dev, synthetic)
+
+---
+
+## 10. Справка: ISS / биржи (phase 7c, MVP DONE)
+
+Реальный календарь MOEX — [phase7c/report.md](./dev/phase7c/report.md). Для 7i переиспользовать
+`IMarketCalendar.ShapeSessionsAsync(engine, dates)` — уже питает `/api/sessions` и гейт `LivenessProbe`.
 
 ---
 

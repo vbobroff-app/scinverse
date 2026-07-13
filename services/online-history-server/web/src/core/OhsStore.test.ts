@@ -87,7 +87,7 @@ describe('OhsStore live merge', () => {
     store.stop();
   });
 
-  it('обновляет статус подключения по connectionStateChanged', () => {
+  it('обновляет статус подключения по connectionStateChanged (Down)', () => {
     const live = new Subject<LiveEvent>();
     const store = new OhsStore(fakeApi(), live);
     store.start();
