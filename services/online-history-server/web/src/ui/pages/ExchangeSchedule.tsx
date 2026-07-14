@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { OhsApi } from '../../core/api';
-import type { MarketScheduleDto, ScheduleConfidence, SchedulePhaseDto } from '../../core/types';
+import type {
+  MarketScheduleDto,
+  MarketScheduleExceptionDto,
+  ScheduleConfidence,
+  ScheduleExceptionKind,
+  SchedulePhaseDto,
+} from '../../core/types';
 import styles from './ExchangeSchedule.module.css';
 
 /** Рынки с курируемым базовым расписанием (переключатель вверху вкладки). id = код market в БД. */
@@ -9,6 +15,53 @@ const ENGINES: ReadonlyArray<{ id: string; label: string }> = [
   { id: 'stock', label: 'Фондовый' },
   { id: 'currency', label: 'Валютный' },
 ];
+
+type ScopeChip = { id: string; label: string };
+
+/**
+ * Пер-рыночные таксономии scope (`sec_type` → «Вид», `category` → «Категория»). Коды совпадают
+ * с моделью scope в БД (см. docs/dev/phase7i/schedule.md); `category` для срочного рынка — как в
+ * `futures_asset_class`. Пока это только навигация: собственного расписания у видов/категорий нет,
+ * везде действует общий распорядок рынка — своё появится после резолва обобщённого исключения.
+ */
+const MARKET_TAXONOMY: Record<string, { secTypes: ScopeChip[]; categories: ScopeChip[] }> = {
+  derivatives: {
+    secTypes: [
+      { id: 'futures', label: 'Фьючерсы' },
+      { id: 'options', label: 'Опционы' },
+      { id: 'spreads', label: 'Спреды' },
+    ],
+    categories: [
+      { id: 'currency', label: 'Валюта' },
+      { id: 'shares', label: 'Акции' },
+      { id: 'index', label: 'Индексы' },
+      { id: 'commodity', label: 'Товары' },
+      { id: 'rate', label: 'Ставки' },
+    ],
+  },
+  stock: {
+    secTypes: [
+      { id: 'shares', label: 'Акции' },
+      { id: 'bonds', label: 'Облигации' },
+      { id: 'etf', label: 'Фонды' },
+      { id: 'dr', label: 'Расписки' },
+    ],
+    categories: [
+      { id: 'ordinary', label: 'Обыкновенные' },
+      { id: 'preferred', label: 'Привилегированные' },
+    ],
+  },
+  currency: {
+    secTypes: [
+      { id: 'spot', label: 'Спот' },
+      { id: 'swap', label: 'Свопы' },
+    ],
+    categories: [
+      { id: 'tod', label: 'TOD' },
+      { id: 'tom', label: 'TOM' },
+    ],
+  },
+};
 
 /** Человекочитаемые имена фаз (ключи совпадают с JSONB `phases`). */
 const PHASE_LABELS: Record<string, string> = {
@@ -24,6 +77,20 @@ const CONFIDENCE_LABELS: Record<ScheduleConfidence, string> = {
   authoritative: 'официальный источник (MOEX)',
   empirical: 'реконструкция (эмпирически)',
   assumed: 'предположение',
+};
+
+/** Короткая подпись достоверности (для таблицы исключений). */
+const CONFIDENCE_SHORT: Record<ScheduleConfidence, string> = {
+  authoritative: 'официальный',
+  empirical: 'эмпирически',
+  assumed: 'предположение',
+};
+
+/** Тип отклонения исключения. */
+const KIND_LABELS: Record<ScheduleExceptionKind, string> = {
+  no_trade: 'Нет торгов',
+  shifted: 'Сдвиг сессии',
+  shortened: 'Сокращённый день',
 };
 
 type DayKind = 'weekday' | 'weekend';
@@ -51,10 +118,13 @@ function span(phase: SchedulePhaseDto): number {
  */
 export function ExchangeSchedule() {
   const [engine, setEngine] = useState('derivatives');
+  const [secType, setSecType] = useState<string | null>(null);
+  const [category, setCategory] = useState<string | null>(null);
   const [tab, setTab] = useState<DayKind>('weekday');
   const [schedule, setSchedule] = useState<MarketScheduleDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exceptions, setExceptions] = useState<MarketScheduleExceptionDto[]>([]);
 
   useEffect(() => {
     setLoading(true);
@@ -72,6 +142,45 @@ export function ExchangeSchedule() {
     });
     return () => sub.unsubscribe();
   }, [engine]);
+
+  // Незарезолвенные исключения по датам для выбранного рынка (пока таблица обычно пуста).
+  useEffect(() => {
+    const sub = OhsApi.getScheduleExceptions(engine, true).subscribe({
+      next: setExceptions,
+      error: () => setExceptions([]),
+    });
+    return () => sub.unsubscribe();
+  }, [engine]);
+
+  const taxonomy = MARKET_TAXONOMY[engine] ?? { secTypes: [], categories: [] };
+  const scopeSelected = secType !== null || category !== null;
+
+  function selectMarket(id: string): void {
+    setEngine(id);
+    setSecType(null);
+    setCategory(null);
+  }
+
+  /** Читаемая область действия исключения: «Рынок · Вид · Категория · SECID» (коды → русские подписи). */
+  function scopeText(exc: MarketScheduleExceptionDto): string {
+    const tax = MARKET_TAXONOMY[exc.market];
+    const parts = [ENGINES.find((e) => e.id === exc.market)?.label ?? exc.market];
+    if (exc.secType) {
+      parts.push(tax?.secTypes.find((t) => t.id === exc.secType)?.label ?? exc.secType);
+    }
+    if (exc.category) {
+      parts.push(tax?.categories.find((c) => c.id === exc.category)?.label ?? exc.category);
+    }
+    if (exc.instrument) {
+      parts.push(exc.instrument);
+    }
+    return parts.join(' · ');
+  }
+
+  /** Окно исключения (МСК) или «—», если торгов нет / окно не задано. */
+  function excWindow(exc: MarketScheduleExceptionDto): string {
+    return exc.openTime && exc.closeTime ? `${hhmm(exc.openTime)} – ${hhmm(exc.closeTime)}` : '—';
+  }
 
   const hasWeekend = !!(schedule?.weOpen && schedule?.weClose);
 
@@ -95,12 +204,12 @@ export function ExchangeSchedule() {
   return (
     <div className={styles.wrap}>
       <div className={styles.head}>
-        <div className={styles.engines} role="tablist" aria-label="Движок">
+        <div className={styles.engines} role="tablist" aria-label="Рынок">
           {ENGINES.map((e) => (
             <button
               key={e.id}
               className={[styles.engineBtn, engine === e.id ? styles.engineBtnActive : ''].filter(Boolean).join(' ')}
-              onClick={() => setEngine(e.id)}
+              onClick={() => selectMarket(e.id)}
             >
               {e.label}
             </button>
@@ -108,6 +217,38 @@ export function ExchangeSchedule() {
         </div>
         <span className={styles.tz}>Время торгов — московское (GMT +3)</span>
       </div>
+
+      <div className={styles.scope}>
+        <span className={styles.scopeLabel}>Вид</span>
+        {taxonomy.secTypes.map((t) => (
+          <button
+            key={t.id}
+            className={[styles.chip, secType === t.id ? styles.chipActive : ''].filter(Boolean).join(' ')}
+            onClick={() => setSecType((prev) => (prev === t.id ? null : t.id))}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className={styles.scope}>
+        <span className={styles.scopeLabel}>Категория</span>
+        {taxonomy.categories.map((c) => (
+          <button
+            key={c.id}
+            className={[styles.chip, category === c.id ? styles.chipActive : ''].filter(Boolean).join(' ')}
+            onClick={() => setCategory((prev) => (prev === c.id ? null : c.id))}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      {scopeSelected && (
+        <div className={styles.scopeHint}>
+          Собственного расписания для выбранного scope пока нет — действует общий распорядок рынка.
+        </div>
+      )}
 
       {error && <div className={styles.error}>{error}</div>}
       {loading && <div className={styles.hint}>Загрузка расписания…</div>}
@@ -187,6 +328,44 @@ export function ExchangeSchedule() {
           </div>
         </>
       )}
+
+      <div className={styles.exceptions}>
+        <div className={styles.exceptionsHead}>
+          <span className={styles.exceptionsTitle}>Исключения (неразобранные)</span>
+          {exceptions.length > 0 && <span className={styles.exceptionsCount}>{exceptions.length}</span>}
+        </div>
+
+        {exceptions.length === 0 ? (
+          <div className={styles.hint}>Исключения не найдены.</div>
+        ) : (
+          <table className={styles.excTable}>
+            <thead>
+              <tr>
+                <th>Дата</th>
+                <th>Область</th>
+                <th>Отклонение</th>
+                <th>Время (МСК)</th>
+                <th>Достоверность</th>
+                <th>Источник</th>
+                <th>Примечание</th>
+              </tr>
+            </thead>
+            <tbody>
+              {exceptions.map((exc, i) => (
+                <tr key={`${exc.market}-${exc.instrument ?? ''}-${exc.excDate}-${i}`}>
+                  <td className={styles.excDate}>{exc.excDate}</td>
+                  <td>{scopeText(exc)}</td>
+                  <td>{KIND_LABELS[exc.kind] ?? exc.kind}</td>
+                  <td className={styles.excMono}>{excWindow(exc)}</td>
+                  <td>{CONFIDENCE_SHORT[exc.confidence] ?? exc.confidence}</td>
+                  <td>{exc.source ?? '—'}</td>
+                  <td className={styles.excNote}>{exc.note ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }

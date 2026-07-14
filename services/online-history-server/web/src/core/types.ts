@@ -364,6 +364,29 @@ export interface MarketScheduleDto {
   note: string | null;
 }
 
+/** Тип отклонения исключения расписания. */
+export type ScheduleExceptionKind = 'no_trade' | 'shifted' | 'shortened';
+
+/**
+ * Исключение расписания на дату (`market_schedule_exception`): отклонение от базы на конкретный день.
+ * scope-поля заполнены до уровня отклонения (null = «на всё внутри»). Окно (`openTime`/`closeTime`,
+ * `HH:mm:ss` МСК) — только для shifted/shortened. `resolved` — пользователь разобрал.
+ */
+export interface MarketScheduleExceptionDto {
+  excDate: string;
+  market: string;
+  secType: string | null;
+  category: string | null;
+  instrument: string | null;
+  kind: ScheduleExceptionKind;
+  openTime: string | null;
+  closeTime: string | null;
+  confidence: ScheduleConfidence;
+  source: string | null;
+  resolved: boolean;
+  note: string | null;
+}
+
 /** Транспорт внешнего сервиса. */
 export type IntegrationTransport = 'rest' | 'grpc' | 'ws';
 
@@ -379,6 +402,8 @@ export interface ExternalServiceDto {
   hasSecret: boolean;
   secretExpiresOn: string | null;
   enabled: boolean;
+  /** Назначен источником системного расписания (confirmer). Эксклюзивно: ≤1 интеграции. */
+  useForSchedule: boolean;
 }
 
 /** Создание/обновление интеграции. `secret` пустой → не менять (при обновлении). */

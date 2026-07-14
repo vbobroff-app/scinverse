@@ -79,6 +79,53 @@ public sealed class MarketScheduleStore(NpgsqlDataSource dataSource) : IMarketSc
             row.Note);
     }
 
+    private sealed record ExcRow(
+        string ExcDate,
+        string Market,
+        string? SecType,
+        string? Category,
+        string? Instrument,
+        string Kind,
+        string? OpenTime,
+        string? CloseTime,
+        string Confidence,
+        string? Source,
+        bool Resolved,
+        string? Note);
+
+    public async Task<IReadOnlyList<MarketScheduleException>> ListExceptionsAsync(
+        string market, bool onlyUnresolved, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<ExcRow>(new CommandDefinition(
+            """
+            SELECT exc_date::text   AS ExcDate,
+                   market           AS Market,
+                   sec_type         AS SecType,
+                   category         AS Category,
+                   instrument       AS Instrument,
+                   kind             AS Kind,
+                   open_time::text  AS OpenTime,
+                   close_time::text AS CloseTime,
+                   confidence       AS Confidence,
+                   source           AS Source,
+                   resolved         AS Resolved,
+                   note             AS Note
+            FROM market_schedule_exception
+            WHERE market = @market
+              AND (@onlyUnresolved = FALSE OR resolved = FALSE)
+            ORDER BY exc_date DESC, exception_id DESC;
+            """,
+            new { market, onlyUnresolved },
+            cancellationToken: cancellationToken));
+
+        return rows.Select(r => new MarketScheduleException(
+            DateOnly.ParseExact(r.ExcDate, "yyyy-MM-dd", CultureInfo.InvariantCulture),
+            r.Market, r.SecType, r.Category, r.Instrument, r.Kind,
+            ParseTime(r.OpenTime), ParseTime(r.CloseTime),
+            r.Confidence, r.Source, r.Resolved, r.Note)).ToList();
+    }
+
     /// <summary>Парсит PostgreSQL <c>time</c> (в тексте <c>HH:mm:ss</c>) в <see cref="TimeOnly"/>; null → null.</summary>
     private static TimeOnly? ParseTime(string? text) =>
         string.IsNullOrWhiteSpace(text)

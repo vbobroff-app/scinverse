@@ -116,6 +116,20 @@
   color: var(--color-text-secondary);
 }
 
+.sourceToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sourceToggle input:disabled {
+  cursor: default;
+}
+
 .tableWrap {
   max-height: 340px;
   overflow-y: auto;

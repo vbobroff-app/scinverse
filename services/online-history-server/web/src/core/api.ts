@@ -5,6 +5,7 @@ import type {
   BoardDto,
   CalendarDayDto,
   MarketScheduleDto,
+  MarketScheduleExceptionDto,
   ConnectionCredentialsRequest,
   ConnectionDto,
   CaptureLivenessDto,
@@ -174,6 +175,12 @@ export const OhsApi = {
     return getJSON<MarketScheduleDto>(`/exchanges/${encodeURIComponent(engine)}/schedule${suffix}`);
   },
 
+  // Исключения по датам для рынка (market_schedule_exception). По умолчанию — только неразобранные.
+  getScheduleExceptions: (market: string, unresolved = true) =>
+    getJSON<MarketScheduleExceptionDto[]>(
+      `/exchanges/${encodeURIComponent(market)}/exceptions?unresolved=${unresolved}`,
+    ),
+
   // Внешние сервисы-интеграции (external_service, phase 7i): CRUD + health-check + расписание.
   getIntegrations: () => getJSON<ExternalServiceDto[]>('/integrations'),
 
@@ -191,6 +198,10 @@ export const OhsApi = {
 
   getIntegrationSchedule: (serviceId: number, symbol: string) =>
     getJSON<ExternalScheduleDto>(`/integrations/${serviceId}/schedule?symbol=${encodeURIComponent(symbol)}`),
+
+  // Назначить/снять интеграцию источником системного расписания (эксклюзивно).
+  setScheduleSource: (serviceId: number, enabled: boolean) =>
+    post<ExternalServiceDto>(`/integrations/${serviceId}/schedule-source?enabled=${enabled}`),
 };
 
 export type OhsApiClient = typeof OhsApi;

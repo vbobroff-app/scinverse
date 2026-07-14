@@ -25,4 +25,10 @@ public sealed record ExternalService
     public DateOnly? SecretExpiresOn { get; init; }
 
     public required bool Enabled { get; init; }
+
+    /// <summary>
+    /// Назначен ли этот сервис источником СИСТЕМНОГО расписания (confirmer для авто-сверки). Эксклюзивно:
+    /// одновременно ≤1 интеграции. Capability «schedule», см. docs/dev/phase7i/schedule.md.
+    /// </summary>
+    public bool UseForSchedule { get; init; }
 }

@@ -236,7 +236,8 @@ public sealed record ExternalServiceDto(
     string Transport,
     bool HasSecret,
     DateOnly? SecretExpiresOn,
-    bool Enabled);
+    bool Enabled,
+    bool UseForSchedule);
 
 /// <summary>
 /// Создание/обновление интеграции. <paramref name="Secret"/> = null/пусто → не менять (при обновлении)
@@ -275,4 +276,23 @@ public sealed record MarketScheduleDto(
     IReadOnlyList<SchedulePhaseDto> Weekend,
     string Confidence,
     string? Source,
+    string? Note);
+
+/// <summary>
+/// Исключение расписания на дату (market_schedule_exception, phase 7i). Отклонение от базы на конкретный
+/// день; scope-поля заполнены до уровня отклонения (null = «на всё внутри»). <c>Kind</c>:
+/// no_trade|shifted|shortened. Окно (<c>OpenTime</c>/<c>CloseTime</c>, МСК) — только для shifted/shortened.
+/// </summary>
+public sealed record MarketScheduleExceptionDto(
+    DateOnly ExcDate,
+    string Market,
+    string? SecType,
+    string? Category,
+    string? Instrument,
+    string Kind,
+    TimeOnly? OpenTime,
+    TimeOnly? CloseTime,
+    string Confidence,
+    string? Source,
+    bool Resolved,
     string? Note);

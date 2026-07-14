@@ -26,4 +26,10 @@ public interface IExternalServiceStore
 
     /// <summary>Секрет сервиса (для адаптера); null, если сервиса нет или секрет не задан.</summary>
     Task<string?> GetSecretAsync(long serviceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Назначить/снять сервис источником системного расписания. При <paramref name="enabled"/> = true —
+    /// эксклюзивно (снимает признак с остальных). Возвращает обновлённый сервис или null, если не найден.
+    /// </summary>
+    Task<ExternalService?> SetScheduleSourceAsync(long serviceId, bool enabled, CancellationToken cancellationToken);
 }

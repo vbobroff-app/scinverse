@@ -14,7 +14,7 @@ public sealed class ExternalServiceStore(NpgsqlDataSource dataSource) : IExterna
     private const string SelectColumns =
         "service_id AS ServiceId, name AS Name, adapter AS Adapter, transport AS Transport, " +
         "(secret IS NOT NULL AND length(secret) > 0) AS HasSecret, " +
-        "secret_expires_on AS SecretExpiresOn, enabled AS Enabled";
+        "secret_expires_on AS SecretExpiresOn, enabled AS Enabled, use_for_schedule AS UseForSchedule";
 
     public async Task<IReadOnlyList<ExternalService>> ListAsync(CancellationToken cancellationToken)
     {
@@ -95,5 +95,31 @@ public sealed class ExternalServiceStore(NpgsqlDataSource dataSource) : IExterna
             "SELECT secret FROM external_service WHERE service_id = @serviceId;",
             new { serviceId },
             cancellationToken: cancellationToken));
+    }
+
+    public async Task<ExternalService?> SetScheduleSourceAsync(
+        long serviceId, bool enabled, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        // Эксклюзивность: сначала снимаем признак со всех (двумя шагами, чтобы partial unique index не
+        // ловил транзиентный конфликт при «перевешивании»), затем ставим целевому.
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+        if (enabled)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "UPDATE external_service SET use_for_schedule = FALSE, updated_at = now() WHERE use_for_schedule;",
+                transaction: tx, cancellationToken: cancellationToken));
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE external_service SET use_for_schedule = @enabled, updated_at = now() WHERE service_id = @serviceId;",
+            new { serviceId, enabled }, transaction: tx, cancellationToken: cancellationToken));
+
+        var updated = await connection.QuerySingleOrDefaultAsync<ExternalService>(new CommandDefinition(
+            $"SELECT {SelectColumns} FROM external_service WHERE service_id = @serviceId;",
+            new { serviceId }, transaction: tx, cancellationToken: cancellationToken));
+
+        await tx.CommitAsync(cancellationToken);
+        return updated;
     }
 }

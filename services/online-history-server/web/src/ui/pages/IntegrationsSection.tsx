@@ -44,7 +44,7 @@ export function IntegrationsSection() {
         onChanged={reload}
       />
       {selected ? (
-        <IntegrationWorkspace service={selected} />
+        <IntegrationWorkspace service={selected} onChanged={reload} />
       ) : (
         <div className={styles.placeholder}>
           {loaded ? 'Создай интеграцию слева (кнопка +).' : 'Загрузка…'}

@@ -316,6 +316,14 @@ public static class OhsEndpoints
         integrations.MapDelete("/{id:long}", async (long id, IExternalServiceStore store, CancellationToken ct) =>
             await store.DeleteAsync(id, ct) ? Results.NoContent() : Results.NotFound());
 
+        // Назначить/снять сервис источником системного расписания (capability «schedule»). Эксклюзивно.
+        integrations.MapPost("/{id:long}/schedule-source", async (
+            long id, bool? enabled, IExternalServiceStore store, CancellationToken ct) =>
+        {
+            var updated = await store.SetScheduleSourceAsync(id, enabled ?? true, ct);
+            return updated is null ? Results.NotFound() : Results.Ok(ToDto(updated));
+        });
+
         // Health-check: обмен сохранённого секрета на JWT. Ошибка auth → {ok:false} (200), не 5xx.
         integrations.MapPost("/{id:long}/probe", async (
             long id, IExternalServiceStore store, IFinamApi finam, CancellationToken ct) =>
@@ -485,6 +493,16 @@ public static class OhsEndpoints
                     version.Weekend.Select(p => new SchedulePhaseDto(p.Key, p.From, p.Till)).ToList(),
                     version.Confidence, version.Source, version.Note));
         });
+
+        // Исключения по датам для рынка (market_schedule_exception). unresolved=true → только неразобранные.
+        exchanges.MapGet("/{market}/exceptions", async (
+            string market, bool? unresolved, IMarketScheduleStore store, CancellationToken ct) =>
+        {
+            var rows = await store.ListExceptionsAsync(market, unresolved ?? true, ct);
+            return rows.Select(e => new MarketScheduleExceptionDto(
+                e.ExcDate, e.Market, e.SecType, e.Category, e.Instrument, e.Kind,
+                e.OpenTime, e.CloseTime, e.Confidence, e.Source, e.Resolved, e.Note)).ToList();
+        });
     }
 
     /// <summary>Классифицирует день для UI: regular · transfer (рабочий перенос) · dsvd (выходной торговый) · weekend · holiday.</summary>
@@ -565,7 +583,7 @@ public static class OhsEndpoints
 
     private static ExternalServiceDto ToDto(ExternalService service) => new(
         service.ServiceId, service.Name, service.Adapter, service.Transport,
-        service.HasSecret, service.SecretExpiresOn, service.Enabled);
+        service.HasSecret, service.SecretExpiresOn, service.Enabled, service.UseForSchedule);
 
     private static string ToLivenessReasonDto(CaptureCloseReason reason) => reason switch
     {

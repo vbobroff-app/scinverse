@@ -7,6 +7,8 @@ import styles from './IntegrationWorkspace.module.css';
 
 interface Props {
   service: ExternalServiceDto;
+  /** Перезагрузить список сервисов (после смены источника системного расписания). */
+  onChanged?: () => void;
 }
 
 /** Быстрые примеры символов Finam (SECID@MIC). */
@@ -40,11 +42,26 @@ type SchedState =
   | { kind: 'error'; message: string }
   | { kind: 'done'; data: ExternalScheduleDto };
 
-export function IntegrationWorkspace({ service }: Props) {
+export function IntegrationWorkspace({ service, onChanged }: Props) {
   const [probe, setProbe] = useState<ProbeState>({ kind: 'idle' });
   const [symbol, setSymbol] = useState('SBER@MISX');
   const [hideClosed, setHideClosed] = useState(true);
   const [sched, setSched] = useState<SchedState>({ kind: 'idle' });
+  const [sourceBusy, setSourceBusy] = useState(false);
+
+  // Метод расписания поддерживает пока только адаптер finam (capability «schedule»).
+  const scheduleCapable = service.adapter.toLowerCase() === 'finam';
+
+  const toggleScheduleSource = (enabled: boolean) => {
+    setSourceBusy(true);
+    OhsApi.setScheduleSource(service.serviceId, enabled).subscribe({
+      next: () => {
+        setSourceBusy(false);
+        onChanged?.();
+      },
+      error: () => setSourceBusy(false),
+    });
+  };
 
   const runProbe = () => {
     setProbe({ kind: 'busy' });
@@ -105,7 +122,27 @@ export function IntegrationWorkspace({ service }: Props) {
         </div>
       </header>
 
-      <CollapsibleCard title="Расписание инструмента" subtitle="AssetsService/Schedule" defaultOpen>
+      <CollapsibleCard
+        title="Расписание инструмента"
+        subtitle="AssetsService/Schedule"
+        defaultOpen
+        right={
+          scheduleCapable ? (
+            <label
+              className={styles.sourceToggle}
+              title="Использовать это расписание как системный источник для авто-сверки"
+            >
+              <input
+                type="checkbox"
+                checked={service.useForSchedule}
+                disabled={sourceBusy || service.useForSchedule}
+                onChange={(e) => toggleScheduleSource(e.target.checked)}
+              />
+              Использовать для системного расписания
+            </label>
+          ) : undefined
+        }
+      >
         <div className={styles.request}>
           <input
             className={styles.input}
