@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ExchangeCatalogStore, isCollapsedMarket, marketKey } from '../../core/ExchangeCatalogStore';
 import { ExchangeCalendar } from './ExchangeCalendar';
+import { ExchangeSchedule } from './ExchangeSchedule';
 import {
   CONTRACT_TYPE_LABELS,
   contractType,
@@ -35,7 +36,7 @@ const ROW_HEIGHT = 30;
  * список торгуемых инструментов выбранного борда — справа. Для фьючерсов показывается класс
  * базового актива (справочник futures_asset_class), актуализируемый из ISS по кнопке.
  */
-type StructureTab = 'markets' | 'calendar';
+type StructureTab = 'markets' | 'schedule' | 'calendar';
 
 export function ExchangeStructure() {
   const store = useMemo(() => new ExchangeCatalogStore(), []);
@@ -54,10 +55,11 @@ export function ExchangeStructure() {
     <div className={styles.wrap}>
       <div className={styles.tabs} role="tablist" aria-label="Раздел структуры">
         <Tab id="markets" active={tab} label="Рынки" onSelect={setTab} />
+        <Tab id="schedule" active={tab} label="Расписание" onSelect={setTab} />
         <Tab id="calendar" active={tab} label="Календарь" onSelect={setTab} />
       </div>
 
-      {tab === 'markets' ? (
+      {tab === 'markets' && (
         <>
           <Toolbar store={store} />
           {error && <div className={styles.error}>{error}</div>}
@@ -66,9 +68,9 @@ export function ExchangeStructure() {
             <SecuritiesTable store={store} />
           </div>
         </>
-      ) : (
-        <ExchangeCalendar />
       )}
+      {tab === 'schedule' && <ExchangeSchedule />}
+      {tab === 'calendar' && <ExchangeCalendar />}
     </div>
   );
 }
