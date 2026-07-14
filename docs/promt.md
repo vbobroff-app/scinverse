@@ -88,7 +88,7 @@ scinverse/
 | 7f | Тайм-лайн-фильтр оси + стандарт времени + вертикальный crosshair + подсветка дней | MVP DONE | [phase7f](./dev/phase7f/report.md) |
 | 7g | Слой сделок на Ганте: присутствие торгов по бакетам (лесенка), app-кэш `V008`, `/coverage/activity` | DONE | [phase7g](./dev/phase7g/plan.md) |
 | **7h** | **Честная подложка: recovery (`V009`), живость (`V010`/`V011`), автомат связи + пинг, красная разметка разрывов** | **DONE** | [phase7h/report](./dev/phase7h/report.md), [incident](./dev/phase7h/incident.md) |
-| **7i** | **«Управление записью»: расписание автозаписи (Supervisor, сессия площадки, US-tz)** | **PLANNED → следующий чат** | [phase7i/plan](./dev/phase7i/plan.md) |
+| **7i** | **«Управление записью»: полуавтомат Auto + Supervisor (MOEX)** | **IN PROGRESS** | [phase7i/apply](./dev/phase7i/apply.md) |
 | 8 | CI/CD (GitHub Actions + compose `migrator`) | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` | TODO | — |
 | 10 | Multi-user & auth (Keycloak + `user_settings` + роли) | PLANNED | [phase10](./dev/phase10/plan.md) |
@@ -158,15 +158,23 @@ scinverse/
 
 ---
 
-## 8. ➡️ НОВЫЙ ЧАТ: phase 7i — «Управление записью» (Supervisor)
+## 8. ➡️ НОВЫЙ ЧАТ: phase 7i — «Управление записью» (полуавтомат Auto)
 
-**Прочитай первым:** [docs/dev/phase7i/plan.md](./dev/phase7i/plan.md)
+**Прочитай первым:** [docs/dev/phase7i/plan.md](./dev/phase7i/plan.md) · [apply.md](./dev/phase7i/apply.md)
 
-### Задача
+### Задача (MVP-срез)
 
-Заменить ручные кнопки **Старт/Стоп** на политику записи: **Ручной / По расписанию / Выкл**.
-Supervisor на бэке: в торговое окно площадки → авто-connect → запись → авто-stop; вне окна — не писать.
-Решает «фон ночью» и ручной присмотр.
+Рядом со **Старт/Стоп** — switcher **Auto** (тот же `StatusSwitch`, что у подключений).
+При Auto on Supervisor сам жмёт Старт/Стоп по сессии MOEX FORTS.
+
+| Auto | Цвет | Смысл |
+|------|------|--------|
+| off | серый | не контролирует |
+| on, вне сессии | зелёный | вооружён, включит по времени |
+| on, пишет | голубой | пишет (темп сделок не важен) |
+| on, ждёт связи | жёлтый middle | в работе, жду связи |
+
+Override: ручной Стоп → Auto off. Стоп одного в серии → у него запись+Auto off, у соседей только Auto off.
 
 ### Почему 7h — обязательная база
 
