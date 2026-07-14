@@ -8,6 +8,8 @@ import {
   isBreakGap,
   livenessEndMs,
   resolveGapEndMs,
+  segmentRecordedEndMs,
+  visibleTradeSpans,
 } from '../../core/coverageGeometry';
 import type { CaptureGapDto, CoverageSegmentDto, LivenessIntervalDto, SessionDto } from '../../core/types';
 import { colorForSourceCode } from '../../core/sourceColors';
@@ -220,13 +222,14 @@ export const CoverageTrack = memo(function CoverageTrack({
           );
         }
         if (!open && BREAK_SEGMENT_STATUSES.has(seg.status)) {
-          const seamLeft = pct(segTo);
+          const seamAt = segmentRecordedEndMs(seg, liveEdgeMs, windowToMs);
+          const seamLeft = pct(seamAt);
           bars.push(
             <span
               key={`${seg.segmentId}-seam`}
               className={styles.breakSeam}
               style={{ left: `${seamLeft}%` }}
-              title={`${SEGMENT_STATUS_LABEL[seg.status] ?? seg.status} · ${hhmm(segTo, tzOffsetMin)}`}
+              title={`${SEGMENT_STATUS_LABEL[seg.status] ?? seg.status} · ${hhmm(seamAt, tzOffsetMin)}`}
             />,
           );
         }
@@ -262,22 +265,30 @@ export const CoverageTrack = memo(function CoverageTrack({
           return gaps;
         })()}
 
-      {/* Слой сделок: яркие ячейки непустых бакетов поверх подложки (была торговля = есть ячейка). */}
+      {/* Слой сделок: яркие ячейки непустых бакетов ∩ живость (честный режим). */}
       {activityBuckets && activityBucketMs
         ? (() => {
             const color = colorForSourceCode(sourceCodeById.get(activitySourceId ?? -1));
-            return activityBuckets.map((b) => {
-              const cellLeft = pct(b);
-              const cellWidth = Math.max(0.25, pct(b + activityBucketMs) - cellLeft);
-              return (
-                <span
-                  key={b}
-                  className={styles.trade}
-                  style={{ left: `${cellLeft}%`, width: `${cellWidth}%`, background: color }}
-                  title={`Торговля была · ${hhmm(b, tzOffsetMin)}–${hhmm(b + activityBucketMs, tzOffsetMin)}`}
-                />
-              );
-            });
+            const cells: ReactNode[] = [];
+            for (const b of activityBuckets) {
+              const spans = honestMode
+                ? visibleTradeSpans(b, activityBucketMs, livenessIntervals, liveEdgeMs, windowToMs)
+                : [{ from: b, to: b + activityBucketMs }];
+              for (let i = 0; i < spans.length; i++) {
+                const span = spans[i];
+                const cellLeft = pct(span.from);
+                const cellWidth = Math.max(0.25, pct(span.to) - cellLeft);
+                cells.push(
+                  <span
+                    key={`${b}-${i}`}
+                    className={styles.trade}
+                    style={{ left: `${cellLeft}%`, width: `${cellWidth}%`, background: color }}
+                    title={`Торговля была · ${hhmm(span.from, tzOffsetMin)}–${hhmm(span.to, tzOffsetMin)}`}
+                  />,
+                );
+              }
+            }
+            return cells;
           })()
         : null}
     </div>

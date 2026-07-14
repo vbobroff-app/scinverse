@@ -19,9 +19,18 @@ export function livenessEndMs(liv: LivenessIntervalDto, nowMs: number, windowToM
 
 const BREAK_CAUSES = new Set(['server_down', 'ping_failed', 'interrupted']);
 
-/** Разрыв захвата с известной причиной (не «stopped»). */
+/** Разрыв захвата с известной причиной (не «stopped») — красная штриховка на всём интервале. */
 export function isBreakGap(gap: CaptureGapDto): boolean {
   return BREAK_CAUSES.has(gap.cause);
+}
+
+/** Фактическое время закрытия сегмента (для шва обрыва), без визуального растягивания до реконнекта. */
+export function segmentRecordedEndMs(
+  seg: CoverageSegmentDto,
+  nowMs: number,
+  windowToMs: number,
+): number {
+  return seg.to ? Date.parse(seg.to) : Math.min(nowMs, windowToMs);
 }
 
 export function isBreakCloseReason(reason: string | null | undefined): boolean {
@@ -110,6 +119,56 @@ export function intentSpanForGaps(
     to = Math.max(to, effectiveSegmentEndMs(seg, livenessIntervals, nowMs, windowToMs));
   }
   return from < to ? { from, to } : null;
+}
+
+function mergeSpans(spans: { from: number; to: number }[]): { from: number; to: number }[] {
+  if (spans.length === 0) {
+    return [];
+  }
+  const sorted = [...spans].sort((a, b) => a.from - b.from);
+  const merged = [{ ...sorted[0] }];
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i];
+    const last = merged[merged.length - 1];
+    if (cur.from <= last.to) {
+      last.to = Math.max(last.to, cur.to);
+    } else {
+      merged.push({ ...cur });
+    }
+  }
+  return merged;
+}
+
+/**
+ * Честный слой сделок: ячейка видна только там, где был живой захват
+ * (пересечение бакета с интервалами `capture_liveness`). Иначе хвост бакета
+ * после `server_down` даёт ложный «[crush][deal]».
+ */
+export function visibleTradeSpans(
+  bucketStartMs: number,
+  bucketMs: number,
+  livenessIntervals: readonly LivenessIntervalDto[] | undefined,
+  nowMs: number,
+  windowToMs: number,
+): { from: number; to: number }[] {
+  const bucketEnd = bucketStartMs + bucketMs;
+  if (!livenessIntervals?.length) {
+    return [{ from: bucketStartMs, to: bucketEnd }];
+  }
+
+  const spans: { from: number; to: number }[] = [];
+  for (const liv of livenessIntervals) {
+    const inter = intersectMs(
+      bucketStartMs,
+      bucketEnd,
+      Date.parse(liv.from),
+      livenessEndMs(liv, nowMs, windowToMs),
+    );
+    if (inter) {
+      spans.push(inter);
+    }
+  }
+  return mergeSpans(spans);
 }
 
 /**

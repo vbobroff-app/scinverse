@@ -4,8 +4,11 @@ import {
   gapIntersectsSegment,
   gapsFromLivenessIntervals,
   intersectMs,
+  isBreakGap,
   livenessEndMs,
   resolveGapEndMs,
+  segmentRecordedEndMs,
+  visibleTradeSpans,
 } from './coverageGeometry';
 import type { CaptureGapDto, CoverageSegmentDto, LivenessIntervalDto } from './types';
 
@@ -84,5 +87,52 @@ describe('coverageGeometry', () => {
       { from: '2026-07-12T15:00:00.000Z', to: '2026-07-12T15:10:00.000Z', open: true, closeReason: null },
     ];
     expect(effectiveSegmentEndMs(seg, liveness, now, windowTo)).toBe(Date.parse('2026-07-12T15:00:00.000Z'));
+  });
+
+  it('visibleTradeSpans: обрезает хвост бакета после обрыва живости', () => {
+    const bucketMs = 30_000;
+    const bucketStart = Date.parse('2026-07-12T15:37:00.000Z');
+    const liveness: LivenessIntervalDto[] = [
+      { from: '2026-07-12T10:00:00.000Z', to: '2026-07-12T15:37:22.000Z', open: false, closeReason: 'server_down' },
+    ];
+    const spans = visibleTradeSpans(bucketStart, bucketMs, liveness, now, windowTo);
+    expect(spans).toHaveLength(1);
+    expect(spans[0].from).toBe(bucketStart);
+    expect(spans[0].to).toBe(Date.parse('2026-07-12T15:37:22.000Z'));
+  });
+
+  it('visibleTradeSpans: бакет целиком в разрыве — не рисуем', () => {
+    const bucketMs = 30_000;
+    const bucketStart = Date.parse('2026-07-12T15:38:00.000Z');
+    const liveness: LivenessIntervalDto[] = [
+      { from: '2026-07-12T10:00:00.000Z', to: '2026-07-12T15:37:22.000Z', open: false, closeReason: 'server_down' },
+    ];
+    expect(visibleTradeSpans(bucketStart, bucketMs, liveness, now, windowTo)).toEqual([]);
+  });
+
+  it('isBreakGap: закрытый и открытый разрыв — оба со штриховкой', () => {
+    const bounded: CaptureGapDto = {
+      from: '2026-07-13T15:03:37.000Z',
+      to: '2026-07-13T15:40:51.000Z',
+      cause: 'interrupted',
+    };
+    const ongoing: CaptureGapDto = { from: '2026-07-13T15:03:37.000Z', to: null, cause: 'interrupted' };
+    expect(isBreakGap(bounded)).toBe(true);
+    expect(isBreakGap(ongoing)).toBe(true);
+    expect(isBreakGap({ from: 'x', to: null, cause: 'stopped' })).toBe(false);
+  });
+
+  it('segmentRecordedEndMs: шов обрыва на фактическом ended_at, не на реконнекте', () => {
+    const seg: CoverageSegmentDto = {
+      segmentId: 105,
+      instrumentId: 10,
+      sourceId: 1,
+      from: '2026-07-13T12:11:29.000Z',
+      to: '2026-07-13T15:03:37.000Z',
+      tradeCount: 1,
+      status: 'interrupted',
+      gaps: [],
+    };
+    expect(segmentRecordedEndMs(seg, now, windowTo)).toBe(Date.parse('2026-07-13T15:03:37.000Z'));
   });
 });

@@ -94,26 +94,37 @@ public sealed class ConnectionManager(
         var creds = ResolveCredentials(connectionId, connection.Kind);
 
         using var settings = JsonDocument.Parse(string.IsNullOrWhiteSpace(connection.Settings) ? "{}" : connection.Settings);
-        var connector = factory.Create(connection.Kind, settings.RootElement, creds);
+        IMarketConnector? connector = null;
+        try
+        {
+            connector = factory.Create(connection.Kind, settings.RootElement, creds);
+            await connector.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
-        await connector.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            var sourceId = await sourceStore.ResolveIdAsync(connector.SourceCode, cancellationToken).ConfigureAwait(false);
 
-        var sourceId = await sourceStore.ResolveIdAsync(connector.SourceCode, cancellationToken).ConfigureAwait(false);
+            var session = new ConnectorSession(
+                connector, parser, registry, sourceStore, normalizer, batcher, coverageTracker,
+                loggerFactory.CreateLogger<ConnectorSession>(),
+                onData: () => ReportActivity(connectionId),
+                onLinkState: change => HandleLinkState(connectionId, change));
+            await session.StartAsync(cancellationToken).ConfigureAwait(false);
 
-        var session = new ConnectorSession(
-            connector, parser, registry, sourceStore, normalizer, batcher, coverageTracker,
-            loggerFactory.CreateLogger<ConnectorSession>(),
-            onData: () => ReportActivity(connectionId),
-            onLinkState: change => HandleLinkState(connectionId, change));
-        await session.StartAsync(cancellationToken).ConfigureAwait(false);
-
-        _sessions[connectionId] = session;
-        _sourceIds[connectionId] = sourceId;
-        // Подключено, но данных ещё нет → «ожидание» (перейдёт в «active» при первой сделке).
-        SetStatus(connectionId, "waiting");
-        EnsureIdleMonitor();
-        logger.LogInformation("Подключение {ConnectionId} ({Kind}) установлено", connectionId, connection.Kind);
-        return "waiting";
+            _sessions[connectionId] = session;
+            _sourceIds[connectionId] = sourceId;
+            connector = null;
+            // Подключено, но данных ещё нет → «ожидание» (перейдёт в «active» при первой сделке).
+            SetStatus(connectionId, "waiting");
+            EnsureIdleMonitor();
+            logger.LogInformation("Подключение {ConnectionId} ({Kind}) установлено", connectionId, connection.Kind);
+            return "waiting";
+        }
+        finally
+        {
+            if (connector is not null)
+            {
+                await connector.DisposeAsync().ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>Отмечает поступление данных от коннектора: waiting → active (idle-монитор вернёт назад).</summary>

@@ -145,9 +145,19 @@ public sealed class TransaqConnector : IMarketConnector
 
     public Task DisconnectAsync(CancellationToken cancellationToken)
     {
-        if (IsConnected)
+        // После server_status connected="false" IsConnected уже false, но сессия на шлюзе
+        // может оставаться — без disconnect повторный connect даёт «connection error».
+        if (_sessionEstablished)
         {
-            EnsureSuccess(SendCommand("<command id=\"disconnect\"/>"), "disconnect");
+            try
+            {
+                EnsureSuccess(SendCommand("<command id=\"disconnect\"/>"), "disconnect");
+            }
+            catch (InvalidOperationException)
+            {
+                // best-effort: обрыв мог случиться раньше
+            }
+
             IsConnected = false;
             _sessionEstablished = false;
             PublishLinkState(ConnectorLinkState.Down, DateTimeOffset.UtcNow, "disconnect");
