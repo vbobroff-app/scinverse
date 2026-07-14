@@ -92,7 +92,7 @@ scinverse/
 | 8 | CI/CD (GitHub Actions + compose `migrator`) | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` | TODO | — |
 | 10 | Multi-user & auth (Keycloak + `user_settings` + роли) | PLANNED | [phase10](./dev/phase10/plan.md) |
-| 11 | Центр уведомлений (сквозная лента событий, нижний док, MFE) | PLANNED | [phase11](./dev/phase11/plan.md) |
+| 11 | Центр уведомлений (сквозная лента событий, нижний док, пакет → MFE позже) | IN PROGRESS | [phase11](./dev/phase11/plan.md) · [pkg](../packages/notification-center) |
 | 12 | Гант-рендер: MVP → графический движок (WebGL2 + LOD/Timescale CA, real-time zoom/pan) | FUTURE | [phase12](./dev/phase12/plan.md) |
 
 ## 4. Ключевые доменные факты (быстрый ввод)

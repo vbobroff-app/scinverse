@@ -6,9 +6,12 @@
 Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md); детали реализации — в
 [apply.md](apply.md); статус — в [report.md](report.md).
 
-**Статус:** `PLANNED`. **Stage:** 1 (сквозная). **Зависимости:** control-plane WS `/ws` (phase 6b) —
+**Статус:** `IN PROGRESS`. **Stage:** 1 (сквозная). **Зависимости:** control-plane WS `/ws` (phase 6b) —
 транспорт системных/внешних событий; необязательно — `user_settings` (phase 10) для персистенции
 состояния панели/фильтров. Влияет на все модули фронта и на серверное логирование.
+
+**Ядро UI/шины:** пакет [`packages/notification-center`](../../../packages/notification-center)
+(`@scinverse/notification-center`) — без привязки к OHS; встраивание в web и backend — следующие шаги.
 
 ## Мотивация
 

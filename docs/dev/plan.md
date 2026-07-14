@@ -84,7 +84,7 @@ Stage 1 (архитектура, модель данных, API/WS, границ
 | 8 | CI/CD: GitHub Actions (build + unit + integration) + compose-сервис `migrator` | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` (бэкфилл, `source=qscalp`) — поздний этап | TODO | — |
 | 10 | Multi-user & auth: Keycloak (OIDC/JWT для .NET+Python), таблица `user_settings`, примитивные роли | PLANNED | [phase10](phase10/plan.md) — единая identity, настройки в своём Postgres |
-| 11 | Центр уведомлений: сквозная лента событий (severity Info/Warning/Critical/Error × тип User/System/External), нижний док, MFE | PLANNED | [phase11](phase11/plan.md) — singleton-шина (RxJS) + WS `notification` + бэклог |
+| 11 | Центр уведомлений: сквозная лента событий (severity × sourceType), нижний док; пакет → MFE позже | IN PROGRESS | [phase11](phase11/plan.md) · [`packages/notification-center`](../../packages/notification-center) |
 | 12 | **Гант-рендер: MVP → настоящий графический движок** — WebGL2 (regl/Pixi) + LOD-агрегация (Timescale continuous aggregates), real-time zoom/pan | FUTURE | [phase12](phase12/plan.md) — крупная веха; стартует, когда «быстрая графика» станет узким местом (сотни инструментов на записи) |
 | 13 | **Кэширование (сквозное)** — единый слой кэша для всей системы (не только ISS): персистентный/распределённый бэкенд, stale-on-error + refresh-ahead, политики TTL/инвалидации по видам данных, метрики hit/miss | PLANNED | [phase13](phase13/plan.md) — обобщает in-memory ISS-кэш (7c) в сквозную инфраструктуру |
 

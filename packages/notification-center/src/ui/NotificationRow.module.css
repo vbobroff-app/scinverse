@@ -1,0 +1,123 @@
+.row {
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-bg-input, #2c2e33);
+  border: 1px solid transparent;
+}
+
+.row:hover {
+  border-color: var(--color-border, #373a40);
+}
+
+.unread {
+  border-color: color-mix(in srgb, var(--color-error, #ff6b6b) 45%, transparent);
+}
+
+.critical {
+  background: color-mix(in srgb, var(--color-error, #ff6b6b) 10%, var(--color-bg-input, #2c2e33));
+}
+
+.main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 8px;
+}
+
+.expandBtn,
+.copyBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text-muted, #6c757d);
+  background: transparent;
+}
+
+.expandBtn:hover,
+.copyBtn:hover {
+  color: var(--color-text, #e9ecef);
+  background: var(--color-bg-hover, #373a40);
+}
+
+.chevron {
+  display: inline-block;
+  font-size: 11px;
+  transition: transform 0.12s ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.time {
+  flex: none;
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--color-text-muted, #6c757d);
+  white-space: nowrap;
+  min-width: 130px;
+}
+
+.tag {
+  flex: none;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary, #adb5bd);
+  background: var(--color-bg-hover, #373a40);
+  border-radius: 3px;
+  padding: 1px 5px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--color-text, #e9ecef);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.messageWrap {
+  white-space: normal;
+  overflow: visible;
+}
+
+.detail {
+  padding: 0 8px 8px 54px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--color-text-muted, #6c757d);
+}
+
+.data {
+  margin: 0;
+  padding: 8px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-bg, #1a1b1e);
+  color: var(--color-text-secondary, #adb5bd);
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow: auto;
+}
