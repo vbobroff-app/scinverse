@@ -16,4 +16,13 @@ public interface IInstrumentStore
 
     /// <summary>Идемпотентно сохраняет market/board/instrument и возвращает инструмент со стабильным id.</summary>
     Task<Instrument> UpsertAsync(SecurityInfo security, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Scope-атрибуты инструмента для расписания: board, sec_type (SHARE/FUT/OPT…) и underlying_code
+    /// (ASSETCODE деривативa, напр. Si). null, если инструмента нет. Используется резолвером scopeOf.
+    /// </summary>
+    Task<InstrumentScopeInfo?> GetScopeInfoAsync(long instrumentId, CancellationToken cancellationToken);
 }
+
+/// <summary>Scope-атрибуты инструмента (для маппинга SECID → market/sec_type/category расписания).</summary>
+public sealed record InstrumentScopeInfo(string Board, string? SecType, string? UnderlyingCode);

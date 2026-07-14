@@ -22,7 +22,23 @@ public interface IMarketScheduleStore
     /// </summary>
     Task<IReadOnlyList<MarketScheduleException>> ListExceptionsAsync(
         string market, bool onlyUnresolved, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Резолвит САМУЮ СПЕЦИФИЧНУЮ базовую версию для <paramref name="scope"/> на дату (instrument &gt; category
+    /// &gt; sec_type &gt; market-дефолт; NULL в строке = wildcard). null, если для рынка нет базы. Основа
+    /// резолвера base ∩ exclude — см. docs/dev/phase7i/schedule.md.
+    /// </summary>
+    Task<MarketScheduleVersion?> ResolveAsync(ScheduleScope scope, DateOnly on, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Идемпотентно (по scope+дата) заводит/обновляет исключение. Уже РАЗОБРАННЫЕ пользователем строки
+    /// (resolved = true) не перезаписывает — авто-сверка их не «переоткрывает».
+    /// </summary>
+    Task UpsertExceptionAsync(MarketScheduleException exception, CancellationToken cancellationToken);
 }
+
+/// <summary>Scope расписания: до какого уровня спускается правило (NULL = «на всё внутри»).</summary>
+public sealed record ScheduleScope(string Market, string? SecType, string? Category, string? Instrument);
 
 /// <summary>
 /// Исключение расписания на конкретную дату. Scope-поля (<paramref name="SecType"/>/<paramref name="Category"/>/

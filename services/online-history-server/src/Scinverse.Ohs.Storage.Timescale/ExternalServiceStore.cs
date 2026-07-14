@@ -97,6 +97,14 @@ public sealed class ExternalServiceStore(NpgsqlDataSource dataSource) : IExterna
             cancellationToken: cancellationToken));
     }
 
+    public async Task<ExternalService?> GetScheduleSourceAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<ExternalService>(new CommandDefinition(
+            $"SELECT {SelectColumns} FROM external_service WHERE use_for_schedule LIMIT 1;",
+            cancellationToken: cancellationToken));
+    }
+
     public async Task<ExternalService?> SetScheduleSourceAsync(
         long serviceId, bool enabled, CancellationToken cancellationToken)
     {

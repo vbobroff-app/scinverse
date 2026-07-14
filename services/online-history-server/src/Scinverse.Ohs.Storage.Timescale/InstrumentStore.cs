@@ -127,6 +127,20 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
         return new InstrumentCatalogPage(items, total, limit, offset);
     }
 
+    public async Task<InstrumentScopeInfo?> GetScopeInfoAsync(long instrumentId, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<InstrumentScopeInfo>(new CommandDefinition(
+            """
+            SELECT i.board_id AS Board, i.sec_type AS SecType, d.underlying_code AS UnderlyingCode
+            FROM instrument i
+            LEFT JOIN derivative d ON d.instrument_id = i.instrument_id
+            WHERE i.instrument_id = @instrumentId;
+            """,
+            new { instrumentId },
+            cancellationToken: cancellationToken));
+    }
+
     public async Task<IReadOnlyList<InstrumentGroup>> QueryGroupsAsync(GroupQuery query, CancellationToken cancellationToken)
     {
         // Единственный уровень дерева: серии опционов под конкретным фьючерсом (underlying_id).

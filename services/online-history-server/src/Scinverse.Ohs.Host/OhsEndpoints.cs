@@ -178,6 +178,7 @@ public static class OhsEndpoints
             UpsertRecordingScheduleRequest request,
             IRecordingScheduleStore schedule,
             RecordingSupervisor supervisor,
+            SchedulePreflight preflight,
             CancellationToken ct) =>
         {
             var entries = (request.Items ?? [])
@@ -191,6 +192,14 @@ public static class OhsEndpoints
             var rows = await schedule.UpsertAsync(entries, ct);
             supervisor.Nudge();
             await supervisor.BroadcastScheduleAsync(ct);
+
+            // Pre-flight: постановка на Auto → запрос расписания у назначенного источника (подтверждение
+            // перед записью). Пока результат логируется; далее — сверка с базой и авто-исключения.
+            foreach (var entry in entries.Where(e => e.AutoEnabled))
+            {
+                await preflight.RequestAsync(entry.InstrumentId, ct);
+            }
+
             return rows.Select(e => new RecordingScheduleDto(e.InstrumentId, e.ConnectionId, e.AutoEnabled)).ToList();
         });
 

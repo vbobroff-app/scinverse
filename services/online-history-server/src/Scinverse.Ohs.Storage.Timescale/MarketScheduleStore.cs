@@ -126,6 +126,104 @@ public sealed class MarketScheduleStore(NpgsqlDataSource dataSource) : IMarketSc
             r.Confidence, r.Source, r.Resolved, r.Note)).ToList();
     }
 
+    public async Task<MarketScheduleVersion?> ResolveAsync(
+        ScheduleScope scope, DateOnly on, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        // Самая специфичная строка: scope-колонка либо совпадает с запросом, либо NULL (wildcard). Порядок
+        // специфичности: instrument → category → sec_type → market-дефолт; при равной — свежее effective_from.
+        var row = await connection.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(
+            """
+            SELECT market              AS Market,
+                   effective_from::text AS EffectiveFrom,
+                   wd_open::text        AS WdOpen,
+                   wd_close::text       AS WdClose,
+                   we_open::text        AS WeOpen,
+                   we_close::text       AS WeClose,
+                   phases::text         AS Phases,
+                   confidence           AS Confidence,
+                   source               AS Source,
+                   note                 AS Note
+            FROM market_schedule
+            WHERE market = @market
+              AND (sec_type   IS NULL OR sec_type   = @secType)
+              AND (category   IS NULL OR category   = @category)
+              AND (instrument IS NULL OR instrument = @instrument)
+              AND effective_from <= @on::date
+            ORDER BY (instrument IS NOT NULL) DESC,
+                     (category   IS NOT NULL) DESC,
+                     (sec_type   IS NOT NULL) DESC,
+                     effective_from DESC
+            LIMIT 1;
+            """,
+            new
+            {
+                market = scope.Market,
+                secType = scope.SecType,
+                category = scope.Category,
+                instrument = scope.Instrument,
+                on = on.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            },
+            cancellationToken: cancellationToken));
+
+        if (row is null)
+        {
+            return null;
+        }
+
+        var phases = ParsePhases(row.Phases);
+        return new MarketScheduleVersion(
+            row.Market,
+            DateOnly.ParseExact(row.EffectiveFrom, "yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ParseTime(row.WdOpen)!.Value,
+            ParseTime(row.WdClose)!.Value,
+            ParseTime(row.WeOpen),
+            ParseTime(row.WeClose),
+            BuildPhases(phases, WeekdayOrder),
+            BuildPhases(phases, WeekendOrder),
+            row.Confidence,
+            row.Source,
+            row.Note);
+    }
+
+    public async Task UpsertExceptionAsync(MarketScheduleException exception, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO market_schedule_exception
+                (exc_date, market, sec_type, category, instrument, kind,
+                 open_time, close_time, confidence, source, resolved, note)
+            VALUES
+                (@excDate::date, @market, @secType, @category, @instrument, @kind,
+                 @openTime::time, @closeTime::time, @confidence, @source, FALSE, @note)
+            ON CONFLICT (market, COALESCE(sec_type, ''), COALESCE(category, ''), COALESCE(instrument, ''), exc_date)
+            DO UPDATE SET
+                kind       = EXCLUDED.kind,
+                open_time  = EXCLUDED.open_time,
+                close_time = EXCLUDED.close_time,
+                confidence = EXCLUDED.confidence,
+                source     = EXCLUDED.source,
+                note       = EXCLUDED.note
+            WHERE market_schedule_exception.resolved = FALSE;
+            """,
+            new
+            {
+                excDate = exception.ExcDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                market = exception.Market,
+                secType = exception.SecType,
+                category = exception.Category,
+                instrument = exception.Instrument,
+                kind = exception.Kind,
+                openTime = exception.OpenTime?.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
+                closeTime = exception.CloseTime?.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
+                confidence = exception.Confidence,
+                source = exception.Source,
+                note = exception.Note,
+            },
+            cancellationToken: cancellationToken));
+    }
+
     /// <summary>Парсит PostgreSQL <c>time</c> (в тексте <c>HH:mm:ss</c>) в <see cref="TimeOnly"/>; null → null.</summary>
     private static TimeOnly? ParseTime(string? text) =>
         string.IsNullOrWhiteSpace(text)

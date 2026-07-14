@@ -56,4 +56,11 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
         _instruments.Add(instrument);
         return Task.FromResult(instrument);
     }
+
+    public Task<InstrumentScopeInfo?> GetScopeInfoAsync(long instrumentId, CancellationToken cancellationToken)
+    {
+        var instrument = _instruments.FirstOrDefault(i => i.InstrumentId == instrumentId);
+        return Task.FromResult<InstrumentScopeInfo?>(
+            instrument is null ? null : new InstrumentScopeInfo(instrument.Key.Board, null, null));
+    }
 }

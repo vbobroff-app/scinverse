@@ -28,6 +28,12 @@ public interface IExternalServiceStore
     Task<string?> GetSecretAsync(long serviceId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Назначенный источник СИСТЕМНОГО расписания (use_for_schedule = true) — confirmer для авто-сверки.
+    /// null, если ни одна интеграция не назначена. Эксклюзивность гарантирует ≤1 строку.
+    /// </summary>
+    Task<ExternalService?> GetScheduleSourceAsync(CancellationToken cancellationToken);
+
+    /// <summary>
     /// Назначить/снять сервис источником системного расписания. При <paramref name="enabled"/> = true —
     /// эксклюзивно (снимает признак с остальных). Возвращает обновлённый сервис или null, если не найден.
     /// </summary>

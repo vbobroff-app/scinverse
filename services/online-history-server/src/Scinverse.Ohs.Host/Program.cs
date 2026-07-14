@@ -82,6 +82,8 @@ builder.Services.AddSingleton(sp => new Lazy<RecordingManager>(() => sp.GetRequi
 builder.Services.AddSingleton<ConnectionManager>();
 builder.Services.AddSingleton<RecordingManager>();
 builder.Services.AddSingleton<RecordingSupervisor>();
+// Pre-flight сверки расписания: transient — использует типизированный HttpClient IFinamApi (per-request).
+builder.Services.AddTransient<SchedulePreflight>();
 builder.Services.AddHostedService<OhsWorker>();
 
 builder.Services.AddEndpointsApiExplorer();
