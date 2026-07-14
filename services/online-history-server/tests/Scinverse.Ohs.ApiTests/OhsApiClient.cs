@@ -77,6 +77,19 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
         response.EnsureSuccessStatusCode();
     }
 
+    public Task<IReadOnlyList<RecordingScheduleDto>> GetRecordingScheduleAsync(
+        CancellationToken cancellationToken = default) =>
+        GetListAsync<RecordingScheduleDto>("/api/recording/schedule", cancellationToken);
+
+    public async Task<IReadOnlyList<RecordingScheduleDto>> UpsertRecordingScheduleAsync(
+        UpsertRecordingScheduleRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PutAsJsonAsync("/api/recording/schedule", request, Json, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<List<RecordingScheduleDto>>(Json, cancellationToken);
+        return result ?? [];
+    }
+
     public Task<IReadOnlyList<ConnectionDto>> GetConnectionsAsync(CancellationToken cancellationToken = default) =>
         GetListAsync<ConnectionDto>("/api/connections", cancellationToken);
 
@@ -149,6 +162,14 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
         var query = parts.Count > 0 ? "?" + string.Join('&', parts) : string.Empty;
         return GetListAsync<CalendarDayDto>(
             $"/api/exchanges/{Uri.EscapeDataString(engine)}/calendar{query}", cancellationToken);
+    }
+
+    public Task<MarketScheduleDto?> GetMarketScheduleAsync(
+        string engine, DateOnly? on = null, CancellationToken cancellationToken = default)
+    {
+        var query = on is { } d ? $"?on={d:yyyy-MM-dd}" : string.Empty;
+        return http.GetFromJsonAsync<MarketScheduleDto>(
+            $"/api/exchanges/{Uri.EscapeDataString(engine)}/schedule{query}", Json, cancellationToken);
     }
 
     private async Task<IReadOnlyList<T>> GetListAsync<T>(string uri, CancellationToken cancellationToken)

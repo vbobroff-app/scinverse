@@ -4,13 +4,17 @@ import type {
   AssetClassRefreshResultDto,
   BoardDto,
   CalendarDayDto,
+  MarketScheduleDto,
   ConnectionCredentialsRequest,
   ConnectionDto,
   CaptureLivenessDto,
   CoverageExtentDto,
   CoverageSegmentDto,
   EngineDto,
+  ExternalScheduleDto,
+  ExternalServiceDto,
   FuturesAssetClassDto,
+  IntegrationProbeResultDto,
   InstrumentGroupDto,
   InstrumentPage,
   InstrumentQueryParams,
@@ -25,6 +29,9 @@ import type {
   TradeActivityRequest,
   TransaqLocalDefaultsDto,
   UpsertConnectionRequest,
+  UpsertExternalServiceRequest,
+  UpsertRecordingScheduleRequest,
+  RecordingScheduleDto,
   ValidateConnectionRequest,
   ValidateConnectionResult,
 } from './types';
@@ -106,6 +113,11 @@ export const OhsApi = {
   stopRecording: (instrumentId: number): Observable<void> =>
     ajax({ url: `${BASE}/recordings/${instrumentId}`, method: 'DELETE' }).pipe(map(() => undefined)),
 
+  getRecordingSchedule: () => getJSON<RecordingScheduleDto[]>('/recording/schedule'),
+
+  upsertRecordingSchedule: (body: UpsertRecordingScheduleRequest) =>
+    put<RecordingScheduleDto[]>('/recording/schedule', body),
+
   connect: (connectionId: number) => post<ConnectionDto>(`/connections/${connectionId}/connect`),
   disconnect: (connectionId: number) =>
     post<ConnectionDto>(`/connections/${connectionId}/disconnect`),
@@ -155,6 +167,30 @@ export const OhsApi = {
     const suffix = q.toString() ? `?${q.toString()}` : '';
     return getJSON<CalendarDayDto[]>(`/exchanges/${encodeURIComponent(engine)}/calendar${suffix}`);
   },
+
+  // Действующее на дату расписание движка (курируемая market_schedule, из БД).
+  getMarketSchedule: (engine: string, on?: string) => {
+    const suffix = on ? `?on=${encodeURIComponent(on)}` : '';
+    return getJSON<MarketScheduleDto>(`/exchanges/${encodeURIComponent(engine)}/schedule${suffix}`);
+  },
+
+  // Внешние сервисы-интеграции (external_service, phase 7i): CRUD + health-check + расписание.
+  getIntegrations: () => getJSON<ExternalServiceDto[]>('/integrations'),
+
+  createIntegration: (body: UpsertExternalServiceRequest) =>
+    post<ExternalServiceDto>('/integrations', body),
+
+  updateIntegration: (serviceId: number, body: UpsertExternalServiceRequest) =>
+    put<ExternalServiceDto>(`/integrations/${serviceId}`, body),
+
+  deleteIntegration: (serviceId: number): Observable<void> =>
+    ajax({ url: `${BASE}/integrations/${serviceId}`, method: 'DELETE' }).pipe(map(() => undefined)),
+
+  probeIntegration: (serviceId: number) =>
+    post<IntegrationProbeResultDto>(`/integrations/${serviceId}/probe`),
+
+  getIntegrationSchedule: (serviceId: number, symbol: string) =>
+    getJSON<ExternalScheduleDto>(`/integrations/${serviceId}/schedule?symbol=${encodeURIComponent(symbol)}`),
 };
 
 export type OhsApiClient = typeof OhsApi;

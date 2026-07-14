@@ -213,6 +213,17 @@ export interface StartRecordingRequest {
   connectionId: number;
 }
 
+/** Политика автозаписи инструмента (phase 7i). */
+export interface RecordingScheduleDto {
+  instrumentId: number;
+  connectionId: number;
+  autoEnabled: boolean;
+}
+
+export interface UpsertRecordingScheduleRequest {
+  items: RecordingScheduleDto[];
+}
+
 export interface ConnectionDto {
   connectionId: number;
   sourceId: number;
@@ -325,6 +336,80 @@ export interface CalendarDayDto {
   close: string | null;
 }
 
+/** Достоверность версии расписания. */
+export type ScheduleConfidence = 'authoritative' | 'empirical' | 'assumed';
+
+/** Фаза торгового дня расписания движка: ключ + границы (МСК, `HH:mm:ss`). */
+export interface SchedulePhaseDto {
+  key: string;
+  from: string;
+  till: string;
+}
+
+/**
+ * Действующая версия торгового распорядка движка (курируемая `market_schedule`): внешние границы
+ * будней/выходных + разложенные фазы (будни/ДСВД). Время — `HH:mm:ss` МСК; `effectiveFrom` — `yyyy-MM-dd`.
+ */
+export interface MarketScheduleDto {
+  engine: string;
+  effectiveFrom: string;
+  wdOpen: string;
+  wdClose: string;
+  weOpen: string | null;
+  weClose: string | null;
+  weekday: SchedulePhaseDto[];
+  weekend: SchedulePhaseDto[];
+  confidence: ScheduleConfidence;
+  source: string | null;
+  note: string | null;
+}
+
+/** Транспорт внешнего сервиса. */
+export type IntegrationTransport = 'rest' | 'grpc' | 'ws';
+
+/**
+ * Внешний сервис-интеграция (external_service, phase 7i). Секрет наружу не отдаётся — только признак
+ * `hasSecret` и (advisory) дата истечения. `adapter` = биндинг на код (`finam`).
+ */
+export interface ExternalServiceDto {
+  serviceId: number;
+  name: string;
+  adapter: string;
+  transport: IntegrationTransport;
+  hasSecret: boolean;
+  secretExpiresOn: string | null;
+  enabled: boolean;
+}
+
+/** Создание/обновление интеграции. `secret` пустой → не менять (при обновлении). */
+export interface UpsertExternalServiceRequest {
+  name: string;
+  adapter: string;
+  transport: IntegrationTransport;
+  secret: string | null;
+  secretExpiresOn: string | null;
+  enabled: boolean;
+}
+
+/** Результат health-check интеграции (auth по сохранённому секрету). */
+export interface IntegrationProbeResultDto {
+  ok: boolean;
+  message: string;
+}
+
+/** Сессия внешнего расписания: тип + границы окна (UTC ISO). */
+export interface ExternalSessionDto {
+  type: string;
+  start: string;
+  end: string;
+}
+
+/** Расписание инструмента у внешнего сервиса (Finam): символ + сессии. */
+export interface ExternalScheduleDto {
+  symbol: string;
+  sessions: ExternalSessionDto[];
+}
+
 // Live-события WebSocket `/ws` (дискриминатор — поле `type`).
 export type LiveEvent =
   | { type: 'recordingStarted'; instrumentId: number; sourceId: number; connectionId: number; segmentId: number }
@@ -337,4 +422,8 @@ export type LiveEvent =
       state: string;
       since: string;
       reason: string | null;
+    }
+  | {
+      type: 'recordingScheduleChanged';
+      items: RecordingScheduleDto[];
     };

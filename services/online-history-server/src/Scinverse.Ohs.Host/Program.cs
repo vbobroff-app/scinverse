@@ -39,7 +39,10 @@ builder.Services.AddSingleton<ICoverageStore, CoverageStore>();
 builder.Services.AddSingleton<ITradeActivityStore, TradeActivityStore>();
 builder.Services.AddSingleton<ICaptureLivenessStore, CaptureLivenessStore>();
 builder.Services.AddSingleton<IConnectionStore, ConnectionStore>();
+builder.Services.AddSingleton<IRecordingScheduleStore, RecordingScheduleStore>();
 builder.Services.AddSingleton<IFuturesAssetClassStore, FuturesAssetClassStore>();
+builder.Services.AddSingleton<IMarketScheduleStore, MarketScheduleStore>();
+builder.Services.AddSingleton<IExternalServiceStore, ExternalServiceStore>();
 builder.Services.AddSingleton<ITradeWriter, TimescaleTradeWriter>();
 builder.Services.AddSingleton<IDerivativeSpecParser, MoexFortsSpecParser>();
 builder.Services.AddSingleton<IInstrumentRegistry, InstrumentRegistry>();
@@ -58,6 +61,12 @@ builder.Services.AddHttpClient<IExchangeCatalog, IssExchangeCatalog>(client =>
     client.BaseAddress = new Uri(ohsOptions.IssBaseUrl);
     client.Timeout = TimeSpan.FromSeconds(15);
 });
+// Finam Trade API (интеграция-подтверждатель расписания, phase 7i): typed HttpClient + JWT-кэш.
+builder.Services.AddHttpClient<Scinverse.Ohs.Domain.Finam.IFinamApi, Scinverse.Ohs.Host.Finam.FinamApiClient>(client =>
+{
+    client.BaseAddress = new Uri(ohsOptions.FinamBaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
 // Актуализация справочника классов базового актива фьючерсов из ISS (по кнопке).
 builder.Services.AddSingleton<FuturesAssetClassifier>();
 // Расписание сессий из бесплатного ISS-календаря движка (часы дней + праздники), фолбэк MoexSchedule.
@@ -72,6 +81,7 @@ builder.Services.AddSingleton(sp => new Lazy<ILivenessWriter>(() => sp.GetRequir
 builder.Services.AddSingleton(sp => new Lazy<RecordingManager>(() => sp.GetRequiredService<RecordingManager>()));
 builder.Services.AddSingleton<ConnectionManager>();
 builder.Services.AddSingleton<RecordingManager>();
+builder.Services.AddSingleton<RecordingSupervisor>();
 builder.Services.AddHostedService<OhsWorker>();
 
 builder.Services.AddEndpointsApiExplorer();

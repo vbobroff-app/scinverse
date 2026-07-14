@@ -1,6 +1,7 @@
 using Scinverse.Ohs.Connectors.Transaq;
 using Scinverse.Ohs.Contracts;
 using Scinverse.Ohs.Domain;
+using Scinverse.Ohs.Domain.Finam;
 using Scinverse.Ohs.Domain.Moex;
 using Scinverse.Ohs.Ingestion;
 
@@ -154,10 +155,43 @@ public static class OhsEndpoints
             }
         });
 
-        api.MapDelete("/recordings/{instrumentId:long}", async (long instrumentId, RecordingManager recordings, CancellationToken ct) =>
+        api.MapDelete("/recordings/{instrumentId:long}", async (
+            long instrumentId,
+            RecordingManager recordings,
+            IRecordingScheduleStore schedule,
+            RecordingSupervisor supervisor,
+            CancellationToken ct) =>
         {
             await recordings.StopAsync(instrumentId, ct);
+            await schedule.DisableAutoAsync(instrumentId, ct);
+            await supervisor.BroadcastScheduleAsync(ct);
             return Results.NoContent();
+        });
+
+        api.MapGet("/recording/schedule", async (IRecordingScheduleStore schedule, CancellationToken ct) =>
+        {
+            var rows = await schedule.ListAsync(ct);
+            return rows.Select(e => new RecordingScheduleDto(e.InstrumentId, e.ConnectionId, e.AutoEnabled)).ToList();
+        });
+
+        api.MapPut("/recording/schedule", async (
+            UpsertRecordingScheduleRequest request,
+            IRecordingScheduleStore schedule,
+            RecordingSupervisor supervisor,
+            CancellationToken ct) =>
+        {
+            var entries = (request.Items ?? [])
+                .Select(i => new RecordingScheduleEntry
+                {
+                    InstrumentId = i.InstrumentId,
+                    ConnectionId = i.ConnectionId,
+                    AutoEnabled = i.AutoEnabled,
+                })
+                .ToList();
+            var rows = await schedule.UpsertAsync(entries, ct);
+            supervisor.Nudge();
+            await supervisor.BroadcastScheduleAsync(ct);
+            return rows.Select(e => new RecordingScheduleDto(e.InstrumentId, e.ConnectionId, e.AutoEnabled)).ToList();
         });
 
         api.MapGet("/connections", async (IConnectionStore store, ConnectionManager manager, CancellationToken ct) =>
@@ -244,6 +278,116 @@ public static class OhsEndpoints
         }
 
         MapExchanges(api);
+        MapIntegrations(api);
+    }
+
+    /// <summary>
+    /// Внешние сервисы-интеграции (external_service, phase 7i): CRUD + health-check (auth) +
+    /// расписание инструмента. MVP-адаптер — finam (подтверждатель расписания).
+    /// </summary>
+    private static void MapIntegrations(RouteGroupBuilder api)
+    {
+        var integrations = api.MapGroup("/integrations");
+
+        integrations.MapGet("", async (IExternalServiceStore store, CancellationToken ct) =>
+        {
+            var services = await store.ListAsync(ct);
+            return services.Select(ToDto).ToList();
+        });
+
+        integrations.MapPost("", async (
+            UpsertExternalServiceRequest request, IExternalServiceStore store, CancellationToken ct) =>
+        {
+            var service = await store.UpsertAsync(
+                request.Name, request.Adapter, request.Transport,
+                NormalizeSecret(request.Secret), request.SecretExpiresOn, request.Enabled, ct);
+            return Results.Ok(ToDto(service));
+        });
+
+        integrations.MapPut("/{id:long}", async (
+            long id, UpsertExternalServiceRequest request, IExternalServiceStore store, CancellationToken ct) =>
+        {
+            var updated = await store.UpdateAsync(
+                id, request.Name, request.Adapter, request.Transport,
+                NormalizeSecret(request.Secret), request.SecretExpiresOn, request.Enabled, ct);
+            return updated is null ? Results.NotFound() : Results.Ok(ToDto(updated));
+        });
+
+        integrations.MapDelete("/{id:long}", async (long id, IExternalServiceStore store, CancellationToken ct) =>
+            await store.DeleteAsync(id, ct) ? Results.NoContent() : Results.NotFound());
+
+        // Health-check: обмен сохранённого секрета на JWT. Ошибка auth → {ok:false} (200), не 5xx.
+        integrations.MapPost("/{id:long}/probe", async (
+            long id, IExternalServiceStore store, IFinamApi finam, CancellationToken ct) =>
+        {
+            var service = await store.GetAsync(id, ct);
+            if (service is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (!string.Equals(service.Adapter, "finam", StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.Ok(new IntegrationProbeResultDto(false, $"Адаптер «{service.Adapter}» пока не поддержан"));
+            }
+
+            var secret = await store.GetSecretAsync(id, ct);
+            if (string.IsNullOrWhiteSpace(secret))
+            {
+                return Results.Ok(new IntegrationProbeResultDto(false, "Секрет не задан"));
+            }
+
+            try
+            {
+                await finam.AuthenticateAsync(secret, ct);
+                return Results.Ok(new IntegrationProbeResultDto(true, "Аутентификация успешна"));
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+            {
+                return Results.Ok(new IntegrationProbeResultDto(false, ex.Message));
+            }
+        });
+
+        // Расписание инструмента (рабочая область). Символ Finam: SBER@MISX, SiU6@RTSX и т.п.
+        integrations.MapGet("/{id:long}/schedule", async (
+            long id, string? symbol, IExternalServiceStore store, IFinamApi finam, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(symbol))
+            {
+                return Results.BadRequest(new { error = "Не задан параметр symbol" });
+            }
+
+            var secret = await store.GetSecretAsync(id, ct);
+            if (string.IsNullOrWhiteSpace(secret))
+            {
+                return Results.BadRequest(new { error = "Секрет не задан для этой интеграции" });
+            }
+
+            return await ExternalAsync(async token =>
+            {
+                var schedule = await finam.GetScheduleAsync(secret, symbol, token);
+                return new ExternalScheduleDto(
+                    schedule.Symbol,
+                    schedule.Sessions.Select(s => new ExternalSessionDto(s.Type, s.Start, s.End)).ToList());
+            }, ct);
+        });
+    }
+
+    /// <summary>Пустой/пробельный секрет → null («не менять» / «не задан»).</summary>
+    private static string? NormalizeSecret(string? secret) =>
+        string.IsNullOrWhiteSpace(secret) ? null : secret.Trim();
+
+    /// <summary>Обёртка запросов к внешнему API: недоступность/ошибка → 502, чтобы фронт показал причину.</summary>
+    private static async Task<IResult> ExternalAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct)
+    {
+        try
+        {
+            return Results.Ok(await action(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+        }
     }
 
     /// <summary>Структура биржи из MOEX ISS (движки → рынки → борды → инструменты). Прокси/кэш над ISS.</summary>
@@ -325,6 +469,22 @@ public static class OhsEndpoints
 
                 return days;
             }, ct));
+
+        // Действующее на дату базовое расписание РЫНКА (курируемая market_schedule, из БД — без ISS).
+        exchanges.MapGet("/{market}/schedule", async (
+            string market, DateOnly? on, IMarketScheduleStore store, CancellationToken ct) =>
+        {
+            var date = on ?? DateOnly.FromDateTime(DateTime.UtcNow.Add(MoexSchedule.MoscowOffset));
+            var version = await store.GetActiveAsync(market, date, ct);
+            return version is null
+                ? Results.NotFound(new { error = $"Нет расписания для рынка «{market}»" })
+                : Results.Ok(new MarketScheduleDto(
+                    version.Market, version.EffectiveFrom, version.WdOpen, version.WdClose,
+                    version.WeOpen, version.WeClose,
+                    version.Weekday.Select(p => new SchedulePhaseDto(p.Key, p.From, p.Till)).ToList(),
+                    version.Weekend.Select(p => new SchedulePhaseDto(p.Key, p.From, p.Till)).ToList(),
+                    version.Confidence, version.Source, version.Note));
+        });
     }
 
     /// <summary>Классифицирует день для UI: regular · transfer (рабочий перенос) · dsvd (выходной торговый) · weekend · holiday.</summary>
@@ -402,6 +562,10 @@ public static class OhsEndpoints
     private static ConnectionDto ToDto(ConnectorConnection connection, string status) => new(
         connection.ConnectionId, connection.SourceId, connection.Name, connection.Kind, connection.Settings,
         connection.Enabled, status);
+
+    private static ExternalServiceDto ToDto(ExternalService service) => new(
+        service.ServiceId, service.Name, service.Adapter, service.Transport,
+        service.HasSecret, service.SecretExpiresOn, service.Enabled);
 
     private static string ToLivenessReasonDto(CaptureCloseReason reason) => reason switch
     {

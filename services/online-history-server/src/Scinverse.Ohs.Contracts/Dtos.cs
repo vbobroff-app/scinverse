@@ -134,6 +134,12 @@ public sealed record RecordingDto(
 /// <summary>Запрос на старт записи.</summary>
 public sealed record StartRecordingRequest(long InstrumentId, long ConnectionId);
 
+/// <summary>Политика автозаписи инструмента (phase 7i).</summary>
+public sealed record RecordingScheduleDto(long InstrumentId, long ConnectionId, bool AutoEnabled);
+
+/// <summary>Пакетный upsert политик автозаписи.</summary>
+public sealed record UpsertRecordingScheduleRequest(IReadOnlyList<RecordingScheduleDto> Items);
+
 /// <summary>Подключение коннектора (без секретов) + рантайм-статус.</summary>
 public sealed record ConnectionDto(
     long ConnectionId,
@@ -213,3 +219,60 @@ public sealed record CalendarDayDto(
     string Kind,
     TimeOnly? Open,
     TimeOnly? Close);
+
+/// <summary>Фаза торгового дня расписания движка: ключ + границы (МСК, <c>HH:mm:ss</c>).</summary>
+/// <param name="Key">auction|morning|main|evening|weekend.</param>
+public sealed record SchedulePhaseDto(string Key, TimeOnly From, TimeOnly Till);
+
+/// <summary>
+/// Внешний сервис-интеграция (external_service, phase 7i). Секрет наружу не отдаём — только признак
+/// <paramref name="HasSecret"/> и (advisory) дата истечения. <paramref name="Adapter"/> = биндинг на
+/// код (<c>finam</c>); <paramref name="Transport"/> = <c>rest</c>|<c>grpc</c>|<c>ws</c>.
+/// </summary>
+public sealed record ExternalServiceDto(
+    long ServiceId,
+    string Name,
+    string Adapter,
+    string Transport,
+    bool HasSecret,
+    DateOnly? SecretExpiresOn,
+    bool Enabled);
+
+/// <summary>
+/// Создание/обновление интеграции. <paramref name="Secret"/> = null/пусто → не менять (при обновлении)
+/// либо оставить незаданным (при создании).
+/// </summary>
+public sealed record UpsertExternalServiceRequest(
+    string Name,
+    string Adapter,
+    string Transport,
+    string? Secret,
+    DateOnly? SecretExpiresOn,
+    bool Enabled);
+
+/// <summary>Результат health-check интеграции (auth по сохранённому секрету).</summary>
+public sealed record IntegrationProbeResultDto(bool Ok, string Message);
+
+/// <summary>Расписание инструмента у внешнего сервиса (Finam): символ + сессии.</summary>
+public sealed record ExternalScheduleDto(string Symbol, IReadOnlyList<ExternalSessionDto> Sessions);
+
+/// <summary>Сессия внешнего расписания: тип и границы окна (UTC, <see cref="DateTimeOffset"/>).</summary>
+public sealed record ExternalSessionDto(string Type, DateTimeOffset Start, DateTimeOffset End);
+
+/// <summary>
+/// Действующая версия торгового распорядка движка (курируемая таблица <c>market_schedule</c>):
+/// внешние границы будней/выходных + разложенные фазы (будни/ДСВД) для UI-вкладки «Расписание».
+/// <c>Confidence</c>: authoritative|empirical|assumed.
+/// </summary>
+public sealed record MarketScheduleDto(
+    string Engine,
+    DateOnly EffectiveFrom,
+    TimeOnly WdOpen,
+    TimeOnly WdClose,
+    TimeOnly? WeOpen,
+    TimeOnly? WeClose,
+    IReadOnlyList<SchedulePhaseDto> Weekday,
+    IReadOnlyList<SchedulePhaseDto> Weekend,
+    string Confidence,
+    string? Source,
+    string? Note);

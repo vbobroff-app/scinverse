@@ -44,6 +44,14 @@ public interface IOhsApi
     /// <summary>DELETE /api/recordings/{instrumentId}</summary>
     Task StopRecordingAsync(long instrumentId, CancellationToken cancellationToken = default);
 
+    /// <summary>GET /api/recording/schedule</summary>
+    Task<IReadOnlyList<RecordingScheduleDto>> GetRecordingScheduleAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>PUT /api/recording/schedule</summary>
+    Task<IReadOnlyList<RecordingScheduleDto>> UpsertRecordingScheduleAsync(
+        UpsertRecordingScheduleRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>GET /api/connections</summary>
     Task<IReadOnlyList<ConnectionDto>> GetConnectionsAsync(CancellationToken cancellationToken = default);
 
@@ -85,4 +93,8 @@ public interface IOhsApi
     /// <summary>GET /api/exchanges/{engine}/calendar?from=&amp;till= — торговый календарь движка (ISS).</summary>
     Task<IReadOnlyList<CalendarDayDto>> GetEngineCalendarAsync(
         string engine, DateOnly? from = null, DateOnly? till = null, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/exchanges/{engine}/schedule?on= — действующее на дату расписание движка (market_schedule).</summary>
+    Task<MarketScheduleDto?> GetMarketScheduleAsync(
+        string engine, DateOnly? on = null, CancellationToken cancellationToken = default);
 }
