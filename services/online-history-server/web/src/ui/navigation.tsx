@@ -10,6 +10,7 @@ import {
   ExchangeIcon,
   HelpIcon,
   type IconProps,
+  IntegrationsIcon,
   MessagesIcon,
   NewsIcon,
   ProvidersIcon,
@@ -19,6 +20,7 @@ import {
 export const NAV_ICONS: Record<NavSectionId, ComponentType<IconProps>> = {
   exchanges: ExchangeIcon,
   providers: ProvidersIcon,
+  integrations: IntegrationsIcon,
   news: NewsIcon,
   messages: MessagesIcon,
   help: HelpIcon,

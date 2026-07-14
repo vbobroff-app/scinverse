@@ -10,6 +10,7 @@
 export type NavSectionId =
   | 'exchanges'
   | 'providers'
+  | 'integrations'
   | 'news'
   | 'messages'
   | 'help'
@@ -35,6 +36,7 @@ export interface NavSection {
 export const NAV_SECTIONS: readonly NavSection[] = [
   { id: 'exchanges', label: 'Биржи', group: 'top', ready: false },
   { id: 'providers', label: 'Провайдеры', group: 'top', ready: true },
+  { id: 'integrations', label: 'Интеграции', group: 'top', ready: true },
   { id: 'news', label: 'Новости', group: 'top', ready: false },
   { id: 'messages', label: 'Сообщения', group: 'top', ready: false },
   { id: 'help', label: 'Помощь', group: 'bottom', ready: false },

@@ -4,6 +4,7 @@ import { HeaderControls } from './ui/components/HeaderControls';
 import { IconSidebar } from './ui/components/IconSidebar';
 import { ProvidersSection } from './ui/pages/ProvidersSection';
 import { ExchangesSection } from './ui/pages/ExchangesSection';
+import { IntegrationsSection } from './ui/pages/IntegrationsSection';
 import { PlaceholderSection } from './ui/pages/PlaceholderSection';
 import { NAV_ICONS } from './ui/navigation';
 import { navSection, type NavSectionId } from './core/navigation';
@@ -46,6 +47,9 @@ function SectionContent({ section }: { section: NavSectionId }) {
   }
   if (section === 'exchanges') {
     return <ExchangesSection />;
+  }
+  if (section === 'integrations') {
+    return <IntegrationsSection />;
   }
   const meta = navSection(section);
   return (

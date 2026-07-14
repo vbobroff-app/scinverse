@@ -30,6 +30,7 @@ import type {
   LivenessIntervalDto,
   LiveEvent,
   RecordingDto,
+  RecordingScheduleDto,
   SessionDto,
   SessionWindowMode,
   SourceDto,
@@ -41,6 +42,14 @@ import type {
   ValidateConnectionResult,
 } from './types';
 
+/** Сейчас внутри торговой сессии из sessions$ (MOEX / ISS). */
+export function isInTradingSession(sessions: readonly SessionDto[], nowMs: number): boolean {
+  return sessions.some((s) => {
+    const start = Date.parse(s.start);
+    const end = Date.parse(s.end);
+    return Number.isFinite(start) && Number.isFinite(end) && nowMs >= start && nowMs <= end;
+  });
+}
 /** Флаги условий плашки «Выбор» (проекция query-параметров для чек-листа). */
 export interface SelectionConditions {
   recording: boolean;
@@ -205,6 +214,8 @@ export class OhsStore {
   readonly sources$ = new BehaviorSubject<SourceDto[]>([]);
   readonly connections$ = new BehaviorSubject<ConnectionDto[]>([]);
   readonly recordings$ = new BehaviorSubject<RecordingDto[]>([]);
+  /** Политики автозаписи: instrumentId → schedule. */
+  readonly recordingSchedule$ = new BehaviorSubject<ReadonlyMap<number, RecordingScheduleDto>>(new Map());
   readonly coverage$ = new BehaviorSubject<CoverageSegmentDto[]>([]);
   readonly window$ = new BehaviorSubject<CoverageWindow>(defaultWindow());
 
@@ -244,6 +255,7 @@ export class OhsStore {
     this.refreshSources();
     this.refreshConnections();
     this.refreshRecordings();
+    this.refreshRecordingSchedule();
     this.applyTimeframe(this.timeframe$.value);
     const stream =
       this.live ??
@@ -673,7 +685,7 @@ export class OhsStore {
 
   /**
    * Останавливает запись всей серии: гасит запись по всем страйкам серии,
-   * которые сейчас пишутся (ограниченная параллельность).
+   * которые сейчас пишутся, и снимает Auto со всех членов серии.
    */
   stopSeries(futuresId: number, expiration: string): void {
     const key = seriesKey(futuresId, expiration);
@@ -684,34 +696,82 @@ export class OhsStore {
     this.ensureStrikes(futuresId, expiration)
       .pipe(
         switchMap((strikes) => {
-          const members = new Set(strikes.map((o) => o.instrumentId));
+          const members = strikes.map((o) => o.instrumentId);
+          const memberSet = new Set(members);
           const targets = this.recordings$.value
-            .filter((r) => members.has(r.instrumentId))
+            .filter((r) => memberSet.has(r.instrumentId))
             .map((r) => r.instrumentId);
-          if (targets.length === 0) {
-            return of<unknown[]>([]);
-          }
-          return from(targets).pipe(
-            mergeMap(
-              (id) =>
-                this.api.stopRecording(id).pipe(
-                  catchError((err) => {
-                    console.error('stopSeries item', id, err);
-                    return of(null);
-                  }),
-                ),
-              SERIES_CONCURRENCY,
-            ),
-            toArray(),
+          const stop$ =
+            targets.length === 0
+              ? of<unknown[]>([])
+              : from(targets).pipe(
+                  mergeMap(
+                    (id) =>
+                      this.api.stopRecording(id).pipe(
+                        catchError((err) => {
+                          console.error('stopSeries item', id, err);
+                          return of(null);
+                        }),
+                      ),
+                    SERIES_CONCURRENCY,
+                  ),
+                  toArray(),
+                );
+          return stop$.pipe(
+            switchMap(() => this.disableAutoMany$(members)),
           );
         }),
         finalize(() => {
           this.setSeriesBusy(key, false);
           this.refreshRecordings();
           this.refreshCoverage();
+          this.refreshRecordingSchedule();
         }),
       )
       .subscribe({ error: (err) => console.error('stopSeries', err) });
+  }
+
+  /** Включает/выключает Auto для одного инструмента. */
+  setRecordingAuto(instrumentId: number, connectionId: number, autoEnabled: boolean): void {
+    this.api
+      .upsertRecordingSchedule({ items: [{ instrumentId, connectionId, autoEnabled }] })
+      .subscribe({
+        next: (rows) => this.mergeSchedule(rows),
+        error: (err) => console.error('setRecordingAuto', err),
+      });
+  }
+
+  /**
+   * Auto серии: включает/выключает Auto на всех активных страйках
+   * (аналог Старт серии по охвату).
+   */
+  setSeriesAuto(futuresId: number, expiration: string, connectionId: number, autoEnabled: boolean): void {
+    const key = seriesKey(futuresId, expiration);
+    if (this.seriesBusy$.value.has(key)) {
+      return;
+    }
+    this.setSeriesBusy(key, true);
+    this.ensureStrikes(futuresId, expiration)
+      .pipe(
+        switchMap((strikes) => {
+          const targets = autoEnabled ? strikes.filter((o) => o.active) : strikes;
+          if (targets.length === 0) {
+            return of<RecordingScheduleDto[]>([]);
+          }
+          return this.api.upsertRecordingSchedule({
+            items: targets.map((o) => ({
+              instrumentId: o.instrumentId,
+              connectionId,
+              autoEnabled,
+            })),
+          });
+        }),
+        finalize(() => this.setSeriesBusy(key, false)),
+      )
+      .subscribe({
+        next: (rows) => this.mergeSchedule(rows),
+        error: (err) => console.error('setSeriesAuto', err),
+      });
   }
 
   /** Догружает следующую страницу каталога (infinite scroll). */
@@ -867,8 +927,9 @@ export class OhsStore {
       .connect(connectionId)
       .pipe(
         timeout(35_000),
-        catchError((err) => {
-          console.error('connect', err);
+        catchError((err: { response?: { error?: string }; message?: string }) => {
+          const detail = err?.response?.error ?? err?.message ?? 'неизвестная ошибка';
+          console.error('connect', detail, err);
           this.patchConnectionStatus(connectionId, 'error');
           return EMPTY;
         }),
@@ -1007,11 +1068,24 @@ export class OhsStore {
     });
   }
 
-  stopRecording(instrumentId: number): void {
+  /**
+   * Ручной стоп: гасит запись и Auto у инструмента; у соседей серии (если переданы)
+   * снимает только Auto.
+   */
+  stopRecording(instrumentId: number, seriesSiblingIds: number[] = []): void {
+    const siblings = seriesSiblingIds.filter((id) => id !== instrumentId);
     this.api.stopRecording(instrumentId).subscribe({
       next: () => {
         this.refreshRecordings();
         this.refreshCoverage();
+        if (siblings.length > 0) {
+          this.disableAutoMany$(siblings).subscribe({
+            next: () => this.refreshRecordingSchedule(),
+            error: (err) => console.error('stopRecording clear series auto', err),
+          });
+        } else {
+          this.refreshRecordingSchedule();
+        }
       },
       error: (err) => console.error('stopRecording', err),
     });
@@ -1055,7 +1129,60 @@ export class OhsStore {
         this.refreshRecordings();
         this.refreshCoverage();
         break;
+
+      case 'recordingScheduleChanged':
+        this.replaceSchedule(event.items);
+        break;
     }
+  }
+
+  private refreshRecordingSchedule(): void {
+    this.api.getRecordingSchedule().subscribe({
+      next: (rows) => this.replaceSchedule(rows),
+      error: (err) => console.error('getRecordingSchedule', err),
+    });
+  }
+
+  private replaceSchedule(rows: RecordingScheduleDto[]): void {
+    const byId = new Map<number, RecordingScheduleDto>();
+    for (const row of rows) {
+      byId.set(row.instrumentId, row);
+    }
+    this.recordingSchedule$.next(byId);
+  }
+
+  private mergeSchedule(rows: RecordingScheduleDto[]): void {
+    const next = new Map(this.recordingSchedule$.value);
+    for (const row of rows) {
+      if (row.autoEnabled) {
+        next.set(row.instrumentId, row);
+      } else {
+        next.delete(row.instrumentId);
+      }
+    }
+    this.recordingSchedule$.next(next);
+  }
+
+  private disableAutoMany$(instrumentIds: number[]): Observable<RecordingScheduleDto[]> {
+    const items = instrumentIds
+      .map((instrumentId) => {
+        const existing = this.recordingSchedule$.value.get(instrumentId);
+        if (!existing?.autoEnabled) {
+          return null;
+        }
+        return {
+          instrumentId,
+          connectionId: existing.connectionId,
+          autoEnabled: false,
+        };
+      })
+      .filter((x): x is RecordingScheduleDto => x != null);
+    if (items.length === 0) {
+      return of([]);
+    }
+    return this.api.upsertRecordingSchedule({ items }).pipe(
+      tap((rows) => this.mergeSchedule(rows)),
+    );
   }
 
   private applyCoverageExtended(
