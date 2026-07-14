@@ -20,6 +20,8 @@ public sealed class TransaqConnector : IMarketConnector
 
     private static string? _configuredDllPath;
     private static int _resolverInstalled;
+    private static readonly object NativeLock = new();
+    private static bool _nativeInitialized;
 
     private readonly TransaqConnectorOptions _options;
     private readonly Channel<string> _messages;
@@ -28,7 +30,7 @@ public sealed class TransaqConnector : IMarketConnector
     // Держим ссылку на делегат, чтобы GC не собрал его, пока DLL хранит указатель.
     private readonly CallbackDelegate _callback;
 
-    private bool _initialized;
+    private bool _connectCommandSent;
     private bool _sessionEstablished;
     private ConnectorLinkState? _currentLinkState;
 
@@ -64,8 +66,7 @@ public sealed class TransaqConnector : IMarketConnector
         EnsureResolver(_options.DllPath);
         Directory.CreateDirectory(_options.LogDir);
 
-        EnsureSuccess(Initialize(_options.LogDir, _options.LogLevel), "Initialize");
-        _initialized = true;
+        EnsureNativeInitialized(_options.LogDir, _options.LogLevel);
 
         if (!SetCallback(_callback))
         {
@@ -89,6 +90,7 @@ public sealed class TransaqConnector : IMarketConnector
             .ToString();
 
         EnsureSuccess(SendCommand(command), "connect");
+        _connectCommandSent = true;
 
         // Команда connect асинхронная: подтверждение приходит колбэком
         // server_status connected="true"; ждём его до таймаута.
@@ -147,7 +149,7 @@ public sealed class TransaqConnector : IMarketConnector
     {
         // После server_status connected="false" IsConnected уже false, но сессия на шлюзе
         // может оставаться — без disconnect повторный connect даёт «connection error».
-        if (_sessionEstablished)
+        if (_sessionEstablished || _connectCommandSent)
         {
             try
             {
@@ -160,10 +162,43 @@ public sealed class TransaqConnector : IMarketConnector
 
             IsConnected = false;
             _sessionEstablished = false;
-            PublishLinkState(ConnectorLinkState.Down, DateTimeOffset.UtcNow, "disconnect");
+            _connectCommandSent = false;
+            if (_currentLinkState is not null and not ConnectorLinkState.Down)
+            {
+                PublishLinkState(ConnectorLinkState.Down, DateTimeOffset.UtcNow, "disconnect");
+            }
         }
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>Выгрузка нативной DLL — только при остановке хоста (TRANSAQ процесс-глобален).</summary>
+    public static void ShutdownNative()
+    {
+        lock (NativeLock)
+        {
+            if (!_nativeInitialized)
+            {
+                return;
+            }
+
+            _ = UnInitialize();
+            _nativeInitialized = false;
+        }
+    }
+
+    private static void EnsureNativeInitialized(string logDir, int logLevel)
+    {
+        lock (NativeLock)
+        {
+            if (_nativeInitialized)
+            {
+                return;
+            }
+
+            EnsureSuccess(Initialize(logDir, logLevel), "Initialize");
+            _nativeInitialized = true;
+        }
     }
 
     public Task<bool> ProbeConnectionAsync(CancellationToken cancellationToken)
@@ -194,12 +229,6 @@ public sealed class TransaqConnector : IMarketConnector
         catch (InvalidOperationException)
         {
             // Отключение по best-effort: игнорируем ошибки коннектора при выгрузке.
-        }
-
-        if (_initialized)
-        {
-            _ = UnInitialize();
-            _initialized = false;
         }
 
         _messages.Writer.TryComplete();

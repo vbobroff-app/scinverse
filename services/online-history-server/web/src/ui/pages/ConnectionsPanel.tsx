@@ -74,6 +74,7 @@ export function ConnectionsPanel({ selectedId, onSelect }: Props) {
           onClick={openCreate}
           title="Добавить подключение"
           aria-label="Добавить подключение"
+          data-conn-add
         >
           {creating ? '×' : '+'}
         </button>

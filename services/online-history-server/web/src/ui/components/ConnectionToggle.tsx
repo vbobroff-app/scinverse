@@ -1,6 +1,4 @@
-import styles from './ConnectionToggle.module.css';
-
-type Phase = 'off' | 'connecting' | 'active' | 'waiting' | 'degraded' | 'error';
+import { StatusSwitch, type SwitchPhase } from './StatusSwitch';
 
 interface Props {
   status: string;
@@ -9,7 +7,7 @@ interface Props {
   onCancelConnect?: () => void;
 }
 
-function toPhase(status: string): Phase {
+function toPhase(status: string): SwitchPhase {
   switch (status) {
     case 'active':
       return 'active';
@@ -28,7 +26,7 @@ function toPhase(status: string): Phase {
   }
 }
 
-const LABEL: Record<Phase, string> = {
+const LABEL: Record<SwitchPhase, string> = {
   off: 'Отключён',
   connecting: 'Подключение…',
   active: 'Подключён',
@@ -54,21 +52,5 @@ export function ConnectionToggle({ status, onConnect, onDisconnect, onCancelConn
     }
   };
 
-  return (
-    <div className={styles.wrap}>
-      <span className={styles.label}>{LABEL[phase]}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={connected}
-        aria-busy={busy}
-        disabled={false}
-        className={[styles.track, styles[phase]].join(' ')}
-        onClick={toggle}
-        title={LABEL[phase]}
-      >
-        <span className={styles.knob}>{connected || busy ? '' : '×'}</span>
-      </button>
-    </div>
-  );
+  return <StatusSwitch phase={phase} label={LABEL[phase]} onToggle={toggle} />;
 }

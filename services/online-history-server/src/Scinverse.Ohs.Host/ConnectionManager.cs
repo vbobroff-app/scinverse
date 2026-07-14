@@ -220,10 +220,12 @@ public sealed class ConnectionManager(
 
     public async Task StopAllAsync(CancellationToken cancellationToken)
     {
-        foreach (var connectionId in _sessions.Keys)
+        foreach (var connectionId in _sessions.Keys.ToList())
         {
             await DisconnectAsync(connectionId, cancellationToken).ConfigureAwait(false);
         }
+
+        TransaqConnector.ShutdownNative();
     }
 
     /// <summary>

@@ -10,7 +10,7 @@ import { CoverageTrack } from './CoverageTrack';
 import { CrosshairOverlay } from './CrosshairOverlay';
 import { CrosshairIcon, DayBoxIcon } from './icons';
 import { showCrosshair, hideCrosshair } from '../../core/crosshair';
-import { seriesKey, type CoverageWindow } from '../../core/OhsStore';
+import { seriesKey, isInTradingSession, type CoverageWindow } from '../../core/OhsStore';
 import { makeProjector, makeInverseProjector } from '../../core/sessionProjection';
 import { exchangeForBoard } from '../../core/exchange';
 import type {
@@ -23,6 +23,7 @@ import type {
   RecordingDto,
   SessionDto,
 } from '../../core/types';
+import { RecordingAutoToggle, autoPhase, type AutoPhase } from './RecordingAutoToggle';
 import styles from './InstrumentPicker.module.css';
 
 const ROW_HEIGHT = 50;
@@ -109,6 +110,7 @@ interface RowProps {
   expanded: boolean;
   seriesBusy: boolean;
   seriesRecordingCount: number;
+  autoPhase: AutoPhase;
   highlightDays: boolean;
   nowMs: number;
   onToggleFutures: (instrument: InstrumentDto) => void;
@@ -118,6 +120,10 @@ interface RowProps {
   onStop: (instrumentId: number) => void;
   onStartSeries: (futuresId: number, expiration: string) => void;
   onStopSeries: (futuresId: number, expiration: string) => void;
+  onEnableAuto: (instrumentId: number) => void;
+  onDisableAuto: (instrumentId: number) => void;
+  onEnableSeriesAuto: (futuresId: number, expiration: string) => void;
+  onDisableSeriesAuto: (futuresId: number, expiration: string) => void;
 }
 
 const Row = memo(function Row({
@@ -138,6 +144,7 @@ const Row = memo(function Row({
   expanded,
   seriesBusy,
   seriesRecordingCount,
+  autoPhase: autoPh,
   highlightDays,
   nowMs,
   onToggleFutures,
@@ -147,6 +154,10 @@ const Row = memo(function Row({
   onStop,
   onStartSeries,
   onStopSeries,
+  onEnableAuto,
+  onDisableAuto,
+  onEnableSeriesAuto,
+  onDisableSeriesAuto,
 }: RowProps) {
   if (row.kind === 'series') {
     const exp = row.group.expiration ?? row.group.key;
@@ -174,6 +185,12 @@ const Row = memo(function Row({
             </span>
           </button>
 
+          <RecordingAutoToggle
+            phase={autoPh}
+            onEnable={() => onEnableSeriesAuto(row.futuresId, exp)}
+            onDisable={() => onDisableSeriesAuto(row.futuresId, exp)}
+          />
+
           {seriesBusy ? (
             <Button variant="default" disabled>
               …
@@ -185,7 +202,7 @@ const Row = memo(function Row({
           ) : (
             <Button
               variant="primary"
-              disabled={!connected}
+              disabled={!connected && autoPh === 'off'}
               onClick={() => onStartSeries(row.futuresId, exp)}
             >
               Старт серии
@@ -200,6 +217,7 @@ const Row = memo(function Row({
   const inst = isStrike ? row.option : row.instrument;
   const tradeable = inst.active;
   const canExpand = row.kind === 'inst' && inst.hasOptions;
+  const autoOn = autoPh !== 'off';
 
   const label = isStrike
     ? `${inst.optionType === 'C' ? 'Call' : 'Put'} ${inst.strike ?? ''}`.trim()
@@ -241,6 +259,12 @@ const Row = memo(function Row({
           {selected ? '★' : '☆'}
         </button>
 
+        <RecordingAutoToggle
+          phase={autoPh}
+          onEnable={() => onEnableAuto(inst.instrumentId)}
+          onDisable={() => onDisableAuto(inst.instrumentId)}
+        />
+
         {recording ? (
           <Button variant="danger" onClick={() => onStop(inst.instrumentId)}>
             Стоп
@@ -248,7 +272,7 @@ const Row = memo(function Row({
         ) : (
           <Button
             variant="primary"
-            disabled={!connected || !tradeable}
+            disabled={autoOn ? false : !connected || !tradeable}
             onClick={() => onStart(inst.instrumentId)}
           >
             Старт
@@ -292,6 +316,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const seriesByFutures = useBehavior(store.seriesByFutures$);
   const strikesBySeries = useBehavior(store.strikesBySeries$);
   const seriesBusy = useBehavior(store.seriesBusy$);
+  const recordingSchedule = useBehavior(store.recordingSchedule$);
   const window = useBehavior(store.window$);
   const sessions = useBehavior(store.sessions$);
   const tzOffsetMin = useBehavior(store.displayTz$).offsetMin;
@@ -302,6 +327,8 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
     connection.status === 'active' ||
     connection.status === 'waiting' ||
     connection.status === 'degraded';
+  const connectionReady = connected;
+  const inSession = isInTradingSession(sessions, now);
 
   const sourceCodeById = useMemo(
     () => new Map(sources.map((s) => [s.sourceId, s.code])),
@@ -467,7 +494,19 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
       store.startRecording({ instrumentId, connectionId: connection.connectionId }),
     [store, connection.connectionId],
   );
-  const onStop = useCallback((instrumentId: number) => store.stopRecording(instrumentId), [store]);
+  const onStop = useCallback(
+    (instrumentId: number) => {
+      let siblings: number[] = [];
+      for (const strikes of store.strikesBySeries$.value.values()) {
+        if (strikes.some((o) => o.instrumentId === instrumentId)) {
+          siblings = strikes.map((o) => o.instrumentId);
+          break;
+        }
+      }
+      store.stopRecording(instrumentId, siblings);
+    },
+    [store],
+  );
   const onStartSeries = useCallback(
     (futuresId: number, expiration: string) =>
       store.startSeries(futuresId, expiration, connection.connectionId),
@@ -476,6 +515,26 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const onStopSeries = useCallback(
     (futuresId: number, expiration: string) => store.stopSeries(futuresId, expiration),
     [store],
+  );
+  const onEnableAuto = useCallback(
+    (instrumentId: number) =>
+      store.setRecordingAuto(instrumentId, connection.connectionId, true),
+    [store, connection.connectionId],
+  );
+  const onDisableAuto = useCallback(
+    (instrumentId: number) =>
+      store.setRecordingAuto(instrumentId, connection.connectionId, false),
+    [store, connection.connectionId],
+  );
+  const onEnableSeriesAuto = useCallback(
+    (futuresId: number, expiration: string) =>
+      store.setSeriesAuto(futuresId, expiration, connection.connectionId, true),
+    [store, connection.connectionId],
+  );
+  const onDisableSeriesAuto = useCallback(
+    (futuresId: number, expiration: string) =>
+      store.setSeriesAuto(futuresId, expiration, connection.connectionId, false),
+    [store, connection.connectionId],
   );
 
   const scrollStyle = { '--now-pct': nowPct } as unknown as CSSProperties;
@@ -501,17 +560,37 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
 
           let sKey = '';
           let seriesRecordingCount = 0;
+          let rowAutoPhase: AutoPhase = 'off';
           if (row.kind === 'series') {
             sKey = seriesKey(row.futuresId, row.group.expiration ?? row.group.key);
             const strikes = strikesBySeries.get(sKey);
             if (strikes) {
+              let anyAuto = false;
+              let anyRecording = false;
               for (const option of strikes) {
                 const r = recordingByInstrument.get(option.instrumentId);
                 if (r != null && r.connectionId === connection.connectionId) {
                   seriesRecordingCount += 1;
+                  anyRecording = true;
+                }
+                if (recordingSchedule.get(option.instrumentId)?.autoEnabled) {
+                  anyAuto = true;
                 }
               }
+              rowAutoPhase = autoPhase({
+                autoEnabled: anyAuto,
+                inSession,
+                recording: anyRecording,
+                connectionReady,
+              });
             }
+          } else if (instrumentId >= 0) {
+            rowAutoPhase = autoPhase({
+              autoEnabled: !!recordingSchedule.get(instrumentId)?.autoEnabled,
+              inSession,
+              recording: recordingHere,
+              connectionReady,
+            });
           }
 
           const expanded =
@@ -541,6 +620,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               expanded={expanded}
               seriesBusy={row.kind === 'series' && seriesBusy.has(sKey)}
               seriesRecordingCount={seriesRecordingCount}
+              autoPhase={rowAutoPhase}
               highlightDays={highlightDays}
               nowMs={now}
               onToggleFutures={onToggleFutures}
@@ -550,6 +630,10 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               onStop={onStop}
               onStartSeries={onStartSeries}
               onStopSeries={onStopSeries}
+              onEnableAuto={onEnableAuto}
+              onDisableAuto={onDisableAuto}
+              onEnableSeriesAuto={onEnableSeriesAuto}
+              onDisableSeriesAuto={onDisableSeriesAuto}
             />
           );
         })}

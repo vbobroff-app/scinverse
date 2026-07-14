@@ -79,6 +79,8 @@ public sealed class RecordingManager(
 
     public IReadOnlyList<RecordingInfo> List() => _recordings.Values.Select(ToInfo).ToList();
 
+    public bool IsRecording(long instrumentId) => _recordings.ContainsKey(instrumentId);
+
     public bool HasRecordingsOnConnection(long connectionId) =>
         _recordings.Values.Any(r => r.ConnectionId == connectionId);
 

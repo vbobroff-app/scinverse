@@ -3,8 +3,9 @@ using Scinverse.Ohs.Ingestion;
 namespace Scinverse.Ohs.Host;
 
 /// <summary>
-/// Фоновой процесс control-plane: держит батчер записи и heartbeat покрытия; запись
-/// стартует/останавливается через API. На остановке хоста аккуратно закрывает записи и подключения.
+/// Фоновой процесс control-plane: держит батчер записи, heartbeat покрытия, живость и
+/// Supervisor автозаписи; запись стартует/останавливается через API / Supervisor.
+/// На остановке хоста аккуратно закрывает записи и подключения.
 /// </summary>
 public sealed class OhsWorker(
     TradeBatcher batcher,
@@ -12,6 +13,7 @@ public sealed class OhsWorker(
     RecordingManager recordingManager,
     ConnectionManager connectionManager,
     LivenessProbe livenessProbe,
+    RecordingSupervisor recordingSupervisor,
     ILogger<OhsWorker> logger) : BackgroundService
 {
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(2);
@@ -23,6 +25,7 @@ public sealed class OhsWorker(
         var batcherTask = batcher.RunAsync(stoppingToken);
         var heartbeatTask = coverageTracker.RunHeartbeatAsync(HeartbeatInterval, stoppingToken);
         var livenessTask = livenessProbe.RunAsync(stoppingToken);
+        var supervisorTask = recordingSupervisor.RunAsync(stoppingToken);
 
         try
         {
@@ -33,6 +36,7 @@ public sealed class OhsWorker(
             // Запрошена остановка.
         }
 
+        await supervisorTask.ConfigureAwait(false);
         await livenessTask.ConfigureAwait(false);
         await heartbeatTask.ConfigureAwait(false);
         await recordingManager.StopAllAsync(CancellationToken.None).ConfigureAwait(false);

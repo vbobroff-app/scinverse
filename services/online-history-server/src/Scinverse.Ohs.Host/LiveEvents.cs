@@ -22,3 +22,10 @@ public sealed record ConnectionStateChangedEvent(
     DateTimeOffset Since,
     string? Reason)
     : LiveEvent("connectionStateChanged");
+
+/// <summary>Элемент политики автозаписи (phase 7i).</summary>
+public sealed record RecordingScheduleItem(long InstrumentId, long ConnectionId, bool AutoEnabled);
+
+/// <summary>Снимок политик автозаписи после PUT / ручного Стопа.</summary>
+public sealed record RecordingScheduleChangedEvent(IReadOnlyList<RecordingScheduleItem> Items)
+    : LiveEvent("recordingScheduleChanged");
