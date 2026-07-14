@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { OhsApi } from '../../core/api';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
+import { useClickOutside } from '../hooks/useClickOutside';
 import { Button } from './Button';
 import type { ConnectionDto } from '../../core/types';
 import styles from './ConnectionForm.module.css';
@@ -58,6 +59,14 @@ export function ConnectionForm({ onClose, onSaved, connection }: Props) {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const formRef = useRef<HTMLDivElement>(null);
+  // Клик вне формы закрывает её; кнопку `[+]` игнорируем; во время проверки — не закрываем.
+  useClickOutside(formRef, () => {
+    if (!busy) {
+      onClose();
+    }
+  }, '[data-conn-add]');
 
   const isTransaq = kind === 'transaq';
 
@@ -139,7 +148,7 @@ export function ConnectionForm({ onClose, onSaved, connection }: Props) {
   };
 
   return (
-    <div className={styles.form}>
+    <div className={styles.form} ref={formRef}>
       <div className={styles.row}>
         <label className={styles.label}>Название</label>
         <input

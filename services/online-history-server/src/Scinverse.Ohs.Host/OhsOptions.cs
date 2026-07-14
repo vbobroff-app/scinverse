@@ -22,6 +22,9 @@ public sealed class OhsOptions
     /// <summary>Базовый URL публичного MOEX ISS (каталог структуры биржи, расписания).</summary>
     public string IssBaseUrl { get; set; } = "https://iss.moex.com/iss/";
 
+    /// <summary>Базовый URL Finam Trade API (интеграция-подтверждатель расписания, phase 7i).</summary>
+    public string FinamBaseUrl { get; set; } = "https://api.finam.ru";
+
     /// <summary>Инструменты для подписки на ленту сделок.</summary>
     public IList<InstrumentRef> Instruments { get; } = new List<InstrumentRef>();
 }
