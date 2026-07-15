@@ -5,6 +5,7 @@ import { OhsApi, type OhsApiClient } from './api';
 import { gapsFromLivenessIntervals } from './coverageGeometry';
 import { createLiveStream, linkStateToConnectionStatus } from './live';
 import { loadSelectedInstruments, persistSelectedInstruments } from './selectedInstrumentsStorage';
+import { loadViewState, persistViewState, type PersistedSeries } from './viewStateStorage';
 import { DEFAULT_SECTION, type NavSectionId } from './navigation';
 import {
   mskDateFromIso,
@@ -31,6 +32,7 @@ import type {
   LiveEvent,
   RecordingDto,
   RecordingScheduleDto,
+  SelectionScope,
   SessionDto,
   SessionWindowMode,
   SourceDto,
@@ -57,6 +59,8 @@ export interface SelectionConditions {
   selected: boolean;
 }
 
+const DEFAULT_SELECTION_SCOPE: SelectionScope = 'all';
+
 /**
  * Слой сделок (phase 7g): присутствие сделок по бакетам. `bucketMs` — текущий шаг бакета (из
  * таймфрейма, для геометрии ячеек); `byInstrument` — старты непустых бакетов (ms) на инструмент.
@@ -69,6 +73,12 @@ export interface TradeActivityState {
 
 /** Живость захвата + журнал разрывов (phase 7h) на подключение (source). */
 export interface LivenessState {
+  intervals: LivenessIntervalDto[];
+  gaps: CaptureGapDto[];
+}
+
+/** Жизненный цикл связи + периоды «связь не жива» (лента Connection, phase 7h.8) на подключение (source). */
+export interface LinkLivenessState {
   intervals: LivenessIntervalDto[];
   gaps: CaptureGapDto[];
 }
@@ -209,6 +219,15 @@ export class OhsStore {
   readonly expandedSeries$ = new BehaviorSubject<ReadonlySet<string>>(new Set());
   readonly seriesByFutures$ = new BehaviorSubject<ReadonlyMap<number, InstrumentGroupDto[]>>(new Map());
   readonly strikesBySeries$ = new BehaviorSubject<ReadonlyMap<string, InstrumentDto[]>>(new Map());
+  /**
+   * Spine выделенных/совпавших опционов: futuresId → экспирации серий.
+   * Заполняется при scope «ко всем»; UI режет дерево до этих веток.
+   */
+  readonly selectedOptionSpine$ = new BehaviorSubject<ReadonlyMap<number, ReadonlySet<string>>>(new Map());
+  /** Листья-опционы, попавшие в фильтр «Выбор» при scope «ко всем» (для prune страйков). */
+  readonly selectionLeafIds$ = new BehaviorSubject<ReadonlySet<number>>(new Set());
+  /** Область применения «Выбор»: ко всем / только к БА. */
+  readonly selectionScope$ = new BehaviorSubject<SelectionScope>(DEFAULT_SELECTION_SCOPE);
   /** Ключи серий, по которым сейчас идёт массовый старт/стоп записи (для блокировки кнопки). */
   readonly seriesBusy$ = new BehaviorSubject<ReadonlySet<string>>(new Set());
   readonly sources$ = new BehaviorSubject<SourceDto[]>([]);
@@ -223,6 +242,8 @@ export class OhsStore {
   readonly activity$ = new BehaviorSubject<TradeActivityState>({ bucketMs: 30_000, byInstrument: new Map() });
   /** Живость захвата и разрывы связи (честная подложка, phase 7h). */
   readonly liveness$ = new BehaviorSubject<LivenessState>({ intervals: [], gaps: [] });
+  /** Жизненный цикл связи (лента Connection, phase 7h.8) — история связи независимо от записи. */
+  readonly link$ = new BehaviorSubject<LinkLivenessState>({ intervals: [], gaps: [] });
   /** Что запрашивать в слое сделок; задаётся UI (видимые строки + источник провайдера). */
   private activityContext: ActivityContext | null = null;
   /** Источник провайдера для живости захвата (один на подключение). */
@@ -240,6 +261,17 @@ export class OhsStore {
   /** Активный раздел верхнего уровня (левый рейл): провайдеры/биржи/новости/… */
   readonly activeSection$ = new BehaviorSubject<NavSectionId>(DEFAULT_SECTION);
 
+  /** Выбранный провайдер в разделе «Провайдеры» (переживает переход между разделами и перезагрузку). */
+  readonly activeConnectionId$ = new BehaviorSubject<number | null>(null);
+
+  /** Тумблер вертикального time-line (crosshair) над Гантом (сохраняется). */
+  readonly crosshairOn$ = new BehaviorSubject<boolean>(true);
+  /** Тумблер подсветки границ дней над Гантом (сохраняется). */
+  readonly highlightDays$ = new BehaviorSubject<boolean>(false);
+
+  /** Раскрытые серии, ожидающие регидрации после перезагрузки (одноразово, см. hydrateExpanded). */
+  private pendingSeriesHydration: PersistedSeries[] = [];
+
   private liveSub?: Subscription;
   private windowTimer?: ReturnType<typeof setInterval>;
   private coveragePollTimer?: ReturnType<typeof setInterval>;
@@ -247,11 +279,115 @@ export class OhsStore {
   constructor(
     private readonly api: OhsApiClient = OhsApi,
     private readonly live?: Observable<LiveEvent>,
-  ) {}
+  ) {
+    this.restoreViewState();
+  }
+
+  /**
+   * Восстанавливает представление каталога из localStorage: активный провайдер, плашки-фильтры,
+   * поля запроса и раскрытые узлы дерева. Список выделенных инструментов уже поднят в
+   * {@link selectedInstruments$}; здесь по флагу `selected` включаем соответствующий фильтр.
+   */
+  private restoreViewState(): void {
+    const v = loadViewState();
+    this.activeConnectionId$.next(v.activeConnectionId);
+    this.activeFilters$.next(v.activeFilters);
+    this.instrumentQuery$.next({
+      ...this.instrumentQuery$.value,
+      category: v.category,
+      onlyRecording: v.onlyRecording,
+      nonEmpty: v.nonEmpty,
+      exchanges: v.exchanges,
+      instrumentIds: v.selected ? [...this.selectedInstruments$.value] : undefined,
+      includeOptionAncestors: (v.selectionScope ?? DEFAULT_SELECTION_SCOPE) !== 'base',
+    });
+    this.selectionScope$.next(v.selectionScope ?? DEFAULT_SELECTION_SCOPE);
+    this.expandedFutures$.next(new Set(v.expandedFutures));
+    this.expandedSeries$.next(new Set(v.expandedSeries.map((s) => seriesKey(s.futuresId, s.expiration))));
+    this.pendingSeriesHydration = v.expandedSeries;
+    if (v.timeframe) {
+      this.timeframe$.next(v.timeframe);
+    }
+    if (v.timeline) {
+      this.timelineFilter$.next({
+        weekdays: new Set(v.timeline.weekdays),
+        fullDay: v.timeline.fullDay,
+        session: v.timeline.session,
+      });
+    }
+    if (v.displayTz) {
+      this.displayTz$.next(v.displayTz);
+    }
+    if (typeof v.crosshair === 'boolean') {
+      this.crosshairOn$.next(v.crosshair);
+    }
+    if (typeof v.highlightDays === 'boolean') {
+      this.highlightDays$.next(v.highlightDays);
+    }
+  }
+
+  /** Снимок представления каталога для localStorage (из текущих сабджектов). */
+  private persistView(): void {
+    const q = this.instrumentQuery$.value;
+    const expandedSeries: PersistedSeries[] = [...this.expandedSeries$.value].flatMap((key) => {
+      const sep = key.indexOf(':');
+      const futuresId = Number(key.slice(0, sep));
+      const expiration = key.slice(sep + 1);
+      return Number.isFinite(futuresId) && expiration ? [{ futuresId, expiration }] : [];
+    });
+    persistViewState({
+      activeConnectionId: this.activeConnectionId$.value,
+      activeFilters: [...this.activeFilters$.value],
+      category: q.category,
+      onlyRecording: q.onlyRecording,
+      nonEmpty: q.nonEmpty,
+      selected: q.instrumentIds !== undefined,
+      selectionScope: this.selectionScope$.value,
+      exchanges: q.exchanges,
+      expandedFutures: [...this.expandedFutures$.value],
+      expandedSeries,
+      timeframe: this.timeframe$.value,
+      timeline: {
+        weekdays: [...this.timelineFilter$.value.weekdays],
+        fullDay: this.timelineFilter$.value.fullDay,
+        session: this.timelineFilter$.value.session,
+      },
+      displayTz: this.displayTz$.value,
+      crosshair: this.crosshairOn$.value,
+      highlightDays: this.highlightDays$.value,
+    });
+  }
+
+  /** Выбирает провайдера в разделе «Провайдеры» (с сохранением между сессиями). */
+  setActiveConnection(connectionId: number | null): void {
+    if (this.activeConnectionId$.value !== connectionId) {
+      this.activeConnectionId$.next(connectionId);
+      this.persistView();
+    }
+  }
+
+  /**
+   * Дозагружает серии/страйки для узлов дерева, раскрытых в прошлой сессии (после перезагрузки
+   * данные дерева пусты). Идемпотентно: грузит только отсутствующее в кэше.
+   */
+  private hydrateExpanded(): void {
+    for (const futuresId of this.expandedFutures$.value) {
+      if (!this.seriesByFutures$.value.has(futuresId)) {
+        this.loadSeries(futuresId);
+      }
+    }
+    for (const { futuresId, expiration } of this.pendingSeriesHydration) {
+      if (!this.strikesBySeries$.value.has(seriesKey(futuresId, expiration))) {
+        this.loadStrikes(futuresId, expiration);
+      }
+    }
+    this.pendingSeriesHydration = [];
+  }
 
   /** Загружает справочники, применяет таймфрейм и подписывается на live-поток. */
   start(): void {
     this.fetchInstruments(false);
+    this.hydrateExpanded();
     this.refreshSources();
     this.refreshConnections();
     this.refreshRecordings();
@@ -303,6 +439,7 @@ export class OhsStore {
   setTimeframe(timeframe: Timeframe): void {
     this.timeframe$.next(timeframe);
     this.applyTimeframe(timeframe);
+    this.persistView();
   }
 
   /** Меняет единицу/глубину посессионного таймфрейма (например W2), сохраняя учёт выходных. */
@@ -327,12 +464,14 @@ export class OhsStore {
     const next = this.normalizeTimeline({ ...this.timelineFilter$.value, ...patch });
     this.timelineFilter$.next(next);
     this.applyTimeframe(this.timeframe$.value);
+    this.persistView();
   }
 
   /** Сброс тайм-лайн-фильтра в нейтраль (все дни + полные сутки, сессия не выбрана). */
   resetTimelineFilter(): void {
     this.timelineFilter$.next({ ...NEUTRAL_TIMELINE, weekdays: new Set(ALL_WEEKDAYS) });
     this.applyTimeframe(this.timeframe$.value);
+    this.persistView();
   }
 
   /** Окно должно быть определено: без выбранной сессии показываем полные сутки. */
@@ -343,6 +482,23 @@ export class OhsStore {
   /** Меняет стандарт времени отображения (единый на систему). */
   setDisplayTz(tz: DisplayTz): void {
     this.displayTz$.next(tz);
+    this.persistView();
+  }
+
+  /** Переключает вертикальный time-line (crosshair) над Гантом (с сохранением). */
+  setCrosshairOn(on: boolean): void {
+    if (this.crosshairOn$.value !== on) {
+      this.crosshairOn$.next(on);
+      this.persistView();
+    }
+  }
+
+  /** Переключает подсветку границ дней над Гантом (с сохранением). */
+  setHighlightDays(on: boolean): void {
+    if (this.highlightDays$.value !== on) {
+      this.highlightDays$.next(on);
+      this.persistView();
+    }
   }
 
   /** Нужно ли генерировать выходные (для счётчика сессий) — по набору дней недели. */
@@ -487,12 +643,40 @@ export class OhsStore {
     }
   }
 
+  /** Выделяет/снимает всю опционную серию; состав серии при необходимости загружается лениво. */
+  toggleSeriesSelection(futuresId: number, expiration: string): void {
+    this.ensureStrikes(futuresId, expiration).subscribe({
+      next: (strikes) => {
+        if (strikes.length === 0) {
+          return;
+        }
+        const next = new Set(this.selectedInstruments$.value);
+        const allSelected = strikes.every((option) => next.has(option.instrumentId));
+        for (const option of strikes) {
+          if (allSelected) {
+            next.delete(option.instrumentId);
+          } else {
+            next.add(option.instrumentId);
+          }
+        }
+        this.selectedInstruments$.next(next);
+        persistSelectedInstruments(next);
+
+        if (this.instrumentQuery$.value.instrumentIds !== undefined) {
+          this.setInstrumentFilter({ instrumentIds: [...next] });
+        }
+      },
+      error: (err) => console.error('toggleSeriesSelection', err),
+    });
+  }
+
   /** Добавляет плашку-фильтр (если ещё не добавлена). Значения выбираются в поповере. */
   addFilter(key: FilterKey): void {
     if (this.activeFilters$.value.includes(key)) {
       return;
     }
     this.activeFilters$.next([...this.activeFilters$.value, key]);
+    this.persistView();
   }
 
   /** Убирает плашку и очищает относящиеся к ней поля запроса. */
@@ -504,11 +688,13 @@ export class OhsStore {
   /** Сбрасывает все плашки и фильтр-поля запроса (поиск не трогаем). */
   clearFilters(): void {
     this.activeFilters$.next([]);
+    this.selectionScope$.next(DEFAULT_SELECTION_SCOPE);
     this.setInstrumentFilter({
       category: undefined,
       onlyRecording: undefined,
       nonEmpty: undefined,
       instrumentIds: undefined,
+      includeOptionAncestors: undefined,
       exchanges: undefined,
     });
   }
@@ -539,7 +725,17 @@ export class OhsStore {
       onlyRecording: conditions.recording ? true : undefined,
       nonEmpty: conditions.nonEmpty ? true : undefined,
       instrumentIds: conditions.selected ? [...this.selectedInstruments$.value] : undefined,
+      includeOptionAncestors: this.selectionScope$.value !== 'base',
     });
+  }
+
+  /** Область применения «Выбор»: ко всем инструментам или только к БА. */
+  setSelectionScope(scope: SelectionScope): void {
+    if (this.selectionScope$.value === scope) {
+      return;
+    }
+    this.selectionScope$.next(scope);
+    this.setInstrumentFilter({ includeOptionAncestors: scope !== 'base' });
   }
 
   /** Патч query-полей для очистки при снятии плашки. */
@@ -548,7 +744,12 @@ export class OhsStore {
       case 'instruments':
         return { category: undefined };
       case 'selection':
-        return { onlyRecording: undefined, nonEmpty: undefined, instrumentIds: undefined };
+        return {
+          onlyRecording: undefined,
+          nonEmpty: undefined,
+          instrumentIds: undefined,
+          includeOptionAncestors: undefined,
+        };
       case 'exchanges':
         return { exchanges: undefined };
     }
@@ -559,6 +760,7 @@ export class OhsStore {
     this.instrumentQuery$.next({ ...this.instrumentQuery$.value, ...patch, offset: 0 });
     this.collapseTree();
     this.fetchInstruments(false);
+    this.persistView();
   }
 
   private collapseTree(): void {
@@ -578,6 +780,7 @@ export class OhsStore {
       }
     }
     this.expandedFutures$.next(next);
+    this.persistView();
   }
 
   /** Раскрывает/сворачивает серию; при первом раскрытии лениво грузит страйки. */
@@ -593,6 +796,7 @@ export class OhsStore {
       }
     }
     this.expandedSeries$.next(next);
+    this.persistView();
   }
 
   private loadSeries(futuresId: number): void {
@@ -799,12 +1003,92 @@ export class OhsStore {
         this.instrumentsTotal$.next(page.total);
         this.instruments$.next(append ? [...this.instruments$.value, ...page.items] : page.items);
         this.instrumentsLoading$.next(false);
+        if (!append) {
+          this.expandSelectedSpine();
+        }
       },
       error: (err) => {
         console.error('getInstruments', err);
         this.instrumentsLoading$.next(false);
       },
     });
+  }
+
+  /**
+   * Scope «ко всем»: резолвит совпавшие OPT → (underlying, expiration), авто-раскрывает
+   * spine future → series → option. Scope «только к БА» / нет условий — очищает spine.
+   */
+  private expandSelectedSpine(): void {
+    const q = this.instrumentQuery$.value;
+    const hasSelection =
+      Boolean(q.onlyRecording) || Boolean(q.nonEmpty) || q.instrumentIds !== undefined;
+    if (!hasSelection || this.selectionScope$.value === 'base') {
+      this.selectedOptionSpine$.next(new Map());
+      this.selectionLeafIds$.next(new Set());
+      return;
+    }
+    // «Выделенные» без id — пустой результат, не тянем все опционы категории.
+    if (q.instrumentIds !== undefined && q.instrumentIds.length === 0 && !q.onlyRecording && !q.nonEmpty) {
+      this.selectedOptionSpine$.next(new Map());
+      this.selectionLeafIds$.next(new Set());
+      return;
+    }
+
+    this.api
+      .getInstruments({
+        category: 'options',
+        onlyRecording: q.onlyRecording,
+        nonEmpty: q.nonEmpty,
+        instrumentIds: q.instrumentIds?.length ? [...q.instrumentIds] : undefined,
+        includeOptionAncestors: false,
+        limit: 500,
+        offset: 0,
+      })
+      .subscribe({
+        next: (page) => {
+          const spine = new Map<number, Set<string>>();
+          const leaves = new Set<number>();
+          for (const opt of page.items) {
+            leaves.add(opt.instrumentId);
+            const underlyingId = opt.underlyingId;
+            const expiration = opt.expiration;
+            if (underlyingId == null || !expiration) {
+              continue;
+            }
+            let exps = spine.get(underlyingId);
+            if (!exps) {
+              exps = new Set();
+              spine.set(underlyingId, exps);
+            }
+            exps.add(expiration);
+          }
+          this.selectedOptionSpine$.next(spine);
+          this.selectionLeafIds$.next(leaves);
+          if (spine.size === 0) {
+            return;
+          }
+
+          const futures = new Set(this.expandedFutures$.value);
+          const series = new Set(this.expandedSeries$.value);
+          for (const [futuresId, exps] of spine) {
+            futures.add(futuresId);
+            if (!this.seriesByFutures$.value.has(futuresId)) {
+              this.loadSeries(futuresId);
+            }
+            for (const expiration of exps) {
+              const key = seriesKey(futuresId, expiration);
+              series.add(key);
+              if (!this.strikesBySeries$.value.has(key)) {
+                this.loadStrikes(futuresId, expiration);
+              }
+            }
+          }
+          this.expandedFutures$.next(futures);
+          this.expandedSeries$.next(series);
+          this.persistView();
+        },
+        error: (err) => console.error('expandSelectedSpine', err),
+      });
   }
 
   refreshSources(): void {
@@ -867,6 +1151,7 @@ export class OhsStore {
     const sourceId = this.livenessSourceId;
     if (sourceId === null) {
       this.liveness$.next({ intervals: [], gaps: [] });
+      this.link$.next({ intervals: [], gaps: [] });
       return;
     }
     const { from, to } = this.window$.value;
@@ -877,6 +1162,12 @@ export class OhsStore {
         this.liveness$.next({ intervals: dto.intervals, gaps });
       },
       error: (err) => console.error('getCaptureLiveness', err),
+    });
+    // Лента Connection (phase 7h.8): вся история связи по тому же источнику. Gaps берём с сервера как
+    // есть — они включают серый 'disconnected' (в отличие от захвата, где серое отфильтровано).
+    this.api.getLinkLiveness({ from, to, sourceId }).subscribe({
+      next: (dto) => this.link$.next({ intervals: dto.intervals, gaps: dto.gaps }),
+      error: (err) => console.error('getLinkLiveness', err),
     });
   }
 

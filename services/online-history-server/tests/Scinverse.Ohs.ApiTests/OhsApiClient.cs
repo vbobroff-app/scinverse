@@ -242,6 +242,11 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
             parts.Add($"instrumentIds={Uri.EscapeDataString(string.Join(',', instrumentIds))}");
         }
 
+        if (!query.IncludeOptionAncestors)
+        {
+            parts.Add("includeOptionAncestors=false");
+        }
+
         if (query.Exchanges is { Count: > 0 } exchanges)
         {
             parts.Add($"exchanges={Uri.EscapeDataString(string.Join(',', exchanges))}");

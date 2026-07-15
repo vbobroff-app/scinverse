@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
-import type { FilterKey } from '../../core/types';
+import type { FilterKey, SelectionScope } from '../../core/types';
 import { FilterChips as GenericFilterChips } from './filters/FilterChips';
 import type { FilterMenuItem, FilterSpec } from './filters/filterModel';
 
@@ -31,6 +31,7 @@ export function FilterChips() {
   const active = useBehavior(store.activeFilters$);
   const query = useBehavior(store.instrumentQuery$);
   const selectedCount = useBehavior(store.selectedInstruments$).size;
+  const selectionScope = useBehavior(store.selectionScope$);
 
   const specs = useMemo<Record<string, FilterSpec>>(
     () => ({
@@ -62,6 +63,15 @@ export function FilterChips() {
             nonEmpty: sel.includes('nonEmpty'),
             selected: sel.includes('selected'),
           }),
+        applyScope: {
+          label: 'Применить',
+          options: [
+            { id: 'all', label: 'ко всем' },
+            { id: 'base', label: 'только к БА' },
+          ],
+          selected: selectionScope,
+          onChange: (id) => store.setSelectionScope(id as SelectionScope),
+        },
       },
       exchanges: {
         key: 'exchanges',
@@ -72,7 +82,7 @@ export function FilterChips() {
         onChange: (sel) => store.setExchanges(sel),
       },
     }),
-    [query, selectedCount, store],
+    [query, selectedCount, selectionScope, store],
   );
 
   return (

@@ -60,6 +60,33 @@ public sealed class DerivativeStoreTests : IClassFixture<TimescaleFixture>
             new InstrumentQuery { UnderlyingId = future.InstrumentId, SecType = "OPT" }, CancellationToken.None);
         options.Total.Should().Be(3);
         options.Items.Should().OnlyContain(i => i.OptionType == 'C' || i.OptionType == 'P');
+        options.Items.Should().OnlyContain(i => i.UnderlyingId == future.InstrumentId);
+    }
+
+    [Fact]
+    public async Task Selected_Option_Includes_Ancestor_Future_In_Catalog()
+    {
+        var future = await UpsertAsync("SiZ6", "FUT", "FUT");
+        var call = await UpsertAsync("SiZ6C65000", "OPT", "OPT");
+        await UpsertAsync("SiZ6P65000", "OPT", "OPT");
+
+        // Фильтр «Выделенные» по одному опциону: сверху — предок-фьючерс (опционы hideOptions).
+        var page = await _store.QueryAsync(
+            new InstrumentQuery { InstrumentIds = [call.InstrumentId] }, CancellationToken.None);
+
+        page.Items.Should().ContainSingle(i => i.InstrumentId == future.InstrumentId)
+            .Which.HasOptions.Should().BeTrue();
+        page.Items.Should().NotContain(i => i.SecType == "OPT");
+
+        // Scope «только к БА»: без предков — выделенный опцион не даёт верхнюю строку.
+        var baseOnly = await _store.QueryAsync(
+            new InstrumentQuery
+            {
+                InstrumentIds = [call.InstrumentId],
+                IncludeOptionAncestors = false
+            },
+            CancellationToken.None);
+        baseOnly.Items.Should().BeEmpty();
     }
 
     private async Task<Instrument> UpsertAsync(string ticker, string board, string secType)

@@ -1,8 +1,8 @@
 using Scinverse.Ohs.Connectors.Transaq;
 using Scinverse.Ohs.Contracts;
 using Scinverse.Ohs.Domain;
-using Scinverse.Ohs.Domain.Finam;
 using Scinverse.Ohs.Domain.Moex;
+using Scinverse.Ohs.Domain.Schedule;
 using Scinverse.Ohs.Ingestion;
 
 namespace Scinverse.Ohs.Host;
@@ -16,7 +16,7 @@ public static class OhsEndpoints
 
         api.MapGet("/instruments", async (
             string? q, string? board, string? secType, string? category, bool? onlyRecording,
-            bool? nonEmpty, string? instrumentIds, string? exchanges,
+            bool? nonEmpty, string? instrumentIds, string? exchanges, bool? includeOptionAncestors,
             long? underlyingId, DateOnly? expiration, int? limit, int? offset,
             IInstrumentStore store, CancellationToken ct) =>
         {
@@ -29,6 +29,7 @@ public static class OhsEndpoints
                 OnlyRecording = onlyRecording ?? false,
                 NonEmpty = nonEmpty ?? false,
                 InstrumentIds = ParseLongs(instrumentIds),
+                IncludeOptionAncestors = includeOptionAncestors ?? true,
                 Exchanges = ParseCsv(exchanges),
                 UnderlyingId = underlyingId,
                 Expiration = expiration,
@@ -39,7 +40,8 @@ public static class OhsEndpoints
             var items = page.Items
                 .Select(i => new InstrumentDto(
                     i.InstrumentId, i.Ticker, i.Board, i.SecType, i.ShortName, i.Name, i.MinStep, i.Decimals,
-                    i.Active, i.Recording, i.HasOptions, i.Strike, i.OptionType?.ToString(), i.Expiration))
+                    i.Active, i.Recording, i.HasOptions, i.Strike, i.OptionType?.ToString(), i.Expiration,
+                    i.UnderlyingId))
                 .ToList();
 
             return new InstrumentPageDto(items, page.Total, page.Limit, page.Offset);
@@ -137,6 +139,20 @@ public static class OhsEndpoints
                     i.From, i.To, i.Open, i.CloseReason is null ? null : ToLivenessReasonDto(i.CloseReason.Value))).ToList(),
                 gaps.Select(g => new CaptureGapDto(
                     g.From, g.To, ToLivenessReasonDto(g.Cause))).ToList());
+        });
+
+        // Лента Connection (phase 7h.8): жизненный цикл связи независимо от записи.
+        api.MapPost("/coverage/link", async (
+            LivenessQueryRequest request, ILinkLivenessStore store, CancellationToken ct) =>
+        {
+            var ids = new[] { request.SourceId };
+            var intervals = await store.QueryAsync(ids, request.From, request.To, ct);
+            var gaps = await store.QueryGapsAsync(ids, request.From, request.To, ct);
+            return new LinkLivenessDto(
+                intervals.Select(i => new LivenessIntervalDto(
+                    i.From, i.To, i.Open, i.CloseReason is null ? null : ToLinkReasonDto(i.CloseReason.Value))).ToList(),
+                gaps.Select(g => new CaptureGapDto(
+                    g.From, g.To, ToLinkReasonDto(g.Cause))).ToList());
         });
 
         api.MapGet("/recordings", (RecordingManager recordings) =>
@@ -307,10 +323,14 @@ public static class OhsEndpoints
         integrations.MapPost("", async (
             UpsertExternalServiceRequest request, IExternalServiceStore store, CancellationToken ct) =>
         {
-            var service = await store.UpsertAsync(
+            var service = await store.CreateAsync(
                 request.Name, request.Adapter, request.Transport,
                 NormalizeSecret(request.Secret), request.SecretExpiresOn, request.Enabled, ct);
-            return Results.Ok(ToDto(service));
+            return service is null
+                ? Results.Json(
+                    new { error = $"Интеграция с именем «{request.Name}» уже существует" },
+                    statusCode: StatusCodes.Status409Conflict)
+                : Results.Ok(ToDto(service));
         });
 
         integrations.MapPut("/{id:long}", async (
@@ -333,9 +353,10 @@ public static class OhsEndpoints
             return updated is null ? Results.NotFound() : Results.Ok(ToDto(updated));
         });
 
-        // Health-check: обмен сохранённого секрета на JWT. Ошибка auth → {ok:false} (200), не 5xx.
+        // Health-check: делегируется адаптеру подтверждателя (Finam — auth по секрету; ISS — доступность).
+        // Ошибка → {ok:false} (200), не 5xx — фронт покажет причину.
         integrations.MapPost("/{id:long}/probe", async (
-            long id, IExternalServiceStore store, IFinamApi finam, CancellationToken ct) =>
+            long id, IExternalServiceStore store, IScheduleConfirmerRegistry confirmers, CancellationToken ct) =>
         {
             var service = await store.GetAsync(id, ct);
             if (service is null)
@@ -343,52 +364,105 @@ public static class OhsEndpoints
                 return Results.NotFound();
             }
 
-            if (!string.Equals(service.Adapter, "finam", StringComparison.OrdinalIgnoreCase))
+            var confirmer = confirmers.ForAdapter(service.Adapter);
+            if (confirmer is null)
             {
                 return Results.Ok(new IntegrationProbeResultDto(false, $"Адаптер «{service.Adapter}» пока не поддержан"));
             }
 
-            var secret = await store.GetSecretAsync(id, ct);
-            if (string.IsNullOrWhiteSpace(secret))
+            string? secret = null;
+            if (confirmer.RequiresSecret)
             {
-                return Results.Ok(new IntegrationProbeResultDto(false, "Секрет не задан"));
+                secret = await store.GetSecretAsync(id, ct);
+                if (string.IsNullOrWhiteSpace(secret))
+                {
+                    return Results.Ok(new IntegrationProbeResultDto(false, "Секрет не задан"));
+                }
             }
 
-            try
-            {
-                await finam.AuthenticateAsync(secret, ct);
-                return Results.Ok(new IntegrationProbeResultDto(true, "Аутентификация успешна"));
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
-            {
-                return Results.Ok(new IntegrationProbeResultDto(false, ex.Message));
-            }
+            var probe = await confirmer.ProbeAsync(new ConfirmerQuery(null, null, TodayMsk(), secret), ct);
+            return Results.Ok(new IntegrationProbeResultDto(probe.Ok, probe.Message));
         });
 
-        // Расписание инструмента (рабочая область). Символ Finam: SBER@MISX, SiU6@RTSX и т.п.
+        // Расписание (рабочая область). Символ Finam (SBER@MISX) ИЛИ движок ISS (futures/stock/currency) —
+        // адаптер берёт своё. Маршрутизация по service.adapter через реестр подтверждателей.
         integrations.MapGet("/{id:long}/schedule", async (
-            long id, string? symbol, IExternalServiceStore store, IFinamApi finam, CancellationToken ct) =>
+            long id, string? symbol, string? engine,
+            IExternalServiceStore store, IScheduleConfirmerRegistry confirmers, CancellationToken ct) =>
         {
-            if (string.IsNullOrWhiteSpace(symbol))
+            var service = await store.GetAsync(id, ct);
+            if (service is null)
             {
-                return Results.BadRequest(new { error = "Не задан параметр symbol" });
+                return Results.NotFound();
             }
 
-            var secret = await store.GetSecretAsync(id, ct);
-            if (string.IsNullOrWhiteSpace(secret))
+            var confirmer = confirmers.ForAdapter(service.Adapter);
+            if (confirmer is null)
             {
-                return Results.BadRequest(new { error = "Секрет не задан для этой интеграции" });
+                return Results.BadRequest(new { error = $"Адаптер «{service.Adapter}» не поддержан" });
             }
+
+            string? secret = null;
+            if (confirmer.RequiresSecret)
+            {
+                secret = await store.GetSecretAsync(id, ct);
+                if (string.IsNullOrWhiteSpace(secret))
+                {
+                    return Results.BadRequest(new { error = "Секрет не задан для этой интеграции" });
+                }
+            }
+
+            var query = new ConfirmerQuery(
+                string.IsNullOrWhiteSpace(symbol) ? null : symbol.Trim(),
+                string.IsNullOrWhiteSpace(engine) ? null : engine.Trim(),
+                TodayMsk(),
+                secret);
 
             return await ExternalAsync(async token =>
             {
-                var schedule = await finam.GetScheduleAsync(secret, symbol, token);
+                var s = await confirmer.GetScheduleAsync(query, token);
                 return new ExternalScheduleDto(
-                    schedule.Symbol,
-                    schedule.Sessions.Select(s => new ExternalSessionDto(s.Type, s.Start, s.End)).ToList());
+                    s.Subject,
+                    s.Sessions.Select(x => new ExternalSessionDto(x.RawType, x.Start, x.End)).ToList());
+            }, ct);
+        });
+
+        // Торговый календарь движка (capability «calendar», ISS dailytable): праздники/переносы на диапазон.
+        // Только для адаптеров, реализующих ICalendarConfirmer. По умолчанию — сегодня + 30 дней.
+        integrations.MapGet("/{id:long}/calendar", async (
+            long id, string? engine, DateOnly? from, DateOnly? to,
+            IExternalServiceStore store, IScheduleConfirmerRegistry confirmers, CancellationToken ct) =>
+        {
+            var service = await store.GetAsync(id, ct);
+            if (service is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (confirmers.ForAdapter(service.Adapter) is not ICalendarConfirmer calendar)
+            {
+                return Results.BadRequest(new { error = $"Адаптер «{service.Adapter}» не поддерживает календарь" });
+            }
+
+            var eng = string.IsNullOrWhiteSpace(engine) ? "futures" : engine.Trim();
+            var start = from ?? TodayMsk();
+            var end = to ?? start.AddDays(30);
+
+            return await ExternalAsync(async token =>
+            {
+                var cal = await calendar.GetCalendarAsync(eng, start, end, token);
+                return new ExternalCalendarDto(
+                    cal.Subject,
+                    cal.Days
+                        .Select(d => new ExternalCalendarDayDto(d.Date, d.IsTradingDay, d.IsException, d.Open, d.Close))
+                        .ToList());
             }, ct);
         });
     }
+
+    /// <summary>Сегодняшняя дата в МСК (для запросов расписания к подтверждателю).</summary>
+    private static DateOnly TodayMsk() =>
+        DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(3)).DateTime);
 
     /// <summary>Пустой/пробельный секрет → null («не менять» / «не задан»).</summary>
     private static string? NormalizeSecret(string? secret) =>
@@ -600,6 +674,15 @@ public static class OhsEndpoints
         CaptureCloseReason.ServerDown => "server_down",
         CaptureCloseReason.PingFailed => "ping_failed",
         CaptureCloseReason.Interrupted => "interrupted",
+        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
+    };
+
+    private static string ToLinkReasonDto(LinkCloseReason reason) => reason switch
+    {
+        LinkCloseReason.Disconnected => "disconnected",
+        LinkCloseReason.ServerDown => "server_down",
+        LinkCloseReason.PingFailed => "ping_failed",
+        LinkCloseReason.Interrupted => "interrupted",
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
 }

@@ -9,9 +9,11 @@ import type {
   ConnectionCredentialsRequest,
   ConnectionDto,
   CaptureLivenessDto,
+  LinkLivenessDto,
   CoverageExtentDto,
   CoverageSegmentDto,
   EngineDto,
+  ExternalCalendarDto,
   ExternalScheduleDto,
   ExternalServiceDto,
   FuturesAssetClassDto,
@@ -53,6 +55,7 @@ function buildInstrumentsQuery(params: InstrumentQueryParams): string {
   if (params.onlyRecording) search.set('onlyRecording', 'true');
   if (params.nonEmpty) search.set('nonEmpty', 'true');
   if (params.instrumentIds?.length) search.set('instrumentIds', params.instrumentIds.join(','));
+  if (params.includeOptionAncestors === false) search.set('includeOptionAncestors', 'false');
   if (params.exchanges?.length) search.set('exchanges', params.exchanges.join(','));
   if (params.underlyingId != null) search.set('underlyingId', String(params.underlyingId));
   if (params.expiration) search.set('expiration', params.expiration);
@@ -108,6 +111,9 @@ export const OhsApi = {
 
   getCaptureLiveness: (body: LivenessQueryRequest) =>
     post<CaptureLivenessDto>('/coverage/liveness', body),
+
+  getLinkLiveness: (body: LivenessQueryRequest) =>
+    post<LinkLivenessDto>('/coverage/link', body),
 
   startRecording: (body: StartRecordingRequest) => post<RecordingDto>('/recordings', body),
 
@@ -196,8 +202,25 @@ export const OhsApi = {
   probeIntegration: (serviceId: number) =>
     post<IntegrationProbeResultDto>(`/integrations/${serviceId}/probe`),
 
-  getIntegrationSchedule: (serviceId: number, symbol: string) =>
-    getJSON<ExternalScheduleDto>(`/integrations/${serviceId}/schedule?symbol=${encodeURIComponent(symbol)}`),
+  // Расписание: Finam — по символу (SECID@MIC), MOEX ISS — по движку (futures/stock/currency).
+  getIntegrationSchedule: (serviceId: number, params: { symbol?: string; engine?: string }) => {
+    const query = new URLSearchParams();
+    if (params.symbol) query.set('symbol', params.symbol);
+    if (params.engine) query.set('engine', params.engine);
+    return getJSON<ExternalScheduleDto>(`/integrations/${serviceId}/schedule?${query.toString()}`);
+  },
+
+  // Торговый календарь движка (capability «calendar», MOEX ISS dailytable): праздники/переносы.
+  getIntegrationCalendar: (
+    serviceId: number,
+    params: { engine?: string; from?: string; to?: string },
+  ) => {
+    const query = new URLSearchParams();
+    if (params.engine) query.set('engine', params.engine);
+    if (params.from) query.set('from', params.from);
+    if (params.to) query.set('to', params.to);
+    return getJSON<ExternalCalendarDto>(`/integrations/${serviceId}/calendar?${query.toString()}`);
+  },
 
   // Назначить/снять интеграцию источником системного расписания (эксклюзивно).
   setScheduleSource: (serviceId: number, enabled: boolean) =>

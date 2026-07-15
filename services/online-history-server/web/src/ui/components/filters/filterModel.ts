@@ -23,6 +23,16 @@ export interface FilterSpec {
   /** Выбранные id. Пустой id ('') трактуется как нейтраль (без значения на плашке). */
   selected: string[];
   onChange: (selected: string[]) => void;
+  /** Нижняя секция с radio после разделителя (напр. «Применить» у фильтра «Выбор»). */
+  applyScope?: FilterRadioGroup;
+}
+
+/** Группа radio в нижней секции поповера фильтра. */
+export interface FilterRadioGroup {
+  label: string;
+  options: FilterOption[];
+  selected: string;
+  onChange: (id: string) => void;
 }
 
 /** Пункт меню «добавить фильтр» ([+]). */

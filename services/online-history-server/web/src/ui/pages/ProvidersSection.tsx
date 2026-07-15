@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { ConnectionsPanel } from './ConnectionsPanel';
@@ -7,25 +7,29 @@ import styles from './ProvidersSection.module.css';
 
 /**
  * Раздел «Провайдеры»: слева — список подключений, в рабочей области — карточка провайдера
- * с фильтрами и Гантом. Состояние выбранного провайдера локальное (не глобальная навигация).
+ * с фильтрами и Гантом. Выбранный провайдер живёт в сторе (переживает переход между разделами
+ * и перезагрузку) — иначе возврат в раздел сбрасывал бы выбор на первый провайдер.
  */
 export function ProvidersSection() {
   const store = useOhsStore();
   const connections = useBehavior(store.connections$);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selectedId = useBehavior(store.activeConnectionId$);
 
-  // Автовыбор первого провайдера, пока ничего не выбрано.
+  // Автовыбор первого провайдера, если ничего не выбрано или сохранённый id больше не существует.
   useEffect(() => {
-    if (selectedId === null && connections.length > 0) {
-      setSelectedId(connections[0].connectionId);
+    if (connections.length === 0) {
+      return;
     }
-  }, [connections, selectedId]);
+    if (selectedId === null || !connections.some((c) => c.connectionId === selectedId)) {
+      store.setActiveConnection(connections[0].connectionId);
+    }
+  }, [connections, selectedId, store]);
 
   const selected = connections.find((c) => c.connectionId === selectedId) ?? null;
 
   return (
     <div className={styles.layout}>
-      <ConnectionsPanel selectedId={selectedId} onSelect={setSelectedId} />
+      <ConnectionsPanel selectedId={selectedId} onSelect={(id) => store.setActiveConnection(id)} />
       {selected ? (
         <ProviderCard connection={selected} />
       ) : (

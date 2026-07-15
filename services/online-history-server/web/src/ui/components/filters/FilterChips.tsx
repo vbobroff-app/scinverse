@@ -113,6 +113,7 @@ export function FilterChips({ available, active, specs, onAdd, onRemove, onClear
                 {spec.mode === 'single'
                   ? <SingleOptions spec={spec} onPick={() => setOpen(null)} />
                   : <MultiOptions spec={spec} />}
+                {spec.applyScope && <ApplyScopeSection group={spec.applyScope} />}
               </div>
             )}
           </div>
@@ -140,6 +141,13 @@ function summarize(spec: FilterSpec): string | undefined {
   const labels = spec.selected
     .filter((id) => id !== '')
     .map((id) => spec.options.find((o) => o.id === id)?.label ?? id);
+  const scope = spec.applyScope;
+  if (scope && scope.selected !== scope.options[0]?.id) {
+    const scopeLabel = scope.options.find((o) => o.id === scope.selected)?.label;
+    if (scopeLabel) {
+      labels.push(scopeLabel);
+    }
+  }
   return labels.length > 0 ? labels.join(', ') : undefined;
 }
 
@@ -188,5 +196,24 @@ function MultiOptions({ spec }: { spec: FilterSpec }) {
         </label>
       ))}
     </>
+  );
+}
+
+function ApplyScopeSection({ group }: { group: NonNullable<FilterSpec['applyScope']> }) {
+  return (
+    <div className={styles.applyScope}>
+      <div className={styles.applyScopeLabel}>{group.label}</div>
+      {group.options.map((o) => (
+        <label key={o.id} className={styles.check}>
+          <input
+            type="radio"
+            name={`apply-scope-${group.label}`}
+            checked={group.selected === o.id}
+            onChange={() => group.onChange(o.id)}
+          />
+          {o.label}
+        </label>
+      ))}
+    </div>
   );
 }

@@ -8,6 +8,7 @@ import type {
   ConnectionDto,
   CoverageExtentDto,
   CoverageSegmentDto,
+  InstrumentDto,
   InstrumentPage,
   InstrumentQueryParams,
   LiveEvent,
@@ -56,6 +57,7 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
     getCoverageExtent: () => of<CoverageExtentDto>({ from: null, to: null }),
     getTradeActivity: () => of([]),
     getCaptureLiveness: () => of({ intervals: [], gaps: [] }),
+    getLinkLiveness: () => of({ intervals: [], gaps: [] }),
     startRecording: () => of({} as RecordingDto),
     stopRecording: () => of(undefined),
     getRecordingSchedule: () => of([]),
@@ -72,8 +74,29 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
   return { ...base, ...overrides };
 }
 
+function futures(overrides: Partial<InstrumentDto> = {}): InstrumentDto {
+  return {
+    instrumentId: 500,
+    ticker: 'Si-9.26',
+    board: 'RFUD',
+    secType: 'FUT',
+    shortName: null,
+    name: null,
+    minStep: 1,
+    decimals: 0,
+    active: true,
+    recording: false,
+    hasOptions: true,
+    strike: null,
+    optionType: null,
+    expiration: null,
+    ...overrides,
+  };
+}
+
 afterEach(() => {
   localStorage.removeItem('ohs:selectedInstruments');
+  localStorage.removeItem('ohs:viewState');
 });
 
 describe('OhsStore live merge', () => {
@@ -214,6 +237,28 @@ describe('OhsStore фильтры-плашки', () => {
     store.stop();
   });
 
+  it('звезда серии выделяет и снимает все её опционы', () => {
+    const options = [
+      futures({ instrumentId: 901, secType: 'OPT', hasOptions: false }),
+      futures({ instrumentId: 902, secType: 'OPT', hasOptions: false }),
+    ];
+    const store = new OhsStore(
+      fakeApi({
+        getInstruments: (params) =>
+          params.underlyingId === 500
+            ? of({ items: options, total: 2, limit: 500, offset: 0 })
+            : of({ items: [], total: 0, limit: 100, offset: 0 }),
+      }),
+      new Subject<LiveEvent>(),
+    );
+
+    store.toggleSeriesSelection(500, '2026-09-18');
+    expect([...store.selectedInstruments$.value].sort()).toEqual([901, 902]);
+
+    store.toggleSeriesSelection(500, '2026-09-18');
+    expect([...store.selectedInstruments$.value]).toEqual([]);
+  });
+
   it('при активном условии «Выделенные» смена выделения пере-запрашивает каталог', () => {
     const getInstruments = vi.fn<(params: InstrumentQueryParams) => Observable<InstrumentPage>>(
       () => of<InstrumentPage>({ items: [], total: 0, limit: 100, offset: 0 }),
@@ -225,8 +270,94 @@ describe('OhsStore фильтры-плашки', () => {
     getInstruments.mockClear();
 
     store.toggleInstrumentSelection(3);
-    expect(getInstruments).toHaveBeenCalledTimes(1);
+    // Каталог + резолв spine выделенных OPT (category=options).
+    expect(getInstruments).toHaveBeenCalledTimes(2);
     expect(getInstruments.mock.calls[0][0].instrumentIds).toEqual([3]);
+    expect(getInstruments.mock.calls[1][0]).toMatchObject({
+      instrumentIds: [3],
+      category: 'options',
+    });
+    store.stop();
+  });
+
+  it('«Выделенные»: авто-раскрывает spine future → series по OPT', () => {
+    const option = futures({
+      instrumentId: 901,
+      ticker: 'SiU6C65000',
+      board: 'ROPD',
+      secType: 'OPT',
+      hasOptions: false,
+      underlyingId: 500,
+      expiration: '2026-09-18',
+      strike: 65000,
+      optionType: 'C',
+    });
+    const getInstruments = vi.fn<(params: InstrumentQueryParams) => Observable<InstrumentPage>>(
+      (params) => {
+        if (params.category === 'options') {
+          return of({ items: [option], total: 1, limit: 500, offset: 0 });
+        }
+        return of({
+          items: [futures({ instrumentId: 500 })],
+          total: 1,
+          limit: 100,
+          offset: 0,
+        });
+      },
+    );
+    const getInstrumentSeries = vi.fn(() =>
+      of([
+        {
+          key: '2026-09-18',
+          label: 'Si U6',
+          count: 1,
+          expiration: '2026-09-18',
+          badge: 'Q3',
+        },
+      ]),
+    );
+    const store = new OhsStore(
+      fakeApi({ getInstruments, getInstrumentSeries }),
+      new Subject<LiveEvent>(),
+    );
+    store.start();
+    store.toggleInstrumentSelection(901);
+    store.setSelectionConditions({ recording: false, nonEmpty: false, selected: true });
+
+    expect([...store.expandedFutures$.value]).toEqual([500]);
+    expect([...store.selectedOptionSpine$.value.get(500) ?? []]).toEqual(['2026-09-18']);
+    expect([...store.selectionLeafIds$.value]).toEqual([901]);
+    expect([...store.expandedSeries$.value]).toEqual(['500:2026-09-18']);
+    expect(getInstrumentSeries).toHaveBeenCalledWith(500);
+    store.stop();
+  });
+
+  it('scope «только к БА» не раскрывает spine опционов', () => {
+    const option = futures({
+      instrumentId: 901,
+      secType: 'OPT',
+      hasOptions: false,
+      underlyingId: 500,
+      expiration: '2026-09-18',
+    });
+    const getInstruments = vi.fn<(params: InstrumentQueryParams) => Observable<InstrumentPage>>(
+      (params) => {
+        if (params.category === 'options') {
+          return of({ items: [option], total: 1, limit: 500, offset: 0 });
+        }
+        return of({ items: [], total: 0, limit: 100, offset: 0 });
+      },
+    );
+    const store = new OhsStore(fakeApi({ getInstruments }), new Subject<LiveEvent>());
+    store.start();
+    store.toggleInstrumentSelection(901);
+    store.setSelectionScope('base');
+    store.setSelectionConditions({ recording: false, nonEmpty: false, selected: true });
+
+    expect(store.instrumentQuery$.value.includeOptionAncestors).toBe(false);
+    expect(store.selectedOptionSpine$.value.size).toBe(0);
+    expect(store.selectionLeafIds$.value.size).toBe(0);
+    expect(getInstruments.mock.calls.some((c) => c[0].category === 'options')).toBe(false);
     store.stop();
   });
 
@@ -239,6 +370,27 @@ describe('OhsStore фильтры-плашки', () => {
 
     const reloaded = new OhsStore(fakeApi(), new Subject<LiveEvent>());
     expect([...reloaded.selectedInstruments$.value].sort((a, b) => a - b)).toEqual([11, 22]);
+  });
+
+  it('сохраняет раскрытые фьючерс/серию и восстанавливает после перезагрузки', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    store.start();
+    store.toggleFutures(futures({ instrumentId: 500 }));
+    store.toggleSeries(500, '2026-07-16');
+    store.stop();
+
+    const reloaded = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    expect([...reloaded.expandedFutures$.value]).toEqual([500]);
+    expect([...reloaded.expandedSeries$.value]).toEqual(['500:2026-07-16']);
+  });
+
+  it('сохраняет активного провайдера и восстанавливает после перезагрузки', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    store.setActiveConnection(3);
+    store.stop();
+
+    const reloaded = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    expect(reloaded.activeConnectionId$.value).toBe(3);
   });
 });
 

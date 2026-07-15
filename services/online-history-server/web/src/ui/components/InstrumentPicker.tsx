@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { useNow } from '../hooks/useNow';
@@ -7,6 +7,7 @@ import { Button } from './Button';
 import { TimeAxis } from './TimeAxis';
 import { TimeframePanel } from './TimeframePanel';
 import { CoverageTrack } from './CoverageTrack';
+import { ConnectionRibbon } from './ConnectionRibbon';
 import { CrosshairOverlay } from './CrosshairOverlay';
 import { CrosshairIcon, DayBoxIcon } from './icons';
 import { showCrosshair, hideCrosshair } from '../../core/crosshair';
@@ -116,6 +117,7 @@ interface RowProps {
   onToggleFutures: (instrument: InstrumentDto) => void;
   onToggleSeries: (futuresId: number, expiration: string) => void;
   onToggleSelect: (instrumentId: number) => void;
+  onToggleSeriesSelect: (futuresId: number, expiration: string) => void;
   onStart: (instrumentId: number) => void;
   onStop: (instrumentId: number) => void;
   onStartSeries: (futuresId: number, expiration: string) => void;
@@ -150,6 +152,7 @@ const Row = memo(function Row({
   onToggleFutures,
   onToggleSeries,
   onToggleSelect,
+  onToggleSeriesSelect,
   onStart,
   onStop,
   onStartSeries,
@@ -180,10 +183,18 @@ const Row = memo(function Row({
               </span>
             )}
             <span className={styles.seriesExp}>exp {formatExpiration(row.group.expiration)}</span>
-            <span className={styles.count}>
-              {recCount > 0 ? `${recCount}/${row.group.count}` : row.group.count}
-            </span>
           </button>
+          <button
+            className={[styles.star, selected ? styles.starOn : ''].filter(Boolean).join(' ')}
+            onClick={() => onToggleSeriesSelect(row.futuresId, exp)}
+            title={selected ? 'Убрать серию из выбранных' : 'Добавить серию в выбранные'}
+            aria-pressed={selected}
+          >
+            {selected ? '★' : '☆'}
+          </button>
+          <span className={styles.count}>
+            {recCount > 0 ? `${recCount}/${row.group.count}` : row.group.count}
+          </span>
 
           <RecordingAutoToggle
             phase={autoPh}
@@ -309,12 +320,15 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const coverage = useBehavior(store.coverage$);
   const activity = useBehavior(store.activity$);
   const liveness = useBehavior(store.liveness$);
+  const link = useBehavior(store.link$);
   const sources = useBehavior(store.sources$);
   const selected = useBehavior(store.selectedInstruments$);
   const expandedFutures = useBehavior(store.expandedFutures$);
   const expandedSeries = useBehavior(store.expandedSeries$);
   const seriesByFutures = useBehavior(store.seriesByFutures$);
   const strikesBySeries = useBehavior(store.strikesBySeries$);
+  const selectedOptionSpine = useBehavior(store.selectedOptionSpine$);
+  const selectionLeafIds = useBehavior(store.selectionLeafIds$);
   const seriesBusy = useBehavior(store.seriesBusy$);
   const recordingSchedule = useBehavior(store.recordingSchedule$);
   const window = useBehavior(store.window$);
@@ -357,6 +371,8 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   }, [coverage, connection.sourceId]);
 
   // Разворачиваем дерево (фьючерс → серии → страйки) в плоский список видимых строк.
+  // При scope «ко всем» режем до spine совпавших опционов.
+  const pruneToLeaves = selectionLeafIds.size > 0;
   const rows = useMemo<TreeRow[]>(() => {
     const out: TreeRow[] = [];
     for (const inst of instruments) {
@@ -364,20 +380,36 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
       if (!inst.hasOptions || !expandedFutures.has(inst.instrumentId)) {
         continue;
       }
+      const allowedExps = pruneToLeaves ? selectedOptionSpine.get(inst.instrumentId) : undefined;
       for (const group of seriesByFutures.get(inst.instrumentId) ?? []) {
         const exp = group.expiration ?? group.key;
+        if (pruneToLeaves && !allowedExps?.has(exp)) {
+          continue;
+        }
         const sKey = seriesKey(inst.instrumentId, exp);
         out.push({ kind: 'series', key: `s${sKey}`, futuresId: inst.instrumentId, group });
         if (!expandedSeries.has(sKey)) {
           continue;
         }
         for (const option of strikesBySeries.get(sKey) ?? []) {
+          if (pruneToLeaves && !selectionLeafIds.has(option.instrumentId)) {
+            continue;
+          }
           out.push({ kind: 'strike', key: `o${option.instrumentId}`, option });
         }
       }
     }
     return out;
-  }, [instruments, expandedFutures, expandedSeries, seriesByFutures, strikesBySeries]);
+  }, [
+    instruments,
+    expandedFutures,
+    expandedSeries,
+    seriesByFutures,
+    strikesBySeries,
+    pruneToLeaves,
+    selectedOptionSpine,
+    selectionLeafIds,
+  ]);
 
   // Слой сделок запрашиваем батчем по всем видимым инструментам дорожки + источнику провайдера.
   const activityIds = useMemo(() => {
@@ -404,8 +436,8 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const onNearEnd = useCallback(() => store.loadMoreInstruments(), [store]);
   const virtual = useVirtualRows(rows.length, ROW_HEIGHT, { overscan: 8, onNearEnd });
   const axisCellRef = useRef<HTMLDivElement>(null);
-  const [crosshairOn, setCrosshairOn] = useState(true);
-  const [highlightDays, setHighlightDays] = useState(false);
+  const crosshairOn = useBehavior(store.crosshairOn$);
+  const highlightDays = useBehavior(store.highlightDays$);
   const frameRef = useRef(0);
 
   const invert = useMemo(
@@ -489,6 +521,11 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
     (instrumentId: number) => store.toggleInstrumentSelection(instrumentId),
     [store],
   );
+  const onToggleSeriesSelect = useCallback(
+    (futuresId: number, expiration: string) =>
+      store.toggleSeriesSelection(futuresId, expiration),
+    [store],
+  );
   const onStart = useCallback(
     (instrumentId: number) =>
       store.startRecording({ instrumentId, connectionId: connection.connectionId }),
@@ -546,6 +583,22 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
       onPointerMove={onPickerPointerMove}
       onPointerLeave={onPickerPointerLeave}
     >
+      <div className={styles.connLane} style={scrollStyle}>
+        <div className={styles.left}>
+          <span className={styles.connName}>Связь · {connection.name}</span>
+        </div>
+        <div className={styles.right}>
+          <ConnectionRibbon
+            window={window}
+            sessions={sessions}
+            intervals={link.intervals}
+            gaps={link.gaps}
+            nowMs={now}
+            tzOffsetMin={tzOffsetMin}
+          />
+        </div>
+      </div>
+
       <div className={styles.scroll} ref={virtual.ref} onScroll={virtual.onScroll} style={scrollStyle}>
         <div style={{ height: virtual.topPad }} />
         {visible.map((row) => {
@@ -560,11 +613,14 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
 
           let sKey = '';
           let seriesRecordingCount = 0;
+          let seriesSelected = false;
           let rowAutoPhase: AutoPhase = 'off';
           if (row.kind === 'series') {
             sKey = seriesKey(row.futuresId, row.group.expiration ?? row.group.key);
             const strikes = strikesBySeries.get(sKey);
             if (strikes) {
+              seriesSelected =
+                strikes.length > 0 && strikes.every((option) => selected.has(option.instrumentId));
               let anyAuto = false;
               let anyRecording = false;
               for (const option of strikes) {
@@ -573,7 +629,8 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
                   seriesRecordingCount += 1;
                   anyRecording = true;
                 }
-                if (recordingSchedule.get(option.instrumentId)?.autoEnabled) {
+                const optSched = recordingSchedule.get(option.instrumentId);
+                if (optSched?.autoEnabled && optSched.connectionId === connection.connectionId) {
                   anyAuto = true;
                 }
               }
@@ -585,8 +642,11 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               });
             }
           } else if (instrumentId >= 0) {
+            const sched = recordingSchedule.get(instrumentId);
             rowAutoPhase = autoPhase({
-              autoEnabled: !!recordingSchedule.get(instrumentId)?.autoEnabled,
+              // Auto привязан к конкретному подключению: на «чужом» подключении (та же бумага,
+              // другой source) считаем выкл — иначе жёлтый «жду связи» протекает между лентами.
+              autoEnabled: !!sched?.autoEnabled && sched.connectionId === connection.connectionId,
               inSession,
               recording: recordingHere,
               connectionReady,
@@ -616,7 +676,11 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               sourceCodeById={sourceCodeById}
               recording={recordingHere}
               connected={connected}
-              selected={instrumentId >= 0 && selected.has(instrumentId)}
+              selected={
+                row.kind === 'series'
+                  ? seriesSelected
+                  : instrumentId >= 0 && selected.has(instrumentId)
+              }
               expanded={expanded}
               seriesBusy={row.kind === 'series' && seriesBusy.has(sKey)}
               seriesRecordingCount={seriesRecordingCount}
@@ -626,6 +690,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               onToggleFutures={onToggleFutures}
               onToggleSeries={onToggleSeries}
               onToggleSelect={onToggleSelect}
+              onToggleSeriesSelect={onToggleSeriesSelect}
               onStart={onStart}
               onStop={onStop}
               onStartSeries={onStartSeries}
@@ -658,7 +723,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
         className={[styles.dayToggle, highlightDays ? styles.dayToggleOn : ''].filter(Boolean).join(' ')}
         aria-pressed={highlightDays}
         title={highlightDays ? 'Не подсвечивать дни' : 'Подсвечивать дни'}
-        onClick={() => setHighlightDays((v) => !v)}
+        onClick={() => store.setHighlightDays(!highlightDays)}
       >
         <DayBoxIcon className={styles.crosshairToggleIcon} />
       </button>
@@ -668,7 +733,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
         className={[styles.crosshairToggle, crosshairOn ? styles.crosshairToggleOn : ''].filter(Boolean).join(' ')}
         aria-pressed={crosshairOn}
         title={crosshairOn ? 'Выключить вертикальный time-line' : 'Включить вертикальный time-line'}
-        onClick={() => setCrosshairOn((v) => !v)}
+        onClick={() => store.setCrosshairOn(!crosshairOn)}
       >
         <CrosshairIcon className={styles.crosshairToggleIcon} />
       </button>

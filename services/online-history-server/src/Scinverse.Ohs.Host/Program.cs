@@ -38,6 +38,7 @@ builder.Services.AddSingleton<ISourceStore, SourceStore>();
 builder.Services.AddSingleton<ICoverageStore, CoverageStore>();
 builder.Services.AddSingleton<ITradeActivityStore, TradeActivityStore>();
 builder.Services.AddSingleton<ICaptureLivenessStore, CaptureLivenessStore>();
+builder.Services.AddSingleton<ILinkLivenessStore, LinkLivenessStore>();
 builder.Services.AddSingleton<IConnectionStore, ConnectionStore>();
 builder.Services.AddSingleton<IRecordingScheduleStore, RecordingScheduleStore>();
 builder.Services.AddSingleton<IFuturesAssetClassStore, FuturesAssetClassStore>();
@@ -67,6 +68,13 @@ builder.Services.AddHttpClient<Scinverse.Ohs.Domain.Finam.IFinamApi, Scinverse.O
     client.BaseAddress = new Uri(ohsOptions.FinamBaseUrl);
     client.Timeout = TimeSpan.FromSeconds(15);
 });
+
+// Подтверждатели расписания (phase 7i): нейтральный порт IScheduleConfirmer + реестр по adapter.
+// Finam — per-instrument (секрет→JWT); MOEX ISS — бесплатный market-wide session_schedule (без auth).
+// Transient — зависят от типизированных HttpClient (per-request).
+builder.Services.AddTransient<Scinverse.Ohs.Domain.Schedule.IScheduleConfirmer, Scinverse.Ohs.Host.Finam.FinamScheduleConfirmer>();
+builder.Services.AddTransient<Scinverse.Ohs.Domain.Schedule.IScheduleConfirmer, IssScheduleConfirmer>();
+builder.Services.AddTransient<Scinverse.Ohs.Domain.Schedule.IScheduleConfirmerRegistry, ScheduleConfirmerRegistry>();
 // Актуализация справочника классов базового актива фьючерсов из ISS (по кнопке).
 builder.Services.AddSingleton<FuturesAssetClassifier>();
 // Расписание сессий из бесплатного ISS-календаря движка (часы дней + праздники), фолбэк MoexSchedule.
@@ -82,7 +90,7 @@ builder.Services.AddSingleton(sp => new Lazy<RecordingManager>(() => sp.GetRequi
 builder.Services.AddSingleton<ConnectionManager>();
 builder.Services.AddSingleton<RecordingManager>();
 builder.Services.AddSingleton<RecordingSupervisor>();
-// Pre-flight сверки расписания: transient — использует типизированный HttpClient IFinamApi (per-request).
+// Pre-flight сверки расписания: transient — резолвит подтверждатель по adapter (per-request).
 builder.Services.AddTransient<SchedulePreflight>();
 builder.Services.AddHostedService<OhsWorker>();
 
@@ -140,11 +148,13 @@ await app.Services.GetRequiredService<IInstrumentRegistry>().InitializeAsync(Can
         .RecoverOpenSegmentsAsync(CancellationToken.None);
     var recoveredLiveness = await app.Services.GetRequiredService<ICaptureLivenessStore>()
         .RecoverOpenIntervalsAsync(CancellationToken.None);
-    if (recoveredSegments > 0 || recoveredLiveness > 0)
+    var recoveredLink = await app.Services.GetRequiredService<ILinkLivenessStore>()
+        .RecoverOpenIntervalsAsync(CancellationToken.None);
+    if (recoveredSegments > 0 || recoveredLiveness > 0 || recoveredLink > 0)
     {
         app.Logger.LogWarning(
-            "Recovery: закрыто осиротевших сегментов {Segments}, интервалов живости {Liveness}",
-            recoveredSegments, recoveredLiveness);
+            "Recovery: закрыто осиротевших сегментов {Segments}, интервалов живости {Liveness}, связи {Link}",
+            recoveredSegments, recoveredLiveness, recoveredLink);
     }
 }
 

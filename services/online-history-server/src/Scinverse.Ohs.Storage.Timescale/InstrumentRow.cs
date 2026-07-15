@@ -25,6 +25,7 @@ internal sealed class InstrumentCatalogRow
     public bool Active { get; init; }
     public bool Recording { get; init; }
     public bool HasOptions { get; init; }
+    public long? UnderlyingId { get; init; }
     public decimal? Strike { get; init; }
     public string? OptionType { get; init; }
     public DateOnly? Expiration { get; init; }

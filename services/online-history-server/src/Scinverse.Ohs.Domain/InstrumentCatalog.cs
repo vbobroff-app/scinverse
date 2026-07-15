@@ -27,6 +27,12 @@ public sealed record InstrumentQuery
     /// <summary>Явный список инструментов (фильтр «Выделенные»); null/пусто — без фильтра.</summary>
     public IReadOnlyList<long>? InstrumentIds { get; init; }
 
+    /// <summary>
+    /// Применять фильтры выбора и к опционам (через предка-БА). <c>false</c> — только верхний
+    /// уровень (БА), как раньше: без подтягивания фьючерсов по совпавшим опционам.
+    /// </summary>
+    public bool IncludeOptionAncestors { get; init; } = true;
+
     /// <summary>Биржи (коды: MOEX, …) — задел под мультибиржу; null/пусто — без фильтра.</summary>
     public IReadOnlyList<string>? Exchanges { get; init; }
 
@@ -82,7 +88,8 @@ public sealed record InstrumentCatalogItem
     /// <summary>У фьючерса есть опционы (можно раскрыть в дерево). Всегда false для не-фьючерсов.</summary>
     public bool HasOptions { get; init; }
 
-    // Атрибуты дериватива (для подписи листьев дерева); null для не-деривативов.
+    // Атрибуты дериватива (для подписи листьев дерева / spine «Выделенные»); null для не-деривативов.
+    public long? UnderlyingId { get; init; }
     public decimal? Strike { get; init; }
     public char? OptionType { get; init; }
     public DateOnly? Expiration { get; init; }

@@ -15,6 +15,8 @@ export interface InstrumentDto {
   strike: number | null;
   optionType: string | null;
   expiration: string | null;
+  /** Базовый фьючерс опциона; null у не-OPT. Нужен для spine «Выделенные». */
+  underlyingId?: number | null;
 }
 
 export interface InstrumentPage {
@@ -44,6 +46,11 @@ export interface InstrumentQueryParams {
   nonEmpty?: boolean;
   /** Явный список инструментов (фильтр «Выделенные»); пусто/undefined — без фильтра. */
   instrumentIds?: number[];
+  /**
+   * Scope «Выбор»: подтягивать БА-предков совпавших опционов (`true` = «ко всем»).
+   * `false` = только верхний уровень (БА).
+   */
+  includeOptionAncestors?: boolean;
   /** Биржи (коды: MOEX, …) — задел под мультибиржу; пусто/undefined — без фильтра. */
   exchanges?: string[];
   underlyingId?: number;
@@ -57,6 +64,9 @@ export type FilterKey = 'instruments' | 'selection' | 'exchanges';
 
 /** Условие плашки «Выбор» (комбинируются по И). */
 export type SelectionCondition = 'recording' | 'nonEmpty' | 'selected';
+
+/** Область применения условий «Выбор»: ко всем инструментам или только к БА. */
+export type SelectionScope = 'all' | 'base';
 
 export interface SourceDto {
   sourceId: number;
@@ -193,6 +203,16 @@ export interface LivenessQueryRequest {
 }
 
 export interface CaptureLivenessDto {
+  intervals: LivenessIntervalDto[];
+  gaps: CaptureGapDto[];
+}
+
+/**
+ * Жизненный цикл связи + периоды «связь не жива» на подключение (source) — лента Connection (phase 7h.8).
+ * `intervals` = «связь жива» (зелёное), `gaps` = «не жива»; cause `disconnected` — серый (не разрыв),
+ * `server_down/ping_failed/interrupted` — красный.
+ */
+export interface LinkLivenessDto {
   intervals: LivenessIntervalDto[];
   gaps: CaptureGapDto[];
 }
@@ -433,6 +453,21 @@ export interface ExternalSessionDto {
 export interface ExternalScheduleDto {
   symbol: string;
   sessions: ExternalSessionDto[];
+}
+
+/** День внешнего календаря (ISS dailytable): дата, торговый ли, исключение и часы (МСК ISO). */
+export interface ExternalCalendarDayDto {
+  date: string;
+  isTradingDay: boolean;
+  isException: boolean;
+  open: string | null;
+  close: string | null;
+}
+
+/** Торговый календарь движка у внешнего сервиса (ISS): движок + дни диапазона. */
+export interface ExternalCalendarDto {
+  engine: string;
+  days: ExternalCalendarDayDto[];
 }
 
 // Live-события WebSocket `/ws` (дискриминатор — поле `type`).

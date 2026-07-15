@@ -15,7 +15,8 @@ public sealed record InstrumentDto(
     bool HasOptions = false,
     decimal? Strike = null,
     string? OptionType = null,
-    DateOnly? Expiration = null);
+    DateOnly? Expiration = null,
+    long? UnderlyingId = null);
 
 /// <summary>Узел дерева каталога: базовый актив или серия (экспирация).</summary>
 public sealed record InstrumentGroupDto(
@@ -49,6 +50,9 @@ public sealed record InstrumentQueryParams
 
     /// <summary>Явный список инструментов («Выделенные»); null/пусто — без фильтра.</summary>
     public IReadOnlyList<long>? InstrumentIds { get; init; }
+
+    /// <summary>Подтягивать БА-предков совпавших опционов (scope «ко всем»).</summary>
+    public bool IncludeOptionAncestors { get; init; } = true;
 
     /// <summary>Биржи (коды: MOEX, …) — задел под мультибиржу; null/пусто — без фильтра.</summary>
     public IReadOnlyList<string>? Exchanges { get; init; }
@@ -117,6 +121,15 @@ public sealed record LivenessQueryRequest(DateTimeOffset From, DateTimeOffset To
 
 /// <summary>Живость + журнал разрывов захвата (честная подложка, phase 7h).</summary>
 public sealed record CaptureLivenessDto(
+    IReadOnlyList<LivenessIntervalDto> Intervals,
+    IReadOnlyList<CaptureGapDto> Gaps);
+
+/// <summary>
+/// Жизненный цикл связи + периоды «связь не жива» на подключение (source) — лента Connection (phase 7h.8).
+/// <c>Intervals</c> = «связь жива» (зелёное), <c>Gaps</c> = «не жива»; причина <c>disconnected</c> — серая,
+/// <c>server_down/ping_failed/interrupted</c> — красная.
+/// </summary>
+public sealed record LinkLivenessDto(
     IReadOnlyList<LivenessIntervalDto> Intervals,
     IReadOnlyList<CaptureGapDto> Gaps);
 
@@ -259,6 +272,13 @@ public sealed record ExternalScheduleDto(string Symbol, IReadOnlyList<ExternalSe
 
 /// <summary>Сессия внешнего расписания: тип и границы окна (UTC, <see cref="DateTimeOffset"/>).</summary>
 public sealed record ExternalSessionDto(string Type, DateTimeOffset Start, DateTimeOffset End);
+
+/// <summary>Торговый календарь движка у внешнего сервиса (ISS dailytable): движок + дни диапазона.</summary>
+public sealed record ExternalCalendarDto(string Engine, IReadOnlyList<ExternalCalendarDayDto> Days);
+
+/// <summary>День внешнего календаря: дата, торговый ли, исключение (строка dailytable) и часы (МСК).</summary>
+public sealed record ExternalCalendarDayDto(
+    DateOnly Date, bool IsTradingDay, bool IsException, TimeOnly? Open, TimeOnly? Close);
 
 /// <summary>
 /// Действующая версия торгового распорядка движка (курируемая таблица <c>market_schedule</c>):

@@ -64,11 +64,24 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
               AND (@expiration::date IS NULL OR d.expiration = @expiration::date)
               AND (NOT @onlyRecording OR EXISTS (
                     SELECT 1 FROM coverage_segment cs
-                    WHERE cs.instrument_id = i.instrument_id AND cs.ended_at IS NULL))
+                    WHERE cs.instrument_id = i.instrument_id AND cs.ended_at IS NULL)
+                   OR (@includeOptionAncestors AND EXISTS (
+                        SELECT 1 FROM derivative od
+                        JOIN coverage_segment cs ON cs.instrument_id = od.instrument_id
+                         AND cs.ended_at IS NULL
+                        WHERE od.underlying_id = i.instrument_id AND od.option_type IS NOT NULL)))
               AND (NOT @nonEmpty OR EXISTS (
                     SELECT 1 FROM coverage_segment cs
-                    WHERE cs.instrument_id = i.instrument_id))
-              AND (NOT @instrumentIdsFilter OR i.instrument_id = ANY(@instrumentIds))
+                    WHERE cs.instrument_id = i.instrument_id)
+                   OR (@includeOptionAncestors AND EXISTS (
+                        SELECT 1 FROM derivative od
+                        JOIN coverage_segment cs ON cs.instrument_id = od.instrument_id
+                        WHERE od.underlying_id = i.instrument_id AND od.option_type IS NOT NULL)))
+              -- «Выделенные»: сам id; при scope «ко всем» — ещё предок выделенного опциона.
+              AND (NOT @instrumentIdsFilter OR i.instrument_id = ANY(@instrumentIds)
+                   OR (@includeOptionAncestors AND i.instrument_id IN (
+                        SELECT od.underlying_id FROM derivative od
+                        WHERE od.instrument_id = ANY(@instrumentIds) AND od.underlying_id IS NOT NULL)))
               AND (NOT @boardsFilter OR i.board_id = ANY(@boards))
             """;
 
@@ -76,6 +89,7 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
             SELECT i.instrument_id AS InstrumentId, i.ticker AS Ticker, i.board_id AS Board,
                    i.sec_type AS SecType, i.short_name AS ShortName, i.name AS Name, i.min_step AS MinStep,
                    i.decimals AS Decimals, i.active AS Active,
+                   d.underlying_id AS UnderlyingId,
                    d.strike AS Strike, d.option_type AS OptionType, d.expiration AS Expiration,
                    EXISTS (SELECT 1 FROM derivative od
                            WHERE od.underlying_id = i.instrument_id AND od.option_type IS NOT NULL) AS HasOptions,
@@ -93,6 +107,7 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
             hasCategory, secTypes = secTypes ?? [], hideOptions,
             underlyingId = query.UnderlyingId, expiration = query.Expiration,
             onlyRecording = query.OnlyRecording, nonEmpty = query.NonEmpty,
+            includeOptionAncestors = query.IncludeOptionAncestors,
             instrumentIdsFilter, instrumentIds, boardsFilter, boards, limit, offset
         };
 
@@ -119,6 +134,7 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
             Active = r.Active,
             Recording = r.Recording,
             HasOptions = r.HasOptions,
+            UnderlyingId = r.UnderlyingId,
             Strike = r.Strike,
             OptionType = string.IsNullOrEmpty(r.OptionType) ? null : r.OptionType[0],
             Expiration = r.Expiration
