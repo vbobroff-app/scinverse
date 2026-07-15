@@ -1,22 +1,23 @@
 using Scinverse.Ohs.Domain;
-using Scinverse.Ohs.Domain.Finam;
+using Scinverse.Ohs.Domain.Schedule;
 using Scinverse.Ohs.Ingestion;
 
 namespace Scinverse.Ohs.Host;
 
 /// <summary>
 /// Pre-flight сверки расписания (phase 7i): перед постановкой инструмента на авто-запись спрашиваем
-/// расписание у НАЗНАЧЕННОГО источника (external_service.use_for_schedule), сравниваем с базой
-/// (market_schedule) на сегодняшнюю дату и при расхождении заводим исключение (market_schedule_exception,
-/// resolved=false) — пользователь потом решит: оставить или поднять в базу. См. docs/dev/phase7i/schedule.md.
+/// расписание у НАЗНАЧЕННОГО источника (external_service.use_for_schedule) через нейтральный
+/// <see cref="IScheduleConfirmer"/> (адаптер по коду), сравниваем с базой (market_schedule) на
+/// сегодняшнюю дату и при расхождении заводим исключение (market_schedule_exception, resolved=false) —
+/// пользователь потом решит: оставить или поднять в базу. См. docs/dev/phase7i/schedule.md.
 /// </summary>
 public sealed class SchedulePreflight(
     IExternalServiceStore services,
+    IScheduleConfirmerRegistry confirmers,
     IInstrumentRegistry registry,
     IInstrumentStore instruments,
     IMarketScheduleStore schedule,
     IFuturesAssetClassStore assetClasses,
-    IFinamApi finam,
     TimeProvider time,
     ILogger<SchedulePreflight> logger)
 {
@@ -28,11 +29,11 @@ public sealed class SchedulePreflight(
     }
 
     /// <summary>
-    /// Запрашивает расписание инструмента у источника и сверяет с базой. Возвращает расписание или null
-    /// (источник не назначен / символ не сопоставлен / нет секрета / ошибка) — pre-flight никогда не роняет
-    /// постановку на auto.
+    /// Запрашивает расписание инструмента у назначенного источника и сверяет с базой. Pre-flight никогда
+    /// не роняет постановку на auto: любая проблема (источник не назначен / адаптер не поддержан / символ
+    /// не сопоставлен / нет секрета / ошибка API / сверка) → только лог, без исключения наружу.
     /// </summary>
-    public async Task<FinamSchedule?> RequestAsync(long instrumentId, CancellationToken cancellationToken)
+    public async Task RequestAsync(long instrumentId, CancellationToken cancellationToken)
     {
         var source = await services.GetScheduleSourceAsync(cancellationToken).ConfigureAwait(false);
         if (source is null || !source.Enabled)
@@ -40,98 +41,177 @@ public sealed class SchedulePreflight(
             logger.LogInformation(
                 "Pre-flight {InstrumentId}: источник системного расписания не назначен/выключен — пропуск",
                 instrumentId);
-            return null;
+            return;
+        }
+
+        var confirmer = confirmers.ForAdapter(source.Adapter);
+        if (confirmer is null)
+        {
+            logger.LogWarning(
+                "Pre-flight {InstrumentId}: адаптер «{Adapter}» источника «{Source}» не поддержан — пропуск",
+                instrumentId, source.Adapter, source.Name);
+            return;
         }
 
         if (!registry.TryResolveById(instrumentId, out var instrument))
         {
             logger.LogWarning("Pre-flight {InstrumentId}: инструмент не найден в реестре — пропуск", instrumentId);
-            return null;
+            return;
         }
 
+        var scope = await ResolveScopeAsync(instrumentId, instrument.Key, cancellationToken).ConfigureAwait(false);
+        if (scope is null)
+        {
+            logger.LogInformation(
+                "Pre-flight {Key}: scope не выведен (board вне расписания) — пропуск", instrument.Key);
+            return;
+        }
+
+        // Символ (Finam: SECID@MIC) и движок (ISS: futures/stock/currency) — адаптер берёт своё.
         var symbol = FinamSymbol.TryBuild(instrument.Key);
-        if (symbol is null)
+        var engine = EngineOf(scope.Market);
+        var subject = symbol ?? engine ?? instrument.Key.Ticker;
+
+        string? secret = null;
+        if (confirmer.RequiresSecret)
         {
-            logger.LogWarning(
-                "Pre-flight {Key}: board не сопоставлен MIC Finam — пропуск (расширить FinamSymbol)",
-                instrument.Key);
-            return null;
+            secret = await services.GetSecretAsync(source.ServiceId, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(secret))
+            {
+                logger.LogWarning("Pre-flight {Subject}: у источника «{Source}» не задан секрет — пропуск", subject, source.Name);
+                return;
+            }
         }
 
-        var secret = await services.GetSecretAsync(source.ServiceId, cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(secret))
-        {
-            logger.LogWarning("Pre-flight {Symbol}: у источника «{Source}» не задан секрет — пропуск", symbol, source.Name);
-            return null;
-        }
+        var today = DateOnly.FromDateTime(time.GetUtcNow().ToOffset(MoexSchedule.MoscowOffset).DateTime);
+        var query = new ConfirmerQuery(symbol, engine, today, secret);
 
-        FinamSchedule finamSchedule;
+        ConfirmerSchedule confirmed;
         try
         {
-            finamSchedule = await finam.GetScheduleAsync(secret, symbol, cancellationToken).ConfigureAwait(false);
+            confirmed = await confirmer.GetScheduleAsync(query, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "Pre-flight {Symbol}: запрос расписания у «{Source}» не удался", symbol, source.Name);
-            return null;
+            logger.LogWarning(ex, "Pre-flight {Subject}: запрос расписания у «{Source}» не удался", subject, source.Name);
+            return;
         }
 
         try
         {
-            await CompareAndFlagAsync(instrumentId, instrument.Key, symbol, finamSchedule, cancellationToken)
+            await CompareAndFlagAsync(scope, subject, source.Name, confirmed, today, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Сверка/запись исключения не должна влиять на постановку на auto — только лог.
-            logger.LogWarning(ex, "Pre-flight {Symbol}: сверка с базой не удалась", symbol);
+            logger.LogWarning(ex, "Pre-flight {Subject}: сверка с базой не удалась", subject);
         }
 
-        return finamSchedule;
+        // Календарная проверка (capability Calendar): праздники/переносы в горизонте вперёд — источник
+        // с историей/будущим (ISS dailytable) видит то, что session_schedule (сегодня) и Finam (~2 дня) не видят.
+        if (confirmer is ICalendarConfirmer calendarConfirmer && engine is not null)
+        {
+            try
+            {
+                await CalendarCheckAsync(calendarConfirmer, engine, scope.Market, source.Name, today, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Pre-flight {Subject}: календарная проверка не удалась", subject);
+            }
+        }
+    }
+
+    /// <summary>Горизонт календарной проверки вперёд (дней) — заранее ловим ближайшие праздники.</summary>
+    private const int CalendarHorizonDays = 14;
+
+    /// <summary>
+    /// Сверяет торговый календарь движка на горизонт вперёд с базой на уровне РЫНКА: если ISS помечает
+    /// день нерабочим (праздник/перенос), а база на этот день ожидает торги — заводит market-scope
+    /// исключение <c>no_trade</c> (действует на все инструменты рынка). Дни, где база и так не торгует
+    /// (выходные), пропускаем.
+    /// </summary>
+    private async Task CalendarCheckAsync(
+        ICalendarConfirmer calendar, string engine, string market, string sourceName, DateOnly today,
+        CancellationToken cancellationToken)
+    {
+        var cal = await calendar.GetCalendarAsync(engine, today, today.AddDays(CalendarHorizonDays), cancellationToken)
+            .ConfigureAwait(false);
+
+        var marketScope = new ScheduleScope(market, null, null, null);
+        var flagged = 0;
+        foreach (var day in cal.Days.Where(d => !d.IsTradingDay))
+        {
+            var baseVersion = await schedule.ResolveAsync(marketScope, day.Date, cancellationToken).ConfigureAwait(false);
+            if (baseVersion is null)
+            {
+                continue;
+            }
+
+            if (BaseWindow(baseVersion, day.Date).NoTrade)
+            {
+                continue; // база и так не торгует (выходной) — исключение не нужно
+            }
+
+            var note = $"ISS dailytable: {day.Date:dd.MM.yyyy} — нерабочий день (праздник/перенос), " +
+                       $"база ожидает торги ({BaseWindow(baseVersion, day.Date)})";
+            var exception = new MarketScheduleException(
+                day.Date, market, null, null, null, "no_trade",
+                null, null, "authoritative", sourceName, Resolved: false, note);
+            await schedule.UpsertExceptionAsync(exception, cancellationToken).ConfigureAwait(false);
+            flagged++;
+        }
+
+        if (flagged > 0)
+        {
+            logger.LogWarning(
+                "Pre-flight календарь {Engine}: заведено {Count} no_trade-исключений (праздники в горизонте {Days} дн.)",
+                engine, flagged, CalendarHorizonDays);
+        }
+        else
+        {
+            logger.LogInformation(
+                "Pre-flight календарь {Engine}: праздников в торгующих по базе днях (горизонт {Days} дн.) не найдено",
+                engine, CalendarHorizonDays);
+        }
     }
 
     private async Task CompareAndFlagAsync(
-        long instrumentId, InstrumentKey key, string symbol, FinamSchedule finamSchedule,
+        ScheduleScope scope, string subject, string sourceName, ConfirmerSchedule confirmed, DateOnly today,
         CancellationToken cancellationToken)
     {
-        var scope = await ResolveScopeAsync(instrumentId, key, cancellationToken).ConfigureAwait(false);
-        if (scope is null)
-        {
-            logger.LogInformation("Pre-flight {Symbol}: scope не выведен (board вне расписания) — сверка пропущена", symbol);
-            return;
-        }
-
-        var today = DateOnly.FromDateTime(time.GetUtcNow().ToOffset(MoexSchedule.MoscowOffset).DateTime);
-
         var baseVersion = await schedule.ResolveAsync(scope, today, cancellationToken).ConfigureAwait(false);
         if (baseVersion is null)
         {
-            logger.LogInformation("Pre-flight {Symbol}: базового расписания для рынка «{Market}» нет — сверка пропущена",
-                symbol, scope.Market);
+            logger.LogInformation("Pre-flight {Subject}: базового расписания для рынка «{Market}» нет — сверка пропущена",
+                subject, scope.Market);
             return;
         }
 
         var baseWindow = BaseWindow(baseVersion, today);
-        var finamWindow = FinamWindow(finamSchedule, today);
+        var (open, close) = ScheduleWindow.Trading(confirmed, today);
+        var confWindow = new Window(open, close);
 
-        if (WindowsEqual(baseWindow, finamWindow))
+        if (WindowsEqual(baseWindow, confWindow))
         {
-            logger.LogInformation("Pre-flight {Symbol} {Date}: расписание совпадает с базой ({Window}) — ок",
-                symbol, today, baseWindow);
+            logger.LogInformation("Pre-flight {Subject} {Date}: расписание совпадает с базой ({Window}) — ок",
+                subject, today, baseWindow);
             return;
         }
 
-        var kind = finamWindow.NoTrade ? "no_trade" : "shifted";
-        var note = $"Auto pre-flight {symbol}: база {baseWindow}, Finam {finamWindow}";
+        var kind = confWindow.NoTrade ? "no_trade" : "shifted";
+        var note = $"Auto pre-flight {subject}: база {baseWindow}, {sourceName} {confWindow}";
         var exception = new MarketScheduleException(
             today, scope.Market, scope.SecType, scope.Category, scope.Instrument, kind,
-            finamWindow.NoTrade ? null : finamWindow.Open,
-            finamWindow.NoTrade ? null : finamWindow.Close,
-            "authoritative", "Finam Schedule", Resolved: false, note);
+            confWindow.NoTrade ? null : confWindow.Open,
+            confWindow.NoTrade ? null : confWindow.Close,
+            "authoritative", sourceName, Resolved: false, note);
 
         await schedule.UpsertExceptionAsync(exception, cancellationToken).ConfigureAwait(false);
-        logger.LogWarning("Pre-flight {Symbol} {Date}: РАСХОЖДЕНИЕ — {Note}. Заведено исключение ({Kind})",
-            symbol, today, note, kind);
+        logger.LogWarning("Pre-flight {Subject} {Date}: РАСХОЖДЕНИЕ — {Note}. Заведено исключение ({Kind})",
+            subject, today, note, kind);
     }
 
     /// <summary>SECID → (market, sec_type, category, instrument) через board + справочник классов БА.</summary>
@@ -167,6 +247,15 @@ public sealed class SchedulePreflight(
         _ => null,
     };
 
+    /// <summary>Рынок (market) → движок ISS для session_schedule.</summary>
+    private static string? EngineOf(string market) => market switch
+    {
+        "derivatives" => "futures",
+        "stock" => "stock",
+        "currency" => "currency",
+        _ => null,
+    };
+
     private static string? SecTypeOf(string? secType, string board) =>
         (secType ?? board).ToUpperInvariant() switch
         {
@@ -184,35 +273,6 @@ public sealed class SchedulePreflight(
         return weekend
             ? new Window(version.WeOpen, version.WeClose)
             : new Window(version.WdOpen, version.WdClose);
-    }
-
-    /// <summary>Типы сессий, не считающиеся «рынок открыт» (не входят в торговое окно дня).</summary>
-    private static readonly HashSet<string> NonTradingTypes =
-        new(StringComparer.OrdinalIgnoreCase) { "CLOSED", "CLEARING" };
-
-    /// <summary>
-    /// Окно Finam на дату (МСК): от первого открытия до последнего закрытия торговых сессий (включая
-    /// аукционы), НАЧАВШИХСЯ в этот день. Клиринг/CLOSED исключаем — иначе клиринг за полночь «сдвигает»
-    /// границы. Сравниваем по времени суток (TimeOnly), а не по абсолютному моменту.
-    /// </summary>
-    private static Window FinamWindow(FinamSchedule schedule, DateOnly date)
-    {
-        var times = schedule.Sessions
-            .Where(s => !NonTradingTypes.Contains(s.Type))
-            .Select(s => (
-                Start: s.Start.ToOffset(MoexSchedule.MoscowOffset).DateTime,
-                End: s.End.ToOffset(MoexSchedule.MoscowOffset).DateTime))
-            .Where(s => DateOnly.FromDateTime(s.Start) == date)
-            .ToList();
-
-        if (times.Count == 0)
-        {
-            return new Window(null, null);
-        }
-
-        var open = times.Min(s => TimeOnly.FromDateTime(s.Start));
-        var close = times.Max(s => TimeOnly.FromDateTime(s.End));
-        return new Window(open, close);
     }
 
     /// <summary>Сравнение окон с точностью до минут (секунды/тип дня игнорируем).</summary>

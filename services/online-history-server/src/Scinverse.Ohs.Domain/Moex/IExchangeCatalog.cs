@@ -35,4 +35,11 @@ public interface IExchangeCatalog
     /// сокращённые дни, вкл. будущие). Реализация кэширует ответ.
     /// </summary>
     Task<EngineCalendar> GetEngineCalendarAsync(string engine, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Тонкое расписание сессий движка на ТЕКУЩИЙ день (<c>/iss/engines/{engine}</c>,
+    /// таблица <c>session_schedule</c>) — бесплатно, без auth, market-wide. Параметр даты ISS игнорирует.
+    /// Реализация кэширует ответ ненадолго. См. docs/dev/phase7c/apply.md §3.
+    /// </summary>
+    Task<IReadOnlyList<IssSessionSlot>> GetSessionScheduleAsync(string engine, CancellationToken cancellationToken);
 }

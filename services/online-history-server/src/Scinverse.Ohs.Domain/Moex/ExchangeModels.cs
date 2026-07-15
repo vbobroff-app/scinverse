@@ -23,3 +23,10 @@ public sealed record IssSecurity(
 
 /// <summary>Минимальная ссылка на FORTS-фьючерс для классификации: SECID + код базового актива.</summary>
 public sealed record IssFuturesRef(string SecId, string? AssetCode, string? ShortName);
+
+/// <summary>
+/// Слот тонкого расписания сессий из <c>session_schedule</c> движка (<c>/iss/engines/{engine}</c>):
+/// тип фазы (<c>morning_session</c>/<c>main_session</c>/<c>oa_booking</c>/<c>clearing_session</c>…) и
+/// границы окна (МСК). ISS отдаёт только ТЕКУЩИЙ день и market-wide (без per-instrument/per-category).
+/// </summary>
+public sealed record IssSessionSlot(string Type, DateTimeOffset Start, DateTimeOffset? End);

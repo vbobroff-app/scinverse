@@ -12,8 +12,11 @@ public interface IExternalServiceStore
 
     Task<ExternalService?> GetAsync(long serviceId, CancellationToken cancellationToken);
 
-    /// <summary>Создаёт/обновляет сервис по уникальному имени. <paramref name="secret"/> = null → не менять.</summary>
-    Task<ExternalService> UpsertAsync(
+    /// <summary>
+    /// Создаёт сервис. Имя уникально — при коллизии возвращает null (НЕ перезаписывает существующий),
+    /// чтобы «создание» не затирало другую интеграцию. Переименование/правка — через <see cref="UpdateAsync"/>.
+    /// </summary>
+    Task<ExternalService?> CreateAsync(
         string name, string adapter, string transport, string? secret, DateOnly? secretExpiresOn,
         bool enabled, CancellationToken cancellationToken);
 

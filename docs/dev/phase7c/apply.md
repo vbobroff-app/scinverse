@@ -212,6 +212,23 @@ Reference и уже отфильтровала рабочее.
 > Часы меняются редко (регламентно), поэтому для MVP **кодируем их дат-версионно в `MoexSchedule`**
 > из s1167 — это полноценно заменяет платный `session_schedule` для наших нужд.
 
+> ✅ **ОБНОВЛЕНИЕ (15.07.2026): тонкий `session_schedule` доступен БЕСПЛАТНО** — но не через платный
+> `/iss/calendars/{market}/session`, а как **ещё одна таблица в ответе движка**
+> `/iss/engines/{engine}.json` (рядом с `timetable`/`dailytable`, §2c). Проверено на живом ISS без auth:
+> ```
+> GET https://iss.moex.com/iss/engines/futures.json?iss.only=session_schedule&iss.meta=off
+> ```
+> Колонки: `trade_session_date, boardid, secid, type, time_from, time_till, updatetime`.
+> Типы (FORTS): `oa_booking, oa_pricing, morning_session, main_session, evening_session,
+> settlement_session, clearing_session` (+ таблица `session_schedule.types` с подписями).
+> **Ограничения:** (1) **только текущий день** — параметр `date=YYYY-MM-DD` игнорируется (вернёт сегодня);
+> (2) **market-wide** — `secid` всегда `-`, `boardid` чаще `-` (у аукциона — `RFUD`), т.е. фазы на весь
+> движок, **без per-category карв-аутов** (напр. «валютные опционы стартуют в 10:00» тут НЕ видно —
+> `morning_session` показан 07:00–10:00 для всего срочного). Поэтому для тонких/исторических/per-category
+> окон source of truth остаётся курируемый `market_schedule` (s1167 + регламент). Роль `session_schedule` —
+> **ежедневная сверка «сегодня открылись как в base?»** (аналог Finam `Schedule`, но бесплатно и без auth);
+> сопоставление фаз ISS↔Finam — в `docs/dev/phase7i/schedule.md`.
+
 **Окна сессий ФР (акции, «Стакан Т+1», из s1167, МСК):**
 
 | Сессия | Будни (пн-пт, рабочие сб/вс) | Выходные (ДСВД) |

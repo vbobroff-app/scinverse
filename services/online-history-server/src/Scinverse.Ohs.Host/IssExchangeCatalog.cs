@@ -19,6 +19,7 @@ public sealed class IssExchangeCatalog(HttpClient http, IMemoryCache cache, ILog
     private static readonly TimeSpan StructureTtl = TimeSpan.FromHours(6);
     private static readonly TimeSpan SecuritiesTtl = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan CalendarTtl = TimeSpan.FromHours(12);
+    private static readonly TimeSpan SessionScheduleTtl = TimeSpan.FromMinutes(15);
 
     public Task<IReadOnlyList<IssEngine>> GetEnginesAsync(CancellationToken cancellationToken) =>
         GetOrFetchAsync("engines", "engines.json?iss.meta=off&lang=ru", StructureTtl, static table =>
@@ -173,6 +174,42 @@ public sealed class IssExchangeCatalog(HttpClient http, IMemoryCache cache, ILog
         cache.Set(cacheKey, calendar, CalendarTtl);
         return calendar;
     }
+
+    public async Task<IReadOnlyList<IssSessionSlot>> GetSessionScheduleAsync(
+        string engine, CancellationToken cancellationToken)
+    {
+        var cacheKey = $"session_schedule:{engine}";
+        if (cache.TryGetValue<IReadOnlyList<IssSessionSlot>>(cacheKey, out var cached) && cached is not null)
+        {
+            return cached;
+        }
+
+        // Тонкие сессии текущего дня лежат в ответе движка (не в платном /iss/calendars/*/session).
+        var url = $"engines/{Esc(engine)}.json?iss.only=session_schedule&iss.meta=off&lang=ru";
+        var json = await http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+        var table = IssTable.Parse(json, "session_schedule");
+
+        var slots = table.Rows
+            .Select(r => (
+                Type: r.GetString("type"),
+                From: ParseMoscow(r.GetString("time_from")),
+                Till: ParseMoscow(r.GetString("time_till"))))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Type) && x.From is not null)
+            .Select(x => new IssSessionSlot(x.Type!, x.From!.Value, x.Till))
+            .ToList();
+
+        logger.LogDebug("ISS session_schedule {Engine}: {Count} slots", engine, slots.Count);
+        cache.Set(cacheKey, (IReadOnlyList<IssSessionSlot>)slots, SessionScheduleTtl);
+        return slots;
+    }
+
+    /// <summary>ISS отдаёт <c>time_from/time_till</c> как «yyyy-MM-dd HH:mm:ss» в МСК без смещения.</summary>
+    private static DateTimeOffset? ParseMoscow(string? value) =>
+        DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt)
+            ? new DateTimeOffset(dt, MoscowOffset)
+            : null;
+
+    private static readonly TimeSpan MoscowOffset = TimeSpan.FromHours(3);
 
     private static TimeOnly? ParseTime(string? value) =>
         TimeOnly.TryParse(value, CultureInfo.InvariantCulture, out var time) ? time : null;

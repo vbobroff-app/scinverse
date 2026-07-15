@@ -17,19 +17,23 @@ export function FilterSearch({ initial, placeholder = 'Поиск…', onSearch 
   // onSearch держим в ref, чтобы эффект зависел только от debounced (без лишних срабатываний).
   const onSearchRef = useRef(onSearch);
   onSearchRef.current = onSearch;
-  const firstRun = useRef(true);
+  // Последнее отправленное значение: эмитим только при реальном изменении. Так эффект не бьёт
+  // на маунте (в т.ч. под двойным вызовом эффектов React StrictMode, где ref-флаг «первый прогон»
+  // ненадёжен) — иначе onSearch('') сбрасывал бы фильтр и сворачивал дерево при старте.
+  const lastSent = useRef(initial ?? '');
 
   useEffect(() => {
-    if (firstRun.current) {
-      firstRun.current = false;
+    if (debounced === lastSent.current) {
       return;
     }
+    lastSent.current = debounced;
     onSearchRef.current(debounced);
   }, [debounced]);
 
   const clear = () => {
     setText('');
     // Сразу, без ожидания debounce — крестик должен снимать фильтр мгновенно.
+    lastSent.current = '';
     onSearchRef.current('');
   };
 

@@ -34,26 +34,27 @@ public sealed class ExternalServiceStore(NpgsqlDataSource dataSource) : IExterna
             cancellationToken: cancellationToken));
     }
 
-    public async Task<ExternalService> UpsertAsync(
+    public async Task<ExternalService?> CreateAsync(
         string name, string adapter, string transport, string? secret, DateOnly? secretExpiresOn,
         bool enabled, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        return await connection.QuerySingleAsync<ExternalService>(new CommandDefinition(
-            $"""
-            INSERT INTO external_service (name, adapter, transport, secret, secret_expires_on, enabled)
-            VALUES (@name, @adapter, @transport, @secret, @secretExpiresOn, @enabled)
-            ON CONFLICT (name) DO UPDATE SET
-                adapter           = EXCLUDED.adapter,
-                transport         = EXCLUDED.transport,
-                secret            = COALESCE(EXCLUDED.secret, external_service.secret),
-                secret_expires_on = EXCLUDED.secret_expires_on,
-                enabled           = EXCLUDED.enabled,
-                updated_at        = now()
-            RETURNING {SelectColumns};
-            """,
-            new { name, adapter, transport, secret, secretExpiresOn, enabled },
-            cancellationToken: cancellationToken));
+        try
+        {
+            return await connection.QuerySingleAsync<ExternalService>(new CommandDefinition(
+                $"""
+                INSERT INTO external_service (name, adapter, transport, secret, secret_expires_on, enabled)
+                VALUES (@name, @adapter, @transport, @secret, @secretExpiresOn, @enabled)
+                RETURNING {SelectColumns};
+                """,
+                new { name, adapter, transport, secret, secretExpiresOn, enabled },
+                cancellationToken: cancellationToken));
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            // Имя занято — «создание» не должно молча перезаписывать чужую интеграцию.
+            return null;
+        }
     }
 
     public async Task<ExternalService?> UpdateAsync(
