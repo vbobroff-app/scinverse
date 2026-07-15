@@ -26,12 +26,16 @@ public sealed class ConnectionManager(
     WebSocketBroadcaster broadcaster,
     Lazy<ILivenessWriter> liveness,
     Lazy<RecordingManager> recordings,
+    ILinkLivenessStore linkLiveness,
     TransaqConnectorOptions transaqDefaults,
     ILoggerFactory loggerFactory,
     ILogger<ConnectionManager> logger) : IDisposable
 {
     /// <summary>Порог тишины: нет данных от коннектора дольше — статус «ожидание» (waiting).</summary>
     private static readonly TimeSpan IdleThreshold = TimeSpan.FromSeconds(5);
+
+    /// <summary>Макс. разрыв keepalive связи: больше — интервал считается прерванным (краш процесса).</summary>
+    internal static readonly TimeSpan LinkMaxGap = TimeSpan.FromSeconds(45);
 
     private readonly ConcurrentDictionary<long, ConnectorSession> _sessions = new();
     private readonly ConcurrentDictionary<long, short> _sourceIds = new();
@@ -114,6 +118,10 @@ public sealed class ConnectionManager(
             connector = null;
             // Подключено, но данных ещё нет → «ожидание» (перейдёт в «active» при первой сделке).
             SetStatus(connectionId, "waiting");
+            // Открываем интервал живости связи (лента Connection, 7h.8): связь есть — независимо от записи.
+            await linkLiveness
+                .HeartbeatAsync(sourceId, DateTimeOffset.UtcNow, LinkMaxGap, cancellationToken)
+                .ConfigureAwait(false);
             EnsureIdleMonitor();
             logger.LogInformation("Подключение {ConnectionId} ({Kind}) установлено", connectionId, connection.Kind);
             return "waiting";
@@ -141,6 +149,8 @@ public sealed class ConnectionManager(
 
     public async Task<string> DisconnectAsync(long connectionId, CancellationToken cancellationToken)
     {
+        var hasSource = _sourceIds.TryGetValue(connectionId, out var sourceId);
+
         if (_sessions.TryRemove(connectionId, out var session))
         {
             await session.StopAsync().ConfigureAwait(false);
@@ -151,6 +161,14 @@ public sealed class ConnectionManager(
         _linkStates.TryRemove(connectionId, out _);
         _linkSince.TryRemove(connectionId, out _);
         await liveness.Value.OnDisconnectedAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        // Добровольный дисконнект: закрываем живость связи как 'disconnected' (серый на ленте, не разрыв).
+        if (hasSource)
+        {
+            await linkLiveness
+                .CloseAsync(sourceId, LinkCloseReason.Disconnected, null, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         SetStatus(connectionId, "disconnected");
         return "disconnected";
     }
@@ -277,6 +295,14 @@ public sealed class ConnectionManager(
             case ConnectorLinkState.Live:
             case ConnectorLinkState.Degraded:
             {
+                // Связь жива: продлеваем/открываем интервал живости связи (лента Connection, 7h.8).
+                if (_sourceIds.TryGetValue(connectionId, out var liveSourceId))
+                {
+                    await linkLiveness
+                        .HeartbeatAsync(liveSourceId, change.At, LinkMaxGap, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+
                 var recovering = hadState && previous is ConnectorLinkState.Down or ConnectorLinkState.Error;
                 if (recovering)
                 {
@@ -311,6 +337,14 @@ public sealed class ConnectionManager(
                 logger.LogWarning(
                     "Подключение {ConnectionId}: связь {State} ({Detail})",
                     connectionId, change.State, change.Detail);
+
+                // Обрыв связи: закрываем живость связи как 'server_down' (красный на ленте; время события).
+                if (_sourceIds.TryGetValue(connectionId, out var downSourceId))
+                {
+                    await linkLiveness
+                        .CloseAsync(downSourceId, LinkCloseReason.ServerDown, change.At, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
 
                 await liveness.Value.OnServerDownAsync(connectionId, change.At, CancellationToken.None)
                     .ConfigureAwait(false);

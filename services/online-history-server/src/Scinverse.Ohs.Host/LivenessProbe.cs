@@ -11,6 +11,7 @@ public sealed class LivenessProbe(
     ConnectionManager connections,
     RecordingManager recordings,
     ICaptureLivenessStore liveness,
+    ILinkLivenessStore linkLiveness,
     IMarketCalendar calendar,
     OhsOptions options,
     TimeProvider time,
@@ -67,6 +68,14 @@ public sealed class LivenessProbe(
         var now = time.GetUtcNow();
         foreach (var session in connections.ListSessions())
         {
+            // Keepalive живости СВЯЗИ (лента Connection, 7h.8): пока подключение connected — двигаем to_ts
+            // БЕЗ пинга и БЕЗ гейта записи/сессии. Реальный обрыв ловится мгновенно через server_status.
+            if (session.Connector.IsConnected)
+            {
+                await linkLiveness.HeartbeatAsync(session.SourceId, now, MaxGap, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             if (!recordings.HasRecordingsOnConnection(session.ConnectionId))
             {
                 continue;
