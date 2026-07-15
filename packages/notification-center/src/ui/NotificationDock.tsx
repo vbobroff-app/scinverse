@@ -23,6 +23,9 @@ export interface NotificationDockProps {
   formatTs?: FormatTs;
   title?: string;
   defaultExpanded?: boolean;
+  /** Controlled: раскрыт ли док. Если задан — хост управляет открытием (колокольчик и т.п.). */
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
   /** Начальная высота раскрытого дока (px). */
   defaultHeight?: number;
   className?: string;
@@ -35,6 +38,8 @@ export function NotificationDock({
   formatTs = formatTsUtc,
   title = 'Центр уведомлений',
   defaultExpanded = false,
+  expanded: expandedProp,
+  onExpandedChange,
   defaultHeight,
   className,
   hideFilters = false,
@@ -42,8 +47,13 @@ export function NotificationDock({
   const events = useObservable(bus.stream$, bus.events);
   const unread = useObservable(bus.unreadAlertCount$, bus.unreadAlertCount);
 
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const [height, setHeight] = useState(defaultExpanded ? (defaultHeight ?? DEFAULT_EXPANDED_HEIGHT) : MIN_HEIGHT);
+  const controlled = expandedProp !== undefined;
+  const [uncontrolledExpanded, setUncontrolledExpanded] = useState(defaultExpanded);
+  const expanded = controlled ? expandedProp : uncontrolledExpanded;
+
+  const [height, setHeight] = useState(
+    (controlled ? expandedProp : defaultExpanded) ? (defaultHeight ?? DEFAULT_EXPANDED_HEIGHT) : MIN_HEIGHT,
+  );
   const [lastHeight, setLastHeight] = useState(defaultHeight ?? DEFAULT_EXPANDED_HEIGHT);
   const [filter, setFilter] = useState<DockFilterState>({
     severities: [],
@@ -55,6 +65,17 @@ export function NotificationDock({
 
   const listRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
+
+  const setExpanded = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      const value = typeof next === 'function' ? next(expanded) : next;
+      if (!controlled) {
+        setUncontrolledExpanded(value);
+      }
+      onExpandedChange?.(value);
+    },
+    [controlled, expanded, onExpandedChange],
+  );
 
   const modules = useMemo(() => {
     const set = new Set<string>();

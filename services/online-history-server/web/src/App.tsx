@@ -2,6 +2,7 @@ import { useOhsStore } from './ui/context';
 import { useBehavior } from './ui/hooks/useObservable';
 import { HeaderControls } from './ui/components/HeaderControls';
 import { IconSidebar } from './ui/components/IconSidebar';
+import { NotificationCenterHost } from './ui/components/NotificationCenterHost';
 import { ProvidersSection } from './ui/pages/ProvidersSection';
 import { ExchangesSection } from './ui/pages/ExchangesSection';
 import { IntegrationsSection } from './ui/pages/IntegrationsSection';
@@ -15,7 +16,6 @@ const PLACEHOLDER_TEXT: Partial<Record<NavSectionId, string>> = {
   news: 'Лента новостей и торговых событий с бирж (MOEX ISS). Phase 7c.',
   messages: 'Внутренние сообщения и системные уведомления сервиса. Phase 11.',
   help: 'Справка по админке: горячие клавиши, документация, статус сервисов.',
-  notifications: 'Центр уведомлений — сквозная лента событий записи и соединений. Phase 11.',
   user: 'Профиль, роли и настройки пользователя. Phase 10 (auth).',
 };
 
@@ -37,6 +37,8 @@ export function App() {
         <IconSidebar />
         <SectionContent section={section} />
       </div>
+
+      <NotificationCenterHost />
     </div>
   );
 }

@@ -13,6 +13,13 @@ export default defineConfig({
       '/api': { target: OHS_TARGET, changeOrigin: true },
       '/ws': { target: OHS_TARGET, ws: true, changeOrigin: true },
     },
+    fs: {
+      // linked package `@scinverse/notification-center` лежит вне web/
+      allow: ['..', '../../..'],
+    },
+  },
+  optimizeDeps: {
+    exclude: ['@scinverse/notification-center'],
   },
   test: {
     environment: 'jsdom',

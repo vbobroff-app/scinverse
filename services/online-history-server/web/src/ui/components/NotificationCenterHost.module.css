@@ -1,0 +1,5 @@
+.slot {
+  flex: none;
+  width: 100%;
+  z-index: 30;
+}

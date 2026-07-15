@@ -40,7 +40,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   { id: 'news', label: 'Новости', group: 'top', ready: false },
   { id: 'messages', label: 'Сообщения', group: 'top', ready: false },
   { id: 'help', label: 'Помощь', group: 'bottom', ready: false },
-  { id: 'notifications', label: 'Центр уведомлений', group: 'bottom', ready: false },
+  { id: 'notifications', label: 'Центр уведомлений', group: 'bottom', ready: true },
   { id: 'user', label: 'Пользователь', group: 'bottom', ready: false },
 ];
 

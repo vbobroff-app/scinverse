@@ -1,27 +1,44 @@
-import { useOhsStore } from '../context';
-import { useBehavior } from '../hooks/useObservable';
+import {
+  notificationBus,
+  notificationDockOpen$,
+  toggleNotificationDock,
+} from '../../core/notifications';
 import { navSectionsByGroup, type NavGroup, type NavSection } from '../../core/navigation';
+import { useOhsStore } from '../context';
+import { useBehavior, useObservable } from '../hooks/useObservable';
 import { NAV_ICONS } from '../navigation';
 import styles from './IconSidebar.module.css';
 
 /**
  * Левый вертикальный рейл (стиль Финам): иконки разделов верхнего уровня.
  * Основные разделы сверху, служебные (помощь/уведомления/пользователь) — снизу.
- * Клик переключает активный раздел в `OhsStore.activeSection$`.
+ * Колокольчик не меняет секцию — открывает нижний док центра уведомлений.
  */
 export function IconSidebar() {
   const store = useOhsStore();
   const active = useBehavior(store.activeSection$);
+  const dockOpen = useBehavior(notificationDockOpen$);
+  const unread = useObservable(notificationBus.unreadAlertCount$, notificationBus.unreadAlertCount);
 
   const renderGroup = (group: NavGroup) =>
-    navSectionsByGroup(group).map((section) => (
-      <RailButton
-        key={section.id}
-        section={section}
-        active={section.id === active}
-        onSelect={() => store.setActiveSection(section.id)}
-      />
-    ));
+    navSectionsByGroup(group).map((section) => {
+      const isNotifications = section.id === 'notifications';
+      return (
+        <RailButton
+          key={section.id}
+          section={section}
+          active={isNotifications ? dockOpen : section.id === active}
+          badge={isNotifications && unread > 0 ? unread : undefined}
+          onSelect={() => {
+            if (isNotifications) {
+              toggleNotificationDock();
+              return;
+            }
+            store.setActiveSection(section.id);
+          }}
+        />
+      );
+    });
 
   return (
     <nav className={styles.rail} aria-label="Разделы">
@@ -38,10 +55,11 @@ export function IconSidebar() {
 interface RailButtonProps {
   section: NavSection;
   active: boolean;
+  badge?: number;
   onSelect: () => void;
 }
 
-function RailButton({ section, active, onSelect }: RailButtonProps) {
+function RailButton({ section, active, badge, onSelect }: RailButtonProps) {
   const Icon = NAV_ICONS[section.id];
   const className = [styles.btn, active ? styles.active : '', section.ready ? '' : styles.pending]
     .filter(Boolean)
@@ -55,8 +73,12 @@ function RailButton({ section, active, onSelect }: RailButtonProps) {
       title={section.ready ? section.label : `${section.label} · скоро`}
       aria-label={section.label}
       aria-current={active ? 'page' : undefined}
+      aria-pressed={section.id === 'notifications' ? active : undefined}
     >
       <Icon className={styles.icon} />
+      {badge !== undefined && (
+        <span className={styles.badge}>{badge > 99 ? '99+' : badge}</span>
+      )}
     </button>
   );
 }

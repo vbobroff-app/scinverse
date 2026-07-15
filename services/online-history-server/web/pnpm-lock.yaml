@@ -11,6 +11,9 @@ importers:
       '@iconify/react':
         specifier: ^6.0.2
         version: 6.0.2(react@19.2.7)
+      '@scinverse/notification-center':
+        specifier: file:../../../packages/notification-center
+        version: file:../../../packages/notification-center(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(rxjs@7.8.2)
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -408,6 +411,13 @@ packages:
 
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
+
+  '@scinverse/notification-center@file:../../../packages/notification-center':
+    resolution: {directory: ../../../packages/notification-center, type: directory}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+      rxjs: ^7.8.0
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
@@ -1643,6 +1653,12 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.1': {}
+
+  '@scinverse/notification-center@file:../../../packages/notification-center(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(rxjs@7.8.2)':
+    dependencies:
+      react: 19.2.7
+      react-dom: 19.2.7(react@19.2.7)
+      rxjs: 7.8.2
 
   '@standard-schema/spec@1.1.0': {}
 

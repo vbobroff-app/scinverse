@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@iconify/react": "^6.0.2",
+    "@scinverse/notification-center": "file:../../../packages/notification-center",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "rxjs": "^7.8.2"
