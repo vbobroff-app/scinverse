@@ -6,15 +6,18 @@ import {
 import {
   notificationBus,
   notificationDockOpen$,
-  setNotificationDockOpen,
 } from '../../core/notifications';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import styles from './NotificationCenterHost.module.css';
 
 /**
- * Встраивание пакета notification-center в OHS:
- * док снизу + формат времени из системного `displayTz$`.
+ * Встраивание пакета notification-center в OHS.
+ *
+ * Колокольчик (visibility) и expand/collapse дока — разные оси:
+ * - open=false → док не монтируется (не виден);
+ * - open=true → док виден и всегда стартует Collapsed (только заголовок);
+ * - Expanded внутри дока — 30% высоты окна или высота после resize пользователя.
  */
 export function NotificationCenterHost() {
   const store = useOhsStore();
@@ -31,12 +34,7 @@ export function NotificationCenterHost() {
       <NotificationDock
         bus={notificationBus}
         formatTs={formatTs}
-        expanded
-        onExpandedChange={(next) => {
-          if (!next) {
-            setNotificationDockOpen(false);
-          }
-        }}
+        defaultExpanded={false}
       />
     </div>
   );

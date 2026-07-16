@@ -35,10 +35,13 @@ export function App() {
 
       <div className={styles.body}>
         <IconSidebar />
-        <SectionContent section={section} />
+        <div className={styles.workspace}>
+          <div className={styles.workspaceMain}>
+            <SectionContent section={section} />
+          </div>
+          <NotificationCenterHost />
+        </div>
       </div>
-
-      <NotificationCenterHost />
     </div>
   );
 }

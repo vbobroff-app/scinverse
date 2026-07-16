@@ -1,5 +1,8 @@
 .slot {
   flex: none;
   width: 100%;
+  min-height: 0;
+  padding: 0 var(--spacing-lg) var(--spacing-lg);
+  box-sizing: border-box;
   z-index: 30;
 }

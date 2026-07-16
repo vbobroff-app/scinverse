@@ -10,7 +10,7 @@ import styles from './NotificationDock.module.css';
 
 const MIN_HEIGHT = 40;
 const DEFAULT_EXPANDED_HEIGHT = Math.round(
-  typeof window !== 'undefined' ? window.innerHeight / 2 : 320,
+  typeof window !== 'undefined' ? window.innerHeight * 0.3 : 240,
 );
 
 export interface NotificationDockProps {
@@ -23,10 +23,13 @@ export interface NotificationDockProps {
   formatTs?: FormatTs;
   title?: string;
   defaultExpanded?: boolean;
-  /** Controlled: раскрыт ли док. Если задан — хост управляет открытием (колокольчик и т.п.). */
+  /**
+   * Controlled: раскрыт ли список (Expanded) vs только заголовок (Collapsed).
+   * Visibility (показывать ли док) — ответственность хоста (колокольчик), не этого пропа.
+   */
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
-  /** Начальная высота раскрытого дока (px). */
+  /** Начальная высота Expanded (px). По умолчанию ~30% окна. */
   defaultHeight?: number;
   className?: string;
   /** Скрыть панель фильтров. */

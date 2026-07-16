@@ -8,7 +8,7 @@ import { createNotificationBus, notify } from '@scinverse/notification-center';
 
 export const notificationBus = createNotificationBus();
 
-/** Открыт ли нижний док (колокольчик в рейле). */
+/** Открыт ли док в колонке workspace (колокольчик в рейле). */
 export const notificationDockOpen$ = new BehaviorSubject(false);
 
 export function setNotificationDockOpen(open: boolean): void {
