@@ -3,7 +3,7 @@ import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { useNow } from '../hooks/useNow';
 import { useVirtualRows } from '../hooks/useVirtualRows';
-import { Button } from './Button';
+import { RecordingToggle } from './RecordingToggle';
 import { TimeAxis } from './TimeAxis';
 import { TimeframePanel } from './TimeframePanel';
 import { CoverageTrack } from './CoverageTrack';
@@ -202,23 +202,21 @@ const Row = memo(function Row({
             onDisable={() => onDisableSeriesAuto(row.futuresId, exp)}
           />
 
-          {seriesBusy ? (
-            <Button variant="default" disabled>
-              …
-            </Button>
-          ) : recCount > 0 ? (
-            <Button variant="danger" onClick={() => onStopSeries(row.futuresId, exp)}>
-              Стоп серии
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              disabled={!connected && autoPh === 'off'}
-              onClick={() => onStartSeries(row.futuresId, exp)}
-            >
-              Старт серии
-            </Button>
-          )}
+          <RecordingToggle
+            on={recCount > 0}
+            busy={seriesBusy}
+            disabled={recCount === 0 && !connected && autoPh === 'off'}
+            title={
+              recCount === 0 && !connected && autoPh === 'off'
+                ? 'Нет соединения'
+                : recCount > 0
+                  ? 'Остановить запись серии'
+                  : 'Начать запись серии'
+            }
+            onToggle={() =>
+              recCount > 0 ? onStopSeries(row.futuresId, exp) : onStartSeries(row.futuresId, exp)
+            }
+          />
         </div>
       </div>
     );
@@ -250,7 +248,7 @@ const Row = memo(function Row({
             ▸
           </button>
         ) : (
-          <span className={styles.chevronSpacer} />
+          <span className={isStrike ? styles.chevronSpacerStrike : styles.chevronSpacer} />
         )}
 
         <div className={styles.info}>
@@ -276,19 +274,18 @@ const Row = memo(function Row({
           onDisable={() => onDisableAuto(inst.instrumentId)}
         />
 
-        {recording ? (
-          <Button variant="danger" onClick={() => onStop(inst.instrumentId)}>
-            Стоп
-          </Button>
-        ) : (
-          <Button
-            variant="primary"
-            disabled={autoOn ? false : !connected || !tradeable}
-            onClick={() => onStart(inst.instrumentId)}
-          >
-            Старт
-          </Button>
-        )}
+        <RecordingToggle
+          on={recording}
+          disabled={recording ? false : autoOn ? false : !connected || !tradeable}
+          title={
+            !recording && !autoOn && !connected
+              ? 'Нет соединения'
+              : recording
+                ? 'Остановить запись'
+                : 'Начать запись'
+          }
+          onToggle={() => (recording ? onStop(inst.instrumentId) : onStart(inst.instrumentId))}
+        />
       </div>
 
       <div className={styles.right}>

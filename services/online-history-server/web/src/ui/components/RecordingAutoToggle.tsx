@@ -29,6 +29,7 @@ export function RecordingAutoToggle({ phase, onEnable, onDisable }: Props) {
       phase={phase}
       label={LABEL[phase]}
       title={TITLE[phase]}
+      layout="stacked"
       onToggle={() => (phase === 'off' ? onEnable() : onDisable())}
     />
   );

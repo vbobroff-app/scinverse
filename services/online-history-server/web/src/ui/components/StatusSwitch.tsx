@@ -6,6 +6,11 @@ interface Props {
   phase: SwitchPhase;
   label: string;
   title?: string;
+  /**
+   * `inline` — подпись слева, обычный трек (шапка провайдера).
+   * `stacked` — подпись сверху, компактный горизонтальный трек (строка инструмента).
+   */
+  layout?: 'inline' | 'stacked';
   onToggle: () => void;
 }
 
@@ -13,12 +18,18 @@ interface Props {
  * Трёхпозиционный цветной switch (off / middle connecting / on).
  * Общий визуал для ConnectionToggle и RecordingAutoToggle.
  */
-export function StatusSwitch({ phase, label, title, onToggle }: Props) {
+export function StatusSwitch({
+  phase,
+  label,
+  title,
+  layout = 'inline',
+  onToggle,
+}: Props) {
   const on = phase === 'active' || phase === 'waiting' || phase === 'degraded';
   const busy = phase === 'connecting';
 
   return (
-    <div className={styles.wrap}>
+    <div className={[styles.wrap, layout === 'stacked' ? styles.stacked : ''].filter(Boolean).join(' ')}>
       <span className={styles.label}>{label}</span>
       <button
         type="button"
