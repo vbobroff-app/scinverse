@@ -174,7 +174,7 @@ const Row = memo(function Row({
             aria-expanded={expanded}
           >
             <span className={[styles.chevron, expanded ? styles.chevronOpen : ''].filter(Boolean).join(' ')}>
-              ▸
+              ▴
             </span>
             <span className={styles.seriesLabel}>{row.group.label}</span>
             {row.group.badge && (
@@ -245,7 +245,7 @@ const Row = memo(function Row({
             title={expanded ? 'Свернуть опционы' : 'Показать опционы'}
             aria-expanded={expanded}
           >
-            ▸
+            ▴
           </button>
         ) : (
           <span className={isStrike ? styles.chevronSpacerStrike : styles.chevronSpacer} />

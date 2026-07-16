@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { NotificationEvent } from '../types';
 import { resolveInteraction, resolveLocalization } from '../types';
+import { Tip } from './Tooltip';
 import styles from './InteractionIcon.module.css';
 
 interface Props {
@@ -8,24 +9,26 @@ interface Props {
 }
 
 /** Базовая линейная иконка 16×16, монохром (currentColor). */
-function StrokeIcon({ children, title }: { children: ReactNode; title: string }) {
+function StrokeIcon({ children, label }: { children: ReactNode; label: string }) {
   return (
-    <span className={styles.wrap} title={title} aria-label={title}>
-      <svg
-        className={styles.icon}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.7}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        width="1em"
-        height="1em"
-        aria-hidden="true"
-      >
-        {children}
-      </svg>
-    </span>
+    <Tip content={label}>
+      <span className={styles.wrap} aria-label={label}>
+        <svg
+          className={styles.icon}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.7}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          width="1em"
+          height="1em"
+          aria-hidden="true"
+        >
+          {children}
+        </svg>
+      </span>
+    </Tip>
   );
 }
 
@@ -83,7 +86,7 @@ export function InteractionIcon({ event }: Props) {
 
   if (interaction === 'user') {
     return (
-      <StrokeIcon title="Пользовательские">
+      <StrokeIcon label="Пользовательские">
         <UserGlyph />
       </StrokeIcon>
     );
@@ -91,7 +94,7 @@ export function InteractionIcon({ event }: Props) {
 
   if (interaction === 'resolving') {
     return (
-      <StrokeIcon title="Резолвинг">
+      <StrokeIcon label="Резолвинг">
         <ResolvingGlyph />
       </StrokeIcon>
     );
@@ -99,14 +102,14 @@ export function InteractionIcon({ event }: Props) {
 
   if (localization === 'external') {
     return (
-      <StrokeIcon title="Системный · внешние">
+      <StrokeIcon label="Системный · внешние">
         <SystemExternalGlyph />
       </StrokeIcon>
     );
   }
 
   return (
-    <StrokeIcon title="Системный · внутренние">
+    <StrokeIcon label="Системный · внутренние">
       <SystemInternalGlyph />
     </StrokeIcon>
   );

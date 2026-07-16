@@ -8,6 +8,10 @@ function isAlert(evt: NotificationEvent): boolean {
   return evt.severity === 'error' || evt.severity === 'critical';
 }
 
+function isWarning(evt: NotificationEvent): boolean {
+  return evt.severity === 'warning';
+}
+
 /**
  * Framework-agnostic шина уведомлений.
  * Хост создаёт экземпляр (или держит singleton) и кормит события из любого источника
@@ -21,18 +25,22 @@ export class NotificationBus {
   /** Лента: новые сверху (порядок публикации / ingest). Стабильная ссылка. */
   readonly stream$: Observable<NotificationEvent[]>;
 
-  /**
-   * Число непрочитанных error/critical.
-   * Info/warning не поднимают бейдж (см. phase 11). Стабильная ссылка.
-   */
+  /** Число непрочитанных error/critical. Стабильная ссылка. */
   readonly unreadAlertCount$: Observable<number>;
+
+  /** Число непрочитанных warning. Стабильная ссылка. */
+  readonly unreadWarningCount$: Observable<number>;
 
   constructor(options: NotificationBusOptions = {}) {
     this.limit = Math.max(1, options.limit ?? DEFAULT_LIMIT);
     this.eventsSubject = new BehaviorSubject<NotificationEvent[]>([]);
     this.stream$ = this.eventsSubject.asObservable();
     this.unreadAlertCount$ = this.eventsSubject.pipe(
-      map((events) => this.countUnreadAlerts(events)),
+      map((events) => this.countUnread(events, isAlert)),
+      distinctUntilChanged(),
+    );
+    this.unreadWarningCount$ = this.eventsSubject.pipe(
+      map((events) => this.countUnread(events, isWarning)),
       distinctUntilChanged(),
     );
   }
@@ -43,7 +51,11 @@ export class NotificationBus {
   }
 
   get unreadAlertCount(): number {
-    return this.countUnreadAlerts(this.eventsSubject.value);
+    return this.countUnread(this.eventsSubject.value, isAlert);
+  }
+
+  get unreadWarningCount(): number {
+    return this.countUnread(this.eventsSubject.value, isWarning);
   }
 
   /** Добавить одно событие (дедуп по `id`). */
@@ -84,19 +96,20 @@ export class NotificationBus {
       return;
     }
     this.readIds.add(id);
-    this.eventsSubject.next(this.eventsSubject.value);
+    // Новый массив — иначе React setState игнорирует тот же reference.
+    this.eventsSubject.next([...this.eventsSubject.value]);
   }
 
   markAllRead(): void {
     let changed = false;
     for (const evt of this.eventsSubject.value) {
-      if (isAlert(evt) && !this.readIds.has(evt.id)) {
+      if (!this.readIds.has(evt.id)) {
         this.readIds.add(evt.id);
         changed = true;
       }
     }
     if (changed) {
-      this.eventsSubject.next(this.eventsSubject.value);
+      this.eventsSubject.next([...this.eventsSubject.value]);
     }
   }
 
@@ -104,10 +117,13 @@ export class NotificationBus {
     return this.readIds.has(id);
   }
 
-  private countUnreadAlerts(events: readonly NotificationEvent[]): number {
+  private countUnread(
+    events: readonly NotificationEvent[],
+    match: (evt: NotificationEvent) => boolean,
+  ): number {
     let n = 0;
     for (const evt of events) {
-      if (isAlert(evt) && !this.readIds.has(evt.id)) {
+      if (match(evt) && !this.readIds.has(evt.id)) {
         n += 1;
       }
     }

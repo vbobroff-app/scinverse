@@ -6,6 +6,11 @@
   width: 18px;
   height: 18px;
   color: var(--color-text-muted, #6c757d);
+  cursor: default;
+}
+
+.wrap * {
+  cursor: default;
 }
 
 .icon {

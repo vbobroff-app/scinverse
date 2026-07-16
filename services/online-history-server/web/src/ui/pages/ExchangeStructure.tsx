@@ -476,5 +476,5 @@ function SecuritiesTable({ store }: { store: ExchangeCatalogStore }) {
 }
 
 function Chevron({ open }: { open: boolean }) {
-  return <span className={[styles.chevron, open ? styles.chevronOpen : ''].filter(Boolean).join(' ')}>▸</span>;
+  return <span className={[styles.chevron, open ? styles.chevronOpen : ''].filter(Boolean).join(' ')}>▴</span>;
 }

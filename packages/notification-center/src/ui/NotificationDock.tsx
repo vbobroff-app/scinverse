@@ -5,6 +5,7 @@ import { formatTsUtc, type FormatTs } from '../format/formatTs';
 import type { NotificationEvent } from '../types';
 import { DockFilters, EMPTY_DOCK_FILTER, type DockFilterKey, type DockFilterState } from './DockFilters';
 import { NotificationRow } from './NotificationRow';
+import { Tip } from './Tooltip';
 import { useObservable } from './useObservable';
 import styles from './NotificationDock.module.css';
 
@@ -66,7 +67,8 @@ export function NotificationDock({
   onFiltersChange,
 }: NotificationDockProps) {
   const events = useObservable(bus.stream$, bus.events);
-  const unread = useObservable(bus.unreadAlertCount$, bus.unreadAlertCount);
+  const unreadAlerts = useObservable(bus.unreadAlertCount$, bus.unreadAlertCount);
+  const unreadWarnings = useObservable(bus.unreadWarningCount$, bus.unreadWarningCount);
 
   const controlledExpanded = expandedProp !== undefined;
   const [uncontrolledExpanded, setUncontrolledExpanded] = useState(defaultExpanded);
@@ -240,15 +242,17 @@ export function NotificationDock({
       aria-label={title}
     >
       {expanded && (
-        <div
-          className={styles.resizeHandle}
-          onPointerDown={onResizePointerDown}
-          onPointerMove={onResizePointerMove}
-          onPointerUp={onResizePointerUp}
-          role="separator"
-          aria-orientation="horizontal"
-          title="Потяните, чтобы изменить высоту"
-        />
+        <Tip content="Потяните, чтобы изменить высоту">
+          <div
+            className={styles.resizeHandle}
+            onPointerDown={onResizePointerDown}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Потяните, чтобы изменить высоту"
+          />
+        </Tip>
       )}
 
       <header className={styles.header}>
@@ -257,9 +261,22 @@ export function NotificationDock({
             ▴
           </span>
           <span className={styles.title}>{title}</span>
-          {unread > 0 && (
-            <span className={styles.badge} title="Непрочитанные ошибки / critical">
-              {unread > 99 ? '99+' : unread}
+          {(unreadAlerts > 0 || unreadWarnings > 0) && (
+            <span className={styles.badges}>
+              {unreadAlerts > 0 && (
+                <Tip content="Непрочитанные error / critical">
+                  <span className={[styles.badge, styles.badgeAlert].join(' ')}>
+                    {unreadAlerts > 99 ? '99+' : unreadAlerts}
+                  </span>
+                </Tip>
+              )}
+              {unreadWarnings > 0 && (
+                <Tip content="Непрочитанные warning">
+                  <span className={[styles.badge, styles.badgeWarning].join(' ')}>
+                    {unreadWarnings > 99 ? '99+' : unreadWarnings}
+                  </span>
+                </Tip>
+              )}
             </span>
           )}
         </button>
@@ -279,6 +296,31 @@ export function NotificationDock({
               </button>
             </>
           )}
+          <Tip content="Настройки">
+            <button
+              type="button"
+              className={styles.settingsBtn}
+              aria-label="Настройки"
+              onClick={(e) => {
+                e.stopPropagation();
+                /* phase 11: настройки центра уведомлений — позже */
+              }}
+            >
+              <svg
+                className={styles.settingsIcon}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.7}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
+          </Tip>
         </div>
       </header>
 
@@ -303,7 +345,10 @@ export function NotificationDock({
                   event={evt}
                   formatTs={formatTs}
                   unread={
-                    (evt.severity === 'error' || evt.severity === 'critical') && !bus.isRead(evt.id)
+                    (evt.severity === 'warning' ||
+                      evt.severity === 'error' ||
+                      evt.severity === 'critical') &&
+                    !bus.isRead(evt.id)
                   }
                   onOpen={onOpenRow}
                 />

@@ -5,6 +5,7 @@ import type {
   NotificationSeverity,
 } from '../types';
 import { SeverityIcon } from './SeverityIcon';
+import { Tip } from './Tooltip';
 import styles from './DockFilters.module.css';
 
 export type DockFilterKey = 'severity' | 'interaction' | 'localization';
@@ -180,17 +181,18 @@ export function DockFilters({
     <div className={styles.root} ref={rootRef}>
       <div className={styles.chips}>
         <div className={styles.chipWrap}>
-          <button
-            type="button"
-            className={[styles.iconBtn, open === 'add' ? styles.iconBtnActive : '']
-              .filter(Boolean)
-              .join(' ')}
-            onClick={() => toggleOpen('add')}
-            title="Добавить фильтр"
-            aria-label="Добавить фильтр"
-          >
-            +
-          </button>
+          <Tip content="Добавить фильтр">
+            <button
+              type="button"
+              className={[styles.iconBtn, open === 'add' ? styles.iconBtnActive : '']
+                .filter(Boolean)
+                .join(' ')}
+              onClick={() => toggleOpen('add')}
+              aria-label="Добавить фильтр"
+            >
+              +
+            </button>
+          </Tip>
           {open === 'add' && (
             <div className={styles.popover}>
               {AVAILABLE.map((f) => {
@@ -232,15 +234,16 @@ export function DockFilters({
                   {summary && <span className={styles.chipValue}>: {summary}</span>}
                   <span className={[styles.caret, isOpen ? styles.caretOpen : ''].join(' ')}>▾</span>
                 </button>
-                <button
-                  type="button"
-                  className={styles.chipClose}
-                  onClick={() => onRemove(key)}
-                  title="Убрать фильтр"
-                  aria-label={`Убрать фильтр «${spec.name}»`}
-                >
-                  ×
-                </button>
+                <Tip content="Убрать фильтр">
+                  <button
+                    type="button"
+                    className={styles.chipClose}
+                    onClick={() => onRemove(key)}
+                    aria-label={`Убрать фильтр «${spec.name}»`}
+                  >
+                    ×
+                  </button>
+                </Tip>
               </div>
               {isOpen && (
                 <div className={styles.popover}>
@@ -272,16 +275,17 @@ export function DockFilters({
           );
         })}
 
-        <button
-          type="button"
-          className={styles.iconBtn}
-          onClick={onClear}
-          disabled={activeFilters.length === 0}
-          title="Сбросить все фильтры"
-          aria-label="Сбросить все фильтры"
-        >
-          ×
-        </button>
+        <Tip content="Сбросить все фильтры">
+          <button
+            type="button"
+            className={styles.iconBtn}
+            onClick={onClear}
+            disabled={activeFilters.length === 0}
+            aria-label="Сбросить все фильтры"
+          >
+            ×
+          </button>
+        </Tip>
       </div>
 
       <div className={styles.right}>
@@ -307,15 +311,16 @@ export function DockFilters({
             autoComplete="off"
           />
           {value.query && (
-            <button
-              type="button"
-              className={styles.searchClear}
-              onClick={() => onChange({ ...value, query: '' })}
-              title="Очистить поиск"
-              aria-label="Очистить поиск"
-            >
-              ×
-            </button>
+            <Tip content="Очистить поиск">
+              <button
+                type="button"
+                className={styles.searchClear}
+                onClick={() => onChange({ ...value, query: '' })}
+                aria-label="Очистить поиск"
+              >
+                ×
+              </button>
+            </Tip>
           )}
         </div>
       </div>

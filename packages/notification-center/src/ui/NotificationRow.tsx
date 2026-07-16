@@ -3,6 +3,7 @@ import type { NotificationEvent } from '../types';
 import type { FormatTs } from '../format/formatTs';
 import { InteractionIcon } from './InteractionIcon';
 import { SeverityIcon } from './SeverityIcon';
+import { Tip } from './Tooltip';
 import styles from './NotificationRow.module.css';
 
 interface Props {
@@ -59,10 +60,10 @@ export function NotificationRow({ event, formatTs, unread, onOpen }: Props) {
           className={styles.expandBtn}
           onClick={toggle}
           aria-expanded={expanded}
-          title={expanded ? 'Свернуть' : 'Подробности'}
+          aria-label={expanded ? 'Свернуть' : 'Подробности'}
         >
           <span className={[styles.chevron, expanded ? styles.chevronOpen : ''].filter(Boolean).join(' ')}>
-            ▸
+            ▴
           </span>
         </button>
         <SeverityIcon severity={event.severity} />
@@ -73,9 +74,11 @@ export function NotificationRow({ event, formatTs, unread, onOpen }: Props) {
         <span className={[styles.message, expanded ? styles.messageWrap : ''].filter(Boolean).join(' ')}>
           {event.message}
         </span>
-        <button type="button" className={styles.copyBtn} onClick={copy} title="Копировать">
-          ⎘
-        </button>
+        <Tip content="Копировать">
+          <button type="button" className={styles.copyBtn} onClick={copy} aria-label="Копировать">
+            ⎘
+          </button>
+        </Tip>
       </div>
       {expanded && (
         <div className={styles.detail}>

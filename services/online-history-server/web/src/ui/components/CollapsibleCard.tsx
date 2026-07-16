@@ -28,7 +28,7 @@ export function CollapsibleCard({ title, subtitle, defaultOpen = false, right, c
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
         >
-          <span className={[styles.chevron, open ? styles.chevronOpen : ''].filter(Boolean).join(' ')}>▸</span>
+          <span className={[styles.chevron, open ? styles.chevronOpen : ''].filter(Boolean).join(' ')}>▴</span>
           <span className={styles.title}>{title}</span>
           {subtitle && <span className={styles.subtitle}>{subtitle}</span>}
         </button>

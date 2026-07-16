@@ -30,12 +30,20 @@
 .chevron {
   flex: none;
   color: var(--color-text-muted);
-  transition: transform 0.12s ease;
-  font-size: 11px;
+  transition: transform 0.15s ease, color 0.15s ease;
+  font-size: 18px;
+  line-height: 1;
+  width: 1em;
+  text-align: center;
+  transform: rotate(90deg);
+}
+
+.toggle:hover .chevron {
+  color: var(--color-text-secondary);
 }
 
 .chevronOpen {
-  transform: rotate(90deg);
+  transform: rotate(180deg) translateY(-2px);
 }
 
 .title {

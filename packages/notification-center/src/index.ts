@@ -29,6 +29,7 @@ export { NotificationDock, type NotificationDockProps, type NotificationDockFilt
 export { NotificationRow } from './ui/NotificationRow';
 export { SeverityIcon } from './ui/SeverityIcon';
 export { InteractionIcon } from './ui/InteractionIcon';
+export { Tip, type TipProps } from './ui/Tooltip';
 export {
   DockFilters,
   EMPTY_DOCK_FILTER,

@@ -8,8 +8,22 @@
   border-color: var(--color-border, #373a40);
 }
 
-.unread {
+.unread.warning {
+  border-color: color-mix(in srgb, var(--color-warning, #d29922) 45%, transparent);
+}
+
+.unread.error,
+.unread.critical {
   border-color: color-mix(in srgb, var(--color-error, #ff6b6b) 45%, transparent);
+}
+
+.unread.warning:hover {
+  border-color: color-mix(in srgb, var(--color-warning, #d29922) 70%, transparent);
+}
+
+.unread.error:hover,
+.unread.critical:hover {
+  border-color: color-mix(in srgb, var(--color-error, #ff6b6b) 70%, transparent);
 }
 
 .critical {
@@ -39,18 +53,24 @@
 
 .expandBtn:hover,
 .copyBtn:hover {
-  color: var(--color-text, #e9ecef);
+  color: var(--color-text-secondary, #adb5bd);
   background: var(--color-bg-hover, #373a40);
 }
 
 .chevron {
   display: inline-block;
-  font-size: 11px;
-  transition: transform 0.12s ease;
+  font-size: 18px;
+  line-height: 1;
+  width: 1em;
+  text-align: center;
+  transition: transform 0.15s ease, color 0.15s ease;
+  /* ▴: collapsed → вправо, expanded → вниз */
+  transform: rotate(90deg);
 }
 
 .chevronOpen {
-  transform: rotate(90deg);
+  /* ▴ вниз: глиф визуально чуть выше оптического центра */
+  transform: rotate(180deg) translateY(-2px);
 }
 
 .time {
@@ -80,8 +100,8 @@
 .message {
   flex: 1;
   min-width: 0;
-  font-size: var(--font-size-sm, 0.875rem);
-  color: var(--color-text, #e9ecef);
+  font-size: 12px;
+  color: var(--color-text-secondary, #adb5bd);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

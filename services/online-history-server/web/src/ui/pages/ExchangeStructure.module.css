@@ -253,14 +253,17 @@
 
 .chevron {
   display: inline-block;
-  width: 12px;
+  width: 1em;
+  text-align: center;
   color: var(--color-text-muted);
-  transition: transform 0.12s ease;
-  font-size: 10px;
+  transition: transform 0.15s ease, color 0.15s ease;
+  font-size: 18px;
+  line-height: 1;
+  transform: rotate(90deg);
 }
 
 .chevronOpen {
-  transform: rotate(90deg);
+  transform: rotate(180deg) translateY(-2px);
 }
 
 .dot {

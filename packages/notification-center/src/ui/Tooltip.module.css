@@ -1,0 +1,42 @@
+.tip {
+  position: fixed;
+  z-index: 10000;
+  max-width: 260px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border, #373a40);
+  background: var(--color-bg-panel, #25262b);
+  color: var(--color-text-secondary, #adb5bd);
+  font-size: 12px;
+  font-family: var(--font-family, system-ui, sans-serif);
+  line-height: 1.35;
+  white-space: pre-wrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  animation: ncTipIn 0.12s ease-out;
+}
+
+.host {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+}
+
+/* По центру якоря по горизонтали */
+.tipBottom {
+  transform: translate(-50%, 0);
+}
+
+.tipTop {
+  transform: translate(-50%, -100%);
+}
+
+@keyframes ncTipIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

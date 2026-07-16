@@ -170,35 +170,37 @@
 
 .chevron {
   flex-shrink: 0;
-  width: 16px;
-  height: 16px;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 4px;
   background: transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 18px;
   line-height: 1;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   cursor: pointer;
-  transform: scale(1.4);
-  transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease;
+  /* ▴: collapsed → вправо, expanded → вниз (как в notification dock) */
+  transform: rotate(90deg);
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
 .chevron:hover {
-  color: var(--color-accent);
+  color: var(--color-text-secondary);
   background: var(--color-bg-hover);
 }
 
 .chevronOpen {
-  transform: rotate(90deg) scale(1.4);
+  transform: rotate(180deg) translateY(-2px);
 }
 
 .chevronSpacer {
   flex-shrink: 0;
-  width: 16px;
+  width: 22px;
 }
 
 /* Третий уровень (страйк опциона) — узкий отступ вместо полного chevron. */

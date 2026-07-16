@@ -48,6 +48,19 @@ describe('NotificationBus', () => {
     expect(bus.unreadAlertCount).toBe(0);
   });
 
+  it('counts unread warnings separately', () => {
+    const bus = createNotificationBus();
+    notify.warn(bus, { module: 'm', code: 'w1', message: 'a', id: 'w1' });
+    notify.warn(bus, { module: 'm', code: 'w2', message: 'b', id: 'w2' });
+    notify.error(bus, { module: 'm', code: 'e', message: 'e', id: 'e1' });
+    expect(bus.unreadWarningCount).toBe(2);
+    expect(bus.unreadAlertCount).toBe(1);
+    bus.markRead('w1');
+    expect(bus.unreadWarningCount).toBe(1);
+    bus.markAllRead();
+    expect(bus.unreadWarningCount).toBe(0);
+  });
+
   it('clear empties the feed', () => {
     const bus = createNotificationBus();
     notify.warn(bus, { module: 'm', code: 'w', message: 'warn' });
