@@ -41,6 +41,8 @@ public sealed class ConnectionManager(
     private readonly ConcurrentDictionary<long, short> _sourceIds = new();
     private readonly ConcurrentDictionary<long, string> _status = new();
     private readonly ConcurrentDictionary<long, DateTimeOffset> _lastData = new();
+    // Момент установки связи — чтобы залогировать задержку до ПЕРВОЙ сделки (диагностика «долго до данных»).
+    private readonly ConcurrentDictionary<long, DateTimeOffset> _firstTradePending = new();
     private readonly ConcurrentDictionary<long, ConnectorLinkState> _linkStates = new();
     private readonly ConcurrentDictionary<long, DateTimeOffset> _linkSince = new();
     private Timer? _idleMonitor;
@@ -99,8 +101,12 @@ public sealed class ConnectionManager(
 
         using var settings = JsonDocument.Parse(string.IsNullOrWhiteSpace(connection.Settings) ? "{}" : connection.Settings);
         IMarketConnector? connector = null;
+        var connectStartedAt = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
+            logger.LogInformation(
+                "Подключение {ConnectionId} ({Kind}): попытка установить соединение",
+                connectionId, connection.Kind);
             connector = factory.Create(connection.Kind, settings.RootElement, creds);
             await connector.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
@@ -123,8 +129,18 @@ public sealed class ConnectionManager(
                 .HeartbeatAsync(sourceId, DateTimeOffset.UtcNow, LinkMaxGap, cancellationToken)
                 .ConfigureAwait(false);
             EnsureIdleMonitor();
-            logger.LogInformation("Подключение {ConnectionId} ({Kind}) установлено", connectionId, connection.Kind);
+            _firstTradePending[connectionId] = DateTimeOffset.UtcNow;
+            var connectElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(connectStartedAt);
+            logger.LogInformation(
+                "Подключение {ConnectionId} ({Kind}) установлено за {ElapsedMs:0} мс (рукопожатие TRANSAQ/Finam)",
+                connectionId, connection.Kind, connectElapsed.TotalMilliseconds);
             return "waiting";
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                ex, "Подключение {ConnectionId} ({Kind}): попытка не удалась", connectionId, connection.Kind);
+            throw;
         }
         finally
         {
@@ -139,6 +155,13 @@ public sealed class ConnectionManager(
     public void ReportActivity(long connectionId)
     {
         _lastData[connectionId] = DateTimeOffset.UtcNow;
+        if (_firstTradePending.TryRemove(connectionId, out var connectedAt))
+        {
+            logger.LogInformation(
+                "Подключение {ConnectionId}: первые данные через {ElapsedMs:0} мс после установки связи",
+                connectionId, (DateTimeOffset.UtcNow - connectedAt).TotalMilliseconds);
+        }
+
         if (GetStatus(connectionId) == "waiting")
         {
             SetStatus(connectionId, "active");
@@ -158,6 +181,7 @@ public sealed class ConnectionManager(
 
         _sourceIds.TryRemove(connectionId, out _);
         _lastData.TryRemove(connectionId, out _);
+        _firstTradePending.TryRemove(connectionId, out _);
         _linkStates.TryRemove(connectionId, out _);
         _linkSince.TryRemove(connectionId, out _);
         await liveness.Value.OnDisconnectedAsync(connectionId, cancellationToken).ConfigureAwait(false);

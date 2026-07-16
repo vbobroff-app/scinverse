@@ -22,6 +22,7 @@ public sealed class RecordingSupervisor(
 
     private DateOnly _sessionCacheDate;
     private TradingSession? _sessionCache;
+    private bool? _lastInSession;
 
     public void Nudge()
     {
@@ -65,6 +66,26 @@ public sealed class RecordingSupervisor(
         var now = time.GetUtcNow();
         var session = await ResolveTradingSessionAsync(now, cancellationToken).ConfigureAwait(false);
         var inSession = session is not null && now >= session.Start && now <= session.End;
+
+        var nowMsk = now.ToOffset(MoexSchedule.MoscowOffset);
+        var window = session is null
+            ? "нет (неторговый день)"
+            : $"{session.Start:yyyy-MM-dd HH:mm:ss}–{session.End:yyyy-MM-dd HH:mm:ss}";
+        var recordingCount = entries.Count(e => recordings.IsRecording(e.InstrumentId));
+
+        logger.LogDebug(
+            "Supervisor tick: now={NowMsk:yyyy-MM-dd HH:mm:ss} МСК, окно={Window}, inSession={InSession}, auto={AutoCount}, пишется={RecordingCount}",
+            nowMsk, window, inSession, entries.Count, recordingCount);
+
+        if (_lastInSession != inSession)
+        {
+            logger.LogInformation(
+                "Supervisor: переход inSession {Prev}→{Now} в {NowMsk:yyyy-MM-dd HH:mm:ss} МСК (окно {Window}); " +
+                "auto={AutoCount}, сейчас пишется={RecordingCount} — {Action}",
+                _lastInSession?.ToString() ?? "—", inSession, nowMsk, window, entries.Count, recordingCount,
+                inSession ? "вооружаю (Старт по связи)" : "разоружаю (Стоп записи, Auto не снимаю)");
+            _lastInSession = inSession;
+        }
 
         foreach (var entry in entries)
         {

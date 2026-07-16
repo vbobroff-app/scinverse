@@ -60,7 +60,18 @@ public sealed class RecordingManager(
         var connector = connections.GetConnector(recording.ConnectionId);
         if (connector is not null)
         {
-            await connector.UnsubscribeTradesAsync([recording.Key], cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await connector.UnsubscribeTradesAsync([recording.Key], cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Отписка best-effort: связь могла отвалиться (напр. авто-стоп по концу сессии уже после
+                // обрыва). Не даём этому сорвать корректное закрытие сегмента как 'stopped'.
+                logger.LogWarning(
+                    ex, "Отписка {Instrument} при стопе не удалась (связь недоступна?) — закрываю сегмент",
+                    recording.Key);
+            }
         }
 
         await coverage.CloseAsync(recording.Key, "stopped", cancellationToken).ConfigureAwait(false);
