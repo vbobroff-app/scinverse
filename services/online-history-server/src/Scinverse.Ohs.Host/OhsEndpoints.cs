@@ -291,6 +291,29 @@ public static class OhsEndpoints
         api.MapPost("/connections/{id:long}/test", (long id, ConnectionManager manager, IConnectionStore store, CancellationToken ct) =>
             RunConnectionActionAsync(id, store, manager, () => manager.TestAsync(id, ct), ct));
 
+        // Диагностика: отдаёт ли TRANSAQ конкретный инструмент (get_securities_info).
+        api.MapPost("/connections/{id:long}/probe-security", async (
+            long id, ProbeSecurityRequest request, ConnectionManager manager, CancellationToken ct) =>
+        {
+            try
+            {
+                var (marketId, result) = await manager.ProbeSecurityAsync(
+                    id, request.Market, request.Board, request.Seccode, request.TimeoutSeconds, ct);
+                return Results.Ok(new ProbeSecurityResultDto(
+                    result.CommandAccepted,
+                    result.FoundInCallback,
+                    marketId,
+                    request.Seccode.Trim(),
+                    result.CommandResultXml,
+                    result.CallbackXml,
+                    result.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         if (app.Environment.IsDevelopment())
         {
             api.MapPost("/connections/{id:long}/debug/drop", (long id, int? seconds, ConnectionManager manager) =>

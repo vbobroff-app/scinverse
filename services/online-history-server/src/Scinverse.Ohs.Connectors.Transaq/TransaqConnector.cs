@@ -13,7 +13,7 @@ namespace Scinverse.Ohs.Connectors.Transaq;
 /// и точные сигнатуры следует сверять с версией используемого коннектора.
 /// Не покрывается юнит-тестами (требует нативную DLL и учётные данные).
 /// </summary>
-public sealed class TransaqConnector : IMarketConnector
+public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe
 {
     private const string NativeDll = "txmlconnector.dll";
     private const CallingConvention Convention = CallingConvention.StdCall;
@@ -36,6 +36,10 @@ public sealed class TransaqConnector : IMarketConnector
 
     // Сигнал асинхронного подтверждения соединения (server_status connected="true").
     private volatile TaskCompletionSource<bool>? _connectedSignal;
+
+    // Диагностика get_securities_info: ждём колбэк с конкретным seccode.
+    private volatile TaskCompletionSource<string>? _securityProbe;
+    private volatile string? _securityProbeSeccode;
 
     public TransaqConnector(TransaqConnectorOptions options)
     {
@@ -220,6 +224,70 @@ public sealed class TransaqConnector : IMarketConnector
         }
     }
 
+    /// <inheritdoc />
+    public async Task<SecurityProbeResult> ProbeSecurityAsync(
+        int marketId, string seccode, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (!IsConnected)
+        {
+            return new SecurityProbeResult(false, false, null, null, "Нет активного соединения с TRANSAQ");
+        }
+
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _securityProbeSeccode = seccode;
+        _securityProbe = tcs;
+
+        try
+        {
+            // TRANSAQ требует secid ИЛИ пару market+seccode (board не принимается).
+            var command = new StringBuilder()
+                .Append("<command id=\"get_securities_info\">")
+                .Append("<security>")
+                .Append("<market>").Append(marketId).Append("</market>")
+                .Append("<seccode>").Append(SecurityElement.Escape(seccode)).Append("</seccode>")
+                .Append("</security>")
+                .Append("</command>")
+                .ToString();
+
+            string? commandXml;
+            bool accepted;
+            try
+            {
+                commandXml = SendCommandRaw(command);
+                accepted = IsCommandSuccess(commandXml);
+                if (!accepted)
+                {
+                    var failMsg = ExtractCommandMessage(commandXml) ?? "success=false";
+                    return new SecurityProbeResult(false, false, commandXml, null,
+                        $"get_securities_info отклонён: {failMsg}");
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                return new SecurityProbeResult(false, false, null, null, ex.Message);
+            }
+
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            linked.CancelAfter(timeout);
+            try
+            {
+                var callback = await tcs.Task.WaitAsync(linked.Token).ConfigureAwait(false);
+                return new SecurityProbeResult(true, true, commandXml, callback,
+                    $"Шлюз вернул колбэк с {seccode} (market={marketId})");
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return new SecurityProbeResult(true, false, commandXml, null,
+                    $"Команда принята, но за {timeout.TotalSeconds:0} с колбэк с {seccode} не пришёл");
+            }
+        }
+        finally
+        {
+            _securityProbe = null;
+            _securityProbeSeccode = null;
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         try
@@ -241,10 +309,30 @@ public sealed class TransaqConnector : IMarketConnector
         if (xml is not null)
         {
             HandleServerStatus(xml);
+            TryCompleteSecurityProbe(xml);
             _messages.Writer.TryWrite(xml);
         }
 
         return true;
+    }
+
+    private void TryCompleteSecurityProbe(string xml)
+    {
+        var probe = _securityProbe;
+        var code = _securityProbeSeccode;
+        if (probe is null || string.IsNullOrEmpty(code) || probe.Task.IsCompleted)
+        {
+            return;
+        }
+
+        // Колбэк get_securities_info приходит как sec_info / sec_info_upd / securities.
+        if (xml.Contains(code, StringComparison.OrdinalIgnoreCase)
+            && (xml.Contains("sec_info", StringComparison.OrdinalIgnoreCase)
+                || xml.Contains("<securities", StringComparison.OrdinalIgnoreCase)
+                || xml.Contains("<security", StringComparison.OrdinalIgnoreCase)))
+        {
+            probe.TrySetResult(xml);
+        }
     }
 
     /// <summary>
@@ -298,6 +386,62 @@ public sealed class TransaqConnector : IMarketConnector
 
         _currentLinkState = state;
         _linkState.Writer.TryWrite(new ConnectorLinkStateChange(state, at, detail));
+    }
+
+    private static string? SendCommandRaw(string command)
+    {
+        var resultPtr = SendCommand(command);
+        if (resultPtr == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Marshal.PtrToStringUTF8(resultPtr);
+        }
+        finally
+        {
+            _ = FreeMemory(resultPtr);
+        }
+    }
+
+    private static bool IsCommandSuccess(string? resultXml)
+    {
+        if (string.IsNullOrWhiteSpace(resultXml))
+        {
+            // Пустой/нулевой ответ DLL обычно означает успех (как в EnsureSuccess).
+            return true;
+        }
+
+        try
+        {
+            var document = XDocument.Parse(resultXml);
+            var success = document.Root?.Attribute("success")?.Value;
+            return !string.Equals(success, "false", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (System.Xml.XmlException)
+        {
+            return true;
+        }
+    }
+
+    private static string? ExtractCommandMessage(string? resultXml)
+    {
+        if (string.IsNullOrWhiteSpace(resultXml))
+        {
+            return null;
+        }
+
+        try
+        {
+            var document = XDocument.Parse(resultXml);
+            return (string?)document.Root?.Element("message");
+        }
+        catch (System.Xml.XmlException)
+        {
+            return resultXml;
+        }
     }
 
     private static void EnsureSuccess(IntPtr resultPtr, string operation)

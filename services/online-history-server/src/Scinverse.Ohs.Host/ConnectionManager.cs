@@ -260,6 +260,65 @@ public sealed class ConnectionManager(
         }
     }
 
+    /// <summary>
+    /// Диагностика: <c>get_securities_info</c> по market/seccode на живой TRANSAQ-сессии.
+    /// </summary>
+    public async Task<(int MarketId, SecurityProbeResult Result)> ProbeSecurityAsync(
+        long connectionId, int? market, string? board, string seccode, int? timeoutSeconds, CancellationToken cancellationToken)
+    {
+        var connector = GetConnector(connectionId)
+            ?? throw new InvalidOperationException($"Подключение {connectionId} не активно — сначала connect");
+
+        if (connector is not ISecurityCatalogProbe probe)
+        {
+            throw new InvalidOperationException("Probe security доступен только для TRANSAQ-коннектора");
+        }
+
+        if (!connector.IsConnected)
+        {
+            throw new InvalidOperationException($"Подключение {connectionId} не в состоянии connected");
+        }
+
+        var codeTrim = seccode.Trim();
+        if (codeTrim.Length == 0)
+        {
+            throw new InvalidOperationException("Нужен seccode");
+        }
+
+        var marketId = ResolveProbeMarket(market, board);
+        var timeout = TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds ?? 10, 1, 60));
+        logger.LogInformation(
+            "Подключение {ConnectionId}: probe security {Seccode} market={Market} (timeout {Timeout}s)",
+            connectionId, codeTrim, marketId, timeout.TotalSeconds);
+
+        var result = await probe
+            .ProbeSecurityAsync(marketId, codeTrim, timeout, cancellationToken)
+            .ConfigureAwait(false);
+
+        logger.LogInformation(
+            "Подключение {ConnectionId}: probe {Seccode} market={Market} → accepted={Accepted} found={Found}: {Message}",
+            connectionId, codeTrim, marketId, result.CommandAccepted, result.FoundInCallback, result.Message);
+
+        return (marketId, result);
+    }
+
+    /// <summary>FORTS OPT/FUT → market 4; иначе market обязателен явно.</summary>
+    private static int ResolveProbeMarket(int? market, string? board)
+    {
+        if (market is > 0)
+        {
+            return market.Value;
+        }
+
+        return board?.Trim().ToUpperInvariant() switch
+        {
+            "OPT" or "FUT" => 4,
+            "TQBR" => 1,
+            _ => throw new InvalidOperationException(
+                "Укажите market (для FORTS-опционов: 4) или board=OPT/FUT"),
+        };
+    }
+
     public async Task StopAllAsync(CancellationToken cancellationToken)
     {
         foreach (var connectionId in _sessions.Keys.ToList())

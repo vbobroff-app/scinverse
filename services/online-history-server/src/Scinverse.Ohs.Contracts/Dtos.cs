@@ -183,6 +183,26 @@ public sealed record ValidateConnectionRequest(string Kind, string Settings, str
 /// <summary>Результат проверки настроек подключения.</summary>
 public sealed record ValidateConnectionResult(bool Ok, string? Message);
 
+/// <summary>
+/// Диагностика: есть ли инструмент в справочнике TRANSAQ (<c>get_securities_info</c>).
+/// Нужны <c>seccode</c> и <c>market</c> (для FORTS OPT/FUT обычно 4). Board — опционально, для подсказки market.
+/// </summary>
+public sealed record ProbeSecurityRequest(
+    string Seccode,
+    int? Market = null,
+    string? Board = null,
+    int? TimeoutSeconds = null);
+
+/// <summary>Результат probe одного инструмента у живого TRANSAQ-подключения.</summary>
+public sealed record ProbeSecurityResultDto(
+    bool CommandAccepted,
+    bool Found,
+    int Market,
+    string Seccode,
+    string? CommandResultXml,
+    string? CallbackXml,
+    string Message);
+
 /// <summary>ВРЕМЕННО (dev): дефолтные креды Transaq из appsettings.Local.json для префилла формы.</summary>
 public sealed record TransaqLocalDefaultsDto(string? Login, string? Password);
 
