@@ -4,31 +4,39 @@
   justify-content: center;
   width: 18px;
   height: 18px;
-  border-radius: 3px;
-  font-size: 10px;
+  border-radius: 50%;
+  font-size: 11px;
   font-weight: 700;
-  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-family: var(--font-family, system-ui, sans-serif);
   flex: none;
   line-height: 1;
+  border: 1.5px solid currentColor;
+  box-sizing: border-box;
+}
+
+.ok {
+  color: var(--color-success, #51cf66);
+  background: color-mix(in srgb, var(--color-success, #51cf66) 16%, transparent);
 }
 
 .info {
   color: var(--color-accent, #4dabf7);
-  background: color-mix(in srgb, var(--color-accent, #4dabf7) 18%, transparent);
+  background: color-mix(in srgb, var(--color-accent, #4dabf7) 16%, transparent);
 }
 
 .warning {
   color: var(--color-warning, #d29922);
-  background: color-mix(in srgb, var(--color-warning, #d29922) 18%, transparent);
+  background: color-mix(in srgb, var(--color-warning, #d29922) 16%, transparent);
 }
 
 .error {
   color: var(--color-error, #ff6b6b);
-  background: color-mix(in srgb, var(--color-error, #ff6b6b) 18%, transparent);
+  background: color-mix(in srgb, var(--color-error, #ff6b6b) 16%, transparent);
 }
 
 .critical {
   color: #fff;
   background: var(--color-error, #ff6b6b);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-error, #ff6b6b) 50%, transparent);
+  border-color: var(--color-error, #ff6b6b);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-error, #ff6b6b) 40%, transparent);
 }

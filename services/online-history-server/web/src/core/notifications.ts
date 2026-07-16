@@ -3,20 +3,20 @@
  * Пакет `@scinverse/notification-center` не знает про OHS — адаптеры и seed живут здесь.
  */
 
-import { BehaviorSubject } from 'rxjs';
 import { createNotificationBus, notify } from '@scinverse/notification-center';
+import { notificationDockStore } from './notificationDockStorage';
 
 export const notificationBus = createNotificationBus();
 
-/** Открыт ли док в колонке workspace (колокольчик в рейле). */
-export const notificationDockOpen$ = new BehaviorSubject(false);
+/** Открыт ли док (колокольчик). Источник правды — notificationDockStore (+ localStorage). */
+export const notificationDockOpen$ = notificationDockStore.open$;
 
 export function setNotificationDockOpen(open: boolean): void {
-  notificationDockOpen$.next(open);
+  notificationDockStore.setOpen(open);
 }
 
 export function toggleNotificationDock(): void {
-  notificationDockOpen$.next(!notificationDockOpen$.value);
+  notificationDockStore.toggleOpen();
 }
 
 /** Тестовое событие для проверки интеграции (один раз при загрузке модуля). */

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { NotificationEvent } from '../types';
 import type { FormatTs } from '../format/formatTs';
+import { InteractionIcon } from './InteractionIcon';
 import { SeverityIcon } from './SeverityIcon';
 import styles from './NotificationRow.module.css';
 
@@ -64,16 +65,11 @@ export function NotificationRow({ event, formatTs, unread, onOpen }: Props) {
             ▸
           </span>
         </button>
+        <SeverityIcon severity={event.severity} />
         <time className={styles.time} dateTime={event.ts}>
           {formatTs(event.ts)}
         </time>
-        <SeverityIcon severity={event.severity} />
-        <span className={styles.tag} title="Тип источника">
-          {event.sourceType}
-        </span>
-        <span className={styles.tag} title="Модуль">
-          {event.module}
-        </span>
+        <InteractionIcon event={event} />
         <span className={[styles.message, expanded ? styles.messageWrap : ''].filter(Boolean).join(' ')}>
           {event.message}
         </span>

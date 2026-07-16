@@ -12,6 +12,33 @@
   font-family: var(--font-family, system-ui, sans-serif);
   box-shadow: var(--shadow-md, 0 -4px 12px rgba(0, 0, 0, 0.25));
   z-index: 20;
+  transition: height 0.2s ease;
+}
+
+.dockResizing {
+  transition: none;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+  pointer-events: none;
+}
+
+.bodyOpen {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock,
+  .body {
+    transition: none;
+  }
 }
 
 .resizeHandle {

@@ -93,7 +93,7 @@
 }
 
 .detail {
-  padding: 0 8px 8px 54px;
+  padding: 0 8px 8px 48px;
   display: flex;
   flex-direction: column;
   gap: 6px;

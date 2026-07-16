@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { createNotificationBus } from '../bus/NotificationBus';
 import { notify } from '../bus/notify';
 import { createOffsetFormatTs } from '../format/formatTs';
@@ -27,11 +27,47 @@ describe('NotificationDock', () => {
     expect(screen.getByText('1')).toBeTruthy(); // unread badge
   });
 
-  it('collapses to header-only height control', () => {
+  it('collapses to header-only height control', async () => {
     const bus = createNotificationBus();
     render(<NotificationDock bus={bus} defaultExpanded />);
     const toggle = screen.getByRole('button', { name: /Центр уведомлений/i });
     fireEvent.click(toggle);
-    expect(screen.queryByPlaceholderText('Поиск…')).toBeNull();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText('Поиск…')).toBeNull();
+    });
+  });
+
+  it('controlled filters: изменение зовёт onFiltersChange', () => {
+    const bus = createNotificationBus();
+    const seen: unknown[] = [];
+    const filters = {
+      activeFilters: ['severity' as const],
+      filter: {
+        severities: ['info' as const],
+        interactions: [],
+        localizations: [],
+        query: '',
+      },
+    };
+
+    render(
+      <NotificationDock
+        bus={bus}
+        defaultExpanded
+        filters={filters}
+        onFiltersChange={(s) => seen.push(s)}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('Поиск…'), { target: { value: 'abc' } });
+    expect(seen.length).toBeGreaterThan(0);
+    const last = seen[seen.length - 1] as {
+      filter: { query: string; severities: string[] };
+      activeFilters: string[];
+    };
+    expect(last.filter.query).toBe('abc');
+    expect(last.filter.severities).toEqual(['info']);
+    expect(last.activeFilters).toEqual(['severity']);
   });
 });

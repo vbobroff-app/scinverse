@@ -32,6 +32,15 @@ describe('filterEvents', () => {
     expect(out.map((e) => e.id)).toEqual(['2']);
   });
 
+  it('filters by interaction and localization resolved from sourceType', () => {
+    expect(
+      filterEvents(sample, { interactions: ['user'], localizations: ['internal'] }).map((e) => e.id),
+    ).toEqual(['1']);
+    expect(
+      filterEvents(sample, { localizations: ['external'] }).map((e) => e.id),
+    ).toEqual(['2']);
+  });
+
   it('filters by query across message/code/module', () => {
     expect(filterEvents(sample, { query: 'recording' }).map((e) => e.id)).toEqual(['1']);
     expect(filterEvents(sample, { query: 'transaq' }).map((e) => e.id)).toEqual(['2']);

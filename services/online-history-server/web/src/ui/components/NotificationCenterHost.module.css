@@ -5,4 +5,25 @@
   padding: 0 var(--spacing-lg) var(--spacing-lg);
   box-sizing: border-box;
   z-index: 30;
+  transform-origin: bottom center;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.slotShown {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.slotHidden {
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slot {
+    transition: none;
+  }
 }
