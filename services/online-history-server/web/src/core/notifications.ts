@@ -121,3 +121,75 @@ function seedDemoNotifications(): void {
 }
 
 seedDemoNotifications();
+
+/** Browser Notification API ↔ настройка «Отправлять в трей». */
+function canUseTray(): boolean {
+  return typeof window !== 'undefined' && 'Notification' in window;
+}
+
+function showTrayNotification(evt: {
+  id: string;
+  severity: string;
+  message: string;
+  module: string;
+}): void {
+  if (!canUseTray() || Notification.permission !== 'granted') {
+    return;
+  }
+  try {
+    const n = new Notification(`[${evt.severity}] ${evt.module}`, {
+      body: evt.message,
+      tag: evt.id,
+    });
+    n.onclick = () => {
+      window.focus();
+      n.close();
+      notificationDockStore.setOpen(true);
+    };
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Запросить разрешение при включении «Отправлять в трей». */
+export async function ensureTrayPermission(): Promise<boolean> {
+  if (!canUseTray()) {
+    return false;
+  }
+  if (Notification.permission === 'granted') {
+    return true;
+  }
+  if (Notification.permission === 'denied') {
+    return false;
+  }
+  try {
+    const result = await Notification.requestPermission();
+    return result === 'granted';
+  } catch {
+    return false;
+  }
+}
+
+function startTrayBridge(): void {
+  if (!canUseTray()) {
+    return;
+  }
+  let known = new Set(notificationBus.events.map((e) => e.id));
+  notificationBus.stream$.subscribe((events) => {
+    if (!notificationDockStore.settings$.value.sendToTray) {
+      known = new Set(events.map((e) => e.id));
+      return;
+    }
+    for (const evt of events) {
+      if (known.has(evt.id)) {
+        continue;
+      }
+      if (evt.severity === 'warning' || evt.severity === 'error' || evt.severity === 'critical') {
+        showTrayNotification(evt);
+      }
+    }
+    known = new Set(events.map((e) => e.id));
+  });
+}
+
+startTrayBridge();

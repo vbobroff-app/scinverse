@@ -7,6 +7,8 @@
   border-bottom: 1px solid var(--color-border, #373a40);
   flex: none;
   min-width: 0;
+  position: relative;
+  z-index: 20;
 }
 
 /* Как FilterBar провайдера: плашки слева по контенту, поиск справа; не сжимаем chips до wrap. */
@@ -219,6 +221,32 @@
   border-radius: var(--radius-md, 8px);
   background: var(--color-bg-panel, #25262b);
   box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.25));
+  pointer-events: auto;
+}
+
+.popoverFooter {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+  padding: 4px 4px 2px;
+  border-top: 1px solid var(--color-border, #373a40);
+}
+
+.popoverOk {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--color-accent, #4dabf7);
+  background: var(--color-accent, #4dabf7);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.popoverOk:hover {
+  background: color-mix(in srgb, var(--color-accent, #4dabf7) 85%, #000);
+  border-color: color-mix(in srgb, var(--color-accent, #4dabf7) 85%, #000);
 }
 
 .option {
@@ -235,10 +263,24 @@
   background: transparent;
   border: none;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .option:hover {
   background: var(--color-bg-hover, #373a40);
+}
+
+.optionActive {
+  background: color-mix(in srgb, var(--color-accent, #4dabf7) 14%, transparent);
+}
+
+.radioMark {
+  display: inline-flex;
+  width: 14px;
+  justify-content: center;
+  color: var(--color-accent, #4dabf7);
+  font-size: 11px;
+  line-height: 1;
 }
 
 .checkMark {
@@ -265,7 +307,87 @@
   background: var(--color-bg-hover, #373a40);
 }
 
+.checkAll {
+  font-weight: 600;
+}
+
+.checkDivider {
+  height: 1px;
+  margin: 2px 6px;
+  background: var(--color-border, #373a40);
+}
+
 .optionIcon {
   display: inline-flex;
   flex: none;
+}
+
+.rangePopover {
+  min-width: 260px;
+  overflow: visible;
+}
+
+.presetItem {
+  position: relative;
+}
+
+/* Календарь всплывает НАД пунктом «ввести даты», не меняя высоту поповера. */
+.customOverlay {
+  position: absolute;
+  z-index: 41;
+  bottom: calc(100% + 4px);
+  left: 0;
+  min-width: 260px;
+  padding: var(--spacing-xs, 4px);
+  border: 1px solid var(--color-border, #373a40);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-bg-panel, #25262b);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.25));
+}
+
+.customDates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 6px;
+}
+
+.customRange {
+  padding: 2px;
+}
+
+.dateField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-secondary, #adb5bd);
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+.dateField > span:first-child {
+  width: 18px;
+  flex: none;
+}
+
+.dateField > :last-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.dateField input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--color-border, #373a40);
+  background: var(--color-bg-input, #2c2e33);
+  color: var(--color-text, #e9ecef);
+  font-size: var(--font-size-sm, 0.875rem);
+  color-scheme: dark;
+}
+
+.dateField input:focus {
+  outline: none;
+  border-color: var(--color-border-focus, #4dabf7);
 }

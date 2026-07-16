@@ -3,6 +3,7 @@ import {
   notificationDockOpen$,
   toggleNotificationDock,
 } from '../../core/notifications';
+import { notificationDockStore } from '../../core/notificationDockStorage';
 import { navSectionsByGroup, type NavGroup, type NavSection } from '../../core/navigation';
 import { useOhsStore } from '../context';
 import { useBehavior, useObservable } from '../hooks/useObservable';
@@ -19,6 +20,7 @@ export function IconSidebar() {
   const store = useOhsStore();
   const active = useBehavior(store.activeSection$);
   const dockOpen = useBehavior(notificationDockOpen$);
+  const trackUnread = useBehavior(notificationDockStore.settings$).trackUnread;
   const unread = useObservable(notificationBus.unreadAlertCount$, notificationBus.unreadAlertCount);
 
   const renderGroup = (group: NavGroup) =>
@@ -29,7 +31,7 @@ export function IconSidebar() {
           key={section.id}
           section={section}
           active={isNotifications ? dockOpen : section.id === active}
-          badge={isNotifications && unread > 0 ? unread : undefined}
+          badge={isNotifications && trackUnread && unread > 0 ? unread : undefined}
           onSelect={() => {
             if (isNotifications) {
               toggleNotificationDock();

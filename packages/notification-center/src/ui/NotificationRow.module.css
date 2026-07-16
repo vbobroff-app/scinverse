@@ -82,6 +82,15 @@
   min-width: 130px;
 }
 
+.severityLabel {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: var(--color-text-secondary, #adb5bd);
+}
+
 .tag {
   flex: none;
   font-size: 10px;

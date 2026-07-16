@@ -20,6 +20,7 @@ type OpenKey = string | null;
 /**
  * Generic-плашки фильтров: [+] (меню добавления) · активные плашки со значением и поповером ·
  * [×] (сбросить все). Единый интерфейс для любых таблиц; конкретика — во входных `specs`.
+ * Кнопка OK — только в меню [+]; поповеры значений закрываются кликом вне.
  */
 export function FilterChips({ available, active, specs, onAdd, onRemove, onClear }: FilterChipsProps) {
   const [open, setOpen] = useState<OpenKey>(null);
@@ -49,6 +50,19 @@ export function FilterChips({ available, active, specs, onAdd, onRemove, onClear
 
   const toggleOpen = (key: OpenKey) => setOpen((cur) => (cur === key ? null : key));
 
+  /**
+   * Крестик на плашке: сначала сброс к дефолту (значение снимается), повторный клик при
+   * дефолте — убирает плашку. Тот же опыт, что в доке уведомлений.
+   */
+  const handleChipClose = (spec: FilterSpec) => {
+    if (!isSpecAtDefault(spec)) {
+      resetSpec(spec);
+      return;
+    }
+    onRemove(spec.key);
+    setOpen(null);
+  };
+
   return (
     <div className={styles.root} ref={rootRef}>
       <div className={styles.chipWrap}>
@@ -76,6 +90,11 @@ export function FilterChips({ available, active, specs, onAdd, onRemove, onClear
               );
             })}
             {available.length === 0 && <span className={styles.hint}>Нет фильтров</span>}
+            <div className={styles.popoverFooter}>
+              <button type="button" className={styles.popoverOk} onClick={() => setOpen(null)}>
+                OK
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -87,6 +106,7 @@ export function FilterChips({ available, active, specs, onAdd, onRemove, onClear
         }
         const value = summarize(spec);
         const isOpen = open === key;
+        const atDefault = isSpecAtDefault(spec);
         return (
           <div className={styles.chipWrap} key={key}>
             <div className={[styles.chip, value || isOpen ? styles.chipActive : ''].filter(Boolean).join(' ')}>
@@ -97,12 +117,11 @@ export function FilterChips({ available, active, specs, onAdd, onRemove, onClear
               </button>
               <button
                 className={styles.chipClose}
-                onClick={() => {
-                  onRemove(key);
-                  setOpen(null);
-                }}
-                title="Убрать фильтр"
-                aria-label={`Убрать фильтр «${spec.name}»`}
+                onClick={() => handleChipClose(spec)}
+                title={atDefault ? 'Убрать фильтр' : 'Сбросить фильтр'}
+                aria-label={
+                  atDefault ? `Убрать фильтр «${spec.name}»` : `Сбросить фильтр «${spec.name}»`
+                }
               >
                 ×
               </button>
@@ -134,6 +153,22 @@ export function FilterChips({ available, active, specs, onAdd, onRemove, onClear
       </button>
     </div>
   );
+}
+
+/** Плашка в дефолтном состоянии — значение не выбрано (нет сводки). */
+function isSpecAtDefault(spec: FilterSpec): boolean {
+  return summarize(spec) === undefined;
+}
+
+/** Сброс плашки к дефолту: снять выбор и вернуть applyScope к первой опции. */
+function resetSpec(spec: FilterSpec): void {
+  spec.onChange([]);
+  if (spec.applyScope) {
+    const first = spec.applyScope.options[0]?.id;
+    if (first !== undefined && spec.applyScope.selected !== first) {
+      spec.applyScope.onChange(first);
+    }
+  }
 }
 
 /** Сводка значения плашки для показа рядом с именем (нейтральный id '' пропускается). */

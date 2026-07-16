@@ -2,15 +2,28 @@ import { BehaviorSubject } from 'rxjs';
 import type {
   DockFilterKey,
   DockFilterState,
+  DockRangeFilter,
   NotificationDockFiltersSnapshot,
+  NotificationDockSettings,
   NotificationInteraction,
   NotificationLocalization,
   NotificationSeverity,
 } from '@scinverse/notification-center';
+import {
+  EMPTY_DOCK_RANGE,
+  EMPTY_DOCK_SETTINGS,
+  isDockRangePreset,
+  normalizeDockSettings,
+} from '@scinverse/notification-center';
 
 const STORAGE_KEY = 'ohs:notificationDock';
 
-const VALID_ACTIVE: readonly DockFilterKey[] = ['severity', 'interaction', 'localization'];
+const VALID_ACTIVE: readonly DockFilterKey[] = [
+  'severity',
+  'interaction',
+  'localization',
+  'range',
+];
 const VALID_SEVERITIES: readonly NotificationSeverity[] = [
   'ok',
   'info',
@@ -27,14 +40,47 @@ export interface PersistedNotificationDock {
   expanded: boolean;
   filter: DockFilterState;
   activeFilters: DockFilterKey[];
+  settings: NotificationDockSettings;
 }
 
 function emptyFilter(): DockFilterState {
-  return { severities: [], interactions: [], localizations: [], query: '' };
+  return {
+    severities: [],
+    interactions: [],
+    localizations: [],
+    range: { ...EMPTY_DOCK_RANGE },
+    query: '',
+  };
 }
 
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
+function parseYmd(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const t = value.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : undefined;
+}
+
+function parseRange(raw: unknown): DockRangeFilter {
+  if (!raw || typeof raw !== 'object') {
+    return { ...EMPTY_DOCK_RANGE };
+  }
+  const r = raw as Record<string, unknown>;
+  if (!isDockRangePreset(r.preset)) {
+    return { ...EMPTY_DOCK_RANGE };
+  }
+  if (r.preset === 'custom') {
+    return {
+      preset: 'custom',
+      from: parseYmd(r.from),
+      to: parseYmd(r.to),
+    };
+  }
+  return { preset: r.preset };
 }
 
 function parseFilter(raw: unknown): DockFilterState {
@@ -52,6 +98,7 @@ function parseFilter(raw: unknown): DockFilterState {
     localizations: asStringArray(f.localizations).filter((s): s is NotificationLocalization =>
       (VALID_LOCALIZATIONS as readonly string[]).includes(s),
     ),
+    range: parseRange(f.range),
     query: typeof f.query === 'string' ? f.query : '',
   };
 }
@@ -60,6 +107,21 @@ function parseActive(raw: unknown): DockFilterKey[] {
   return asStringArray(raw).filter((k): k is DockFilterKey =>
     (VALID_ACTIVE as readonly string[]).includes(k),
   );
+}
+
+function cloneFilter(filter: DockFilterState): DockFilterState {
+  const range = filter.range ?? { ...EMPTY_DOCK_RANGE };
+  return {
+    severities: [...(filter.severities ?? [])],
+    interactions: [...(filter.interactions ?? [])],
+    localizations: [...(filter.localizations ?? [])],
+    range: {
+      preset: range.preset ?? 'all',
+      ...(range.from ? { from: range.from } : {}),
+      ...(range.to ? { to: range.to } : {}),
+    },
+    query: filter.query ?? '',
+  };
 }
 
 function readStorage(): PersistedNotificationDock {
@@ -72,6 +134,7 @@ function readStorage(): PersistedNotificationDock {
         expanded: parsed.expanded === true,
         filter: parseFilter(parsed.filter),
         activeFilters: parseActive(parsed.activeFilters),
+        settings: normalizeDockSettings(parsed.settings as Partial<NotificationDockSettings>),
       };
     }
     const legacy = localStorage.getItem('ohs:notificationDockFilters');
@@ -82,12 +145,19 @@ function readStorage(): PersistedNotificationDock {
         expanded: false,
         filter: parseFilter(parsed.filter),
         activeFilters: parseActive(parsed.activeFilters),
+        settings: { ...EMPTY_DOCK_SETTINGS },
       };
     }
   } catch {
     /* ignore */
   }
-  return { open: false, expanded: false, filter: emptyFilter(), activeFilters: [] };
+  return {
+    open: false,
+    expanded: false,
+    filter: emptyFilter(),
+    activeFilters: [],
+    settings: { ...EMPTY_DOCK_SETTINGS },
+  };
 }
 
 function writeStorage(state: PersistedNotificationDock): void {
@@ -99,6 +169,7 @@ function writeStorage(state: PersistedNotificationDock): void {
         expanded: state.expanded,
         filter: state.filter,
         activeFilters: state.activeFilters,
+        settings: state.settings,
       }),
     );
     localStorage.removeItem('ohs:notificationDockFilters');
@@ -117,6 +188,7 @@ class NotificationDockStore {
   readonly expanded$: BehaviorSubject<boolean>;
   readonly filter$: BehaviorSubject<DockFilterState>;
   readonly activeFilters$: BehaviorSubject<DockFilterKey[]>;
+  readonly settings$: BehaviorSubject<NotificationDockSettings>;
 
   constructor() {
     const v = readStorage();
@@ -124,21 +196,17 @@ class NotificationDockStore {
     this.expanded$ = new BehaviorSubject(v.expanded);
     this.filter$ = new BehaviorSubject(v.filter);
     this.activeFilters$ = new BehaviorSubject(v.activeFilters);
+    this.settings$ = new BehaviorSubject(v.settings);
   }
 
   /** Полный persist из текущего состояния в RAM — как OhsStore.persistView(). */
   private persist(): void {
-    const f = this.filter$.value;
     writeStorage({
       open: this.open$.value,
       expanded: this.expanded$.value,
       activeFilters: [...this.activeFilters$.value],
-      filter: {
-        severities: [...f.severities],
-        interactions: [...f.interactions],
-        localizations: [...f.localizations],
-        query: f.query,
-      },
+      filter: cloneFilter(this.filter$.value),
+      settings: normalizeDockSettings(this.settings$.value),
     });
   }
 
@@ -163,12 +231,7 @@ class NotificationDockStore {
   }
 
   setFilter(filter: DockFilterState): void {
-    this.filter$.next({
-      severities: [...filter.severities],
-      interactions: [...filter.interactions],
-      localizations: [...filter.localizations],
-      query: filter.query,
-    });
+    this.filter$.next(cloneFilter(filter));
     this.persist();
   }
 
@@ -177,14 +240,19 @@ class NotificationDockStore {
     this.persist();
   }
 
+  setSettings(settings: NotificationDockSettings): void {
+    const next = normalizeDockSettings(settings);
+    const enablingTray = next.sendToTray && !this.settings$.value.sendToTray;
+    this.settings$.next(next);
+    this.persist();
+    if (enablingTray) {
+      void import('./notifications').then((m) => m.ensureTrayPermission());
+    }
+  }
+
   /** Применить снимок фильтров целиком (значение + плашки) одним persist. */
   applyFiltersSnapshot(snapshot: NotificationDockFiltersSnapshot): void {
-    this.filter$.next({
-      severities: [...snapshot.filter.severities],
-      interactions: [...snapshot.filter.interactions],
-      localizations: [...snapshot.filter.localizations],
-      query: snapshot.filter.query,
-    });
+    this.filter$.next(cloneFilter(snapshot.filter));
     this.activeFilters$.next([...snapshot.activeFilters]);
     this.persist();
   }
@@ -194,6 +262,12 @@ class NotificationDockStore {
       return;
     }
     this.activeFilters$.next([...this.activeFilters$.value, key]);
+    if (key === 'range') {
+      const range = this.filter$.value.range;
+      if (!range || range.preset === 'all') {
+        this.filter$.next(cloneFilter({ ...this.filter$.value, range: { preset: 'today' } }));
+      }
+    }
     this.persist();
   }
 
@@ -206,6 +280,8 @@ class NotificationDockStore {
       this.filter$.next({ ...f, interactions: [] });
     } else if (key === 'localization') {
       this.filter$.next({ ...f, localizations: [] });
+    } else if (key === 'range') {
+      this.filter$.next({ ...f, range: { ...EMPTY_DOCK_RANGE } });
     }
     this.persist();
   }
@@ -216,6 +292,7 @@ class NotificationDockStore {
       severities: [],
       interactions: [],
       localizations: [],
+      range: { ...EMPTY_DOCK_RANGE },
       query: this.filter$.value.query,
     });
     this.persist();
@@ -223,17 +300,12 @@ class NotificationDockStore {
 
   /** Для тестов / отладки. */
   snapshot(): PersistedNotificationDock {
-    const f = this.filter$.value;
     return {
       open: this.open$.value,
       expanded: this.expanded$.value,
       activeFilters: [...this.activeFilters$.value],
-      filter: {
-        severities: [...f.severities],
-        interactions: [...f.interactions],
-        localizations: [...f.localizations],
-        query: f.query,
-      },
+      filter: cloneFilter(this.filter$.value),
+      settings: normalizeDockSettings(this.settings$.value),
     };
   }
 }
@@ -243,7 +315,7 @@ class NotificationDockStore {
  * Иначе после hot-reload появляются два store и toggle open со старого
  * затирает фильтры в localStorage пустым снимком.
  */
-const globalStoreKey = '__scinverseOhsNotificationDockStore_v2';
+const globalStoreKey = '__scinverseOhsNotificationDockStore_v6';
 
 function getOrCreateStore(): NotificationDockStore {
   const g = globalThis as unknown as Record<string, NotificationDockStore | undefined>;

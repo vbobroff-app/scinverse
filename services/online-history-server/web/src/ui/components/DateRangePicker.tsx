@@ -6,6 +6,8 @@ interface Props {
   from?: string;
   to?: string;
   onApply: (from: string, to: string) => void;
+  /** Доп. действие при «Сбросить» (напр. закрыть поповер). */
+  onReset?: () => void;
 }
 
 /**
@@ -13,7 +15,7 @@ interface Props {
  * без его зависимостей). Гранулярность — дни; окно снапается к границам сессий в сторе.
  * Раскладка месяца — общий {@link MonthGrid}; здесь только выбор диапазона и навигация.
  */
-export function DateRangePicker({ from, to, onApply }: Props) {
+export function DateRangePicker({ from, to, onApply, onReset }: Props) {
   const today = new Date();
   const initial = from ? new Date(from) : today;
 
@@ -42,9 +44,11 @@ export function DateRangePicker({ from, to, onApply }: Props) {
   };
 
   const goToday = () => setView({ year: today.getFullYear(), month: today.getMonth() });
+  // «Сбросить»: очищаем выбор и уведомляем родителя (напр. закрыть календарь).
   const reset = () => {
     setStart(undefined);
     setEnd(undefined);
+    onReset?.();
   };
 
   const apply = () => {

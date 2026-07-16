@@ -127,6 +127,31 @@
   box-shadow: var(--shadow-md);
 }
 
+.popoverFooter {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+  padding: 4px 4px 2px;
+  border-top: 1px solid var(--color-border);
+}
+
+.popoverOk {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.popoverOk:hover {
+  background: color-mix(in srgb, var(--color-accent) 85%, #000);
+  border-color: color-mix(in srgb, var(--color-accent) 85%, #000);
+}
+
 .option {
   display: flex;
   align-items: center;

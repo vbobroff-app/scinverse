@@ -7,6 +7,8 @@ import type {
   NotificationSourceType,
 } from '../types';
 import { resolveInteraction, resolveLocalization } from '../types';
+import type { DockRangeFilter, RangeBounds } from './dateRange';
+import { resolveRangeBounds } from './dateRange';
 
 function toSet<T extends string>(value: ReadonlySet<T> | readonly T[] | undefined): Set<T> | null {
   if (!value) {
@@ -19,10 +21,43 @@ function toSet<T extends string>(value: ReadonlySet<T> | readonly T[] | undefine
   return arr.length === 0 ? null : new Set(arr);
 }
 
-/** Клиентская фильтрация ленты (severity ∧ interaction ∧ localization ∧ module ∧ query). */
+function isRangeBounds(range: DockRangeFilter | RangeBounds): range is RangeBounds {
+  return 'fromMs' in range;
+}
+
+function resolveFilterBounds(
+  range: DockRangeFilter | RangeBounds | undefined,
+  now?: Date,
+): RangeBounds | null {
+  if (!range) {
+    return null;
+  }
+  const bounds = isRangeBounds(range) ? range : resolveRangeBounds(range, now);
+  if (bounds.fromMs == null && bounds.toMs == null) {
+    return null;
+  }
+  return bounds;
+}
+
+function inRange(ts: string, bounds: RangeBounds): boolean {
+  const ms = Date.parse(ts);
+  if (Number.isNaN(ms)) {
+    return false;
+  }
+  if (bounds.fromMs != null && ms < bounds.fromMs) {
+    return false;
+  }
+  if (bounds.toMs != null && ms > bounds.toMs) {
+    return false;
+  }
+  return true;
+}
+
+/** Клиентская фильтрация ленты (severity ∧ interaction ∧ localization ∧ module ∧ query ∧ range). */
 export function filterEvents(
   events: readonly NotificationEvent[],
   filter: NotificationFilter = {},
+  now?: Date,
 ): NotificationEvent[] {
   const severities = toSet<NotificationSeverity>(filter.severities);
   const sourceTypes = toSet<NotificationSourceType>(filter.sourceTypes);
@@ -30,8 +65,17 @@ export function filterEvents(
   const localizations = toSet<NotificationLocalization>(filter.localizations);
   const modules = toSet<string>(filter.modules);
   const query = filter.query?.trim().toLowerCase() ?? '';
+  const bounds = resolveFilterBounds(filter.range, now);
 
-  if (!severities && !sourceTypes && !interactions && !localizations && !modules && !query) {
+  if (
+    !severities &&
+    !sourceTypes &&
+    !interactions &&
+    !localizations &&
+    !modules &&
+    !query &&
+    !bounds
+  ) {
     return events.slice();
   }
 
@@ -56,6 +100,9 @@ export function filterEvents(
       if (!hay.includes(query)) {
         return false;
       }
+    }
+    if (bounds && !inRange(evt.ts, bounds)) {
+      return false;
     }
     return true;
   });

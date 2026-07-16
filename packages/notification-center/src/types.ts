@@ -1,3 +1,5 @@
+import type { DockRangeFilter, RangeBounds } from './filter/dateRange';
+
 /** Уровень важности / тип сообщения. */
 export type NotificationSeverity = 'ok' | 'info' | 'warning' | 'critical' | 'error';
 
@@ -73,6 +75,8 @@ export interface NotificationFilter {
   modules?: ReadonlySet<string> | string[];
   /** Подстрока по message / code / module (без учёта регистра). */
   query?: string;
+  /** Диапазон по `ts`: пресет DockRangeFilter или готовые границы RangeBounds. */
+  range?: DockRangeFilter | RangeBounds;
 }
 
 export interface NotificationBusOptions {

@@ -5,6 +5,8 @@
   padding: 0 var(--spacing-lg) var(--spacing-lg);
   box-sizing: border-box;
   z-index: 30;
+  overflow: visible;
+  pointer-events: auto;
   transform-origin: bottom center;
   transition:
     opacity 0.2s ease,

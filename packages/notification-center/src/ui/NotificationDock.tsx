@@ -1,13 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { NotificationBus } from '../bus/NotificationBus';
 import { filterEvents } from '../filter/filterEvents';
 import { formatTsUtc, type FormatTs } from '../format/formatTs';
-import type { NotificationEvent } from '../types';
-import { DockFilters, EMPTY_DOCK_FILTER, type DockFilterKey, type DockFilterState } from './DockFilters';
+import type { NotificationEvent, NotificationSeverity } from '../types';
+import { DockFilters, EMPTY_DOCK_FILTER, normalizeDockFilter, type DockDateFieldProps, type DockDateRangeProps, type DockFilterKey, type DockFilterState } from './DockFilters';
+import {
+  EMPTY_DOCK_SETTINGS,
+  normalizeDockSettings,
+  type NotificationDockSettings,
+} from './dockSettings';
 import { NotificationRow } from './NotificationRow';
 import { Tip } from './Tooltip';
 import { useObservable } from './useObservable';
 import styles from './NotificationDock.module.css';
+
+export type { NotificationDockSettings } from './dockSettings';
+export { EMPTY_DOCK_SETTINGS, normalizeDockSettings } from './dockSettings';
 
 const MIN_HEIGHT = 40;
 const DEFAULT_EXPANDED_HEIGHT = Math.round(
@@ -39,7 +47,7 @@ export interface NotificationDockProps {
   /** Начальная высота Expanded (px). По умолчанию ~30% окна. */
   defaultHeight?: number;
   className?: string;
-  /** Скрыть панель фильтров. */
+  /** @deprecated используйте settings.showFilters */
   hideFilters?: boolean;
   /**
    * Controlled-фильтры (хост = источник правды, как FilterChips + OhsStore).
@@ -50,7 +58,32 @@ export interface NotificationDockProps {
   initialFilters?: NotificationDockFiltersSnapshot;
   /** Колбэк при изменении фильтров/плашек — хост пишет в store/localStorage. */
   onFiltersChange?: (snapshot: NotificationDockFiltersSnapshot) => void;
+  /** Controlled-настройки дока. */
+  settings?: NotificationDockSettings;
+  /** Uncontrolled: начальные настройки. */
+  initialSettings?: NotificationDockSettings;
+  onSettingsChange?: (settings: NotificationDockSettings) => void;
+  /** Единый range-календарь для «Период → ввести даты» (как в провайдерах). */
+  renderDateRange?: (props: DockDateRangeProps) => ReactNode;
+  /** Кастомный пикер одной даты для фильтра «Период → ввести даты». */
+  renderDateField?: (props: DockDateFieldProps) => ReactNode;
 }
+
+type SettingsToggleKey =
+  | 'showFilters'
+  | 'trackUnread'
+  | 'showStatusLogo'
+  | 'sendToTray';
+
+const SHOW_TOGGLES: { key: SettingsToggleKey; label: string }[] = [
+  { key: 'showFilters', label: 'Панель фильтров' },
+  { key: 'trackUnread', label: 'Учёт непрочитанных' },
+  { key: 'showStatusLogo', label: 'Логотип статуса' },
+];
+
+const ACTION_TOGGLES: { key: SettingsToggleKey; label: string }[] = [
+  { key: 'sendToTray', label: 'Отправлять в трей' },
+];
 
 export function NotificationDock({
   bus,
@@ -65,6 +98,11 @@ export function NotificationDock({
   filters: filtersProp,
   initialFilters,
   onFiltersChange,
+  settings: settingsProp,
+  initialSettings,
+  onSettingsChange,
+  renderDateRange,
+  renderDateField,
 }: NotificationDockProps) {
   const events = useObservable(bus.stream$, bus.events);
   const unreadAlerts = useObservable(bus.unreadAlertCount$, bus.unreadAlertCount);
@@ -81,8 +119,20 @@ export function NotificationDock({
   const [uncontrolledActive, setUncontrolledActive] = useState<DockFilterKey[]>(
     () => initialFilters?.activeFilters ?? [],
   );
-  const filter = filtersControlled ? filtersProp.filter : uncontrolledFilter;
+  const filter = normalizeDockFilter(filtersControlled ? filtersProp.filter : uncontrolledFilter);
   const activeFilters = filtersControlled ? filtersProp.activeFilters : uncontrolledActive;
+
+  const settingsControlled = settingsProp !== undefined;
+  const [uncontrolledSettings, setUncontrolledSettings] = useState<NotificationDockSettings>(() =>
+    normalizeDockSettings(initialSettings ?? EMPTY_DOCK_SETTINGS),
+  );
+  const settings = normalizeDockSettings(
+    settingsControlled ? settingsProp : uncontrolledSettings,
+  );
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+  const [filtersMenuOpen, setFiltersMenuOpen] = useState(false);
 
   const [height, setHeight] = useState(
     (controlledExpanded ? expandedProp : defaultExpanded)
@@ -109,6 +159,28 @@ export function NotificationDock({
     const timer = window.setTimeout(() => setBodyMounted(false), 200);
     return () => window.clearTimeout(timer);
   }, [expanded]);
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      return;
+    }
+    const onDoc = (e: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
+        setSettingsOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSettingsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [settingsOpen]);
 
   const setExpanded = useCallback(
     (next: boolean | ((prev: boolean) => boolean)) => {
@@ -142,7 +214,7 @@ export function NotificationDock({
 
   const handleFilterChange = useCallback(
     (next: DockFilterState) => {
-      emitFilters(next, activeFiltersRef.current);
+      emitFilters(normalizeDockFilter(next), activeFiltersRef.current);
     },
     [emitFilters],
   );
@@ -154,6 +226,49 @@ export function NotificationDock({
     [emitFilters],
   );
 
+  const emitSettings = useCallback(
+    (next: NotificationDockSettings) => {
+      const normalized = normalizeDockSettings(next);
+      if (!settingsControlled) {
+        setUncontrolledSettings(normalized);
+      }
+      onSettingsChange?.(normalized);
+    },
+    [settingsControlled, onSettingsChange],
+  );
+
+  const toggleSetting = useCallback(
+    (key: SettingsToggleKey) => {
+      emitSettings({ ...settings, [key]: !settings[key] });
+    },
+    [emitSettings, settings],
+  );
+
+  const showFiltersPanel = !hideFilters && settings.showFilters;
+  const showUnreadUi = settings.trackUnread;
+
+  /** Быстрый фильтр с бейджа: создать плашку «Тип сообщения» и toggle галок. */
+  const quickFilterSeverities = useCallback(
+    (targets: readonly NotificationSeverity[]) => {
+      const cur = filterRef.current;
+      const active = activeFiltersRef.current;
+      const allOn = targets.every((s) => cur.severities.includes(s));
+      const nextSeverities = allOn
+        ? cur.severities.filter((s) => !targets.includes(s))
+        : [...new Set([...cur.severities, ...targets])];
+      const nextActive: DockFilterKey[] = active.includes('severity')
+        ? active
+        : [...active, 'severity'];
+      emitFilters({ ...cur, severities: nextSeverities }, nextActive);
+      if (!expanded) {
+        setExpanded(true);
+        setBodyMounted(true);
+        setHeight(lastHeight);
+      }
+    },
+    [emitFilters, expanded, lastHeight, setExpanded],
+  );
+
   const visible = useMemo(
     () =>
       filterEvents(events, {
@@ -161,8 +276,9 @@ export function NotificationDock({
         interactions: filter.interactions,
         localizations: filter.localizations,
         query: filter.query,
+        range: activeFilters.includes('range') ? filter.range : undefined,
       }),
-    [events, filter],
+    [events, filter, activeFilters],
   );
 
   // Live-tail: новые события → скролл вверх списка (новые сверху), пауза при ручном уходе.
@@ -237,49 +353,76 @@ export function NotificationDock({
 
   return (
     <section
-      className={[styles.dock, resizing ? styles.dockResizing : '', className].filter(Boolean).join(' ')}
+      className={[
+        styles.dock,
+        resizing ? styles.dockResizing : '',
+        filtersMenuOpen ? styles.dockMenuOpen : '',
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
       style={{ height }}
       aria-label={title}
     >
       {expanded && (
-        <Tip content="Потяните, чтобы изменить высоту">
-          <div
-            className={styles.resizeHandle}
-            onPointerDown={onResizePointerDown}
-            onPointerMove={onResizePointerMove}
-            onPointerUp={onResizePointerUp}
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label="Потяните, чтобы изменить высоту"
-          />
-        </Tip>
+        <div
+          className={styles.resizeHandle}
+          onPointerDown={onResizePointerDown}
+          onPointerMove={onResizePointerMove}
+          onPointerUp={onResizePointerUp}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Изменить высоту"
+        />
       )}
 
       <header className={styles.header}>
-        <button type="button" className={styles.titleBtn} onClick={toggleExpanded} aria-expanded={expanded}>
-          <span className={[styles.chevron, expanded ? styles.chevronOpen : ''].filter(Boolean).join(' ')}>
-            ▴
-          </span>
-          <span className={styles.title}>{title}</span>
-          {(unreadAlerts > 0 || unreadWarnings > 0) && (
+        <div className={styles.titleCluster}>
+          <button type="button" className={styles.titleBtn} onClick={toggleExpanded} aria-expanded={expanded}>
+            <span className={[styles.chevron, expanded ? styles.chevronOpen : ''].filter(Boolean).join(' ')}>
+              ▴
+            </span>
+            <span className={styles.title}>{title}</span>
+          </button>
+          {showUnreadUi && (unreadAlerts > 0 || unreadWarnings > 0) && (
             <span className={styles.badges}>
               {unreadAlerts > 0 && (
-                <Tip content="Непрочитанные error / critical">
-                  <span className={[styles.badge, styles.badgeAlert].join(' ')}>
+                <Tip content="Фильтр: error / critical">
+                  <button
+                    type="button"
+                    className={[styles.badge, styles.badgeAlert].join(' ')}
+                    aria-label="Фильтр по error и critical"
+                    aria-pressed={
+                      filter.severities.includes('error') && filter.severities.includes('critical')
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      quickFilterSeverities(['error', 'critical']);
+                    }}
+                  >
                     {unreadAlerts > 99 ? '99+' : unreadAlerts}
-                  </span>
+                  </button>
                 </Tip>
               )}
               {unreadWarnings > 0 && (
-                <Tip content="Непрочитанные warning">
-                  <span className={[styles.badge, styles.badgeWarning].join(' ')}>
+                <Tip content="Фильтр: warning">
+                  <button
+                    type="button"
+                    className={[styles.badge, styles.badgeWarning].join(' ')}
+                    aria-label="Фильтр по warning"
+                    aria-pressed={filter.severities.includes('warning')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      quickFilterSeverities(['warning']);
+                    }}
+                  >
                     {unreadWarnings > 99 ? '99+' : unreadWarnings}
-                  </span>
+                  </button>
                 </Tip>
               )}
             </span>
           )}
-        </button>
+        </div>
         <div className={styles.headerActions}>
           {expanded && (
             <>
@@ -288,50 +431,91 @@ export function NotificationDock({
                   Следить
                 </button>
               )}
-              <button type="button" className={styles.actionBtn} onClick={() => bus.markAllRead()}>
-                Прочитать
-              </button>
+              {showUnreadUi && (
+                <button type="button" className={styles.actionBtn} onClick={() => bus.markAllRead()}>
+                  Прочитать
+                </button>
+              )}
               <button type="button" className={styles.actionBtn} onClick={() => bus.clear()}>
                 Очистить
               </button>
             </>
           )}
-          <Tip content="Настройки">
-            <button
-              type="button"
-              className={styles.settingsBtn}
-              aria-label="Настройки"
-              onClick={(e) => {
-                e.stopPropagation();
-                /* phase 11: настройки центра уведомлений — позже */
-              }}
-            >
-              <svg
-                className={styles.settingsIcon}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.7}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
+          <div className={styles.settingsWrap} ref={settingsRef}>
+            <Tip content="Настройки">
+              <button
+                type="button"
+                className={[styles.settingsBtn, settingsOpen ? styles.settingsBtnActive : '']
+                  .filter(Boolean)
+                  .join(' ')}
+                aria-label="Настройки"
+                aria-expanded={settingsOpen}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSettingsOpen((o) => !o);
+                }}
               >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </button>
-          </Tip>
+                <svg
+                  className={styles.settingsIcon}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.7}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+              </button>
+            </Tip>
+            {settingsOpen && (
+              <div className={styles.settingsPopover} role="menu" aria-label="Настройки центра уведомлений">
+                <div className={styles.settingsSection}>
+                  <span className={styles.settingsSectionTitle}>Показывать</span>
+                  {SHOW_TOGGLES.map((t) => (
+                    <label key={t.key} className={styles.settingsCheck}>
+                      <input
+                        type="checkbox"
+                        checked={settings[t.key]}
+                        onChange={() => toggleSetting(t.key)}
+                      />
+                      {t.label}
+                    </label>
+                  ))}
+                </div>
+                <div className={styles.settingsSection}>
+                  <span className={styles.settingsSectionTitle}>Действия</span>
+                  {ACTION_TOGGLES.map((t) => (
+                    <label key={t.key} className={styles.settingsCheck}>
+                      <input
+                        type="checkbox"
+                        checked={settings[t.key]}
+                        onChange={() => toggleSetting(t.key)}
+                      />
+                      {t.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
       {bodyMounted && (
         <div className={[styles.body, bodyVisible ? styles.bodyOpen : ''].filter(Boolean).join(' ')}>
-          {!hideFilters && (
+          {showFiltersPanel && (
             <DockFilters
               value={filter}
               onChange={handleFilterChange}
               activeFilters={activeFilters}
               onActiveFiltersChange={handleActiveFiltersChange}
+              onCommit={(snapshot) => emitFilters(snapshot.filter, snapshot.activeFilters)}
+              onMenuOpenChange={setFiltersMenuOpen}
+              renderDateRange={renderDateRange}
+              renderDateField={renderDateField}
               total={visible.length}
             />
           )}
@@ -344,13 +528,15 @@ export function NotificationDock({
                   key={evt.id}
                   event={evt}
                   formatTs={formatTs}
+                  showStatusLogo={settings.showStatusLogo}
                   unread={
+                    showUnreadUi &&
                     (evt.severity === 'warning' ||
                       evt.severity === 'error' ||
                       evt.severity === 'critical') &&
                     !bus.isRead(evt.id)
                   }
-                  onOpen={onOpenRow}
+                  onOpen={showUnreadUi ? onOpenRow : undefined}
                 />
               ))
             )}

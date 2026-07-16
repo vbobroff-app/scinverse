@@ -4,33 +4,58 @@ import type {
   NotificationLocalization,
   NotificationSeverity,
 } from '../types';
+import {
+  DOCK_RANGE_PRESETS,
+  EMPTY_DOCK_RANGE,
+  rangeSummary,
+  type DockRangeFilter,
+  type DockRangePreset,
+} from '../filter/dateRange';
+import {
+  normalizeDockFilter,
+  type DockFilterKey,
+  type DockFilterState,
+  type DockFiltersSnapshot,
+} from './dockFilterState';
 import { SeverityIcon } from './SeverityIcon';
 import { Tip } from './Tooltip';
 import styles from './DockFilters.module.css';
 
-export type DockFilterKey = 'severity' | 'interaction' | 'localization';
+export type { DockFilterKey, DockFilterState, DockFiltersSnapshot } from './dockFilterState';
+export { EMPTY_DOCK_FILTER, normalizeDockFilter } from './dockFilterState';
 
-export interface DockFilterState {
-  severities: NotificationSeverity[];
-  interactions: NotificationInteraction[];
-  localizations: NotificationLocalization[];
-  query: string;
+/** Поле даты для «ввести даты» — хост может подставить свой календарь (как в коннекторах). */
+export interface DockDateFieldProps {
+  value?: string;
+  onChange: (ymd: string | undefined) => void;
+  placeholder?: string;
 }
 
-export const EMPTY_DOCK_FILTER: DockFilterState = {
-  severities: [],
-  interactions: [],
-  localizations: [],
-  query: '',
-};
+/**
+ * Единый range-пикер для «ввести даты» — хост подставляет тот же календарь, что в провайдерах
+ * (`DateRangePicker`). Значения — локальные `YYYY-MM-DD`. Предпочтительнее `renderDateField`.
+ */
+export interface DockDateRangeProps {
+  from?: string;
+  to?: string;
+  onApply: (from: string, to: string) => void;
+  /** Пользователь нажал «Сбросить» в календаре (напр. закрыть его). */
+  onReset?: () => void;
+}
 
 interface Props {
   value: DockFilterState;
   onChange: (next: DockFilterState) => void;
-  /** Показанные плашки ([+] меню) — controlled, как activeFilters у провайдеров. */
   activeFilters: DockFilterKey[];
   onActiveFiltersChange: (keys: DockFilterKey[]) => void;
-  /** Счётчик «Найдено: N» справа, как в FilterBar провайдера. */
+  /** Атомарный снимок (add/remove/period) — предпочтительно для persist. */
+  onCommit?: (snapshot: DockFiltersSnapshot) => void;
+  /** Сообщает хосту, что открыт поповер (чтобы снять overflow:hidden у дока). */
+  onMenuOpenChange?: (open: boolean) => void;
+  /** Единый range-календарь (как в провайдерах). Предпочтительнее `renderDateField`. */
+  renderDateRange?: (props: DockDateRangeProps) => ReactNode;
+  /** Кастомный пикер одной даты (иначе native `<input type="date">`). */
+  renderDateField?: (props: DockDateFieldProps) => ReactNode;
   total?: number;
 }
 
@@ -54,6 +79,7 @@ const AVAILABLE: { key: DockFilterKey; name: string }[] = [
   { key: 'severity', name: 'Тип сообщения' },
   { key: 'interaction', name: 'Взаимодействие' },
   { key: 'localization', name: 'Локализация' },
+  { key: 'range', name: 'Период' },
 ];
 
 const SEVERITY_OPTIONS: FilterOption[] = [
@@ -75,51 +101,118 @@ const LOCALIZATION_OPTIONS: FilterOption[] = [
   { id: 'external', label: 'Внешние' },
 ];
 
+function isFilterAtDefault(key: DockFilterKey, value: DockFilterState): boolean {
+  if (key === 'severity') {
+    return value.severities.length === 0;
+  }
+  if (key === 'interaction') {
+    return value.interactions.length === 0;
+  }
+  if (key === 'localization') {
+    return value.localizations.length === 0;
+  }
+  return value.range.preset === 'all' || !value.range.preset;
+}
+
+function resetFilterValue(key: DockFilterKey, value: DockFilterState): DockFilterState {
+  if (key === 'severity') {
+    return { ...value, severities: [] };
+  }
+  if (key === 'interaction') {
+    return { ...value, interactions: [] };
+  }
+  if (key === 'localization') {
+    return { ...value, localizations: [] };
+  }
+  return { ...value, range: { ...EMPTY_DOCK_RANGE } };
+}
+
 /**
  * Плашки фильтров дока в стиле provider workspace:
  * слева [+] · плашки · [×], справа «Найдено» + поиск с иконкой.
  */
 export function DockFilters({
-  value,
+  value: valueProp,
   onChange,
   activeFilters,
   onActiveFiltersChange,
+  onCommit,
+  onMenuOpenChange,
+  renderDateRange,
+  renderDateField,
   total,
 }: Props) {
+  const value = normalizeDockFilter(valueProp);
   const [open, setOpen] = useState<OpenKey>(null);
+  // Календарь «ввести даты» показываем только по явному клику, не автоматически при custom.
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  const commit = (nextFilter: DockFilterState, nextActive: DockFilterKey[]) => {
+    const filter = normalizeDockFilter(nextFilter);
+    if (onCommit) {
+      onCommit({ filter, activeFilters: nextActive });
+      return;
+    }
+    onChange(filter);
+    onActiveFiltersChange(nextActive);
+  };
+
+  useEffect(() => {
+    onMenuOpenChange?.(open !== null);
+    if (open !== 'range') {
+      setCalendarOpen(false);
+    }
+  }, [open, onMenuOpenChange]);
 
   useEffect(() => {
     if (open === null) {
       return;
     }
-    const onDoc = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+    let removeOutside: (() => void) | undefined;
+    const timer = window.setTimeout(() => {
+      const onDoc = (e: MouseEvent) => {
+        const target = e.target as Node;
+        if (popoverRef.current?.contains(target)) {
+          return;
+        }
+        // Триггер текущего popover сам переключает open — не закрываем заранее,
+        // иначе click снова откроет меню.
+        const trigger = rootRef.current?.querySelector(
+          `[data-filter-trigger="${open}"]`,
+        );
+        if (trigger?.contains(target)) {
+          return;
+        }
         setOpen(null);
-      }
-    };
+      };
+      document.addEventListener('mousedown', onDoc);
+      removeOutside = () => document.removeEventListener('mousedown', onDoc);
+    }, 0);
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setOpen(null);
       }
     };
-    document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
+
     return () => {
-      document.removeEventListener('mousedown', onDoc);
+      window.clearTimeout(timer);
+      removeOutside?.();
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
 
-  const specs = useMemo<Record<DockFilterKey, ChipSpec>>(
+  const specs = useMemo<Record<Exclude<DockFilterKey, 'range'>, ChipSpec>>(
     () => ({
       severity: {
         key: 'severity',
         name: 'Тип сообщения',
         options: SEVERITY_OPTIONS,
         selected: value.severities,
-        onChange: (selected) =>
-          onChange({ ...value, severities: selected as NotificationSeverity[] }),
+        onChange: (selected) => onChange({ ...value, severities: selected as NotificationSeverity[] }),
       },
       interaction: {
         key: 'interaction',
@@ -144,36 +237,82 @@ export function DockFilters({
   const toggleOpen = (key: OpenKey) => setOpen((cur) => (cur === key ? null : key));
 
   const onAdd = (key: DockFilterKey) => {
-    if (!activeFilters.includes(key)) {
-      onActiveFiltersChange([...activeFilters, key]);
+    if (activeFilters.includes(key)) {
+      return;
     }
+    let nextValue = value;
+    if (key === 'range' && (value.range.preset === 'all' || !value.range.preset)) {
+      nextValue = { ...value, range: { preset: 'today' } };
+    }
+    commit(nextValue, [...activeFilters, key]);
   };
 
+  /** Полное удаление (меню «+»). */
   const onRemove = (key: DockFilterKey) => {
-    const nextActive = activeFilters.filter((k) => k !== key);
-    let nextValue = value;
-    if (key === 'severity') {
-      nextValue = { ...value, severities: [] };
-    } else if (key === 'interaction') {
-      nextValue = { ...value, interactions: [] };
-    } else {
-      nextValue = { ...value, localizations: [] };
-    }
-    // Сначала value, потом active — родитель с ref-снимком соберёт атомарно;
-    // оба вызова обязаны видеть согласованную пару.
-    onChange(nextValue);
-    onActiveFiltersChange(nextActive);
+    commit(resetFilterValue(key, value), activeFilters.filter((k) => k !== key));
     setOpen(null);
   };
 
+  /**
+   * Крестик на чипе: сначала сброс к дефолту (галочки off / период «за всё время»),
+   * повторный клик при дефолте — убирает фильтр.
+   */
+  const onChipClose = (key: DockFilterKey) => {
+    if (!isFilterAtDefault(key, value)) {
+      commit(resetFilterValue(key, value), activeFilters);
+      setOpen(null);
+      return;
+    }
+    onRemove(key);
+  };
+
   const onClear = () => {
-    onChange({
-      severities: [],
-      interactions: [],
-      localizations: [],
-      query: value.query,
-    });
-    onActiveFiltersChange([]);
+    commit(
+      {
+        severities: [],
+        interactions: [],
+        localizations: [],
+        range: { ...EMPTY_DOCK_RANGE },
+        query: value.query,
+      },
+      [],
+    );
+    setOpen(null);
+  };
+
+  const setRangePreset = (preset: DockRangePreset) => {
+    const range: DockRangeFilter =
+      preset === 'custom'
+        ? { preset: 'custom', from: value.range.from, to: value.range.to }
+        : { preset };
+    const nextActive: DockFilterKey[] = activeFilters.includes('range')
+      ? activeFilters
+      : [...activeFilters, 'range'];
+    commit({ ...value, range }, nextActive);
+  };
+
+  const setCustomDate = (field: 'from' | 'to', ymd: string) => {
+    const nextActive: DockFilterKey[] = activeFilters.includes('range')
+      ? activeFilters
+      : [...activeFilters, 'range'];
+    commit(
+      {
+        ...value,
+        range: {
+          preset: 'custom',
+          from: field === 'from' ? ymd : value.range.from,
+          to: field === 'to' ? ymd : value.range.to,
+        },
+      },
+      nextActive,
+    );
+  };
+
+  const setCustomRange = (from: string, to: string) => {
+    const nextActive: DockFilterKey[] = activeFilters.includes('range')
+      ? activeFilters
+      : [...activeFilters, 'range'];
+    commit({ ...value, range: { preset: 'custom', from, to } }, nextActive);
     setOpen(null);
   };
 
@@ -184,6 +323,7 @@ export function DockFilters({
           <Tip content="Добавить фильтр">
             <button
               type="button"
+              data-filter-trigger="add"
               className={[styles.iconBtn, open === 'add' ? styles.iconBtnActive : '']
                 .filter(Boolean)
                 .join(' ')}
@@ -194,7 +334,7 @@ export function DockFilters({
             </button>
           </Tip>
           {open === 'add' && (
-            <div className={styles.popover}>
+            <div className={styles.popover} role="menu" ref={popoverRef}>
               {AVAILABLE.map((f) => {
                 const on = activeFilters.includes(f.key);
                 return (
@@ -209,14 +349,152 @@ export function DockFilters({
                   </button>
                 );
               })}
+              <div className={styles.popoverFooter}>
+                <button
+                  type="button"
+                  className={styles.popoverOk}
+                  onClick={() => setOpen(null)}
+                >
+                  OK
+                </button>
+              </div>
             </div>
           )}
         </div>
 
         {activeFilters.map((key) => {
+          if (key === 'range') {
+            const summary = rangeSummary(value.range);
+            const isOpen = open === 'range';
+            const active =
+              value.range.preset !== 'all' ||
+              Boolean(value.range.from) ||
+              Boolean(value.range.to) ||
+              isOpen;
+            return (
+              <div className={styles.chipWrap} key={key}>
+                <div
+                  className={[styles.chip, active ? styles.chipActive : ''].filter(Boolean).join(' ')}
+                >
+                  <button
+                    type="button"
+                    data-filter-trigger="range"
+                    className={styles.chipBody}
+                    onClick={() => toggleOpen('range')}
+                    aria-expanded={isOpen}
+                  >
+                    <span className={styles.chipName}>Период</span>
+                    {summary && <span className={styles.chipValue}>: {summary}</span>}
+                    <span className={[styles.caret, isOpen ? styles.caretOpen : ''].join(' ')}>▾</span>
+                  </button>
+                  <Tip content={isFilterAtDefault('range', value) ? 'Убрать фильтр' : 'Сбросить фильтр'}>
+                    <button
+                      type="button"
+                      className={styles.chipClose}
+                      onClick={() => onChipClose('range')}
+                      aria-label={
+                        isFilterAtDefault('range', value)
+                          ? 'Убрать фильтр «Период»'
+                          : 'Сбросить фильтр «Период»'
+                      }
+                    >
+                      ×
+                    </button>
+                  </Tip>
+                </div>
+                {isOpen && (
+                  <div
+                    ref={popoverRef}
+                    className={[styles.popover, styles.rangePopover].join(' ')}
+                    role="listbox"
+                    aria-label="Период"
+                  >
+                    {DOCK_RANGE_PRESETS.map((p) => {
+                      const selected = value.range.preset === p.id;
+                      const showCalendar =
+                        p.id === 'custom' && value.range.preset === 'custom' && calendarOpen;
+                      return (
+                        <div key={p.id} className={styles.presetItem}>
+                          {showCalendar && (
+                            <div className={styles.customOverlay}>
+                              {renderDateRange ? (
+                                <div className={styles.customRange}>
+                                  {renderDateRange({
+                                    from: value.range.from,
+                                    to: value.range.to,
+                                    onApply: (from, to) => setCustomRange(from, to),
+                                    onReset: () => setCalendarOpen(false),
+                                  })}
+                                </div>
+                              ) : (
+                                <div className={styles.customDates}>
+                                  <div className={styles.dateField}>
+                                    <span>с</span>
+                                    {renderDateField ? (
+                                      renderDateField({
+                                        value: value.range.from,
+                                        onChange: (ymd) => setCustomDate('from', ymd ?? ''),
+                                        placeholder: 'Дата',
+                                      })
+                                    ) : (
+                                      <input
+                                        type="date"
+                                        value={value.range.from ?? ''}
+                                        onChange={(e) => setCustomDate('from', e.target.value)}
+                                      />
+                                    )}
+                                  </div>
+                                  <div className={styles.dateField}>
+                                    <span>по</span>
+                                    {renderDateField ? (
+                                      renderDateField({
+                                        value: value.range.to,
+                                        onChange: (ymd) => setCustomDate('to', ymd ?? ''),
+                                        placeholder: 'Дата',
+                                      })
+                                    ) : (
+                                      <input
+                                        type="date"
+                                        value={value.range.to ?? ''}
+                                        onChange={(e) => setCustomDate('to', e.target.value)}
+                                      />
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            className={[styles.option, selected ? styles.optionActive : '']
+                              .filter(Boolean)
+                              .join(' ')}
+                            onClick={() => {
+                              setRangePreset(p.id);
+                              setCalendarOpen(p.id === 'custom');
+                            }}
+                          >
+                            <span className={styles.radioMark}>{selected ? '●' : '○'}</span>
+                            {p.label}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           const spec = specs[key];
           const summary = summarize(spec);
           const isOpen = open === key;
+          const allIds = spec.options.map((o) => o.id);
+          const allChecked =
+            allIds.length > 0 && allIds.every((id) => spec.selected.includes(id));
+          const someChecked = spec.selected.length > 0 && !allChecked;
           return (
             <div className={styles.chipWrap} key={key}>
               <div
@@ -226,6 +504,7 @@ export function DockFilters({
               >
                 <button
                   type="button"
+                  data-filter-trigger={key}
                   className={styles.chipBody}
                   onClick={() => toggleOpen(key)}
                   aria-expanded={isOpen}
@@ -234,19 +513,39 @@ export function DockFilters({
                   {summary && <span className={styles.chipValue}>: {summary}</span>}
                   <span className={[styles.caret, isOpen ? styles.caretOpen : ''].join(' ')}>▾</span>
                 </button>
-                <Tip content="Убрать фильтр">
+                <Tip content={isFilterAtDefault(key, value) ? 'Убрать фильтр' : 'Сбросить фильтр'}>
                   <button
                     type="button"
                     className={styles.chipClose}
-                    onClick={() => onRemove(key)}
-                    aria-label={`Убрать фильтр «${spec.name}»`}
+                    onClick={() => onChipClose(key)}
+                    aria-label={
+                      isFilterAtDefault(key, value)
+                        ? `Убрать фильтр «${spec.name}»`
+                        : `Сбросить фильтр «${spec.name}»`
+                    }
                   >
                     ×
                   </button>
                 </Tip>
               </div>
               {isOpen && (
-                <div className={styles.popover}>
+                <div className={styles.popover} ref={popoverRef}>
+                  <label className={[styles.check, styles.checkAll].join(' ')}>
+                    <input
+                      type="checkbox"
+                      checked={allChecked}
+                      ref={(el) => {
+                        if (el) {
+                          el.indeterminate = someChecked;
+                        }
+                      }}
+                      onChange={() => {
+                        spec.onChange(allChecked ? [] : allIds);
+                      }}
+                    />
+                    Все
+                  </label>
+                  <div className={styles.checkDivider} aria-hidden="true" />
                   {spec.options.map((o) => {
                     const checked = spec.selected.includes(o.id);
                     return (

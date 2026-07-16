@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { NotificationEvent } from '../types';
+import type { NotificationEvent, NotificationSeverity } from '../types';
 import type { FormatTs } from '../format/formatTs';
 import { InteractionIcon } from './InteractionIcon';
 import { SeverityIcon } from './SeverityIcon';
@@ -10,8 +10,18 @@ interface Props {
   event: NotificationEvent;
   formatTs: FormatTs;
   unread?: boolean;
+  /** Показывать иконку severity («логотип статуса»). Иначе — текстовая метка. */
+  showStatusLogo?: boolean;
   onOpen?: (event: NotificationEvent) => void;
 }
+
+const SEVERITY_LABEL: Record<NotificationSeverity, string> = {
+  ok: 'Ok:',
+  info: 'Info:',
+  warning: 'Warning:',
+  error: 'Error:',
+  critical: 'Critical:',
+};
 
 function detailText(event: NotificationEvent): string | null {
   if (!event.data || Object.keys(event.data).length === 0) {
@@ -24,7 +34,13 @@ function detailText(event: NotificationEvent): string | null {
   }
 }
 
-export function NotificationRow({ event, formatTs, unread, onOpen }: Props) {
+export function NotificationRow({
+  event,
+  formatTs,
+  unread,
+  showStatusLogo = true,
+  onOpen,
+}: Props) {
   const [expanded, setExpanded] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const detail = detailText(event);
@@ -66,7 +82,13 @@ export function NotificationRow({ event, formatTs, unread, onOpen }: Props) {
             ▴
           </span>
         </button>
-        <SeverityIcon severity={event.severity} />
+        {showStatusLogo ? (
+          <SeverityIcon severity={event.severity} />
+        ) : (
+          <span className={styles.severityLabel} aria-label={event.severity}>
+            {SEVERITY_LABEL[event.severity]}
+          </span>
+        )}
         <time className={styles.time} dateTime={event.ts}>
           {formatTs(event.ts)}
         </time>

@@ -47,6 +47,7 @@ describe('NotificationDock', () => {
         severities: ['info' as const],
         interactions: [],
         localizations: [],
+        range: { preset: 'all' as const },
         query: '',
       },
     };

@@ -17,7 +17,14 @@ describe('notificationDockStore', () => {
       severities: [],
       interactions: [],
       localizations: [],
+      range: { preset: 'all' },
       query: '',
+    });
+    notificationDockStore.setSettings({
+      showFilters: true,
+      trackUnread: true,
+      showStatusLogo: true,
+      sendToTray: false,
     });
     localStorage.removeItem(NOTIFICATION_DOCK_STORAGE_KEY);
   });
@@ -34,6 +41,7 @@ describe('notificationDockStore', () => {
         severities: ['info', 'error'],
         interactions: [],
         localizations: ['internal'],
+        range: { preset: 'all' },
         query: 'hello',
       },
     });
@@ -58,6 +66,7 @@ describe('notificationDockStore', () => {
       severities: [],
       interactions: ['system'],
       localizations: [],
+      range: { preset: 'all' },
       query: '',
     });
     notificationDockStore.setOpen(true);
@@ -76,6 +85,7 @@ describe('notificationDockStore', () => {
         severities: ['warning'],
         interactions: [],
         localizations: [],
+        range: { preset: 'all' },
         query: 'x',
       },
     });
@@ -96,6 +106,7 @@ describe('notificationDockStore', () => {
         severities: ['error'],
         interactions: [],
         localizations: [],
+        range: { preset: 'week' },
         query: 'reload',
       },
     });
@@ -107,6 +118,7 @@ describe('notificationDockStore', () => {
     expect(reloaded.activeFilters).toEqual(['severity']);
     expect(reloaded.filter.severities).toEqual(['error']);
     expect(reloaded.filter.query).toBe('reload');
+    expect(reloaded.filter.range).toEqual({ preset: 'week' });
   });
 
   it('setExpanded сохраняется и не затирает open/filters', () => {
@@ -119,5 +131,43 @@ describe('notificationDockStore', () => {
     expect(loaded.open).toBe(true);
     expect(loaded.expanded).toBe(false);
     expect(loaded.activeFilters).toEqual(['severity']);
+  });
+
+  it('addFilter(range) по умолчанию ставит «за сегодня»', () => {
+    notificationDockStore.addFilter('range');
+    const snap = notificationDockStore.snapshot();
+    expect(snap.activeFilters).toEqual(['range']);
+    expect(snap.filter.range).toEqual({ preset: 'today' });
+  });
+
+  it('setSettings сохраняет toggles', () => {
+    notificationDockStore.setSettings({
+      showFilters: false,
+      trackUnread: false,
+      showStatusLogo: true,
+      sendToTray: true,
+    });
+    const loaded = loadNotificationDock();
+    expect(loaded.settings.showFilters).toBe(false);
+    expect(loaded.settings.trackUnread).toBe(false);
+    expect(loaded.settings.showStatusLogo).toBe(true);
+    expect(loaded.settings.sendToTray).toBe(true);
+  });
+
+  it('persist сохраняет период (range) в filter', () => {
+    notificationDockStore.applyFiltersSnapshot({
+      activeFilters: ['range'],
+      filter: {
+        severities: [],
+        interactions: [],
+        localizations: [],
+        range: { preset: 'week' },
+        query: '',
+      },
+    });
+    const raw = JSON.parse(localStorage.getItem(NOTIFICATION_DOCK_STORAGE_KEY)!);
+    expect(raw.activeFilters).toEqual(['range']);
+    expect(raw.filter.range).toEqual({ preset: 'week' });
+    expect(loadNotificationDock().filter.range).toEqual({ preset: 'week' });
   });
 });
