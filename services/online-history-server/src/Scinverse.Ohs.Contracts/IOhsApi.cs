@@ -61,6 +61,18 @@ public interface IOhsApi
     /// <summary>PUT /api/connections/{id}/credentials</summary>
     Task SetCredentialsAsync(long id, ConnectionCredentialsRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>GET /api/connections/{id}/schedule</summary>
+    Task<ConnectionScheduleDto?> GetConnectionScheduleAsync(
+        long id, CancellationToken cancellationToken = default);
+
+    /// <summary>PUT /api/connections/{id}/schedule</summary>
+    Task<ConnectionScheduleDto> PutConnectionScheduleAsync(
+        long id, PutConnectionScheduleRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/connections/{id}/schedule/history</summary>
+    Task<IReadOnlyList<ConnectionScheduleDto>> GetConnectionScheduleHistoryAsync(
+        long id, CancellationToken cancellationToken = default);
+
     /// <summary>POST /api/connections/{id}/connect</summary>
     Task<ConnectionDto> ConnectConnectionAsync(long id, CancellationToken cancellationToken = default);
 

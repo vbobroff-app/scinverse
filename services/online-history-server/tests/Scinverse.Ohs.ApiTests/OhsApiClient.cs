@@ -90,6 +90,32 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
         return result ?? [];
     }
 
+    public async Task<ConnectionScheduleDto?> GetConnectionScheduleAsync(
+        long id, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.GetAsync($"/api/connections/{id}/schedule", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<ConnectionScheduleDto>(Json, cancellationToken);
+    }
+
+    public async Task<ConnectionScheduleDto> PutConnectionScheduleAsync(
+        long id, PutConnectionScheduleRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PutAsJsonAsync(
+            $"/api/connections/{id}/schedule", request, Json, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ConnectionScheduleDto>(Json, cancellationToken))!;
+    }
+
+    public Task<IReadOnlyList<ConnectionScheduleDto>> GetConnectionScheduleHistoryAsync(
+        long id, CancellationToken cancellationToken = default) =>
+        GetListAsync<ConnectionScheduleDto>($"/api/connections/{id}/schedule/history", cancellationToken);
+
     public Task<IReadOnlyList<ConnectionDto>> GetConnectionsAsync(CancellationToken cancellationToken = default) =>
         GetListAsync<ConnectionDto>("/api/connections", cancellationToken);
 

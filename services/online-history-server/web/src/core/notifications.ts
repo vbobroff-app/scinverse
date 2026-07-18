@@ -4,6 +4,8 @@
  */
 
 import { createNotificationBus, notify } from '@scinverse/notification-center';
+import type { NotificationSeverity, NotificationSourceType } from '@scinverse/notification-center';
+import type { NotificationDto } from './types';
 import { notificationDockStore } from './notificationDockStorage';
 
 export const notificationBus = createNotificationBus();
@@ -193,3 +195,38 @@ function startTrayBridge(): void {
 }
 
 startTrayBridge();
+
+/** Событие с бэка (WS `notification` / GET /api/notifications) → шина дока. */
+export function publishServerNotification(dto: NotificationDto): void {
+  const severity = (dto.severity ?? 'info') as NotificationSeverity;
+  const sourceType = (dto.sourceType ?? 'system') as NotificationSourceType;
+  const data =
+    dto.data && typeof dto.data === 'object' && !Array.isArray(dto.data)
+      ? (dto.data as Record<string, unknown>)
+      : undefined;
+  const input = {
+    id: dto.id,
+    ts: typeof dto.ts === 'string' ? dto.ts : new Date(dto.ts).toISOString(),
+    module: dto.module || 'ohs.connection',
+    code: dto.code,
+    message: dto.message,
+    sourceType,
+    data,
+  };
+  switch (severity) {
+    case 'ok':
+      notify.ok(notificationBus, input);
+      break;
+    case 'warning':
+      notify.warn(notificationBus, input);
+      break;
+    case 'error':
+      notify.error(notificationBus, input);
+      break;
+    case 'critical':
+      notify.critical(notificationBus, input);
+      break;
+    default:
+      notify.info(notificationBus, input);
+  }
+}

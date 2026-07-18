@@ -41,6 +41,7 @@ builder.Services.AddSingleton<ICaptureLivenessStore, CaptureLivenessStore>();
 builder.Services.AddSingleton<ILinkLivenessStore, LinkLivenessStore>();
 builder.Services.AddSingleton<IConnectionStore, ConnectionStore>();
 builder.Services.AddSingleton<IRecordingScheduleStore, RecordingScheduleStore>();
+builder.Services.AddSingleton<IConnectionScheduleStore, ConnectionScheduleStore>();
 builder.Services.AddSingleton<IFuturesAssetClassStore, FuturesAssetClassStore>();
 builder.Services.AddSingleton<IMarketScheduleStore, MarketScheduleStore>();
 builder.Services.AddSingleton<IExternalServiceStore, ExternalServiceStore>();
@@ -90,6 +91,9 @@ builder.Services.AddSingleton(sp => new Lazy<RecordingManager>(() => sp.GetRequi
 builder.Services.AddSingleton<ConnectionManager>();
 builder.Services.AddSingleton<RecordingManager>();
 builder.Services.AddSingleton<RecordingSupervisor>();
+builder.Services.AddSingleton<NotificationHub>();
+builder.Services.AddSingleton<INotificationPublisher>(sp => sp.GetRequiredService<NotificationHub>());
+builder.Services.AddSingleton<ConnectionSupervisor>();
 // Pre-flight сверки расписания: transient — резолвит подтверждатель по adapter (per-request).
 builder.Services.AddTransient<SchedulePreflight>();
 builder.Services.AddHostedService<OhsWorker>();

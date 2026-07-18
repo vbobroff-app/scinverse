@@ -244,6 +244,44 @@ export interface UpsertRecordingScheduleRequest {
   items: RecordingScheduleDto[];
 }
 
+/** Расписание соединения (phase 7j). */
+export interface ConnectionScheduleDto {
+  scheduleId: number;
+  connectionId: number;
+  mode: 'manual' | 'scheduled' | string;
+  autoEnabled: boolean;
+  windowStart: string;
+  windowEnd: string;
+  engine: string;
+  tz: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  changeSource: string;
+  changeNote: string | null;
+}
+
+export interface PutConnectionScheduleRequest {
+  mode?: string;
+  autoEnabled?: boolean;
+  windowStart?: string;
+  windowEnd?: string;
+  engine?: string;
+  tz?: string;
+  changeSource?: string;
+  changeNote?: string | null;
+}
+
+export interface NotificationDto {
+  id: string;
+  ts: string;
+  severity: string;
+  sourceType: string;
+  module: string;
+  code: string;
+  message: string;
+  data?: unknown;
+}
+
 export interface ConnectionDto {
   connectionId: number;
   sourceId: number;
@@ -486,4 +524,8 @@ export type LiveEvent =
   | {
       type: 'recordingScheduleChanged';
       items: RecordingScheduleDto[];
+    }
+  | {
+      type: 'notification';
+      notification: NotificationDto;
     };

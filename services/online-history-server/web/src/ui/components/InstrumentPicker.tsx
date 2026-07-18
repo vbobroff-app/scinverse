@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { useNow } from '../hooks/useNow';
@@ -9,7 +9,6 @@ import { TimeframePanel } from './TimeframePanel';
 import { CoverageTrack } from './CoverageTrack';
 import { ConnectionRibbon } from './ConnectionRibbon';
 import { CrosshairOverlay } from './CrosshairOverlay';
-import { CrosshairIcon, DayBoxIcon } from './icons';
 import { showCrosshair, hideCrosshair } from '../../core/crosshair';
 import { seriesKey, isInTradingSession, type CoverageWindow } from '../../core/OhsStore';
 import { makeProjector, makeInverseProjector } from '../../core/sessionProjection';
@@ -25,11 +24,30 @@ import type {
   SessionDto,
 } from '../../core/types';
 import { RecordingAutoToggle, autoPhase, type AutoPhase } from './RecordingAutoToggle';
+import { ConnectionAutoToggle, connectionAutoPhase } from './ConnectionAutoToggle';
+import { ConnectionSchedulePopover } from './ConnectionSchedulePopover';
 import styles from './InstrumentPicker.module.css';
 
 const ROW_HEIGHT = 50;
 const INDENT = 10;
 const EMPTY_SEGMENTS: CoverageSegmentDto[] = [];
+
+/** Локальные часы браузера vs окно HH:mm[:ss] (через полночь поддерживается). */
+function isLocalTimeInWindow(nowMs: number, startText: string, endText: string): boolean {
+  const d = new Date(nowMs);
+  const nowMin = d.getHours() * 60 + d.getMinutes();
+  const startMin = parseHm(startText);
+  const endMin = parseHm(endText);
+  if (startMin <= endMin) {
+    return nowMin >= startMin && nowMin < endMin;
+  }
+  return nowMin >= startMin || nowMin < endMin;
+}
+
+function parseHm(text: string): number {
+  const [hh, mm] = text.split(':').map((x) => Number(x));
+  return (hh || 0) * 60 + (mm || 0);
+}
 
 /** Сегменты дорожки: из coverage или синтетический открытый, пока GET /coverage не догнал запись. */
 function trackSegments(
@@ -328,10 +346,23 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const selectionLeafIds = useBehavior(store.selectionLeafIds$);
   const seriesBusy = useBehavior(store.seriesBusy$);
   const recordingSchedule = useBehavior(store.recordingSchedule$);
+  const connectionSchedules = useBehavior(store.connectionSchedule$);
   const window = useBehavior(store.window$);
   const sessions = useBehavior(store.sessions$);
   const tzOffsetMin = useBehavior(store.displayTz$).offsetMin;
   const now = useNow(1000);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+
+  const connSchedule = connectionSchedules.get(connection.connectionId);
+  const connInWindow = useMemo(
+    () => (connSchedule ? isLocalTimeInWindow(now, connSchedule.windowStart, connSchedule.windowEnd) : false),
+    [connSchedule, now],
+  );
+  const connAutoPhase = connectionAutoPhase({
+    autoEnabled: connSchedule?.autoEnabled ?? false,
+    connectionStatus: connection.status,
+    inWindow: connInWindow,
+  });
 
   // Подключением считаем оба «живых» статуса: active (идут данные) и waiting (тишина).
   const connected =
@@ -583,6 +614,26 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
       <div className={styles.connLane} style={scrollStyle}>
         <div className={styles.left}>
           <span className={styles.connName}>Связь · {connection.name}</span>
+          <ConnectionAutoToggle
+            phase={connAutoPhase}
+            disabled={!connSchedule}
+            onEnable={() => {
+              if (!connSchedule) {
+                setScheduleOpen(true);
+                return;
+              }
+              store.setConnectionAuto(connection.connectionId, true);
+            }}
+            onDisable={() => store.setConnectionAuto(connection.connectionId, false)}
+          />
+          <button
+            type="button"
+            className={styles.scheduleBtn}
+            onClick={() => setScheduleOpen(true)}
+            title="Расписание соединения"
+          >
+            Расписание
+          </button>
         </div>
         <div className={styles.right}>
           <ConnectionRibbon
@@ -595,6 +646,14 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
           />
         </div>
       </div>
+
+      <ConnectionSchedulePopover
+        connectionId={connection.connectionId}
+        current={connSchedule}
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        onPublish={(body) => store.publishConnectionSchedule(connection.connectionId, body)}
+      />
 
       <div className={styles.scroll} ref={virtual.ref} onScroll={virtual.onScroll} style={scrollStyle}>
         <div style={{ height: virtual.topPad }} />
@@ -714,26 +773,6 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
           <TimeAxis window={window} sessions={sessions} tzOffsetMin={tzOffsetMin} />
         </div>
       </div>
-
-      <button
-        type="button"
-        className={[styles.dayToggle, highlightDays ? styles.dayToggleOn : ''].filter(Boolean).join(' ')}
-        aria-pressed={highlightDays}
-        title={highlightDays ? 'Не подсвечивать дни' : 'Подсвечивать дни'}
-        onClick={() => store.setHighlightDays(!highlightDays)}
-      >
-        <DayBoxIcon className={styles.crosshairToggleIcon} />
-      </button>
-
-      <button
-        type="button"
-        className={[styles.crosshairToggle, crosshairOn ? styles.crosshairToggleOn : ''].filter(Boolean).join(' ')}
-        aria-pressed={crosshairOn}
-        title={crosshairOn ? 'Выключить вертикальный time-line' : 'Включить вертикальный time-line'}
-        onClick={() => store.setCrosshairOn(!crosshairOn)}
-      >
-        <CrosshairIcon className={styles.crosshairToggleIcon} />
-      </button>
 
       {crosshairOn && <CrosshairOverlay scrollRef={virtual.ref} axisRef={axisCellRef} />}
     </div>

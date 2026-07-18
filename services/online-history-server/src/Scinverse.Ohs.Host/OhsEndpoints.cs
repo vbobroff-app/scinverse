@@ -219,6 +219,52 @@ public static class OhsEndpoints
             return rows.Select(e => new RecordingScheduleDto(e.InstrumentId, e.ConnectionId, e.AutoEnabled)).ToList();
         });
 
+        api.MapGet("/connections/{id:long}/schedule", async (
+            long id, IConnectionScheduleStore schedule, CancellationToken ct) =>
+        {
+            var row = await schedule.GetCurrentAsync(id, ct);
+            return row is null ? Results.NotFound() : Results.Ok(ToConnectionScheduleDto(row));
+        });
+
+        api.MapGet("/connections/{id:long}/schedule/history", async (
+            long id, IConnectionScheduleStore schedule, CancellationToken ct) =>
+        {
+            var rows = await schedule.ListHistoryAsync(id, ct);
+            return rows.Select(ToConnectionScheduleDto).ToList();
+        });
+
+        api.MapPut("/connections/{id:long}/schedule", async (
+            long id,
+            PutConnectionScheduleRequest request,
+            IConnectionStore connections,
+            IConnectionScheduleStore schedule,
+            ConnectionSupervisor supervisor,
+            CancellationToken ct) =>
+        {
+            if (await connections.GetAsync(id, ct) is null)
+            {
+                return Results.NotFound();
+            }
+
+            try
+            {
+                var result = await ApplyConnectionSchedulePutAsync(id, request, schedule, ct);
+                supervisor.Nudge();
+                return Results.Ok(ToConnectionScheduleDto(result));
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        api.MapGet("/notifications", (NotificationHub hub, int? limit) =>
+            hub.List(limit is > 0 and <= 500 ? limit : 100));
+
         api.MapGet("/connections", async (IConnectionStore store, ConnectionManager manager, CancellationToken ct) =>
         {
             var connections = await store.ListAsync(ct);
@@ -285,8 +331,19 @@ public static class OhsEndpoints
         api.MapPost("/connections/{id:long}/connect", (long id, ConnectionManager manager, IConnectionStore store, CancellationToken ct) =>
             RunConnectionActionAsync(id, store, manager, () => manager.ConnectAsync(id, ct), ct));
 
-        api.MapPost("/connections/{id:long}/disconnect", (long id, ConnectionManager manager, IConnectionStore store, CancellationToken ct) =>
-            RunConnectionActionAsync(id, store, manager, () => manager.DisconnectAsync(id, ct), ct));
+        api.MapPost("/connections/{id:long}/disconnect", async (
+            long id,
+            ConnectionManager manager,
+            IConnectionStore store,
+            IConnectionScheduleStore schedule,
+            ConnectionSupervisor supervisor,
+            CancellationToken ct) =>
+        {
+            // Ручной off тумблера связи → Auto off (phase 7j), как Стоп записи снимает Auto записи.
+            await schedule.SetModeAsync(id, ConnectionScheduleModes.Manual, ct);
+            supervisor.Nudge();
+            return await RunConnectionActionAsync(id, store, manager, () => manager.DisconnectAsync(id, ct), ct);
+        });
 
         api.MapPost("/connections/{id:long}/test", (long id, ConnectionManager manager, IConnectionStore store, CancellationToken ct) =>
             RunConnectionActionAsync(id, store, manager, () => manager.TestAsync(id, ct), ct));
@@ -682,6 +739,78 @@ public static class OhsEndpoints
     private static RecordingDto ToDto(RecordingInfo info) => new(
         info.InstrumentId, info.Ticker, info.Board, info.SourceId, info.ConnectionId, info.SegmentId,
         info.StartedAt, info.TradeCount);
+
+    private static async Task<ConnectionScheduleEntry> ApplyConnectionSchedulePutAsync(
+        long connectionId,
+        PutConnectionScheduleRequest request,
+        IConnectionScheduleStore schedule,
+        CancellationToken ct)
+    {
+        var mode = ResolveMode(request);
+        var hasWindow = !string.IsNullOrWhiteSpace(request.WindowStart)
+            && !string.IsNullOrWhiteSpace(request.WindowEnd);
+
+        if (hasWindow)
+        {
+            var start = ParseScheduleTime(request.WindowStart!);
+            var end = ParseScheduleTime(request.WindowEnd!);
+            var engine = string.IsNullOrWhiteSpace(request.Engine) ? "futures" : request.Engine.Trim();
+            var tz = string.IsNullOrWhiteSpace(request.Tz) ? "Europe/Moscow" : request.Tz.Trim();
+            var source = string.IsNullOrWhiteSpace(request.ChangeSource) ? "api" : request.ChangeSource.Trim();
+            return await schedule.PublishWindowAsync(
+                connectionId, mode, start, end, engine, tz, source, request.ChangeNote, ct);
+        }
+
+        var updated = await schedule.SetModeAsync(connectionId, mode, ct);
+        return updated
+            ?? throw new InvalidOperationException(
+                "Нет утверждённого расписания — сначала задайте окно (WindowStart/WindowEnd)");
+    }
+
+    private static string ResolveMode(PutConnectionScheduleRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.Mode))
+        {
+            return request.Mode.Trim().ToLowerInvariant() switch
+            {
+                "manual" or "off" => ConnectionScheduleModes.Manual,
+                "scheduled" or "auto" or "on" => ConnectionScheduleModes.Scheduled,
+                var m => throw new ArgumentException($"Неизвестный mode: {m}"),
+            };
+        }
+
+        if (request.AutoEnabled is bool auto)
+        {
+            return auto ? ConnectionScheduleModes.Scheduled : ConnectionScheduleModes.Manual;
+        }
+
+        // Публикация окна без явного mode — по умолчанию manual (Auto отдельно).
+        return ConnectionScheduleModes.Manual;
+    }
+
+    private static TimeOnly ParseScheduleTime(string text)
+    {
+        if (TimeOnly.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, out var t))
+        {
+            return t;
+        }
+
+        throw new ArgumentException($"Некорректное время: {text}");
+    }
+
+    private static ConnectionScheduleDto ToConnectionScheduleDto(ConnectionScheduleEntry e) => new(
+        e.ScheduleId,
+        e.ConnectionId,
+        e.Mode,
+        e.AutoEnabled,
+        e.WindowStart.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
+        e.WindowEnd.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
+        e.Engine,
+        e.Tz,
+        e.EffectiveFrom,
+        e.EffectiveTo,
+        e.ChangeSource,
+        e.ChangeNote);
 
     private static ConnectionDto ToDto(ConnectorConnection connection, string status) => new(
         connection.ConnectionId, connection.SourceId, connection.Name, connection.Kind, connection.Settings,

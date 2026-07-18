@@ -30,6 +30,8 @@ import type {
   InstrumentQueryParams,
   LivenessIntervalDto,
   LiveEvent,
+  ConnectionScheduleDto,
+  PutConnectionScheduleRequest,
   RecordingDto,
   RecordingScheduleDto,
   SelectionScope,
@@ -235,6 +237,9 @@ export class OhsStore {
   readonly recordings$ = new BehaviorSubject<RecordingDto[]>([]);
   /** Политики автозаписи: instrumentId → schedule. */
   readonly recordingSchedule$ = new BehaviorSubject<ReadonlyMap<number, RecordingScheduleDto>>(new Map());
+
+  /** Текущие расписания соединений (connectionId → schedule), phase 7j. */
+  readonly connectionSchedule$ = new BehaviorSubject<ReadonlyMap<number, ConnectionScheduleDto>>(new Map());
   readonly coverage$ = new BehaviorSubject<CoverageSegmentDto[]>([]);
   readonly window$ = new BehaviorSubject<CoverageWindow>(defaultWindow());
 
@@ -1100,7 +1105,12 @@ export class OhsStore {
 
   refreshConnections(): void {
     this.api.getConnections().subscribe({
-      next: (x) => this.connections$.next(x),
+      next: (x) => {
+        this.connections$.next(x);
+        for (const c of x) {
+          this.refreshConnectionSchedule(c.connectionId);
+        }
+      },
       error: (err) => console.error('getConnections', err),
     });
   }
@@ -1250,9 +1260,47 @@ export class OhsStore {
 
   disconnect(connectionId: number): void {
     this.api.disconnect(connectionId).subscribe({
-      next: (c) => this.upsertConnection(c),
+      next: (c) => {
+        this.upsertConnection(c);
+        // Бэкенд снимает Auto; подтягиваем актуальное schedule.
+        this.refreshConnectionSchedule(connectionId);
+      },
       error: (err) => console.error('disconnect', err),
     });
+  }
+
+  /** Auto on/off для соединения (UPDATE mode текущей версии). Без окна — ошибка с бэка. */
+  setConnectionAuto(connectionId: number, autoEnabled: boolean): void {
+    this.api.putConnectionSchedule(connectionId, { autoEnabled }).subscribe({
+      next: (row) => this.upsertConnectionSchedule(row),
+      error: (err) => console.error('setConnectionAuto', err),
+    });
+  }
+
+  /** Утвердить новое окно (SCD-2). */
+  publishConnectionSchedule(connectionId: number, body: PutConnectionScheduleRequest): void {
+    this.api.putConnectionSchedule(connectionId, body).subscribe({
+      next: (row) => this.upsertConnectionSchedule(row),
+      error: (err) => console.error('publishConnectionSchedule', err),
+    });
+  }
+
+  refreshConnectionSchedule(connectionId: number): void {
+    this.api.getConnectionSchedule(connectionId).subscribe({
+      next: (row) => this.upsertConnectionSchedule(row),
+      error: () => {
+        // 404 — расписания ещё нет.
+        const next = new Map(this.connectionSchedule$.value);
+        next.delete(connectionId);
+        this.connectionSchedule$.next(next);
+      },
+    });
+  }
+
+  private upsertConnectionSchedule(row: ConnectionScheduleDto): void {
+    const next = new Map(this.connectionSchedule$.value);
+    next.set(row.connectionId, row);
+    this.connectionSchedule$.next(next);
   }
 
   /**
@@ -1423,6 +1471,10 @@ export class OhsStore {
 
       case 'recordingScheduleChanged':
         this.replaceSchedule(event.items);
+        break;
+
+      case 'notification':
+        void import('./notifications').then((m) => m.publishServerNotification(event.notification));
         break;
     }
   }

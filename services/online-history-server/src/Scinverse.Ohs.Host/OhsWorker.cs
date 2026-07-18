@@ -14,6 +14,7 @@ public sealed class OhsWorker(
     ConnectionManager connectionManager,
     LivenessProbe livenessProbe,
     RecordingSupervisor recordingSupervisor,
+    ConnectionSupervisor connectionSupervisor,
     ILogger<OhsWorker> logger) : BackgroundService
 {
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(2);
@@ -26,6 +27,7 @@ public sealed class OhsWorker(
         var heartbeatTask = coverageTracker.RunHeartbeatAsync(HeartbeatInterval, stoppingToken);
         var livenessTask = livenessProbe.RunAsync(stoppingToken);
         var supervisorTask = recordingSupervisor.RunAsync(stoppingToken);
+        var connectionSupervisorTask = connectionSupervisor.RunAsync(stoppingToken);
 
         try
         {
@@ -36,6 +38,7 @@ public sealed class OhsWorker(
             // Запрошена остановка.
         }
 
+        await connectionSupervisorTask.ConfigureAwait(false);
         await supervisorTask.ConfigureAwait(false);
         await livenessTask.ConfigureAwait(false);
         await heartbeatTask.ConfigureAwait(false);

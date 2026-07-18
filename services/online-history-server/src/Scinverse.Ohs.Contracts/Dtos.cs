@@ -153,6 +153,35 @@ public sealed record RecordingScheduleDto(long InstrumentId, long ConnectionId, 
 /// <summary>Пакетный upsert политик автозаписи.</summary>
 public sealed record UpsertRecordingScheduleRequest(IReadOnlyList<RecordingScheduleDto> Items);
 
+/// <summary>Текущая / историческая версия расписания соединения (phase 7j).</summary>
+public sealed record ConnectionScheduleDto(
+    long ScheduleId,
+    long ConnectionId,
+    string Mode,
+    bool AutoEnabled,
+    string WindowStart,
+    string WindowEnd,
+    string Engine,
+    string Tz,
+    DateTimeOffset EffectiveFrom,
+    DateTimeOffset? EffectiveTo,
+    string ChangeSource,
+    string? ChangeNote);
+
+/// <summary>
+/// PUT расписания соединения: если заданы <see cref="WindowStart"/> и <see cref="WindowEnd"/> —
+/// SCD-2 новая версия окна; иначе только UPDATE <see cref="Mode"/> / <see cref="AutoEnabled"/> текущей.
+/// </summary>
+public sealed record PutConnectionScheduleRequest(
+    string? Mode,
+    bool? AutoEnabled,
+    string? WindowStart,
+    string? WindowEnd,
+    string? Engine,
+    string? Tz,
+    string? ChangeSource,
+    string? ChangeNote);
+
 /// <summary>Подключение коннектора (без секретов) + рантайм-статус.</summary>
 public sealed record ConnectionDto(
     long ConnectionId,

@@ -88,7 +88,8 @@ scinverse/
 | 7f | Тайм-лайн-фильтр оси + стандарт времени + вертикальный crosshair + подсветка дней | MVP DONE | [phase7f](./dev/phase7f/report.md) |
 | 7g | Слой сделок на Ганте: присутствие торгов по бакетам (лесенка), app-кэш `V008`, `/coverage/activity` | DONE | [phase7g](./dev/phase7g/plan.md) |
 | **7h** | **Честная подложка: recovery (`V009`), живость (`V010`/`V011`), автомат связи + пинг, красная разметка разрывов** | **DONE** | [phase7h/report](./dev/phase7h/report.md), [incident](./dev/phase7h/incident.md) |
-| **7i** | **«Управление записью»: полуавтомат Auto + Supervisor (MOEX)** | **IN PROGRESS** | [phase7i/apply](./dev/phase7i/apply.md) |
+| 7i | «Управление записью»: полуавтомат Auto + Supervisor (MOEX) | IN PROGRESS | [phase7i/apply](./dev/phase7i/apply.md) |
+| **7j** | **Расписание соединения: Auto Connection + Supervisor + SCD-2 окно + notify** | **IN PROGRESS** | [phase7j/plan](./dev/phase7j/plan.md) · [apply](./dev/phase7j/apply.md) |
 | 8 | CI/CD (GitHub Actions + compose `migrator`) | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` | TODO | — |
 | 10 | Multi-user & auth (Keycloak + `user_settings` + роли) | PLANNED | [phase10](./dev/phase10/plan.md) |
@@ -156,95 +157,70 @@ scinverse/
 
 Карта фазы 7 — [phase7/roadmap.md](./dev/phase7/roadmap.md).
 
+**Текущий фокус — phase 7j** (расписание Connection). 7i (Auto записи) ждёт живую связь от 7j.
+
 ---
 
-## 8. ➡️ НОВЫЙ ЧАТ: phase 7i — «Управление записью» (полуавтомат Auto)
+## 8. ➡️ НОВЫЙ ЧАТ: phase 7j — «Расписание соединения»
 
-**Прочитай первым:** [docs/dev/phase7i/plan.md](./dev/phase7i/plan.md) · [apply.md](./dev/phase7i/apply.md)
+**Прочитай первым:** [docs/dev/phase7j/plan.md](./dev/phase7j/plan.md) · [apply.md](./dev/phase7j/apply.md)
 
 ### Задача (MVP-срез)
 
-Рядом со **Старт/Стоп** — switcher **Auto** (тот же `StatusSwitch`, что у подключений).
-При Auto on Supervisor сам жмёт Старт/Стоп по сессии MOEX FORTS.
+У Connection — своё окно суток + **Auto** в полосе `Связь · Finam`. Тумблер связи в шапке
+`ProviderCard` **не трогаем**; Auto во включённом состоянии сам включает/выключает его по расписанию.
+Ручной off тумблера → Auto off. Запись (7i) — проекция живой связи, connect не поднимает.
 
-| Auto | Цвет | Смысл |
-|------|------|--------|
-| off | серый | не контролирует |
-| on, вне сессии | зелёный | вооружён, включит по времени |
-| on, пишет | голубой | пишет (темп сделок не важен) |
-| on, ждёт связи | жёлтый middle | в работе, жду связи |
+| Элемент | Где | Роль |
+|---------|-----|------|
+| Тумблер связи | ProviderCard head | ручной connect/disconnect |
+| Auto | полоса Связь | управляет тумблером по окну |
+| Расписание | полоса Связь → popover | ось open/close, пресеты MOEX ±N ч, Утвердить |
 
-Override: ручной Стоп → Auto off. Стоп одного в серии → у него запись+Auto off, у соседей только Auto off.
+### Модель данных
 
-### Почему 7h — обязательная база
+- `connection_schedule` (V021): SCD-2 по **окну**; `mode` (Auto) — UPDATE in-place.
+- Ведущий `engine` для дней (без join рынков); типично FORTS/`futures`.
+- Журнал факта связи — `link_liveness`; lifecycle → notification center (тонкий срез 11.2).
 
-| Компонент 7h | Роль для 7i |
-|--------------|-------------|
-| `ConnectionManager` + автомат связи | авто-connect / reconnect / ре-подписка |
-| `RecordingManager.StartAsync` / `StopAsync` | arm/disarm записи Supervisor'ом |
-| `LivenessProbe` + гейт торговых часов | **вне сессии пинги не идут**, живость не пишется — Supervisor должен **не вооружать** запись вне окна |
-| `IMarketCalendar` / ISS (7c) | часы сессии площадки для «должен ли писать сейчас?» |
-| Честная подложка | вне окна — нейтральный фон (не ложная дыра) |
+### Почему 7h — база
 
-### Планируемая модель (из plan.md)
+| Компонент | Роль для 7j |
+|-----------|-------------|
+| `ConnectionManager` | Connect/Disconnect, single-flight, `server_status` |
+| `LivenessProbe` 15 с | сделка = подтверждение; probe только в сессии при тишине |
+| `link_liveness` / Ribbon | лента Connection |
+| `IMarketCalendar` | non-trading дни ведущего engine |
 
-- Таблица `recording_schedule` (instrument_id, connection_id, mode, weekdays, window_kind, warmup…).
-- `RecordingSupervisor` — фоновый тик ~1 мин, идемпотентный arm/disarm.
-- API: `GET/PUT /api/recording/schedule`.
-- UI: диалог «Управление записью» вместо Старт/Стоп; индикатор `пишет` / `вооружён` / `вне сессии` / `выкл`.
-- US-инструменты — IANA tz (`America/New_York`), DST.
+### Ключевые файлы
 
-### Открытый вопрос (решить на живом Finam)
+**Backend:** `ConnectionManager`, `LivenessProbe`, `OhsWorker` (+ новый `ConnectionSupervisor`),
+`db/migrations/V021__connection_schedule.sql`.
 
-Источник «сейчас торгуется»: (1) TRANSAQ `inst.active`, (2) эмпирика `md_trade`, (3) календарь 7c/ISS.
-Вероятный гибрид — см. конец [phase7i/plan.md](./dev/phase7i/plan.md).
+**Frontend:** `InstrumentPicker` (полоса Связь), `ProviderCard` (тумблер как есть), `OhsStore` / `api.ts`.
 
-### Ключевые файлы (точки входа)
+### Критерии приёмки (кратко)
 
-**Backend (расширять):**
-- `Scinverse.Ohs.Host/RecordingManager.cs` — start/stop, `OnLinkLiveAsync`
-- `Scinverse.Ohs.Host/ConnectionManager.cs` — connect/disconnect, link automaton
-- `Scinverse.Ohs.Host/LivenessProbe.cs` — гейт сессии (не дублировать логику — переиспользовать `IMarketCalendar`)
-- `Scinverse.Ohs.Host/MarketCalendar.cs` — ISS-календарь FORTS
-- `Scinverse.Ohs.Host/OhsWorker.cs` — зарегистрировать Supervisor рядом с `LivenessProbe`
-- `db/migrations/V012__…` — `recording_schedule` (имя уточнить в apply)
-
-**Frontend (менять):**
-- `web/src/ui/components/InstrumentPicker.tsx` — Старт/Стоп → «Управление записью»
-- `web/src/core/OhsStore.ts` — schedule state, команды API
-- `web/src/core/api.ts` + `types.ts` — DTO расписания
-
-**Документация (создать по ходу):**
-- `docs/dev/phase7i/{apply,report}.md` — apply при реализации
-
-### Что уже сделано вне 7i (не ломать)
-
-- Ручной старт/стоп работает (`RecordingManager`, кнопки в `InstrumentPicker`).
-- Finam `connection_id=3`, `source_id=1`; креды временно в `appsettings.Local.json` (`DevLocalTransaqCredentials`).
-- Звёздочки инструментов — `localStorage` (`selectedInstrumentsStorage.ts`).
-- Фикс reconnect после Down: `ConnectAsync` сбрасывает осиротевшую сессию; фронт: `disconnected` на connect → error.
-
-### Критерии приёмки 7i (кратко)
-
-1. `scheduled` — сам старт/стоп по сессии; ночью запись не идёт.
-2. `manual` — как сейчас; ручной старт перекрывает расписание.
-3. US-tz с DST.
-4. Вне окна — нейтральный фон Ганта.
+1. Auto + окно → connect/disconnect по расписанию; non-trading — не поднимаем.
+2. Ручной off тумблера → Auto off; Auto без schedule нельзя.
+3. SCD-2 на смене окна; клик Auto не плодит версии.
+4. ×5 fail Connect → notify; Finam не дудосим (гейты).
 5. Тесты зелёные.
 
-### Запуск для разработки
+### Запуск
 
 ```text
-БД: docker-compose + DbUp (миграции до V011)
+БД: docker-compose + DbUp
 Host: Scinverse.Ohs.Host (:5080), appsettings.Local.json для Transaq
 Web:  services/online-history-server/web → pnpm dev
 Тесты: dotnet test; pnpm exec vitest run; pnpm exec tsc --noEmit
 ```
 
-### Соседние фазы (не смешивать с 7i)
+### Соседние фазы
 
-- **7e follow-up:** статус инструмента по борду (7c.9), тесты credentials — отдельно.
-- **8** CI/CD, **9** qsh backfill, **10** multi-user — позже.
+- **7i** — Auto записи (уже IN PROGRESS); не смешивать connect в RecordingSupervisor.
+- **7h.8d** — проекция красного на инструмент — после 7j.
+- **11** — полный notify hub beyond connection-кодов.
 
 ---
 

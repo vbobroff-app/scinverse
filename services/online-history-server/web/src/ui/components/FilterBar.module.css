@@ -19,6 +19,49 @@
   white-space: nowrap;
 }
 
+/* Тумблеры отображения таймлайна (подсветка дней / вертикальный time-line) — отдельные кнопки. */
+.viewToggles {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-right: var(--spacing-md, 16px);
+}
+
+.viewToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-input);
+  color: var(--color-text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.viewToggle:hover,
+.viewToggle:focus-visible {
+  border-color: var(--color-border-focus);
+  background: var(--color-bg-hover);
+  color: var(--color-accent);
+  outline: none;
+}
+
+.viewToggleOn {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-accent);
+}
+
+.viewToggleIcon {
+  width: 1em;
+  height: 1em;
+}
+
 .searchWrap {
   position: relative;
   display: inline-flex;

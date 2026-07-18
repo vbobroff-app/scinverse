@@ -8,6 +8,9 @@ import type {
   MarketScheduleExceptionDto,
   ConnectionCredentialsRequest,
   ConnectionDto,
+  ConnectionScheduleDto,
+  PutConnectionScheduleRequest,
+  NotificationDto,
   CaptureLivenessDto,
   LinkLivenessDto,
   CoverageExtentDto,
@@ -124,6 +127,17 @@ export const OhsApi = {
 
   upsertRecordingSchedule: (body: UpsertRecordingScheduleRequest) =>
     put<RecordingScheduleDto[]>('/recording/schedule', body),
+
+  getConnectionSchedule: (connectionId: number) =>
+    getJSON<ConnectionScheduleDto>(`/connections/${connectionId}/schedule`),
+
+  putConnectionSchedule: (connectionId: number, body: PutConnectionScheduleRequest) =>
+    put<ConnectionScheduleDto>(`/connections/${connectionId}/schedule`, body),
+
+  getConnectionScheduleHistory: (connectionId: number) =>
+    getJSON<ConnectionScheduleDto[]>(`/connections/${connectionId}/schedule/history`),
+
+  getNotifications: (limit = 100) => getJSON<NotificationDto[]>(`/notifications?limit=${limit}`),
 
   connect: (connectionId: number) => post<ConnectionDto>(`/connections/${connectionId}/connect`),
   disconnect: (connectionId: number) =>
