@@ -32,8 +32,9 @@ public sealed class ConnectionManager(
     ILoggerFactory loggerFactory,
     ILogger<ConnectionManager> logger) : IDisposable
 {
-    /// <summary>correlationId инцидента связи (общий с ConnectionSupervisor) для upsert статуса (ось B, 11.2).</summary>
-    public static string LinkIncidentId(long connectionId) => $"connection:{connectionId}:link";
+    /// <summary>subject инцидента связи (общий с ConnectionSupervisor). Хаб присвоит per-occurrence
+    /// correlationId = subject:uid; поиск по этому префиксу собирает все инциденты связи подключения.</summary>
+    public static string LinkIncidentSubject(long connectionId) => $"connection:{connectionId}:link";
 
     /// <summary>Порог тишины: нет данных от коннектора дольше — статус «ожидание» (waiting).</summary>
     private static readonly TimeSpan IdleThreshold = TimeSpan.FromSeconds(5);
@@ -395,7 +396,7 @@ public sealed class ConnectionManager(
                 {
                     await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
                     notifications.Resolve(
-                        LinkIncidentId(connectionId),
+                        LinkIncidentSubject(connectionId),
                         "connection.recovered",
                         $"Связь восстановлена: подключение {connectionId}",
                         severity: "ok",
@@ -432,7 +433,7 @@ public sealed class ConnectionManager(
                     connectionId, change.State, change.Detail);
 
                 notifications.Open(
-                    LinkIncidentId(connectionId),
+                    LinkIncidentSubject(connectionId),
                     "connection.lost",
                     $"Связь потеряна: подключение {connectionId} ({change.State})",
                     severity: "error",

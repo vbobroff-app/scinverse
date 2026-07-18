@@ -3,7 +3,8 @@ namespace Scinverse.Ohs.Host;
 /// <summary>
 /// Тонкий срез phase 11.2: публикация событий жизненного цикла в ring-buffer + WS.
 /// Одиночные события — <see cref="Publish"/>; инциденты с осью B (active→underway→resolved) —
-/// <see cref="Open"/>/<see cref="Progress"/>/<see cref="Resolve"/> по <c>correlationId</c>.
+/// <see cref="Open"/>/<see cref="Progress"/>/<see cref="Resolve"/> по <c>subject</c>. Хаб сам присваивает
+/// каждому инциденту per-occurrence <c>correlationId = subject:uid</c>.
 /// Полный ILogger-sink / user-actions — перспектива phase 11.
 /// </summary>
 public interface INotificationPublisher
@@ -17,9 +18,9 @@ public interface INotificationPublisher
         string module = "ohs.connection",
         object? data = null);
 
-    /// <summary>Открыть/подтвердить инцидент (active). true — если статус сменился (событие ушло).</summary>
+    /// <summary>Открыть/подтвердить инцидент по <paramref name="subject"/> (active). true — если статус сменился (событие ушло).</summary>
     bool Open(
-        string correlationId,
+        string subject,
         string code,
         string message,
         string severity = "warning",
@@ -27,9 +28,9 @@ public interface INotificationPublisher
         string module = "ohs.connection",
         object? data = null);
 
-    /// <summary>Пометить восстановление (underway) открытого инцидента.</summary>
+    /// <summary>Пометить восстановление (underway) открытого по <paramref name="subject"/> инцидента.</summary>
     bool Progress(
-        string correlationId,
+        string subject,
         string code,
         string message,
         string severity = "info",
@@ -37,9 +38,9 @@ public interface INotificationPublisher
         string module = "ohs.connection",
         object? data = null);
 
-    /// <summary>Закрыть инцидент (resolved, терминальный).</summary>
+    /// <summary>Закрыть инцидент по <paramref name="subject"/> (resolved, терминальный).</summary>
     bool Resolve(
-        string correlationId,
+        string subject,
         string code,
         string message,
         string severity = "ok",

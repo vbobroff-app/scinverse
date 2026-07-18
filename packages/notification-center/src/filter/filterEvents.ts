@@ -102,7 +102,8 @@ export function filterEvents(
       return false;
     }
     if (query) {
-      const hay = `${evt.message} ${evt.code} ${evt.module}`.toLowerCase();
+      // correlationId — в поиск: пользователь вводит/кликает Id инцидента → вся его лента.
+      const hay = `${evt.message} ${evt.code} ${evt.module} ${evt.correlationId ?? ''}`.toLowerCase();
       if (!hay.includes(query)) {
         return false;
       }

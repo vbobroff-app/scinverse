@@ -149,6 +149,21 @@
   color: var(--color-text-muted, #6c757d);
 }
 
+.metaLink {
+  padding: 0;
+  font: inherit;
+  color: var(--color-accent, #4dabf7);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.metaLink:hover {
+  color: var(--color-accent-hover, #74c0fc);
+}
+
 .data {
   margin: 0;
   padding: 8px;

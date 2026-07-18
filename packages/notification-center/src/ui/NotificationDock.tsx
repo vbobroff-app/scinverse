@@ -269,6 +269,19 @@ export function NotificationDock({
     [emitFilters, expanded, lastHeight, setExpanded],
   );
 
+  /** Клик по Id инцидента: показать всю его ленту — сбрасываем прочие фильтры, ищем по correlationId. */
+  const filterByIncident = useCallback(
+    (correlationId: string) => {
+      emitFilters({ ...EMPTY_DOCK_FILTER, query: correlationId }, []);
+      if (!expanded) {
+        setExpanded(true);
+        setBodyMounted(true);
+        setHeight(lastHeight);
+      }
+    },
+    [emitFilters, expanded, lastHeight, setExpanded],
+  );
+
   const visible = useMemo(
     () =>
       filterEvents(events, {
@@ -538,6 +551,7 @@ export function NotificationDock({
                     !bus.isRead(evt.id)
                   }
                   onOpen={showUnreadUi ? onOpenRow : undefined}
+                  onFilterIncident={filterByIncident}
                 />
               ))
             )}

@@ -6,8 +6,11 @@ namespace Scinverse.Ohs.Host;
 /// <summary>
 /// In-memory ring-buffer уведомлений + broadcast WS <c>notification</c> (phase 7j / тонкий 11.2).
 /// Плюс оркестратор жизненного цикла (ось B): <see cref="Open"/>/<see cref="Progress"/>/<see cref="Resolve"/>
-/// по <c>correlationId</c>. Единственный источник правды переходов — этот хаб (фронт = проекция upsert).
-/// Переходы и запись в буфер атомарны под <c>_gate</c> (pessimistic lock), broadcast — вне лока.
+/// по <c>subject</c>. Единственный источник правды переходов — этот хаб (фронт = проекция upsert).
+/// Каждый новый инцидент получает свой <c>correlationId = subject:uid</c> (per-occurrence scope):
+/// один и тот же subject, открытый повторно после resolved, получает новый uid — история инцидентов
+/// не смешивается, а поиск по префиксу subject собирает их все. Переходы и запись в буфер атомарны
+/// под <c>_gate</c> (pessimistic lock), broadcast — вне лока.
 /// </summary>
 public sealed class NotificationHub(WebSocketBroadcaster broadcaster) : INotificationPublisher
 {
@@ -17,8 +20,8 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster) : INotific
     private int _count;
     private readonly object _gate = new();
 
-    /// <summary>Открытые инциденты: correlationId → текущий статус (active|underway). resolved снимается.</summary>
-    private readonly Dictionary<string, string> _openIncidents = new();
+    /// <summary>Открытые инциденты: subject → (correlationId текущего инцидента, статус active|underway). resolved снимается.</summary>
+    private readonly Dictionary<string, (string CorrelationId, string Status)> _openIncidents = new();
 
     public void Publish(
         string code,
@@ -32,44 +35,45 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster) : INotific
         broadcaster.Broadcast(new NotificationLiveEvent(evt));
     }
 
-    /// <summary>Открыть/подтвердить инцидент (status=active). Идемпотентно: повторный open активного — no-op.</summary>
+    /// <summary>Открыть/подтвердить инцидент (status=active). Идемпотентно: повторный open активного — no-op.
+    /// Новый инцидент по subject получает свежий <c>correlationId = subject:uid</c>.</summary>
     public bool Open(
-        string correlationId,
+        string subject,
         string code,
         string message,
         string severity = "warning",
         string sourceType = "system",
         string module = "ohs.connection",
         object? data = null)
-        => Transition(correlationId, "active", code, message, severity, sourceType, module, data,
+        => Transition(subject, "active", code, message, severity, sourceType, module, data,
             canTransition: current => current != "active");
 
     /// <summary>Пометить восстановление (status=underway). Только для открытого инцидента (active).</summary>
     public bool Progress(
-        string correlationId,
+        string subject,
         string code,
         string message,
         string severity = "info",
         string sourceType = "system",
         string module = "ohs.connection",
         object? data = null)
-        => Transition(correlationId, "underway", code, message, severity, sourceType, module, data,
+        => Transition(subject, "underway", code, message, severity, sourceType, module, data,
             canTransition: current => current == "active");
 
     /// <summary>Закрыть инцидент (status=resolved, терминальный). Идемпотентно: повторный resolve — no-op.</summary>
     public bool Resolve(
-        string correlationId,
+        string subject,
         string code,
         string message,
         string severity = "ok",
         string sourceType = "system",
         string module = "ohs.connection",
         object? data = null)
-        => Transition(correlationId, "resolved", code, message, severity, sourceType, module, data,
+        => Transition(subject, "resolved", code, message, severity, sourceType, module, data,
             canTransition: current => current is "active" or "underway");
 
     private bool Transition(
-        string correlationId,
+        string subject,
         string targetStatus,
         string code,
         string message,
@@ -82,19 +86,22 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster) : INotific
         NotificationDto? evt;
         lock (_gate)
         {
-            var current = _openIncidents.TryGetValue(correlationId, out var s) ? s : (string?)null;
-            if (!canTransition(current))
+            var open = _openIncidents.TryGetValue(subject, out var s) ? s : ((string CorrelationId, string Status)?)null;
+            if (!canTransition(open?.Status))
             {
                 return false; // I2: нет смены статуса — не плодим строку.
             }
 
+            // Открытый инцидент переиспользует свой correlationId; новый (Open по пустому subject) получает subject:uid.
+            var correlationId = open?.CorrelationId ?? $"{subject}:{Guid.NewGuid().ToString("N")[..8]}";
+
             if (targetStatus == "resolved")
             {
-                _openIncidents.Remove(correlationId);
+                _openIncidents.Remove(subject);
             }
             else
             {
-                _openIncidents[correlationId] = targetStatus;
+                _openIncidents[subject] = (correlationId, targetStatus);
             }
 
             evt = EnqueueLocked(code, message, severity, sourceType, module, targetStatus, correlationId, data);

@@ -14,6 +14,8 @@ interface Props {
   /** Показывать иконку severity («логотип статуса»). Иначе — текстовая метка. */
   showStatusLogo?: boolean;
   onOpen?: (event: NotificationEvent) => void;
+  /** Клик по Id инцидента (`correlationId`) — фильтрует ленту до этого инцидента. */
+  onFilterIncident?: (correlationId: string) => void;
 }
 
 const SEVERITY_LABEL: Record<NotificationSeverity, string> = {
@@ -59,6 +61,7 @@ export function NotificationRow({
   unread,
   showStatusLogo = true,
   onOpen,
+  onFilterIncident,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -130,7 +133,20 @@ export function NotificationRow({
           <div className={styles.meta}>
             <span>code: {event.code}</span>
             <span>status: {status}</span>
-            {event.correlationId && <span>corr: {event.correlationId}</span>}
+            {event.correlationId &&
+              (onFilterIncident ? (
+                <Tip content="Показать всю ленту этого инцидента">
+                  <button
+                    type="button"
+                    className={styles.metaLink}
+                    onClick={() => onFilterIncident(event.correlationId as string)}
+                  >
+                    corr: {event.correlationId}
+                  </button>
+                </Tip>
+              ) : (
+                <span>corr: {event.correlationId}</span>
+              ))}
             <span>id: {event.id}</span>
           </div>
           {detail && <pre className={styles.data}>{detail}</pre>}

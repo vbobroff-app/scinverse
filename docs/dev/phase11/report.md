@@ -34,6 +34,7 @@
 | 2026-07-18 | Зафиксирован дизайн осей: read-state + lifecycle `status`, машина переходов (open/progress/resolve), инварианты I1/I2, upsert по `correlationId` | apply.md §Оси состояния |
 | 2026-07-18 | 11.2: реализованы контракт `status`/`correlationId` (TS+C#), шина (upsert/I2/бейдж по последнему статусу, `statusOf`), фильтр `statuses`, бэк-оркестратор `Open/Progress/Resolve` под lock, первый продюсер `connection.lost/reconnecting/recovered`, seed переведён на ось `status` | пакет 27, OHS web tsc+88, backend unit 115 — зелёные |
 | 2026-07-18 | UI оси B (цветовая модель): read/unread → цвет border; lifecycle → фон-маска (открытый warning=жёлтый, error/critical=красный, resolved=зелёный), без pill/иконок; underway-продюсер поднят до `warning` (эскалация красный→жёлтый→зелёный); чип фильтра «Статус» в `DockFilters` (+persist); ретайр `interaction:'resolving'` | пакет tsc+29, OHS web tsc+88 — зелёные |
+| 2026-07-18 | Группировка/поиск инцидентов: `correlationId = subject:uid` (per-occurrence) — продюсер даёт subject (`connection:{id}:link`), хаб на `Open` генерит uid, `Progress`/`Resolve` переиспользуют; `LinkIncidentId`→`LinkIncidentSubject`; поиск по `correlationId` в `filterEvents`; клик по `corr` в строке → фильтр по инциденту (`NotificationRow`/`NotificationDock`) | backend unit 115, пакет+OHS web — зелёные |
 
 ## Итог
 
