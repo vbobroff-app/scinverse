@@ -4,8 +4,20 @@
  */
 
 import { createNotificationBus, notify } from '@scinverse/notification-center';
-import type { NotificationSeverity, NotificationSourceType } from '@scinverse/notification-center';
+import type {
+  NotificationSeverity,
+  NotificationSourceType,
+  NotificationStatus,
+} from '@scinverse/notification-center';
 import type { NotificationDto } from './types';
+
+const KNOWN_STATUSES: readonly NotificationStatus[] = ['active', 'underway', 'resolved'];
+
+function toStatus(value: string | null | undefined): NotificationStatus | undefined {
+  return value && (KNOWN_STATUSES as readonly string[]).includes(value)
+    ? (value as NotificationStatus)
+    : undefined;
+}
 import { notificationDockStore } from './notificationDockStorage';
 
 export const notificationBus = createNotificationBus();
@@ -64,8 +76,9 @@ function seedDemoNotifications(): void {
     module: 'ohs.coverage',
     code: 'coverage.gap',
     message: 'Пробел в покрытии M1 · 3 мин — идёт догрузка',
-    interaction: 'resolving',
     localization: 'internal',
+    status: 'underway',
+    correlationId: 'ohs.demo.coverage.gap.sber',
     data: { ticker: 'SBER', gapMin: 3 },
   });
 
@@ -117,8 +130,9 @@ function seedDemoNotifications(): void {
     module: 'ohs.coverage',
     code: 'coverage.healed',
     message: 'Пробел закрыт: M1 SBER восстановлен',
-    interaction: 'resolving',
     localization: 'internal',
+    status: 'resolved',
+    correlationId: 'ohs.demo.coverage.gap.sber',
   });
 }
 
@@ -211,6 +225,8 @@ export function publishServerNotification(dto: NotificationDto): void {
     code: dto.code,
     message: dto.message,
     sourceType,
+    status: toStatus(dto.status),
+    correlationId: dto.correlationId ?? undefined,
     data,
   };
   switch (severity) {

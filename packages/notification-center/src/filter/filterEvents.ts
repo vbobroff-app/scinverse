@@ -5,8 +5,9 @@ import type {
   NotificationLocalization,
   NotificationSeverity,
   NotificationSourceType,
+  NotificationStatus,
 } from '../types';
-import { resolveInteraction, resolveLocalization } from '../types';
+import { resolveInteraction, resolveLocalization, resolveStatus } from '../types';
 import type { DockRangeFilter, RangeBounds } from './dateRange';
 import { resolveRangeBounds } from './dateRange';
 
@@ -63,6 +64,7 @@ export function filterEvents(
   const sourceTypes = toSet<NotificationSourceType>(filter.sourceTypes);
   const interactions = toSet<NotificationInteraction>(filter.interactions);
   const localizations = toSet<NotificationLocalization>(filter.localizations);
+  const statuses = toSet<NotificationStatus>(filter.statuses);
   const modules = toSet<string>(filter.modules);
   const query = filter.query?.trim().toLowerCase() ?? '';
   const bounds = resolveFilterBounds(filter.range, now);
@@ -72,6 +74,7 @@ export function filterEvents(
     !sourceTypes &&
     !interactions &&
     !localizations &&
+    !statuses &&
     !modules &&
     !query &&
     !bounds
@@ -90,6 +93,9 @@ export function filterEvents(
       return false;
     }
     if (localizations && !localizations.has(resolveLocalization(evt))) {
+      return false;
+    }
+    if (statuses && !statuses.has(resolveStatus(evt))) {
       return false;
     }
     if (modules && !modules.has(evt.module)) {

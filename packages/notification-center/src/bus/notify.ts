@@ -6,6 +6,7 @@ import type {
   NotificationLocalization,
   NotificationSeverity,
   NotificationSourceType,
+  NotificationStatus,
 } from '../types';
 
 export interface NotifyInput {
@@ -15,6 +16,7 @@ export interface NotifyInput {
   sourceType?: NotificationSourceType;
   interaction?: NotificationInteraction;
   localization?: NotificationLocalization;
+  status?: NotificationStatus;
   data?: Record<string, unknown>;
   correlationId?: string;
   id?: string;
@@ -48,6 +50,7 @@ function publishSeverity(
     sourceType,
     interaction: input.interaction ?? mapped.interaction,
     localization: input.localization ?? mapped.localization,
+    status: input.status,
     module: input.module,
     code: input.code,
     message: input.message,

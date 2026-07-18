@@ -27,10 +27,14 @@ public sealed class ConnectionManager(
     Lazy<ILivenessWriter> liveness,
     Lazy<RecordingManager> recordings,
     ILinkLivenessStore linkLiveness,
+    INotificationPublisher notifications,
     TransaqConnectorOptions transaqDefaults,
     ILoggerFactory loggerFactory,
     ILogger<ConnectionManager> logger) : IDisposable
 {
+    /// <summary>correlationId инцидента связи (общий с ConnectionSupervisor) для upsert статуса (ось B, 11.2).</summary>
+    public static string LinkIncidentId(long connectionId) => $"connection:{connectionId}:link";
+
     /// <summary>Порог тишины: нет данных от коннектора дольше — статус «ожидание» (waiting).</summary>
     private static readonly TimeSpan IdleThreshold = TimeSpan.FromSeconds(5);
 
@@ -390,6 +394,12 @@ public sealed class ConnectionManager(
                 if (recovering)
                 {
                     await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
+                    notifications.Resolve(
+                        LinkIncidentId(connectionId),
+                        "connection.recovered",
+                        $"Связь восстановлена: подключение {connectionId}",
+                        severity: "ok",
+                        data: new { connectionId, state = change.State.ToString() });
                 }
 
                 if (change.State == ConnectorLinkState.Degraded)
@@ -420,6 +430,13 @@ public sealed class ConnectionManager(
                 logger.LogWarning(
                     "Подключение {ConnectionId}: связь {State} ({Detail})",
                     connectionId, change.State, change.Detail);
+
+                notifications.Open(
+                    LinkIncidentId(connectionId),
+                    "connection.lost",
+                    $"Связь потеряна: подключение {connectionId} ({change.State})",
+                    severity: "error",
+                    data: new { connectionId, state = change.State.ToString(), detail = change.Detail });
 
                 // Обрыв связи: закрываем живость связи как 'server_down' (красный на ленте; время события).
                 if (_sourceIds.TryGetValue(connectionId, out var downSourceId))

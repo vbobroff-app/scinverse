@@ -68,4 +68,44 @@ describe('NotificationBus', () => {
     expect(bus.events).toEqual([]);
     expect(bus.unreadAlertCount).toBe(0);
   });
+
+  describe('lifecycle status (ось B)', () => {
+    it('keeps both rows on transition; statusOf follows the latest', () => {
+      const bus = createNotificationBus();
+      bus.publish(evt({ id: 'a1', correlationId: 'conn:1:link', code: 'connection.lost', status: 'active' }));
+      bus.publish(evt({ id: 'a2', correlationId: 'conn:1:link', code: 'connection.recovered', status: 'resolved' }));
+      expect(bus.events.map((e) => e.id)).toEqual(['a2', 'a1']);
+      expect(bus.statusOf('conn:1:link')).toBe('resolved');
+    });
+
+    it('I2: dedups repeated same (status, code) within a correlationId', () => {
+      const bus = createNotificationBus();
+      bus.publish(evt({ id: 'a1', correlationId: 'c', code: 'x', status: 'active' }));
+      bus.publish(evt({ id: 'a2', correlationId: 'c', code: 'x', status: 'active' }));
+      bus.publish(evt({ id: 'a3', correlationId: 'c', code: 'x', status: 'underway' }));
+      expect(bus.events.map((e) => e.id)).toEqual(['a3', 'a1']);
+    });
+
+    it('badge follows last status: resolved alert does not burn', () => {
+      const bus = createNotificationBus();
+      notify.error(bus, { module: 'm', code: 'connection.lost', message: 'down', id: 'e1', correlationId: 'conn:1:link', status: 'active' });
+      expect(bus.unreadAlertCount).toBe(1);
+      notify.info(bus, { module: 'm', code: 'connection.recovered', message: 'up', id: 'e2', correlationId: 'conn:1:link', status: 'resolved' });
+      expect(bus.unreadAlertCount).toBe(0);
+    });
+
+    it('re-open (→ active) re-alerts via a fresh unread row', () => {
+      const bus = createNotificationBus();
+      notify.error(bus, { module: 'm', code: 'connection.lost', message: 'down', id: 'e1', correlationId: 'c', status: 'active' });
+      bus.markAllRead();
+      expect(bus.unreadAlertCount).toBe(0);
+      notify.error(bus, { module: 'm', code: 'connection.lost', message: 'down again', id: 'e2', correlationId: 'c', status: 'active' });
+      // Тот же статус того же кода — I2 дедуп: строка не добавляется, ре-алерта нет.
+      expect(bus.unreadAlertCount).toBe(0);
+      notify.info(bus, { module: 'm', code: 'connection.recovered', message: 'up', id: 'e3', correlationId: 'c', status: 'resolved' });
+      notify.error(bus, { module: 'm', code: 'connection.lost', message: 'flap', id: 'e4', correlationId: 'c', status: 'active' });
+      expect(bus.statusOf('c')).toBe('active');
+      expect(bus.unreadAlertCount).toBe(1);
+    });
+  });
 });

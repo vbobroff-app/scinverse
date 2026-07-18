@@ -17,6 +17,13 @@ export type NotificationInteraction = 'user' | 'system' | 'resolving';
 export type NotificationLocalization = 'internal' | 'external';
 
 /**
+ * Жизненный цикл инцидента (ось B, ортогональна read-state). Отсутствие ⇒ `active`.
+ * `active` — условие есть; `underway` — идёт восстановление (реконнект/догрузка);
+ * `resolved` — терминальный (рецидив после него = новый `correlationId`).
+ */
+export type NotificationStatus = 'active' | 'underway' | 'resolved';
+
+/**
  * Единый контракт уведомления.
  * `ts` — ISO-8601 (хранение UTC/абсолютное); отображение форматирует хост.
  * Сообщения и data не должны содержать секреты (login/password/токены).
@@ -30,6 +37,8 @@ export interface NotificationEvent {
   interaction?: NotificationInteraction;
   /** Локализация; если нет — выводится из sourceType. */
   localization?: NotificationLocalization;
+  /** Жизненный цикл инцидента (ось B); если нет — трактуется как `active`. */
+  status?: NotificationStatus;
   /** Логический модуль-источник, напр. `ohs.recording`, `connector.transaq`. */
   module: string;
   /** Стабильный машинный код для фильтров, напр. `recording.started`. */
@@ -65,6 +74,12 @@ export const NOTIFICATION_LOCALIZATIONS: readonly NotificationLocalization[] = [
   'external',
 ] as const;
 
+export const NOTIFICATION_STATUSES: readonly NotificationStatus[] = [
+  'active',
+  'underway',
+  'resolved',
+] as const;
+
 /** Фильтр ленты (все активные плашки работают как И). */
 export interface NotificationFilter {
   severities?: ReadonlySet<NotificationSeverity> | NotificationSeverity[];
@@ -72,6 +87,7 @@ export interface NotificationFilter {
   sourceTypes?: ReadonlySet<NotificationSourceType> | NotificationSourceType[];
   interactions?: ReadonlySet<NotificationInteraction> | NotificationInteraction[];
   localizations?: ReadonlySet<NotificationLocalization> | NotificationLocalization[];
+  statuses?: ReadonlySet<NotificationStatus> | NotificationStatus[];
   modules?: ReadonlySet<string> | string[];
   /** Подстрока по message / code / module (без учёта регистра). */
   query?: string;
@@ -98,4 +114,9 @@ export function resolveLocalization(event: NotificationEvent): NotificationLocal
     return event.localization;
   }
   return event.sourceType === 'external' ? 'external' : 'internal';
+}
+
+/** Статус инцидента; отсутствие ⇒ `active`. */
+export function resolveStatus(event: NotificationEvent): NotificationStatus {
+  return event.status ?? 'active';
 }

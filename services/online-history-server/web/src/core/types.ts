@@ -279,6 +279,10 @@ export interface NotificationDto {
   module: string;
   code: string;
   message: string;
+  /** Жизненный цикл инцидента (ось B): active | underway | resolved; null ⇒ active. */
+  status?: string | null;
+  /** Ключ инцидента для upsert перехода статуса (группировка событий). */
+  correlationId?: string | null;
   data?: unknown;
 }
 

@@ -15,6 +15,11 @@
     <PackageReference Include="FluentAssertions" />
   </ItemGroup>
 
+  <!-- Host — Web SDK: для ссылки на его типы (NotificationHub) нужен shared-framework AspNetCore. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
@@ -23,6 +28,7 @@
     <ProjectReference Include="..\..\src\Scinverse.Ohs.Domain\Scinverse.Ohs.Domain.csproj" />
     <ProjectReference Include="..\..\src\Scinverse.Ohs.Connectors.Transaq\Scinverse.Ohs.Connectors.Transaq.csproj" />
     <ProjectReference Include="..\..\src\Scinverse.Ohs.Ingestion\Scinverse.Ohs.Ingestion.csproj" />
+    <ProjectReference Include="..\..\src\Scinverse.Ohs.Host\Scinverse.Ohs.Host.csproj" />
   </ItemGroup>
 
 </Project>

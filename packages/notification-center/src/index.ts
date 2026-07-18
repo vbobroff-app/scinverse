@@ -6,14 +6,17 @@ export type {
   NotificationLocalization,
   NotificationSeverity,
   NotificationSourceType,
+  NotificationStatus,
 } from './types';
 export {
   NOTIFICATION_INTERACTIONS,
   NOTIFICATION_LOCALIZATIONS,
   NOTIFICATION_SEVERITIES,
   NOTIFICATION_SOURCE_TYPES,
+  NOTIFICATION_STATUSES,
   resolveInteraction,
   resolveLocalization,
+  resolveStatus,
 } from './types';
 
 export { createNotificationId } from './id';

@@ -84,4 +84,18 @@ describe('filterEvents', () => {
   it('range all does not restrict', () => {
     expect(filterEvents(sample, { range: { preset: 'all' } })).toHaveLength(2);
   });
+
+  it('filters by lifecycle status (default active when absent)', () => {
+    const events: NotificationEvent[] = [
+      { ...sample[0], id: 'a', status: 'active' },
+      { ...sample[0], id: 'u', status: 'underway' },
+      { ...sample[0], id: 'r', status: 'resolved' },
+      { ...sample[0], id: 'n' }, // без status ⇒ active
+    ];
+    expect(filterEvents(events, { statuses: ['active'] }).map((e) => e.id)).toEqual(['a', 'n']);
+    expect(filterEvents(events, { statuses: ['resolved'] }).map((e) => e.id)).toEqual(['r']);
+    expect(
+      filterEvents(events, { statuses: ['active', 'underway'] }).map((e) => e.id),
+    ).toEqual(['a', 'u', 'n']);
+  });
 });

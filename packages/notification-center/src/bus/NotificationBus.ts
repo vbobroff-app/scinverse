@@ -1,8 +1,14 @@
 import { BehaviorSubject, type Observable } from 'rxjs';
 import { map, distinctUntilChanged } from 'rxjs/operators';
-import type { NotificationBusOptions, NotificationEvent } from '../types';
+import { resolveStatus } from '../types';
+import type { NotificationBusOptions, NotificationEvent, NotificationStatus } from '../types';
 
 const DEFAULT_LIMIT = 1000;
+
+/** Ключ группировки инцидента: `correlationId`, иначе — сам `id` (одиночное событие). */
+function groupKey(evt: NotificationEvent): string {
+  return evt.correlationId ?? evt.id;
+}
 
 function isAlert(evt: NotificationEvent): boolean {
   return evt.severity === 'error' || evt.severity === 'critical';
@@ -63,16 +69,38 @@ export class NotificationBus {
     this.publishMany([event]);
   }
 
-  /** Пакетная подача (бэклог / другой контур). Новые сверху; дедуп по `id`. */
+  /**
+   * Пакетная подача (бэклог / другой контур). Новые сверху; дедуп по `id`.
+   * I2 (lifecycle): для события с `correlationId` строка добавляется только на смену статуса —
+   * подряд идущее с тем же `(status, code)` в рамках инцидента пропускается (без спама ленты).
+   */
   publishMany(incoming: readonly NotificationEvent[]): void {
     if (incoming.length === 0) {
       return;
     }
-    const seen = new Set(this.eventsSubject.value.map((e) => e.id));
+    const current = this.eventsSubject.value;
+    const seen = new Set(current.map((e) => e.id));
+    // Последний известный (status, code) на correlationId — сид из буфера (newest-first: первый = последний).
+    const lastByCorr = new Map<string, { status: NotificationStatus; code: string }>();
+    for (const e of current) {
+      if (e.correlationId && !lastByCorr.has(e.correlationId)) {
+        lastByCorr.set(e.correlationId, { status: resolveStatus(e), code: e.code });
+      }
+    }
     const additions: NotificationEvent[] = [];
     for (const evt of incoming) {
       if (!evt?.id || seen.has(evt.id)) {
         continue;
+      }
+      if (evt.correlationId) {
+        const status = resolveStatus(evt);
+        const prev = lastByCorr.get(evt.correlationId);
+        if (prev && prev.status === status && prev.code === evt.code) {
+          // I2: тот же статус того же инцидента — не плодим строку (но id считаем виденным).
+          seen.add(evt.id);
+          continue;
+        }
+        lastByCorr.set(evt.correlationId, { status, code: evt.code });
       }
       seen.add(evt.id);
       additions.push(evt);
@@ -81,7 +109,7 @@ export class NotificationBus {
       return;
     }
     // publishMany: сохраняем относительный порядок входящего массива (первое = новее).
-    const next = [...additions, ...this.eventsSubject.value].slice(0, this.limit);
+    const next = [...additions, ...current].slice(0, this.limit);
     this.pruneReadIds(next);
     this.eventsSubject.next(next);
   }
@@ -117,12 +145,36 @@ export class NotificationBus {
     return this.readIds.has(id);
   }
 
+  /** Текущий статус инцидента по `correlationId` (последнее событие группы), либо null. */
+  statusOf(correlationId: string): NotificationStatus | null {
+    for (const evt of this.eventsSubject.value) {
+      if (evt.correlationId === correlationId) {
+        return resolveStatus(evt);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Счёт непрочитанных по **последнему статусу группы** (`correlationId` / `id`): `resolved` не
+   * «горит», перекрытые (не последние) строки инцидента не учитываются. Лента — newest-first,
+   * поэтому первое встреченное событие группы и есть её актуальное.
+   */
   private countUnread(
     events: readonly NotificationEvent[],
     match: (evt: NotificationEvent) => boolean,
   ): number {
+    const seenGroups = new Set<string>();
     let n = 0;
     for (const evt of events) {
+      const key = groupKey(evt);
+      if (seenGroups.has(key)) {
+        continue;
+      }
+      seenGroups.add(key);
+      if (resolveStatus(evt) === 'resolved') {
+        continue;
+      }
       if (match(evt) && !this.readIds.has(evt.id)) {
         n += 1;
       }

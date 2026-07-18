@@ -144,6 +144,13 @@ public sealed class ConnectionSupervisor(
             "info",
             data: new { entry.ConnectionId, attempt = fails + 1 });
 
+        // Если по этому подключению открыт инцидент связи (lost, active) — переводим его в underway.
+        notifications.Progress(
+            ConnectionManager.LinkIncidentId(entry.ConnectionId),
+            "connection.reconnecting",
+            $"Восстановление связи {entry.ConnectionId}: попытка {fails + 1}/{MaxConnectAttempts}",
+            data: new { entry.ConnectionId, attempt = fails + 1 });
+
         try
         {
             await connections.ConnectAsync(entry.ConnectionId, cancellationToken).ConfigureAwait(false);
