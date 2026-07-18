@@ -145,10 +145,12 @@ public sealed class ConnectionSupervisor(
             data: new { entry.ConnectionId, attempt = fails + 1 });
 
         // Если по этому подключению открыт инцидент связи (lost, active) — переводим его в underway.
+        // severity=warning: underway остаётся «жёлтым, ещё не решено» (маска фона в ленте).
         notifications.Progress(
             ConnectionManager.LinkIncidentId(entry.ConnectionId),
             "connection.reconnecting",
             $"Восстановление связи {entry.ConnectionId}: попытка {fails + 1}/{MaxConnectAttempts}",
+            severity: "warning",
             data: new { entry.ConnectionId, attempt = fails + 1 });
 
         try

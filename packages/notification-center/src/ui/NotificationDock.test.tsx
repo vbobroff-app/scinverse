@@ -73,28 +73,28 @@ describe('NotificationDock', () => {
     expect(last.activeFilters).toEqual(['severity']);
   });
 
-  it('renders lifecycle status pill for underway/resolved', () => {
+  it('фон-маска по lifecycle × severity (без pill)', () => {
     const bus = createNotificationBus();
-    notify.info(bus, {
-      id: 'u1',
-      module: 'ohs.connection',
-      code: 'connection.reconnecting',
-      message: 'Реконнект',
-      status: 'underway',
-      correlationId: 'c',
-    });
+    notify.error(bus, { id: 'e', module: 'm', code: 'c', message: 'Открытая ошибка' });
+    notify.warn(bus, { id: 'w', module: 'm', code: 'c', message: 'Открытый ворнинг' });
+    notify.info(bus, { id: 'i', module: 'm', code: 'c', message: 'Инфо' });
     notify.ok(bus, {
-      id: 'r1',
-      module: 'ohs.connection',
+      id: 'r',
+      module: 'm',
       code: 'connection.recovered',
-      message: 'Связь восстановлена',
+      message: 'Решено',
       status: 'resolved',
-      correlationId: 'c2',
     });
 
     render(<NotificationDock bus={bus} defaultExpanded />);
-    expect(screen.getByText('восстановление')).toBeTruthy();
-    expect(screen.getByText('решено')).toBeTruthy();
+    const bgOf = (text: string) =>
+      screen.getByText(text).closest('div[class*="row"]')?.className ?? '';
+
+    expect(bgOf('Открытая ошибка')).toContain('bgAlert');
+    expect(bgOf('Открытый ворнинг')).toContain('bgWarning');
+    expect(bgOf('Решено')).toContain('bgResolved');
+    // info без маски и без bg-класса.
+    expect(bgOf('Инфо')).not.toMatch(/bgAlert|bgWarning|bgResolved/);
   });
 
   it('status filter hides non-matching rows', () => {
@@ -136,36 +136,5 @@ describe('NotificationDock', () => {
 
     expect(screen.getByText('Восстановлено')).toBeTruthy();
     expect(screen.queryByText('Потеря связи')).toBeNull();
-  });
-
-  it('dims resolved and superseded rows of an incident', () => {
-    const bus = createNotificationBus();
-    // Один инцидент: lost(active) → recovered(resolved). Оба видимы; свежее (resolved) — актуальное.
-    notify.error(bus, {
-      id: 'lost',
-      module: 'm',
-      code: 'connection.lost',
-      message: 'Потеря',
-      status: 'active',
-      correlationId: 'link:1',
-    });
-    notify.ok(bus, {
-      id: 'rec',
-      module: 'm',
-      code: 'connection.recovered',
-      message: 'Восстановлено',
-      status: 'resolved',
-      correlationId: 'link:1',
-    });
-
-    render(<NotificationDock bus={bus} defaultExpanded />);
-
-    const dimmedOf = (text: string) => {
-      const row = screen.getByText(text).closest('div[class*="row"]');
-      return row?.className.includes('dimmed') ?? false;
-    };
-    // resolved (актуальное) тускнеет как закрытый инцидент; active (перекрытое) — как не последнее.
-    expect(dimmedOf('Восстановлено')).toBe(true);
-    expect(dimmedOf('Потеря')).toBe(true);
   });
 });
