@@ -72,9 +72,16 @@ builder.Services.AddHttpClient<Scinverse.Ohs.Domain.Finam.IFinamApi, Scinverse.O
 
 // Подтверждатели расписания (phase 7i): нейтральный порт IScheduleConfirmer + реестр по adapter.
 // Finam — per-instrument (секрет→JWT); MOEX ISS — бесплатный market-wide session_schedule (без auth).
-// Transient — зависят от типизированных HttpClient (per-request).
-builder.Services.AddTransient<Scinverse.Ohs.Domain.Schedule.IScheduleConfirmer, Scinverse.Ohs.Host.Finam.FinamScheduleConfirmer>();
-builder.Services.AddTransient<Scinverse.Ohs.Domain.Schedule.IScheduleConfirmer, IssScheduleConfirmer>();
+// Scinverse — композитный фасад (adapter scinverse): сам роутит по capability/движку между Finam/ISS.
+// Transient — зависят от типизированных HttpClient (per-request). Конкретные типы регистрируем отдельно,
+// чтобы фасад инжектил их напрямую (без реестра → без цикла реестр→фасад→реестр).
+builder.Services.AddTransient<Scinverse.Ohs.Host.Finam.FinamScheduleConfirmer>();
+builder.Services.AddTransient<IssScheduleConfirmer>();
+builder.Services.AddTransient<Scinverse.Ohs.Domain.Schedule.IScheduleConfirmer>(
+    sp => sp.GetRequiredService<Scinverse.Ohs.Host.Finam.FinamScheduleConfirmer>());
+builder.Services.AddTransient<Scinverse.Ohs.Domain.Schedule.IScheduleConfirmer>(
+    sp => sp.GetRequiredService<IssScheduleConfirmer>());
+builder.Services.AddTransient<Scinverse.Ohs.Domain.Schedule.IScheduleConfirmer, ScinverseScheduleConfirmer>();
 builder.Services.AddTransient<Scinverse.Ohs.Domain.Schedule.IScheduleConfirmerRegistry, ScheduleConfirmerRegistry>();
 // Актуализация справочника классов базового актива фьючерсов из ISS (по кнопке).
 builder.Services.AddSingleton<FuturesAssetClassifier>();

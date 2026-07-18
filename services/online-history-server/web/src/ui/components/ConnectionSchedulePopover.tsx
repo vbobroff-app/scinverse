@@ -40,19 +40,26 @@ const DAY_PRESETS: { id: string; label: string; days: number[] }[] = [
 
 type TemplateId = 'futures' | 'stock' | 'currency';
 
-const TEMPLATES: {
-  id: TemplateId;
-  label: string;
-  engine: string;
+/** Шаблон = движок (для connection_schedule) + ключ рынка (для курируемой market_schedule). */
+const TEMPLATES: { id: TemplateId; label: string; engine: string; market: string }[] = [
+  { id: 'futures', label: 'MOEX срочный', engine: 'futures', market: 'derivatives' },
+  { id: 'stock', label: 'MOEX фондовый', engine: 'stock', market: 'stock' },
+  { id: 'currency', label: 'MOEX валютный', engine: 'currency', market: 'currency' },
+];
+
+/** Окно шаблона из market_schedule: будни (базовое для окна) + справочно выходные (ДСВД). */
+interface TemplateWindow {
   openH: number;
   openM: number;
   closeH: number;
   closeM: number;
-}[] = [
-  { id: 'futures', label: 'MOEX срочный', engine: 'futures', openH: 7, openM: 0, closeH: 24, closeM: 0 },
-  { id: 'stock', label: 'MOEX фондовый', engine: 'stock', openH: 6, openM: 50, closeH: 23, closeM: 50 },
-  { id: 'currency', label: 'MOEX валютный', engine: 'currency', openH: 6, openM: 50, closeH: 23, closeM: 50 },
-];
+  weOpen: string | null;
+  weClose: string | null;
+}
+
+type PresetMap = Record<TemplateId, TemplateWindow | null>;
+
+const EMPTY_PRESETS: PresetMap = { futures: null, stock: null, currency: null };
 
 const SHIFTS = [0, 1, 2, 3, 4] as const;
 
@@ -64,8 +71,14 @@ function allWeekdays(): Set<number> {
   return new Set([0, 1, 2, 3, 4, 5, 6]);
 }
 
-function isShiftValid(tpl: (typeof TEMPLATES)[number], pad: number): boolean {
-  return templateToAxisMins(tpl.openH, tpl.openM, tpl.closeH, tpl.closeM, pad) != null;
+/** "HH:mm:ss" → {h, m}. */
+function hmParts(hms: string): { h: number; m: number } {
+  const [h, m] = hms.split(':');
+  return { h: Number(h), m: Number(m) };
+}
+
+function isShiftValid(w: TemplateWindow | null, pad: number): boolean {
+  return w != null && templateToAxisMins(w.openH, w.openM, w.closeH, w.closeM, pad) != null;
 }
 
 /** Popover расписания Connection: лента 48h + дни + шаблоны + история. */
@@ -81,6 +94,8 @@ export function ConnectionSchedulePopover({ connectionId, current, open, onClose
   const [weekdays, setWeekdays] = useState<Set<number>>(allWeekdays);
   const [note, setNote] = useState('');
   const [history, setHistory] = useState<ConnectionScheduleDto[]>([]);
+  /** Окна пресетов из курируемой market_schedule (по ключу рынка), а не хардкод. */
+  const [presets, setPresets] = useState<PresetMap>(EMPTY_PRESETS);
   /** Есть текущее расписание → старт в просмотре; иначе сразу редактирование. */
   const [editing, setEditing] = useState(false);
 
@@ -111,6 +126,28 @@ export function ConnectionSchedulePopover({ connectionId, current, open, onClose
       next: setHistory,
       error: () => setHistory([]),
     });
+    // Пресеты — из курируемой market_schedule (источник истины окна), не из хардкода.
+    setPresets(EMPTY_PRESETS);
+    TEMPLATES.forEach((tpl) => {
+      OhsApi.getMarketSchedule(tpl.market).subscribe({
+        next: (ms) => {
+          const o = hmParts(ms.wdOpen);
+          const c = hmParts(ms.wdClose);
+          setPresets((prev) => ({
+            ...prev,
+            [tpl.id]: {
+              openH: o.h,
+              openM: o.m,
+              closeH: c.h,
+              closeM: c.m,
+              weOpen: ms.weOpen,
+              weClose: ms.weClose,
+            },
+          }));
+        },
+        error: () => setPresets((prev) => ({ ...prev, [tpl.id]: null })),
+      });
+    });
   }, [open, connectionId, current]);
 
   if (!open) {
@@ -120,12 +157,17 @@ export function ConnectionSchedulePopover({ connectionId, current, open, onClose
   const readOnly = !editing;
   const { start, end } = axisMinsToWindow(startMin, endMin);
   const activeTpl = TEMPLATES.find((t) => t.id === activeTemplate) ?? null;
-  const baseAxis = activeTpl
-    ? templateToAxisMins(activeTpl.openH, activeTpl.openM, activeTpl.closeH, activeTpl.closeM, 0)
+  const activeWin = activeTemplate ? presets[activeTemplate] : null;
+  const baseAxis = activeWin
+    ? templateToAxisMins(activeWin.openH, activeWin.openM, activeWin.closeH, activeWin.closeM, 0)
     : null;
 
   const applyTemplate = (tpl: (typeof TEMPLATES)[number], pad: number | null) => {
-    const base = templateToAxisMins(tpl.openH, tpl.openM, tpl.closeH, tpl.closeM, 0);
+    const w = presets[tpl.id];
+    if (!w) {
+      return;
+    }
+    const base = templateToAxisMins(w.openH, w.openM, w.closeH, w.closeM, 0);
     if (!base) {
       return;
     }
@@ -152,7 +194,7 @@ export function ConnectionSchedulePopover({ connectionId, current, open, onClose
       return;
     }
 
-    const axis = templateToAxisMins(tpl.openH, tpl.openM, tpl.closeH, tpl.closeM, pad);
+    const axis = templateToAxisMins(w.openH, w.openM, w.closeH, w.closeM, pad);
     if (!axis) {
       return;
     }
@@ -164,7 +206,7 @@ export function ConnectionSchedulePopover({ connectionId, current, open, onClose
   };
 
   const selectShift = (pad: number) => {
-    if (!activeTpl || !isShiftValid(activeTpl, pad)) {
+    if (!activeTpl || !isShiftValid(activeWin, pad)) {
       return;
     }
     applyTemplate(activeTpl, pad);
@@ -329,8 +371,10 @@ export function ConnectionSchedulePopover({ connectionId, current, open, onClose
           <span className={styles.sectionTitle}>Шаблоны</span>
           <div className={styles.chips}>
             {TEMPLATES.map((tpl) => {
+              const w = presets[tpl.id];
+              const loaded = w != null;
               // Без shift — base всегда можно выбрать (маркеры не двигаем).
-              const canApply = shiftHours == null || isShiftValid(tpl, shiftHours);
+              const canApply = loaded && (shiftHours == null || isShiftValid(w, shiftHours));
               return (
                 <button
                   key={tpl.id}
@@ -341,11 +385,13 @@ export function ConnectionSchedulePopover({ connectionId, current, open, onClose
                   disabled={readOnly || !canApply}
                   onClick={() => applyTemplate(tpl, shiftHours)}
                   title={
-                    canApply
-                      ? shiftHours == null
-                        ? 'Base: край внутри — к границе base; шире — без изменений (Shift 0 — полное выравнивание)'
-                        : undefined
-                      : `Shift ${shiftHours}: окно base±shift длиннее 24ч или за hard frame`
+                    !loaded
+                      ? 'Расписание рынка недоступно (market_schedule)'
+                      : canApply
+                        ? shiftHours == null
+                          ? 'Base: край внутри — к границе base; шире — без изменений (Shift 0 — полное выравнивание)'
+                          : undefined
+                        : `Shift ${shiftHours}: окно base±shift длиннее 24ч или за hard frame`
                   }
                 >
                   {tpl.label}
@@ -354,7 +400,7 @@ export function ConnectionSchedulePopover({ connectionId, current, open, onClose
             })}
             <span className={styles.divider} />
             {SHIFTS.map((n) => {
-              const valid = activeTpl ? isShiftValid(activeTpl, n) : false;
+              const valid = isShiftValid(activeWin, n);
               return (
                 <button
                   key={n}
@@ -373,6 +419,16 @@ export function ConnectionSchedulePopover({ connectionId, current, open, onClose
               );
             })}
           </div>
+          {activeWin && (
+            <span className={styles.meta}>
+              Из market_schedule · будни{' '}
+              {String(activeWin.openH).padStart(2, '0')}:{String(activeWin.openM).padStart(2, '0')}–
+              {String(activeWin.closeH).padStart(2, '0')}:{String(activeWin.closeM).padStart(2, '0')}
+              {activeWin.weOpen && activeWin.weClose
+                ? ` · выходные ${activeWin.weOpen.slice(0, 5)}–${activeWin.weClose.slice(0, 5)}`
+                : ' · выходные: нет торгов'}
+            </span>
+          )}
         </div>
 
         <label className={styles.note}>

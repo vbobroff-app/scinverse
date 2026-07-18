@@ -13,10 +13,12 @@ interface Props {
   service?: ExternalServiceDto | null;
 }
 
-/** Поддерживаемые адаптеры (биндинг на код). Finam — по секрету; MOEX ISS — публичный (без секрета). */
+/** Поддерживаемые адаптеры (биндинг на код). Finam — по секрету; MOEX ISS — публичный (без секрета).
+ *  Scinverse — композитный «умный» источник (фасад над Finam/ISS, cross-source), секрет берёт у Finam. */
 const ADAPTERS: ReadonlyArray<{ id: string; label: string; requiresSecret: boolean; defaultName: string }> = [
   { id: 'finam', label: 'Finam', requiresSecret: true, defaultName: 'Finam REST API' },
   { id: 'moex-iss', label: 'MOEX ISS', requiresSecret: false, defaultName: 'MOEX ISS API' },
+  { id: 'scinverse', label: 'Scinverse API (умный источник)', requiresSecret: false, defaultName: 'Scinverse API' },
 ];
 
 /** Требуется ли секрет для адаптера (публичный ISS — нет). */

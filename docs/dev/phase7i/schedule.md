@@ -243,10 +243,28 @@ Finam: общий контракт + адаптеры, ключуемые по `
 ### Эволюция назначения источника: `use_for_schedule` → source-mapping
 
 Сейчас «кто подтверждает» — булев эксклюзивный флаг `external_service.use_for_schedule` (ровно один
-источник, V018). С появлением второго источника и **двух capability** флаг перерастает в маппинг
-**`system_source(capability, market, service_id)`**: напр. `calendar→ISS` (праздники), `schedule→Finam`
-или `schedule→ISS` (по рынку). До второго рабочего адаптера оставляем булев флаг (галка в UI задизэйблена
-после выбора) — это осознанный промежуточный шаг, зафиксированный в комментарии к `V018`.
+источник, V018). Идею маппинга **`system_source(capability, market, service_id)`** реализуем **без
+изменения схемы** — через композитную интеграцию **«Scinverse API»** (adapter `scinverse`, `ScinverseScheduleConfirmer`,
+V022): это фасад над Finam/ISS, который сам роутит запрос по capability/движку (cross-source). Галку
+`use_for_schedule` ставим на неё — реестр/pre-flight/эндпоинты не меняются (резолв по adapter).
+
+**Инкапсуляция:** наружу фасад — единый **«Scinverse»**; внутренний источник (сегодня ISS/Finam) —
+деталь реализации, которая не протекает в контракт (`/integrations/{id}/schedule`|`/calendar`) и в UI.
+Поэтому карточки помечены **«Scinverse schedule»** / **«Scinverse dailytable»**, а не именем провайдера:
+если завтра Finam начнёт отдавать календарь, меняем только роутинг внутри фасада — интерфейс тот же.
+
+**Роутинг фасада `scinverse`:**
+- **Календарь** (праздники/переносы) — у фасада **собственный эндпоинт** `GetCalendarAsync`, где живёт
+  композиционная логика «какое поле откуда брать» (метод `ComposeCalendarDay`, точка расширения под
+  cross-source правила). Сейчас базовый и единственный источник дней — **ISS** `dailytable`; наружу — как
+  капабилити самого Scinverse. Когда данные появятся у Finam/другого источника — правило дописывается
+  внутри `ComposeCalendarDay`, контракт `/calendar` и UI не меняются.
+- **Schedule `futures`** — **ISS** (бесплатно, market-wide); при пустом/ошибке — **Finam** (fallback).
+- **Schedule `stock`/`currency`** — **Finam** (per-instrument; ISS `session_schedule` по ним **пуст**);
+  при недоступности — ISS (fallback).
+- Секрет для Finam-ветки фасад берёт у назначенного `finam`-сервиса (сам фасад `RequiresSecret=false`);
+  если Finam не настроен — деградирует на ISS. Зависит от **конкретных** адаптеров, не от реестра
+  (иначе цикл в DI). Роутинг покрыт `ScinverseScheduleConfirmerTests`.
 
 **Ограничение Finam Schedule:** окно короткое (сегодня + ~2 дня) и без истории → near-term подтверждатель,
 не детектор далёких праздников. Праздники — за ISS `dailytable`.

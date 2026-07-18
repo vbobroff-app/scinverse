@@ -21,11 +21,11 @@ const ISS_ENGINES: ReadonlyArray<{ id: string; label: string }> = [
   { id: 'currency', label: 'Валютный (currency)' },
 ];
 
-/** Адаптеры, умеющие расписание (capability «schedule»). */
-const SCHEDULE_CAPABLE_ADAPTERS = ['finam', 'moex-iss'];
+/** Адаптеры, умеющие расписание (capability «schedule»). scinverse — композитный фасад (Finam/ISS). */
+const SCHEDULE_CAPABLE_ADAPTERS = ['finam', 'moex-iss', 'scinverse'];
 
-/** Адаптеры, умеющие торговый календарь (capability «calendar»). */
-const CALENDAR_CAPABLE_ADAPTERS = ['moex-iss'];
+/** Адаптеры, умеющие торговый календарь (capability «calendar»). scinverse делегирует ISS. */
+const CALENDAR_CAPABLE_ADAPTERS = ['moex-iss', 'scinverse'];
 
 /** ISO-дата (yyyy-MM-dd) → dd.MM.yyyy. */
 const fmtDay = (iso: string): string => {
@@ -79,6 +79,8 @@ type CalState =
 export function IntegrationWorkspace({ service, onChanged }: Props) {
   const adapter = service.adapter.toLowerCase();
   const isIss = adapter === 'moex-iss';
+  // engine-based (движок, без секрета) — ISS и композитный scinverse; finam — по символу (SECID@MIC).
+  const engineBased = isIss || adapter === 'scinverse';
 
   const [probe, setProbe] = useState<ProbeState>({ kind: 'idle' });
   const [symbol, setSymbol] = useState('SBER@MISX');
@@ -113,8 +115,8 @@ export function IntegrationWorkspace({ service, onChanged }: Props) {
   };
 
   const runSchedule = () => {
-    const params = isIss ? { engine } : { symbol: symbol.trim() };
-    if (!isIss && !symbol.trim()) {
+    const params = engineBased ? { engine } : { symbol: symbol.trim() };
+    if (!engineBased && !symbol.trim()) {
       return;
     }
     setSched({ kind: 'busy' });
@@ -175,7 +177,7 @@ export function IntegrationWorkspace({ service, onChanged }: Props) {
           </div>
         </div>
         <div className={styles.probeBox}>
-          <Button onClick={runProbe} disabled={probe.kind === 'busy' || (!isIss && !service.hasSecret)}>
+          <Button onClick={runProbe} disabled={probe.kind === 'busy' || (!engineBased && !service.hasSecret)}>
             {probe.kind === 'busy' ? 'Проверка…' : 'Проверить связь'}
           </Button>
           {probe.kind === 'done' && (
@@ -186,7 +188,13 @@ export function IntegrationWorkspace({ service, onChanged }: Props) {
 
       <CollapsibleCard
         title="Расписание"
-        subtitle={isIss ? 'ISS session_schedule (текущий день)' : 'AssetsService/Schedule'}
+        subtitle={
+          adapter === 'scinverse'
+            ? 'Scinverse schedule · сессии торгового дня'
+            : isIss
+              ? 'ISS session_schedule (текущий день)'
+              : 'AssetsService/Schedule'
+        }
         defaultOpen
         right={
           scheduleCapable ? (
@@ -206,7 +214,7 @@ export function IntegrationWorkspace({ service, onChanged }: Props) {
         }
       >
         <div className={styles.request}>
-          {isIss ? (
+          {engineBased ? (
             <select className={styles.input} value={engine} onChange={(e) => setEngine(e.target.value)}>
               {ISS_ENGINES.map((e) => (
                 <option key={e.id} value={e.id}>{e.label}</option>
@@ -225,7 +233,7 @@ export function IntegrationWorkspace({ service, onChanged }: Props) {
             {sched.kind === 'busy' ? 'Запрос…' : 'Запросить'}
           </Button>
         </div>
-        {!isIss && (
+        {!engineBased && (
           <div className={styles.samples}>
             {SAMPLE_SYMBOLS.map((s) => (
               <button key={s} className={styles.sample} onClick={() => setSymbol(s)}>
@@ -278,7 +286,14 @@ export function IntegrationWorkspace({ service, onChanged }: Props) {
       </CollapsibleCard>
 
       {calendarCapable && (
-        <CollapsibleCard title="Календарь (исключения)" subtitle="ISS dailytable · праздники/переносы">
+        <CollapsibleCard
+          title="Календарь (исключения)"
+          subtitle={
+            adapter === 'scinverse'
+              ? 'Scinverse dailytable · праздники/выходные'
+              : 'ISS dailytable · праздники/переносы'
+          }
+        >
           <div className={styles.request}>
             <select className={styles.input} value={engine} onChange={(e) => setEngine(e.target.value)}>
               {ISS_ENGINES.map((e) => (

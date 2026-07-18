@@ -1,6 +1,6 @@
 # Phase 7j — report: расписание соединения
 
-**Статус:** `IN PROGRESS`. **Обновлено:** 2026-07-17.
+**Статус:** `IN PROGRESS`. **Обновлено:** 2026-07-18.
 
 Актуальный статус фазы. Обновляется по мере выполнения задач из [plan.md](plan.md) /
 [apply.md](apply.md).
@@ -14,7 +14,7 @@
 | 7j.2 | `ConnectionSupervisor` (тик 15 с, nudge, retry ×5, анти-DDoS) | DONE | connect/disconnect по окну+календарю |
 | 7j.3 | Notify sink + WS `notification` + коды lifecycle | DONE | `NotificationHub`, `GET /api/notifications`, фронт-адаптер |
 | 7j.4 | UI: Auto + Расписание в полосе Связь; popover окна | DONE | тумблер ProviderCard не трогаем; popover MVP |
-| 7j.5 | Тесты (окно, API, supervisor synthetic) | PARTIAL | unit окна 9✓; integration store — нужен Docker + V021; Host был залочен процессом |
+| 7j.5 | Тесты (окно, API, supervisor synthetic) | DONE | unit окна ✓ (в 115); integration store 3/3 (Testcontainers+V021); живая приёмка supervisor на synthetic ✓ (см. лог) |
 
 ## Лог выполнения
 
@@ -22,6 +22,8 @@
 |------|----------|-----------|
 | 2026-07-17 | Заведена фаза 7j: plan/apply/report | документы |
 | 2026-07-17 | V021 + `ConnectionScheduleStore` + API + Supervisor + NotificationHub + UI Auto/popover | код; unit окна зелёные |
+| 2026-07-18 | 7j.5: интеграционные store-тесты (`ConnectionScheduleStoreTests`) 3/3 на Testcontainers (SCD-2 версия окна, SetMode без версии, ListCurrentScheduled только Auto on) | зелёные |
+| 2026-07-18 | Живая приёмка `ConnectionSupervisor` на synthetic (id=1): критерий 1 connect в окне (`connect OK 1`, NC `connection.connected`) + disconnect вне окна (окно 03:00–04:00 → `connection.schedule_disconnect` «вне окна / non-trading»); критерий 2 ручной `/disconnect` → `mode=manual, auto=False`; критерий 3 PUT `{mode:auto}` без окна → **400**; критерий 6 lifecycle в NC | приёмка пройдена; крит. 5 (×5 fail) — только code-path (synthetic всегда connect; реальный Finam ронять нельзя — анти-DDoS) |
 
 ## Ключевые артефакты
 
