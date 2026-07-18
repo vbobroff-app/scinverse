@@ -14,8 +14,8 @@
 | 11.3 | Пакет: `NotificationBus` (RxJS), хелперы `notify.*` | DONE | `packages/notification-center`; без OHS-адаптеров |
 | 11.4 | UI: нижний док `NotificationDock` (tail, раскрытие, resize) | DONE | виртуализация — follow-up |
 | 11.5 | Фильтры (уровень/тип/модуль/поиск) + бейдж непрочитанных | DONE | в доке пакета |
-| 11.6 | Встраивание в OHS web + персистенция состояния | PARTIAL | док + колокольчик + seed; персистенция/адаптеры WS — позже |
-| 11.7 | Тесты | PARTIAL | vitest пакета 27 + OHS web 88; backend оркестратор — unit 115 (NotificationHubTests) |
+| 11.6 | Встраивание в OHS web + персистенция состояния | DONE | док + колокольчик; WS `notification`→шина; бэклог `GET /api/notifications` на старте; демо-seed только в dev |
+| 11.7 | Тесты | PARTIAL | vitest пакета 29 + OHS web 89; backend unit 115; ApiTests: connect/disconnect→user-события, drop→инцидент lost/recovered |
 
 ## Решение
 
@@ -35,6 +35,9 @@
 | 2026-07-18 | 11.2: реализованы контракт `status`/`correlationId` (TS+C#), шина (upsert/I2/бейдж по последнему статусу, `statusOf`), фильтр `statuses`, бэк-оркестратор `Open/Progress/Resolve` под lock, первый продюсер `connection.lost/reconnecting/recovered`, seed переведён на ось `status` | пакет 27, OHS web tsc+88, backend unit 115 — зелёные |
 | 2026-07-18 | UI оси B (цветовая модель): read/unread → цвет border; lifecycle → фон-маска (открытый warning=жёлтый, error/critical=красный, resolved=зелёный), без pill/иконок; underway-продюсер поднят до `warning` (эскалация красный→жёлтый→зелёный); чип фильтра «Статус» в `DockFilters` (+persist); ретайр `interaction:'resolving'` | пакет tsc+29, OHS web tsc+88 — зелёные |
 | 2026-07-18 | Группировка/поиск инцидентов: `correlationId = subject:uid` (per-occurrence) — продюсер даёт subject (`connection:{id}:link`), хаб на `Open` генерит uid, `Progress`/`Resolve` переиспользуют; `LinkIncidentId`→`LinkIncidentSubject`; поиск по `correlationId` в `filterEvents`; клик по `corr` в строке → фильтр по инциденту (`NotificationRow`/`NotificationDock`) | backend unit 115, пакет+OHS web — зелёные |
+| 2026-07-18 | 11.6 встраивание завершено: бэклог `GET /api/notifications` подтягивается в шину на старте (`OhsStore.refreshNotifications`→`hydrateServerBacklog`, дедуп по id); демо-seed переведён под `import.meta.env.DEV` (в prod лента = реальный бэклог + WS); WS `notification`→`publishServerNotification` уже был | OHS web tsc + vitest 89 — зелёные |
+| 2026-07-18 | Крит. #1 (действия оператора): эндпоинты connect/disconnect шлют `user`-события (`connection.connect`/`connection.disconnect`, info; connect fail → error); ручной disconnect дополнительно `Resolve` открытого инцидента связи (no-op, если инцидента нет — чтобы не «висел» красным); гард в `ConnectionManager.HandleLinkStateAsync` (событие связи без активной сессии = штатный teardown, не инцидент) убирает ложный `connection.lost` при добровольном off | backend build + unit 115 — зелёные |
+| 2026-07-18 | Верификация connection end-to-end (ApiTests, Testcontainers): `Connect_and_disconnect_emit_user_notifications` (user-события) и `DebugDrop_emits_link_incident_lifecycle_notifications` (обрыв→`connection.lost` active/error, восстановление→`connection.recovered` resolved, correlationId=`subject:uid`) | 2 интеграционных теста — зелёные |
 
 ## Итог
 

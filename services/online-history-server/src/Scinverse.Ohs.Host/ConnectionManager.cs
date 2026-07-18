@@ -373,6 +373,13 @@ public sealed class ConnectionManager(
 
     private async Task HandleLinkStateAsync(long connectionId, ConnectorLinkStateChange change)
     {
+        // Событие связи по подключению без активной сессии — штатный teardown (DisconnectAsync снял
+        // сессию до StopAsync) либо шум при старте: не инцидент, не трогаем живость/статус.
+        if (!_sessions.ContainsKey(connectionId))
+        {
+            return;
+        }
+
         var hadState = _linkStates.TryGetValue(connectionId, out var previous);
         _linkStates[connectionId] = change.State;
         _linkSince[connectionId] = change.At;

@@ -397,6 +397,7 @@ export class OhsStore {
     this.refreshConnections();
     this.refreshRecordings();
     this.refreshRecordingSchedule();
+    this.refreshNotifications();
     this.applyTimeframe(this.timeframe$.value);
     const stream =
       this.live ??
@@ -1483,6 +1484,16 @@ export class OhsStore {
     this.api.getRecordingSchedule().subscribe({
       next: (rows) => this.replaceSchedule(rows),
       error: (err) => console.error('getRecordingSchedule', err),
+    });
+  }
+
+  /** Подтягивает бэклог уведомлений (GET /api/notifications) в шину дока при старте (крит. #2). */
+  private refreshNotifications(): void {
+    this.api.getNotifications().subscribe({
+      next: (rows) => {
+        void import('./notifications').then((m) => m.hydrateServerBacklog(rows));
+      },
+      error: (err) => console.error('getNotifications', err),
     });
   }
 

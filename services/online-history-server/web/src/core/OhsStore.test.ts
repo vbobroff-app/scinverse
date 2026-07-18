@@ -568,4 +568,13 @@ describe('OhsStore timeframe → window', () => {
     expect(store.window$.value.to).toBe(new Date('2026-07-08T23:50:00+03:00').toISOString());
     store.stop();
   });
+
+  it('подтягивает бэклог уведомлений (GET /api/notifications) при старте', () => {
+    const getNotifications = vi.fn(() => of([]));
+    const store = new OhsStore(fakeApi({ getNotifications }), new Subject<LiveEvent>());
+    store.start();
+
+    expect(getNotifications).toHaveBeenCalled();
+    store.stop();
+  });
 });

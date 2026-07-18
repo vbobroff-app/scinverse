@@ -1,6 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using Scinverse.Ohs.Contracts;
 
@@ -174,6 +176,89 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
 
         await api.DisconnectConnectionAsync(synthetic.ConnectionId);
     }
+
+    [Fact]
+    public async Task Connect_and_disconnect_emit_user_notifications()
+    {
+        var api = CreateApi();
+        var http = factory.CreateClient();
+        var synthetic = (await api.GetConnectionsAsync()).First(c => c.Kind == "synthetic");
+
+        await api.ConnectConnectionAsync(synthetic.ConnectionId);
+        await api.DisconnectConnectionAsync(synthetic.ConnectionId);
+
+        // Publish синхронен: к моменту ответа эндпоинта события уже в ring-buffer.
+        var notes = await GetNotificationsAsync(http);
+        notes.Should().Contain(
+            n => n.Code == "connection.connect" && n.SourceType == "user" && n.Severity == "info",
+            "ручной connect — user-событие в ленте (крит. #1)");
+        notes.Should().Contain(
+            n => n.Code == "connection.disconnect" && n.SourceType == "user" && n.Severity == "info",
+            "ручной disconnect — user-событие в ленте (крит. #1)");
+    }
+
+    [Fact]
+    public async Task DebugDrop_emits_link_incident_lifecycle_notifications()
+    {
+        var api = CreateApi();
+        var client = new OhsApiClient(factory.CreateClient());
+        var http = factory.CreateClient();
+        var synthetic = (await api.GetConnectionsAsync()).First(c => c.Kind == "synthetic");
+        await api.ConnectConnectionAsync(synthetic.ConnectionId);
+
+        try
+        {
+            (await client.DebugDropAsync(synthetic.ConnectionId, seconds: 1)).Should().BeTrue();
+            (await PollConnectionStatusAsync(synthetic.ConnectionId, "disconnected", TimeSpan.FromSeconds(5)))
+                .Should().BeTrue();
+            (await PollConnectionStatusAsync(
+                synthetic.ConnectionId, s => s is "waiting" or "active" or "degraded", TimeSpan.FromSeconds(10)))
+                .Should().BeTrue();
+
+            var subject = $"connection:{synthetic.ConnectionId}:link";
+            var recovered = await PollNotificationAsync(
+                http, n => n.Code == "connection.recovered" && n.Status == "resolved", TimeSpan.FromSeconds(5));
+            recovered.Should().NotBeNull("восстановление связи закрывает инцидент (resolved)");
+            recovered!.CorrelationId.Should().StartWith(subject + ":", "инцидент — per-occurrence subject:uid");
+
+            var notes = await GetNotificationsAsync(http);
+            notes.Should().Contain(
+                n => n.Code == "connection.lost" && n.Severity == "error" && n.Status == "active",
+                "обрыв открывает инцидент (active, error)");
+        }
+        finally
+        {
+            await api.DisconnectConnectionAsync(synthetic.ConnectionId);
+        }
+    }
+
+    private static async Task<IReadOnlyList<NotificationRow>> GetNotificationsAsync(HttpClient http)
+    {
+        var rows = await http.GetFromJsonAsync<List<NotificationRow>>(
+            "/api/notifications", new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        return rows ?? [];
+    }
+
+    private static async Task<NotificationRow?> PollNotificationAsync(
+        HttpClient http, Func<NotificationRow, bool> predicate, TimeSpan timeout)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+        while (!cts.Token.IsCancellationRequested)
+        {
+            var match = (await GetNotificationsAsync(http)).FirstOrDefault(predicate);
+            if (match is not null)
+            {
+                return match;
+            }
+
+            await Task.Delay(200, cts.Token);
+        }
+
+        return null;
+    }
+
+    private sealed record NotificationRow(
+        string Code, string Severity, string SourceType, string? Status, string? CorrelationId);
 
     private async Task<bool> PollConnectionStatusAsync(
         long connectionId, string expected, TimeSpan timeout)

@@ -136,7 +136,10 @@ function seedDemoNotifications(): void {
   });
 }
 
-seedDemoNotifications();
+// Демо-лента — только dev-сборка; в prod источник ленты = реальный бэклог (GET /api/notifications) + WS.
+if (import.meta.env.DEV) {
+  seedDemoNotifications();
+}
 
 /** Browser Notification API ↔ настройка «Отправлять в трей». */
 function canUseTray(): boolean {
@@ -209,6 +212,16 @@ function startTrayBridge(): void {
 }
 
 startTrayBridge();
+
+/**
+ * Бэклог с бэка (GET /api/notifications, oldest-first) → шина дока при старте.
+ * Дедуп по `id` в шине делает повторную гидрацию (реконнект/перезагрузка) безопасной.
+ */
+export function hydrateServerBacklog(dtos: readonly NotificationDto[]): void {
+  for (const dto of dtos) {
+    publishServerNotification(dto);
+  }
+}
 
 /** Событие с бэка (WS `notification` / GET /api/notifications) → шина дока. */
 export function publishServerNotification(dto: NotificationDto): void {

@@ -328,8 +328,48 @@ public static class OhsEndpoints
             return Results.Ok(new ValidateConnectionResult(ok, message));
         });
 
-        api.MapPost("/connections/{id:long}/connect", (long id, ConnectionManager manager, IConnectionStore store, CancellationToken ct) =>
-            RunConnectionActionAsync(id, store, manager, () => manager.ConnectAsync(id, ct), ct));
+        api.MapPost("/connections/{id:long}/connect", async (
+            long id,
+            ConnectionManager manager,
+            IConnectionStore store,
+            INotificationPublisher notifications,
+            CancellationToken ct) =>
+        {
+            // Действие оператора (крит. #1): успех/неудача connect — user-события в ленте NC.
+            try
+            {
+                var status = await manager.ConnectAsync(id, ct);
+                var connection = await store.GetAsync(id, ct);
+                if (connection is null)
+                {
+                    return Results.NotFound(new { error = $"Подключение {id} не найдено" });
+                }
+
+                notifications.Publish(
+                    "connection.connect",
+                    $"Подключение «{connection.Name}»: подключение по команде оператора",
+                    severity: "info",
+                    sourceType: "user",
+                    data: new { connectionId = id, status });
+                return Results.Ok(ToDto(connection, status));
+            }
+            catch (InvalidOperationException ex)
+            {
+                notifications.Publish(
+                    "connection.connect.failed",
+                    $"Подключение {id}: не удалось подключиться — {ex.Message}",
+                    severity: "error", sourceType: "user", data: new { connectionId = id });
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                notifications.Publish(
+                    "connection.connect.failed",
+                    $"Подключение {id}: не удалось подключиться — {ex.Message}",
+                    severity: "error", sourceType: "user", data: new { connectionId = id });
+                throw;
+            }
+        });
 
         api.MapPost("/connections/{id:long}/disconnect", async (
             long id,
@@ -337,12 +377,34 @@ public static class OhsEndpoints
             IConnectionStore store,
             IConnectionScheduleStore schedule,
             ConnectionSupervisor supervisor,
+            INotificationPublisher notifications,
             CancellationToken ct) =>
         {
             // Ручной off тумблера связи → Auto off (phase 7j), как Стоп записи снимает Auto записи.
             await schedule.SetModeAsync(id, ConnectionScheduleModes.Manual, ct);
             supervisor.Nudge();
-            return await RunConnectionActionAsync(id, store, manager, () => manager.DisconnectAsync(id, ct), ct);
+
+            var status = await manager.DisconnectAsync(id, ct);
+            var connection = await store.GetAsync(id, ct);
+            if (connection is null)
+            {
+                return Results.NotFound(new { error = $"Подключение {id} не найдено" });
+            }
+
+            // Оператор оборвал связь: закрываем открытый инцидент (если был), чтобы он не «висел» красным.
+            // Resolve — no-op при отсутствии инцидента, поэтому в штатном off лишней строки не будет.
+            notifications.Resolve(
+                ConnectionManager.LinkIncidentSubject(id),
+                "connection.closed",
+                $"Инцидент связи закрыт: подключение «{connection.Name}» отключено оператором",
+                data: new { connectionId = id });
+            notifications.Publish(
+                "connection.disconnect",
+                $"Подключение «{connection.Name}»: отключение по команде оператора",
+                severity: "info",
+                sourceType: "user",
+                data: new { connectionId = id });
+            return Results.Ok(ToDto(connection, status));
         });
 
         api.MapPost("/connections/{id:long}/test", (long id, ConnectionManager manager, IConnectionStore store, CancellationToken ct) =>
