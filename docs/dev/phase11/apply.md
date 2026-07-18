@@ -53,21 +53,99 @@ TypeScript (пакет):
 ```ts
 export type NotificationSeverity = 'info' | 'warning' | 'critical' | 'error';
 export type NotificationSourceType = 'user' | 'system' | 'external';
+export type NotificationStatus = 'active' | 'underway' | 'resolved'; // ось B (см. ниже)
 
 export interface NotificationEvent {
   id: string;
   ts: string;                 // ISO-8601
   severity: NotificationSeverity;
   sourceType: NotificationSourceType;
+  status?: NotificationStatus; // отсутствует ⇒ active
   module: string;
   code: string;
   message: string;
   data?: Record<string, unknown>;
-  correlationId?: string;
+  correlationId?: string;     // ключ инцидента для upsert перехода статуса
 }
 ```
 
+> Фактический контракт пакета богаче сниппета выше: `severity` включает `ok`, а помимо `sourceType`
+> есть `interaction` (`user|system|resolving`) и `localization` (`internal|external`) с резолвом по
+> умолчанию (`resolveInteraction`/`resolveLocalization`). Ниже добавляется ещё поле `status` (ось B).
+
 C# (бэк, `Scinverse.Ohs.Contracts`) — позже, вместе с 11.2: зеркальный `record NotificationEvent(...)`.
+
+## Оси состояния: read-state + lifecycle status (11.1a)
+
+Два **ортогональных** измерения — не смешивать в один enum:
+
+| Ось | Значения | Где живёт | На контракте? |
+| --- | -------- | --------- | ------------- |
+| **A · read-state** | `unread` / `read` | `NotificationBus.readIds` (per-user, эфемерно) | **Нет** |
+| **B · lifecycle** | `active` / `underway` / `resolved` | поле `status` события | **Да** (default `active`) |
+
+- **Ось A** остаётся вне контракта: «прочитано» — состояние конкретного оператора; серверная
+  синхронизация read между устройствами — это phase 10 (`user_settings`), в тонкий hub не входит.
+- **Ось B** — новое поле `status`. Заменяет прежнее протаскивание жизненного цикла в
+  `interaction: 'resolving'` (это «кто действует», а не «состояние инцидента»). Демо-seed правится.
+
+### Владелец жизненного цикла — один, на бэке
+
+Инциденты с ЖЦ (`connection.lost→recovered`, `coverage.gap→healed`, `reconnecting`) — это
+**backend-условия** (правду о связи/покрытии/БД знает бэк). Значит state-machine держит **backend
+hub**. Фронтовая шина — **проекция**: на ingest делает upsert по `correlationId`, своей машины
+состояний не держит. Две машины не заводим (иначе спор при реконнекте / replay бэклога).
+Исключение — чисто фронтовые инциденты (UI-действие в процессе) — отдельная ветка.
+
+### Где лежит состояние (thin = in-memory)
+
+- **ring-buffer** — показ ленты (как сейчас, вытесняет старое).
+- **`openIncidents: Map<correlationId, OpenIncident>`** — маленькая карта *открытых* инцидентов;
+  запись удаляется при `resolved` (или по TTL). Переходы грузят состояние **отсюда**, не из ленты
+  (лента может вытеснить `underway` до прихода `resolve`).
+
+### Машина состояний и API (явные хелперы)
+
+```text
+open:     ∅ → active,  underway → active (re-open),  active → active (идемпотентный upsert)
+progress: active → underway,  underway → underway (no-op)
+resolve:  active → resolved,  underway → resolved,  resolved → resolved (no-op)
+```
+
+Переход вне таблицы (напр. `progress` после `resolved`) → **контролируемый no-op + debug-лог**, не
+throw: дубли WS / REST-бэклога штатны (реконнект, подтягивание истории при загрузке).
+
+**Инварианты:**
+
+- **I1 — `resolved` терминален.** Рецидив *после* `resolved` = **новый инцидент с новым
+  `correlationId`**. Флап допустим только `active ↔ underway`.
+- **I2 — новая строка только на смену статуса.** Дедуп подряд идущих одинаковых `(status, code)` в
+  рамках `correlationId`: строка добавляется, лишь когда статус реально изменился (иначе `active`
+  каждые 15 с забьёт ленту). Флап даёт `active → underway → active` = 3 осмысленные строки.
+
+### `correlationId`
+
+Стабильный ключ на *экземпляр условия*, генерит продюсер, открывающий инцидент. Конвенция:
+`conn:{id}:link`, `coverage:{instrumentId}:{sourceId}:gap`. `recovered`/`healed` шлётся с тем же ключом.
+
+### Отображение и бейдж
+
+- В буфере **обе строки**; подсветку/бейдж ведёт **последний статус на `correlationId`**.
+- Шина держит `statusByCorrelationId`; строки без `correlationId` — сами себе группа.
+- **`unread`-счётчик дедупит по `correlationId`**: считаем группы, у которых последний статус ∈
+  `{active, underway}`, severity — alert (`error`/`critical`), и не прочитано. Перекрытые (не
+  последние) строки группы приглушаются в UI.
+- **Re-open (`→ active`) сбрасывает read** у новой строки → инцидент снова «загорается» (пере-алерт).
+
+### Транспорт и конкурентность
+
+- Переход едет как обычное `notification`-событие (`correlationId` + новый `status`); получатель
+  делает upsert по `correlationId`. **Новый WS-тип не нужен** — hub остаётся тонким.
+- **Фронт:** один поток (event loop) — локи не нужны, `resolve` атомарен.
+- **Бэк (in-memory):** цикл load-check-transition-save под существующим `lock(_gate)` в
+  `NotificationHub` — дешёвый пессимистик, оптимистик-версии не нужны.
+- **Оптимистик-lock (`version`/`xmin`) понадобится только** когда состояние инцидентов уедет в БД
+  (межпроцессно) — постоянный аудит-лог, отдельная будущая фаза (out of scope thin).
 
 ## MFE: механизм встраивания
 

@@ -9,6 +9,7 @@
 | #    | Задача | Статус | Комментарий |
 | ---- | ------ | ------ | ----------- |
 | 11.1 | Контракт `NotificationEvent` (TS + C# DTO), таксономия severity/sourceType | PARTIAL | TS в пакете; C# DTO — с 11.2 |
+| 11.1a | Две оси: read-state (шина) + lifecycle `status` (active/underway/resolved) + переходы | DESIGN | зафиксировано в apply.md; код — с 11.2 |
 | 11.2 | Backend: `NotificationHub` + WS `notification` + `GET /api/notifications` + `ILogger`-sink | TODO | |
 | 11.3 | Пакет: `NotificationBus` (RxJS), хелперы `notify.*` | DONE | `packages/notification-center`; без OHS-адаптеров |
 | 11.4 | UI: нижний док `NotificationDock` (tail, раскрытие, resize) | DONE | виртуализация — follow-up |
@@ -30,6 +31,7 @@
 | 2026-07-10 | Заведена фаза 11: план/apply/отчёт; зафиксирована таксономия и MFE-подход | документы готовы |
 | 2026-07-14 | Пакет `packages/notification-center`: bus, notify, dock, filters, formatTs; тесты | 11 passed; OHS не подключён |
 | 2026-07-14 | OHS web: колокольчик → док, `displayTz` → formatTs, seed Info hello | док открывается из рейла |
+| 2026-07-18 | Зафиксирован дизайн осей: read-state + lifecycle `status`, машина переходов (open/progress/resolve), инварианты I1/I2, upsert по `correlationId` | apply.md §Оси состояния |
 
 ## Итог
 
