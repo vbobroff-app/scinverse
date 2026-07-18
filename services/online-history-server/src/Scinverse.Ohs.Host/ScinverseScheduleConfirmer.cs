@@ -46,6 +46,14 @@ public sealed class ScinverseScheduleConfirmer(
 
     public async Task<ConfirmerSchedule> GetScheduleAsync(ConfirmerQuery query, CancellationToken cancellationToken)
     {
+        var raw = await GetRawScheduleAsync(query, cancellationToken).ConfigureAwait(false);
+        // На выходе фасада времена приводятся к нашему канону (см. NormalizeToHouseFormat).
+        return NormalizeToHouseFormat(raw);
+    }
+
+    /// <summary>Сырое расписание провайдера (до нормализации в наш формат): выбор источника + резерв.</summary>
+    private async Task<ConfirmerSchedule> GetRawScheduleAsync(ConfirmerQuery query, CancellationToken cancellationToken)
+    {
         var engine = (query.Engine ?? "futures").Trim().ToLowerInvariant();
         var finamFirst = engine is "stock" or "currency";
 
@@ -59,6 +67,30 @@ public sealed class ScinverseScheduleConfirmer(
         return await TryIssScheduleAsync(query, cancellationToken).ConfigureAwait(false)
                ?? await TryFinamAsync(query, cancellationToken).ConfigureAwait(false)
                ?? new ConfirmerSchedule(engine, []);
+    }
+
+    /// <summary>
+    /// Приведение времён источника к нашему канону — полуинтервал <c>[start, end)</c> в целых минутах.
+    /// Внешние источники (ISS, Finam) отдают инклюзивный «конец» на секунде <c>:59</c> (напр. фаза
+    /// заканчивается <c>09:59:59</c> = «до 10:00»). Мы: <b>Start → floor до минуты</b>, <b>End → ceil до
+    /// минуты</b>. Тогда <c>09:59:59 → 10:00</c>, <c>18:59:59 → 19:00</c>, а конец суток <c>23:59:59 → 00:00</c>
+    /// (следующие сутки). Времена, уже кратные минуте, не меняются.
+    /// </summary>
+    private static ConfirmerSchedule NormalizeToHouseFormat(ConfirmerSchedule raw)
+    {
+        var sessions = raw.Sessions
+            .Select(s => s with { Start = FloorToMinute(s.Start), End = CeilToMinute(s.End) })
+            .ToList();
+        return raw with { Sessions = sessions };
+    }
+
+    private static DateTimeOffset FloorToMinute(DateTimeOffset t) =>
+        t.AddTicks(-(t.Ticks % TimeSpan.TicksPerMinute));
+
+    private static DateTimeOffset CeilToMinute(DateTimeOffset t)
+    {
+        var rem = t.Ticks % TimeSpan.TicksPerMinute;
+        return rem == 0 ? t : t.AddTicks(TimeSpan.TicksPerMinute - rem);
     }
 
     /// <summary>
@@ -89,14 +121,30 @@ public sealed class ScinverseScheduleConfirmer(
     /// </summary>
     private static ConfirmerCalendarDay ComposeCalendarDay(string engine, ConfirmerCalendarDay issDay)
     {
-        // ISS — базовый и пока единственный источник календаря.
-        var day = issDay;
+        // ISS — базовый и пока единственный источник календаря. Часы дня приводим к нашему канону:
+        // Open → floor до минуты, Close → ceil до минуты (инклюзивный :59 источника → стык минуты;
+        // 23:59:59 → 00:00). TimeOnly.Add сам заворачивает конец суток за полночь.
+        var day = issDay with { Open = FloorToMinute(issDay.Open), Close = CeilToMinute(issDay.Close) };
 
         // TODO(cross-source): правила уточнения по условию, напр.:
         //   if (ShouldRefineHours(engine, day)) day = day with { Open = finamOpen, Close = finamClose };
         //   if (IsSpecialMarketDay(engine, day.Date)) day = day with { IsTradingDay = false };
 
         return day;
+    }
+
+    private static TimeOnly? FloorToMinute(TimeOnly? t) =>
+        t is { } v ? v.Add(TimeSpan.FromTicks(-(v.Ticks % TimeSpan.TicksPerMinute))) : t;
+
+    private static TimeOnly? CeilToMinute(TimeOnly? t)
+    {
+        if (t is not { } v)
+        {
+            return t;
+        }
+
+        var rem = v.Ticks % TimeSpan.TicksPerMinute;
+        return rem == 0 ? v : v.Add(TimeSpan.FromTicks(TimeSpan.TicksPerMinute - rem));
     }
 
     /// <summary>ISS-расписание или null, если пусто/ошибка (тогда пробуем Finam).</summary>

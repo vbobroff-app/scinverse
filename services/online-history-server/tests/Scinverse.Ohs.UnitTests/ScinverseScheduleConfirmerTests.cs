@@ -80,6 +80,41 @@ public sealed class ScinverseScheduleConfirmerTests
     }
 
     [Fact]
+    public async Task Normalizes_inclusive_close_to_next_minute()
+    {
+        // ISS отдаёт инклюзивный конец фазы на :59 (09:59:59 = «до 10:00»).
+        var catalog = new FakeExchangeCatalog
+        {
+            Futures = [new("oa_booking", Msk(9, 50, 0), Msk(9, 59, 59))],
+        };
+        var confirmer = Build(catalog, new FakeFinamApi(), finamConfigured: false);
+
+        var result = await confirmer.GetScheduleAsync(
+            new ConfirmerQuery(null, "futures", Today, null), CancellationToken.None);
+
+        var s = result.Sessions.Single();
+        s.Start.Should().Be(Msk(9, 50, 0), "начало округляется вниз до минуты");
+        s.End.Should().Be(Msk(10, 0, 0), "инклюзивный :59 конец приводится к стыку минуты");
+    }
+
+    [Fact]
+    public async Task Normalizes_end_of_day_close_to_midnight()
+    {
+        var catalog = new FakeExchangeCatalog
+        {
+            Futures = [new("weekend_session", Msk(10, 0, 0), Msk(23, 59, 59))],
+        };
+        var confirmer = Build(catalog, new FakeFinamApi(), finamConfigured: false);
+
+        var result = await confirmer.GetScheduleAsync(
+            new ConfirmerQuery(null, "futures", Today, null), CancellationToken.None);
+
+        result.Sessions.Single().End.Should()
+            .Be(new DateTimeOffset(2026, 7, 21, 0, 0, 0, TimeSpan.FromHours(3)),
+                "конец суток 23:59:59 заворачивается в 00:00 следующего дня");
+    }
+
+    [Fact]
     public async Task Calendar_always_delegates_to_ISS()
     {
         var catalog = new FakeExchangeCatalog { Futures = IssTrading() };
@@ -99,8 +134,10 @@ public sealed class ScinverseScheduleConfirmerTests
     private static FinamSchedule FinamTrading() =>
         new("SBER@MISX", [new FinamSession("CORE_TRADING", Utc(7, 0), Utc(15, 59))]);
 
-    private static DateTimeOffset Msk(int h, int m) =>
-        new(2026, 7, 20, h, m, 0, TimeSpan.FromHours(3));
+    private static DateTimeOffset Msk(int h, int m) => Msk(h, m, 0);
+
+    private static DateTimeOffset Msk(int h, int m, int s) =>
+        new(2026, 7, 20, h, m, s, TimeSpan.FromHours(3));
 
     private static DateTimeOffset Utc(int h, int m) =>
         new(2026, 7, 20, h, m, 0, TimeSpan.Zero);
