@@ -29,9 +29,13 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster) : INotific
         string severity = "info",
         string sourceType = "system",
         string module = "ohs.connection",
-        object? data = null)
+        object? data = null,
+        string? status = null,
+        string? correlationId = null)
     {
-        var evt = Enqueue(code, message, severity, sourceType, module, status: null, correlationId: null, data);
+        // Одиночное событие; status/correlationId — для продюсер-управляемых последовательностей
+        // (напр. фаза connect: connecting→connect/failed одной группой), минуя incident-оркестратор.
+        var evt = Enqueue(code, message, severity, sourceType, module, status, correlationId, data);
         broadcaster.Broadcast(new NotificationLiveEvent(evt));
     }
 

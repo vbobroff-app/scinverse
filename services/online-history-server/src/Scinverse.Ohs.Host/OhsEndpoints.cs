@@ -332,41 +332,64 @@ public static class OhsEndpoints
             long id,
             ConnectionManager manager,
             IConnectionStore store,
+            ILinkLivenessStore linkLiveness,
             INotificationPublisher notifications,
             CancellationToken ct) =>
         {
-            // Действие оператора (крит. #1): успех/неудача connect — user-события в ленте NC.
+            var connection = await store.GetAsync(id, ct);
+            if (connection is null)
+            {
+                return Results.NotFound(new { error = $"Подключение {id} не найдено" });
+            }
+
+            // Команда оператора (user) — дискретное намерение, отдельной строкой (симметрично disconnect).
+            notifications.Publish(
+                "connection.connect",
+                $"Подключение «{connection.Name}»: подключение по команде оператора",
+                severity: "info", sourceType: "user", data: new { connectionId = id });
+
+            // Далее — исполнение системой (system) как группа: connecting(жёлтый)→connected(зелёный)/failed(красный).
+            var attempt = $"connection:{id}:connect:{Guid.NewGuid().ToString("N")[..8]}";
+            // «Предыдущее подключение» (QUIK-style) — до нового Heartbeat, иначе последним станет текущий сеанс.
+            var previous = await linkLiveness.GetLastAsync(connection.SourceId, ct);
+
+            notifications.Publish(
+                "connection.connecting",
+                $"Подключение «{connection.Name}»: устанавливаю связь…",
+                severity: "warning", sourceType: "system", status: "underway", correlationId: attempt,
+                data: new { connectionId = id });
+
             try
             {
                 var status = await manager.ConnectAsync(id, ct);
-                var connection = await store.GetAsync(id, ct);
-                if (connection is null)
-                {
-                    return Results.NotFound(new { error = $"Подключение {id} не найдено" });
-                }
-
                 notifications.Publish(
-                    "connection.connect",
-                    $"Подключение «{connection.Name}»: подключение по команде оператора",
-                    severity: "info",
-                    sourceType: "user",
-                    data: new { connectionId = id, status });
+                    "connection.connected",
+                    $"Подключение «{connection.Name}»: связь установлена{PreviousConnectionSuffix(previous)}",
+                    severity: "ok", sourceType: "system", status: "resolved", correlationId: attempt,
+                    data: new
+                    {
+                        connectionId = id,
+                        status,
+                        lastConnectedAt = previous?.From,
+                        lastConnectionClosed = previous?.To,
+                        lastCloseReason = previous?.CloseReason?.ToString(),
+                    });
                 return Results.Ok(ToDto(connection, status));
             }
             catch (InvalidOperationException ex)
             {
                 notifications.Publish(
-                    "connection.connect.failed",
-                    $"Подключение {id}: не удалось подключиться — {ex.Message}",
-                    severity: "error", sourceType: "user", data: new { connectionId = id });
+                    "connection.connect_failed",
+                    $"Подключение «{connection.Name}»: не удалось подключиться — {ex.Message}",
+                    severity: "error", sourceType: "system", correlationId: attempt, data: new { connectionId = id });
                 return Results.BadRequest(new { error = ex.Message });
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 notifications.Publish(
-                    "connection.connect.failed",
-                    $"Подключение {id}: не удалось подключиться — {ex.Message}",
-                    severity: "error", sourceType: "user", data: new { connectionId = id });
+                    "connection.connect_failed",
+                    $"Подключение «{connection.Name}»: не удалось подключиться — {ex.Message}",
+                    severity: "error", sourceType: "system", correlationId: attempt, data: new { connectionId = id });
                 throw;
             }
         });
@@ -780,6 +803,28 @@ public static class OhsEndpoints
 
         return ids.Count > 0 ? ids : null;
     }
+
+    /// <summary>QUIK-style хвост к «связь установлена»: когда было предыдущее подключение (МСК) и как закрылось.</summary>
+    private static string PreviousConnectionSuffix(LinkInterval? previous)
+    {
+        if (previous is null)
+        {
+            return ". Первое подключение.";
+        }
+
+        var msk = previous.From.ToOffset(TimeSpan.FromHours(3));
+        var reason = previous.CloseReason is { } r ? $"; пред. сеанс — {LinkCloseReasonText(r)}" : string.Empty;
+        return $". Предыдущее подключение — {msk:dd.MM.yyyy HH:mm} МСК{reason}.";
+    }
+
+    private static string LinkCloseReasonText(LinkCloseReason reason) => reason switch
+    {
+        LinkCloseReason.Disconnected => "отключение оператором",
+        LinkCloseReason.ServerDown => "обрыв связи",
+        LinkCloseReason.PingFailed => "нет ответа",
+        LinkCloseReason.Interrupted => "перезапуск",
+        _ => "—",
+    };
 
     private static async Task<IResult> RunConnectionActionAsync(
         long id, IConnectionStore store, ConnectionManager manager, Func<Task<string>> action, CancellationToken ct)

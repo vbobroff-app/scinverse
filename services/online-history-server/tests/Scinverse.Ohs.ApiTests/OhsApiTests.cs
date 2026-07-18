@@ -189,9 +189,24 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
 
         // Publish синхронен: к моменту ответа эндпоинта события уже в ring-buffer.
         var notes = await GetNotificationsAsync(http);
+
+        // Команда оператора — дискретное user-событие (info), отдельной строкой.
         notes.Should().Contain(
             n => n.Code == "connection.connect" && n.SourceType == "user" && n.Severity == "info",
-            "ручной connect — user-событие в ленте (крит. #1)");
+            "команда connect оператора — user-событие в ленте (крит. #1)");
+
+        // Исполнение системой как группа: connecting(warning/underway) + connected(ok/resolved) одним correlationId.
+        var connecting = notes.LastOrDefault(
+            n => n.Code == "connection.connecting" && n.SourceType == "system"
+                 && n.Severity == "warning" && n.Status == "underway");
+        connecting.Should().NotBeNull("старт установки связи — сигнал «подключаюсь» (жёлтый, system)");
+        var connected = notes.LastOrDefault(
+            n => n.Code == "connection.connected" && n.SourceType == "system"
+                 && n.Severity == "ok" && n.Status == "resolved");
+        connected.Should().NotBeNull("успех — «связь установлена» (зелёный/resolved, system)");
+        connected!.CorrelationId.Should().Be(connecting!.CorrelationId, "одна попытка connect — одна группа");
+        connecting.CorrelationId.Should().StartWith($"connection:{synthetic.ConnectionId}:connect:");
+
         notes.Should().Contain(
             n => n.Code == "connection.disconnect" && n.SourceType == "user" && n.Severity == "info",
             "ручной disconnect — user-событие в ленте (крит. #1)");

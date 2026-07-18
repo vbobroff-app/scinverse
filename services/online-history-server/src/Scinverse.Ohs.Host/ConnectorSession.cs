@@ -18,7 +18,7 @@ public sealed class ConnectorSession(
     CoverageTracker coverageTracker,
     ILogger<ConnectorSession> logger,
     Action? onData = null,
-    Action<ConnectorLinkStateChange>? onLinkState = null)
+    Func<ConnectorLinkStateChange, Task>? onLinkState = null)
 {
     private CancellationTokenSource? _cts;
     private Task? _pumpTask;
@@ -117,7 +117,12 @@ public sealed class ConnectorSession(
         {
             await foreach (var change in connector.LinkStateChanges.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
-                onLinkState?.Invoke(change);
+                // Await, а не fire-and-forget: смены связи обрабатываются строго последовательно, иначе
+                // Down/Degraded/Live гонятся и previous-состояние (детект recovering) считается неверно.
+                if (onLinkState is not null)
+                {
+                    await onLinkState(change).ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException)

@@ -23,6 +23,13 @@ public interface ILinkLivenessStore
     /// </summary>
     Task CloseAsync(short sourceId, LinkCloseReason reason, DateTimeOffset? atTs, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Самый свежий (по <c>from_ts</c>) интервал связи источника — «предыдущее подключение» (QUIK-style
+    /// контекст при новом connect). null — истории нет. Вызывать ДО нового <see cref="HeartbeatAsync"/>,
+    /// иначе последним станет только что открытый интервал.
+    /// </summary>
+    Task<LinkInterval?> GetLastAsync(short sourceId, CancellationToken cancellationToken);
+
     /// <summary>Интервалы связи источников, пересекающие окно [from, to] (для ленты Connection).</summary>
     Task<IReadOnlyList<LinkInterval>> QueryAsync(
         IReadOnlyCollection<short> sourceIds, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken);

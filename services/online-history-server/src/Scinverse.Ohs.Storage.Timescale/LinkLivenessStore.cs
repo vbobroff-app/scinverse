@@ -75,6 +75,31 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
             cancellationToken: cancellationToken));
     }
 
+    public async Task<LinkInterval?> GetLastAsync(short sourceId, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<IntervalRow?>(new CommandDefinition(
+            """
+            SELECT source_id AS SourceId, from_ts AS "From", to_ts AS "To", open AS Open, close_reason AS CloseReason
+            FROM link_liveness
+            WHERE source_id = @sourceId
+            ORDER BY from_ts DESC
+            LIMIT 1;
+            """,
+            new { sourceId }, cancellationToken: cancellationToken));
+
+        return row is null
+            ? null
+            : new LinkInterval
+            {
+                SourceId = row.SourceId,
+                From = ToUtcOffset(row.From),
+                To = ToUtcOffset(row.To),
+                Open = row.Open,
+                CloseReason = row.CloseReason is null ? null : FromDb(row.CloseReason),
+            };
+    }
+
     public async Task<IReadOnlyList<LinkInterval>> QueryAsync(
         IReadOnlyCollection<short> sourceIds, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken)
     {

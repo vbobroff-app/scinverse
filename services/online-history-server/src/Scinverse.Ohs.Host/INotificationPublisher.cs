@@ -9,14 +9,17 @@ namespace Scinverse.Ohs.Host;
 /// </summary>
 public interface INotificationPublisher
 {
-    /// <summary>Одиночное событие без жизненного цикла.</summary>
+    /// <summary>Одиночное событие. Опц. <paramref name="status"/>/<paramref name="correlationId"/> — для
+    /// продюсер-управляемых последовательностей (напр. connecting→connect/failed одной группой), без incident-оркестратора.</summary>
     void Publish(
         string code,
         string message,
         string severity = "info",
         string sourceType = "system",
         string module = "ohs.connection",
-        object? data = null);
+        object? data = null,
+        string? status = null,
+        string? correlationId = null);
 
     /// <summary>Открыть/подтвердить инцидент по <paramref name="subject"/> (active). true — если статус сменился (событие ушло).</summary>
     bool Open(

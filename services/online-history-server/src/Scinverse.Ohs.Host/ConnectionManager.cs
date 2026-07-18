@@ -121,7 +121,7 @@ public sealed class ConnectionManager(
                 connector, parser, registry, sourceStore, normalizer, batcher, coverageTracker,
                 loggerFactory.CreateLogger<ConnectorSession>(),
                 onData: () => ReportActivity(connectionId),
-                onLinkState: change => HandleLinkState(connectionId, change));
+                onLinkState: change => HandleLinkStateAsync(connectionId, change));
             await session.StartAsync(cancellationToken).ConfigureAwait(false);
 
             _sessions[connectionId] = session;
@@ -367,10 +367,8 @@ public sealed class ConnectionManager(
             : null;
     }
 
-    /// <summary>Реакция на <c>server_status</c> от коннектора (phase 7h.4).</summary>
-    private void HandleLinkState(long connectionId, ConnectorLinkStateChange change) =>
-        _ = HandleLinkStateAsync(connectionId, change);
-
+    /// <summary>Реакция на <c>server_status</c> от коннектора (phase 7h.4). Вызывается строго
+    /// последовательно из pump-цикла сессии (await), поэтому previous-состояние достоверно.</summary>
     private async Task HandleLinkStateAsync(long connectionId, ConnectorLinkStateChange change)
     {
         // Событие связи по подключению без активной сессии — штатный teardown (DisconnectAsync снял
