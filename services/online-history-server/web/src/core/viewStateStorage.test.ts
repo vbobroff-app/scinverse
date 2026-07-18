@@ -60,7 +60,7 @@ describe('viewStateStorage', () => {
     expect(loadViewState().activeConnectionId).toBeNull();
   });
 
-  it('сохраняет и восстанавливает таймфрейм, тайм-лайн-фильтр, ТЗ и тумблеры Ганта', () => {
+  it('сохраняет и восстанавливает таймфрейм, тайм-лайн-фильтр, ТЗ и тумблеры Ганта/фильтров', () => {
     persistViewState({
       activeConnectionId: null,
       activeFilters: [],
@@ -71,6 +71,7 @@ describe('viewStateStorage', () => {
       displayTz: { preset: 'utc', offsetMin: 0 },
       crosshair: false,
       highlightDays: true,
+      showFilters: false,
     });
 
     const v = loadViewState();
@@ -83,6 +84,7 @@ describe('viewStateStorage', () => {
     expect(v.displayTz).toEqual({ preset: 'utc', offsetMin: 0 });
     expect(v.crosshair).toBe(false);
     expect(v.highlightDays).toBe(true);
+    expect(v.showFilters).toBe(false);
   });
 
   it('отбрасывает невалидные таймфрейм/тайм-лайн/ТЗ', () => {

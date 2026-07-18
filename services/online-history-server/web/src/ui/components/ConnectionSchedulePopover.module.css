@@ -10,7 +10,7 @@
 }
 
 .panel {
-  width: min(420px, 92vw);
+  width: min(560px, 94vw);
   max-height: 80vh;
   overflow: auto;
   padding: 16px;
@@ -27,24 +27,160 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 
-.close {
+.headActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-muted);
   font-size: 20px;
+  line-height: 1;
   cursor: pointer;
 }
 
-.row {
-  display: flex;
-  gap: 12px;
+.iconBtn:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
 }
 
-.row label,
-.note,
-.presets label {
+.iconBtn[aria-pressed='true'] {
+  color: var(--color-accent);
+}
+
+.headIcon {
+  width: 16px;
+  height: 16px;
+}
+
+.closeGlyph {
+  display: block;
+  transform: translateY(-2px);
+  line-height: 1;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border);
+}
+
+.sectionTitle {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 18px;
+  background: var(--color-border);
+  margin: 0 2px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chipIcon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chipOn {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  color: var(--color-accent);
+}
+
+.days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.day {
+  padding: 4px 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.day:hover:not(:disabled) {
+  border-color: var(--color-border-focus);
+  color: var(--color-text);
+}
+
+.day:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.dayOn {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  color: var(--color-accent);
+}
+
+.sectionLocked {
+  opacity: 0.92;
+}
+
+.note input:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.note {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -52,9 +188,7 @@
   color: var(--color-text-muted);
 }
 
-.row input,
-.note input,
-.presets input {
+.note input {
   padding: 6px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
@@ -62,29 +196,20 @@
   color: var(--color-text);
 }
 
-.presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: flex-end;
-}
-
-.presets button,
 .approve {
   padding: 6px 10px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-input);
-  color: var(--color-text);
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.approve {
+  border: 1px solid transparent;
   background: var(--color-accent, #3aa0e0);
-  border-color: transparent;
   color: #fff;
   font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.approve:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .history h4 {

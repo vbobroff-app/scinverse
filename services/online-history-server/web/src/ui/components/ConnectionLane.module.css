@@ -1,0 +1,70 @@
+/* Лента Connection: над фильтром, на общей с дорожками оси (те же колонки, что у picker). */
+.lane {
+  display: grid;
+  grid-template-columns: minmax(250px, 315px) 1fr;
+  gap: var(--spacing-sm);
+  height: 52px;
+  padding: 0 12px 8px 0;
+  box-sizing: border-box;
+}
+
+/* [label] … [[switcher][button]] — space-between */
+.left {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  height: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-input);
+}
+
+.name {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.scheduleBtn {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.scheduleBtn:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-focus);
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: var(--spacing-xs) var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  min-width: 0;
+}
+
+.right > * {
+  flex: 1;
+  min-width: 0;
+}

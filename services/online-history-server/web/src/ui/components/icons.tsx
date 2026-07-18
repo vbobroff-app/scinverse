@@ -88,6 +88,26 @@ export function DayBoxIcon({ className }: IconProps) {
   );
 }
 
+/** Глаз — режим просмотра. */
+export function EyeIcon({ className }: IconProps) {
+  return (
+    <StrokeIcon className={className}>
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </StrokeIcon>
+  );
+}
+
+/** Карандаш — режим редактирования. */
+export function PencilIcon({ className }: IconProps) {
+  return (
+    <StrokeIcon className={className}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </StrokeIcon>
+  );
+}
+
 /** Часы (feather-стиль) — для сессии биржи в тайм-лайн-фильтре. */
 export function ClockIcon({ className }: IconProps) {
   return (

@@ -50,6 +50,8 @@ export interface PersistedViewState {
   crosshair?: boolean;
   /** Тумблер подсветки границ дней над Гантом. */
   highlightDays?: boolean;
+  /** Показывать панель фильтров каталога (шестерёнка провайдера). */
+  showFilters?: boolean;
 }
 
 const EMPTY: PersistedViewState = {
@@ -194,6 +196,7 @@ export function loadViewState(): PersistedViewState {
       displayTz: parseDisplayTz(parsed.displayTz),
       crosshair: typeof parsed.crosshair === 'boolean' ? parsed.crosshair : undefined,
       highlightDays: typeof parsed.highlightDays === 'boolean' ? parsed.highlightDays : undefined,
+      showFilters: typeof parsed.showFilters === 'boolean' ? parsed.showFilters : undefined,
     };
   } catch {
     return { ...EMPTY };

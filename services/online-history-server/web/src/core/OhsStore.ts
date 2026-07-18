@@ -273,6 +273,8 @@ export class OhsStore {
   readonly crosshairOn$ = new BehaviorSubject<boolean>(true);
   /** Тумблер подсветки границ дней над Гантом (сохраняется). */
   readonly highlightDays$ = new BehaviorSubject<boolean>(false);
+  /** Показывать панель фильтров каталога (шестерёнка провайдера, сохраняется). */
+  readonly showFilters$ = new BehaviorSubject<boolean>(true);
 
   /** Раскрытые серии, ожидающие регидрации после перезагрузки (одноразово, см. hydrateExpanded). */
   private pendingSeriesHydration: PersistedSeries[] = [];
@@ -329,6 +331,9 @@ export class OhsStore {
     if (typeof v.highlightDays === 'boolean') {
       this.highlightDays$.next(v.highlightDays);
     }
+    if (typeof v.showFilters === 'boolean') {
+      this.showFilters$.next(v.showFilters);
+    }
   }
 
   /** Снимок представления каталога для localStorage (из текущих сабджектов). */
@@ -360,6 +365,7 @@ export class OhsStore {
       displayTz: this.displayTz$.value,
       crosshair: this.crosshairOn$.value,
       highlightDays: this.highlightDays$.value,
+      showFilters: this.showFilters$.value,
     });
   }
 
@@ -503,6 +509,14 @@ export class OhsStore {
   setHighlightDays(on: boolean): void {
     if (this.highlightDays$.value !== on) {
       this.highlightDays$.next(on);
+      this.persistView();
+    }
+  }
+
+  /** Показывать / скрывать панель фильтров каталога (фильтры в сторе не сбрасываются). */
+  setShowFilters(on: boolean): void {
+    if (this.showFilters$.value !== on) {
+      this.showFilters$.next(on);
       this.persistView();
     }
   }

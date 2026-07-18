@@ -3,6 +3,8 @@
   align-items: center;
   gap: var(--spacing-sm);
   flex-wrap: wrap;
+  /* Правый край поиска = правый край ленты Связь / дорожек Ганта (12px как у connLane/axisBar). */
+  padding-right: 12px;
 }
 
 .right {

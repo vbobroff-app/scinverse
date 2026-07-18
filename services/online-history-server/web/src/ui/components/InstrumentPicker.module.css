@@ -97,6 +97,10 @@
   gap: var(--spacing-sm);
 }
 
+.rowWrap {
+  padding-bottom: 4px;
+}
+
 .axisBar {
   align-items: center;
   /* 4px как у .scroll + 8px под скроллбар, чтобы ось совпала с дорожками */
@@ -124,44 +128,6 @@
   overflow-y: auto;
   padding-right: 4px;
   scrollbar-gutter: stable;
-}
-
-/* Лента Connection (phase 7h.8): фиксирована над списком, на общей с дорожками оси.
-   Правый отступ 12px как у .axisBar — чтобы ось ленты совпала с дорожками внутри .scroll. */
-.connLane {
-  display: grid;
-  grid-template-columns: minmax(250px, 315px) 1fr;
-  gap: var(--spacing-sm);
-  padding: 0 12px 8px 0;
-}
-
-.connName {
-  min-width: 0;
-  font-size: 12px;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.scheduleBtn {
-  flex-shrink: 0;
-  padding: 4px 8px;
-  font-size: 11px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-
-.scheduleBtn:hover {
-  color: var(--color-text);
-  border-color: var(--color-border-focus);
-}
-
-.rowWrap {
-  padding-bottom: 4px;
 }
 
 /* Левая плашка: звезда + инструмент + Старт/Стоп */

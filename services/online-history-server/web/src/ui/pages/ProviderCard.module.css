@@ -33,6 +33,91 @@
   gap: var(--spacing-md);
 }
 
+.settingsWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.settingsBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-input);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.settingsBtn:hover {
+  border-color: var(--color-border-focus);
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.settingsBtnActive {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-accent);
+}
+
+.settingsIcon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.settingsPopover {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 220px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settingsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settingsSectionTitle {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  padding: 2px 8px 4px;
+}
+
+.settingsCheck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.settingsCheck:hover {
+  background: var(--color-bg-hover);
+}
+
 .instruments {
   display: flex;
   flex-direction: column;
