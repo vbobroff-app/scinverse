@@ -8,6 +8,7 @@ import type {
   NotificationInteraction,
   NotificationLocalization,
   NotificationSeverity,
+  NotificationStatus,
 } from '@scinverse/notification-center';
 import {
   EMPTY_DOCK_RANGE,
@@ -22,6 +23,7 @@ const VALID_ACTIVE: readonly DockFilterKey[] = [
   'severity',
   'interaction',
   'localization',
+  'status',
   'range',
 ];
 const VALID_SEVERITIES: readonly NotificationSeverity[] = [
@@ -31,8 +33,9 @@ const VALID_SEVERITIES: readonly NotificationSeverity[] = [
   'error',
   'critical',
 ];
-const VALID_INTERACTIONS: readonly NotificationInteraction[] = ['user', 'system', 'resolving'];
+const VALID_INTERACTIONS: readonly NotificationInteraction[] = ['user', 'system'];
 const VALID_LOCALIZATIONS: readonly NotificationLocalization[] = ['internal', 'external'];
+const VALID_STATUSES: readonly NotificationStatus[] = ['active', 'underway', 'resolved'];
 
 export interface PersistedNotificationDock {
   open: boolean;
@@ -48,6 +51,7 @@ function emptyFilter(): DockFilterState {
     severities: [],
     interactions: [],
     localizations: [],
+    statuses: [],
     range: { ...EMPTY_DOCK_RANGE },
     query: '',
   };
@@ -98,6 +102,9 @@ function parseFilter(raw: unknown): DockFilterState {
     localizations: asStringArray(f.localizations).filter((s): s is NotificationLocalization =>
       (VALID_LOCALIZATIONS as readonly string[]).includes(s),
     ),
+    statuses: asStringArray(f.statuses).filter((s): s is NotificationStatus =>
+      (VALID_STATUSES as readonly string[]).includes(s),
+    ),
     range: parseRange(f.range),
     query: typeof f.query === 'string' ? f.query : '',
   };
@@ -115,6 +122,7 @@ function cloneFilter(filter: DockFilterState): DockFilterState {
     severities: [...(filter.severities ?? [])],
     interactions: [...(filter.interactions ?? [])],
     localizations: [...(filter.localizations ?? [])],
+    statuses: [...(filter.statuses ?? [])],
     range: {
       preset: range.preset ?? 'all',
       ...(range.from ? { from: range.from } : {}),
@@ -280,6 +288,8 @@ class NotificationDockStore {
       this.filter$.next({ ...f, interactions: [] });
     } else if (key === 'localization') {
       this.filter$.next({ ...f, localizations: [] });
+    } else if (key === 'status') {
+      this.filter$.next({ ...f, statuses: [] });
     } else if (key === 'range') {
       this.filter$.next({ ...f, range: { ...EMPTY_DOCK_RANGE } });
     }
@@ -292,6 +302,7 @@ class NotificationDockStore {
       severities: [],
       interactions: [],
       localizations: [],
+      statuses: [],
       range: { ...EMPTY_DOCK_RANGE },
       query: this.filter$.value.query,
     });

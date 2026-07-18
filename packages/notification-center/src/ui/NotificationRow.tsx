@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { NotificationEvent, NotificationSeverity } from '../types';
+import type { NotificationEvent, NotificationSeverity, NotificationStatus } from '../types';
+import { resolveStatus } from '../types';
 import type { FormatTs } from '../format/formatTs';
 import { InteractionIcon } from './InteractionIcon';
 import { SeverityIcon } from './SeverityIcon';
@@ -10,6 +11,8 @@ interface Props {
   event: NotificationEvent;
   formatTs: FormatTs;
   unread?: boolean;
+  /** Приглушить строку: закрытый инцидент (`resolved`) или перекрытое (не последнее) событие группы. */
+  dimmed?: boolean;
   /** Показывать иконку severity («логотип статуса»). Иначе — текстовая метка. */
   showStatusLogo?: boolean;
   onOpen?: (event: NotificationEvent) => void;
@@ -21,6 +24,12 @@ const SEVERITY_LABEL: Record<NotificationSeverity, string> = {
   warning: 'Warning:',
   error: 'Error:',
   critical: 'Critical:',
+};
+
+/** Pill показываем только для нетривиальных фаз (active подразумевается по умолчанию). */
+const STATUS_PILL: Partial<Record<NotificationStatus, string>> = {
+  underway: 'восстановление',
+  resolved: 'решено',
 };
 
 function detailText(event: NotificationEvent): string | null {
@@ -38,12 +47,15 @@ export function NotificationRow({
   event,
   formatTs,
   unread,
+  dimmed,
   showStatusLogo = true,
   onOpen,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const detail = detailText(event);
+  const status = resolveStatus(event);
+  const pill = STATUS_PILL[status];
 
   useEffect(() => {
     if (expanded && ref.current) {
@@ -68,7 +80,14 @@ export function NotificationRow({
   return (
     <div
       ref={ref}
-      className={[styles.row, unread ? styles.unread : '', styles[event.severity]].filter(Boolean).join(' ')}
+      className={[
+        styles.row,
+        unread ? styles.unread : '',
+        dimmed ? styles.dimmed : '',
+        styles[event.severity],
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
       <div className={styles.main}>
         <button
@@ -96,6 +115,14 @@ export function NotificationRow({
         <span className={[styles.message, expanded ? styles.messageWrap : ''].filter(Boolean).join(' ')}>
           {event.message}
         </span>
+        {pill && (
+          <span
+            className={[styles.statusPill, styles[`status_${status}`]].filter(Boolean).join(' ')}
+            aria-label={`Статус: ${pill}`}
+          >
+            {pill}
+          </span>
+        )}
         <Tip content="Копировать">
           <button type="button" className={styles.copyBtn} onClick={copy} aria-label="Копировать">
             ⎘
@@ -106,6 +133,7 @@ export function NotificationRow({
         <div className={styles.detail}>
           <div className={styles.meta}>
             <span>code: {event.code}</span>
+            <span>status: {status}</span>
             {event.correlationId && <span>corr: {event.correlationId}</span>}
             <span>id: {event.id}</span>
           </div>

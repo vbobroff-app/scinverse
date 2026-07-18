@@ -3,6 +3,7 @@ import type {
   NotificationInteraction,
   NotificationLocalization,
   NotificationSeverity,
+  NotificationStatus,
 } from '../types';
 import {
   DOCK_RANGE_PRESETS,
@@ -79,6 +80,7 @@ const AVAILABLE: { key: DockFilterKey; name: string }[] = [
   { key: 'severity', name: 'Тип сообщения' },
   { key: 'interaction', name: 'Взаимодействие' },
   { key: 'localization', name: 'Локализация' },
+  { key: 'status', name: 'Статус' },
   { key: 'range', name: 'Период' },
 ];
 
@@ -93,12 +95,17 @@ const SEVERITY_OPTIONS: FilterOption[] = [
 const INTERACTION_OPTIONS: FilterOption[] = [
   { id: 'user', label: 'Пользовательские' },
   { id: 'system', label: 'Системный' },
-  { id: 'resolving', label: 'Резолвинг' },
 ];
 
 const LOCALIZATION_OPTIONS: FilterOption[] = [
   { id: 'internal', label: 'Внутренние' },
   { id: 'external', label: 'Внешние' },
+];
+
+const STATUS_OPTIONS: FilterOption[] = [
+  { id: 'active', label: 'Активные' },
+  { id: 'underway', label: 'Восстановление' },
+  { id: 'resolved', label: 'Решённые' },
 ];
 
 function isFilterAtDefault(key: DockFilterKey, value: DockFilterState): boolean {
@@ -110,6 +117,9 @@ function isFilterAtDefault(key: DockFilterKey, value: DockFilterState): boolean 
   }
   if (key === 'localization') {
     return value.localizations.length === 0;
+  }
+  if (key === 'status') {
+    return value.statuses.length === 0;
   }
   return value.range.preset === 'all' || !value.range.preset;
 }
@@ -123,6 +133,9 @@ function resetFilterValue(key: DockFilterKey, value: DockFilterState): DockFilte
   }
   if (key === 'localization') {
     return { ...value, localizations: [] };
+  }
+  if (key === 'status') {
+    return { ...value, statuses: [] };
   }
   return { ...value, range: { ...EMPTY_DOCK_RANGE } };
 }
@@ -230,6 +243,13 @@ export function DockFilters({
         onChange: (selected) =>
           onChange({ ...value, localizations: selected as NotificationLocalization[] }),
       },
+      status: {
+        key: 'status',
+        name: 'Статус',
+        options: STATUS_OPTIONS,
+        selected: value.statuses,
+        onChange: (selected) => onChange({ ...value, statuses: selected as NotificationStatus[] }),
+      },
     }),
     [value, onChange],
   );
@@ -272,6 +292,7 @@ export function DockFilters({
         severities: [],
         interactions: [],
         localizations: [],
+        statuses: [],
         range: { ...EMPTY_DOCK_RANGE },
         query: value.query,
       },

@@ -10,8 +10,8 @@ export type NotificationSeverity = 'ok' | 'info' | 'warning' | 'critical' | 'err
  */
 export type NotificationSourceType = 'user' | 'system' | 'external';
 
-/** Взаимодействие: кто/что инициировалo событие. */
-export type NotificationInteraction = 'user' | 'system' | 'resolving';
+/** Взаимодействие: кто/что инициировалo событие. Жизненный цикл — ось `status`, не здесь. */
+export type NotificationInteraction = 'user' | 'system';
 
 /** Локализация контура: внутренний сервис vs внешний. */
 export type NotificationLocalization = 'internal' | 'external';
@@ -66,7 +66,6 @@ export const NOTIFICATION_SOURCE_TYPES: readonly NotificationSourceType[] = [
 export const NOTIFICATION_INTERACTIONS: readonly NotificationInteraction[] = [
   'user',
   'system',
-  'resolving',
 ] as const;
 
 export const NOTIFICATION_LOCALIZATIONS: readonly NotificationLocalization[] = [

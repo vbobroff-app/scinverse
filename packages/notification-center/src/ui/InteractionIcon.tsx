@@ -64,21 +64,9 @@ function SystemExternalGlyph() {
   );
 }
 
-/** Резолвинг — цикл/обход. */
-function ResolvingGlyph() {
-  return (
-    <>
-      <path d="M4 12a8 8 0 0 1 13.5-5.8L20 8" />
-      <path d="M20 4v4h-4" />
-      <path d="M20 12a8 8 0 0 1-13.5 5.8L4 16" />
-      <path d="M4 20v-4h4" />
-    </>
-  );
-}
-
 /**
  * Монохромная иконка взаимодействия:
- * user → человек; system+internal → провайдеры; system+external → внешний контур; resolving → цикл.
+ * user → человек; system+internal → провайдеры; system+external → внешний контур.
  */
 export function InteractionIcon({ event }: Props) {
   const interaction = resolveInteraction(event);
@@ -88,14 +76,6 @@ export function InteractionIcon({ event }: Props) {
     return (
       <StrokeIcon label="Пользовательские">
         <UserGlyph />
-      </StrokeIcon>
-    );
-  }
-
-  if (interaction === 'resolving') {
-    return (
-      <StrokeIcon label="Резолвинг">
-        <ResolvingGlyph />
       </StrokeIcon>
     );
   }

@@ -3,6 +3,7 @@ import type { NotificationBus } from '../bus/NotificationBus';
 import { filterEvents } from '../filter/filterEvents';
 import { formatTsUtc, type FormatTs } from '../format/formatTs';
 import type { NotificationEvent, NotificationSeverity } from '../types';
+import { resolveStatus } from '../types';
 import { DockFilters, EMPTY_DOCK_FILTER, normalizeDockFilter, type DockDateFieldProps, type DockDateRangeProps, type DockFilterKey, type DockFilterState } from './DockFilters';
 import {
   EMPTY_DOCK_SETTINGS,
@@ -275,11 +276,29 @@ export function NotificationDock({
         severities: filter.severities,
         interactions: filter.interactions,
         localizations: filter.localizations,
+        statuses: filter.statuses,
         query: filter.query,
         range: activeFilters.includes('range') ? filter.range : undefined,
       }),
     [events, filter, activeFilters],
   );
+
+  // Актуальное событие каждого инцидента (лента newest-first ⇒ первое по correlationId — свежее).
+  // Остальные события того же correlationId — «перекрытые», их тушим наравне с resolved.
+  const latestIncidentIds = useMemo(() => {
+    const seen = new Set<string>();
+    const latest = new Set<string>();
+    for (const evt of visible) {
+      if (!evt.correlationId) {
+        continue;
+      }
+      if (!seen.has(evt.correlationId)) {
+        seen.add(evt.correlationId);
+        latest.add(evt.id);
+      }
+    }
+    return latest;
+  }, [visible]);
 
   // Live-tail: новые события → скролл вверх списка (новые сверху), пауза при ручном уходе.
   useEffect(() => {
@@ -523,22 +542,29 @@ export function NotificationDock({
             {visible.length === 0 ? (
               <div className={styles.empty}>Нет уведомлений</div>
             ) : (
-              visible.map((evt) => (
-                <NotificationRow
-                  key={evt.id}
-                  event={evt}
-                  formatTs={formatTs}
-                  showStatusLogo={settings.showStatusLogo}
-                  unread={
-                    showUnreadUi &&
-                    (evt.severity === 'warning' ||
-                      evt.severity === 'error' ||
-                      evt.severity === 'critical') &&
-                    !bus.isRead(evt.id)
-                  }
-                  onOpen={showUnreadUi ? onOpenRow : undefined}
-                />
-              ))
+              visible.map((evt) => {
+                const dimmed =
+                  resolveStatus(evt) === 'resolved' ||
+                  (Boolean(evt.correlationId) && !latestIncidentIds.has(evt.id));
+                return (
+                  <NotificationRow
+                    key={evt.id}
+                    event={evt}
+                    formatTs={formatTs}
+                    dimmed={dimmed}
+                    showStatusLogo={settings.showStatusLogo}
+                    unread={
+                      showUnreadUi &&
+                      !dimmed &&
+                      (evt.severity === 'warning' ||
+                        evt.severity === 'error' ||
+                        evt.severity === 'critical') &&
+                      !bus.isRead(evt.id)
+                    }
+                    onOpen={showUnreadUi ? onOpenRow : undefined}
+                  />
+                );
+              })
             )}
           </div>
         </div>
