@@ -62,8 +62,14 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
     stopRecording: () => of(undefined),
     getRecordingSchedule: () => of([]),
     upsertRecordingSchedule: () => of([]),
-    getConnectionSchedule: () => of({} as never),
-    putConnectionSchedule: () => of({} as never),
+    getConnectionSchedule: () =>
+      of({
+        settings: { connectionId: 0, autoEnabled: false, engine: 'futures', tz: 'Europe/Moscow' },
+        rules: [],
+      }),
+    putConnectionScheduleRule: () => of({} as never),
+    putConnectionScheduleSettings: () => of({} as never),
+    cancelConnectionScheduleRule: () => of({} as never),
     getConnectionScheduleHistory: () => of([]),
     getNotifications: () => of([]),
     connect: () => of(connection({ status: 'connected' })),

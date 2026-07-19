@@ -153,34 +153,59 @@ public sealed record RecordingScheduleDto(long InstrumentId, long ConnectionId, 
 /// <summary>Пакетный upsert политик автозаписи.</summary>
 public sealed record UpsertRecordingScheduleRequest(IReadOnlyList<RecordingScheduleDto> Items);
 
-/// <summary>Текущая / историческая версия расписания соединения (phase 7j).</summary>
-public sealed record ConnectionScheduleDto(
+/// <summary>
+/// Правило расписания соединения (phase 7j v2). Окно = <see cref="Open"/> + <see cref="DurationMin"/>
+/// и принадлежит дню открытия; <see cref="End"/> — производное (open + duration, mod суток).
+/// </summary>
+public sealed record ConnectionScheduleRuleDto(
     long ScheduleId,
     long ConnectionId,
+    string ScopeKind,
+    int? DowMask,
+    DateOnly? DateFrom,
+    DateOnly? DateTo,
     string Mode,
-    bool AutoEnabled,
-    string WindowStart,
-    string WindowEnd,
-    string Engine,
-    string Tz,
+    string? Open,
+    int? DurationMin,
+    string? End,
     DateTimeOffset EffectiveFrom,
     DateTimeOffset? EffectiveTo,
+    string? CloseReason,
     string ChangeSource,
     string? ChangeNote);
 
+/// <summary>Настройки расписания уровня соединения (Auto / ведущий календарь / tz).</summary>
+public sealed record ConnectionScheduleSettingsDto(
+    long ConnectionId,
+    bool AutoEnabled,
+    string Engine,
+    string Tz);
+
+/// <summary>GET расписания соединения: настройки + все живые правила.</summary>
+public sealed record ConnectionScheduleStateDto(
+    ConnectionScheduleSettingsDto Settings,
+    IReadOnlyList<ConnectionScheduleRuleDto> Rules);
+
 /// <summary>
-/// PUT расписания соединения: если заданы <see cref="WindowStart"/> и <see cref="WindowEnd"/> —
-/// SCD-2 новая версия окна; иначе только UPDATE <see cref="Mode"/> / <see cref="AutoEnabled"/> текущей.
+/// PUT правила расписания: upsert со SCD-2. Закрывает как <c>superseded</c> все живые правила того же
+/// уровня, чей скоуп полностью вложен в новый (dow — по маске), и вставляет новую версию.
 /// </summary>
-public sealed record PutConnectionScheduleRequest(
-    string? Mode,
-    bool? AutoEnabled,
-    string? WindowStart,
-    string? WindowEnd,
-    string? Engine,
-    string? Tz,
+public sealed record PutConnectionScheduleRuleRequest(
+    string ScopeKind,
+    int? DowMask,
+    DateOnly? DateFrom,
+    DateOnly? DateTo,
+    string Mode,
+    string? Open,
+    int? DurationMin,
     string? ChangeSource,
     string? ChangeNote);
+
+/// <summary>PUT настроек расписания соединения (любое из полей опционально).</summary>
+public sealed record PutConnectionScheduleSettingsRequest(
+    bool? AutoEnabled,
+    string? Engine,
+    string? Tz);
 
 /// <summary>Подключение коннектора (без секретов) + рантайм-статус.</summary>
 public sealed record ConnectionDto(

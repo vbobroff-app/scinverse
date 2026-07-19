@@ -8,8 +8,11 @@ import type {
   MarketScheduleExceptionDto,
   ConnectionCredentialsRequest,
   ConnectionDto,
-  ConnectionScheduleDto,
-  PutConnectionScheduleRequest,
+  ConnectionScheduleStateDto,
+  ConnectionScheduleRuleDto,
+  ConnectionScheduleSettingsDto,
+  PutConnectionScheduleRuleRequest,
+  PutConnectionScheduleSettingsRequest,
   NotificationDto,
   CaptureLivenessDto,
   LinkLivenessDto,
@@ -129,13 +132,19 @@ export const OhsApi = {
     put<RecordingScheduleDto[]>('/recording/schedule', body),
 
   getConnectionSchedule: (connectionId: number) =>
-    getJSON<ConnectionScheduleDto>(`/connections/${connectionId}/schedule`),
+    getJSON<ConnectionScheduleStateDto>(`/connections/${connectionId}/schedule`),
 
-  putConnectionSchedule: (connectionId: number, body: PutConnectionScheduleRequest) =>
-    put<ConnectionScheduleDto>(`/connections/${connectionId}/schedule`, body),
+  putConnectionScheduleRule: (connectionId: number, body: PutConnectionScheduleRuleRequest) =>
+    put<ConnectionScheduleRuleDto>(`/connections/${connectionId}/schedule/rule`, body),
+
+  putConnectionScheduleSettings: (connectionId: number, body: PutConnectionScheduleSettingsRequest) =>
+    put<ConnectionScheduleSettingsDto>(`/connections/${connectionId}/schedule/settings`, body),
+
+  cancelConnectionScheduleRule: (connectionId: number, scheduleId: number) =>
+    post<ConnectionScheduleRuleDto>(`/connections/${connectionId}/schedule/rules/${scheduleId}/cancel`),
 
   getConnectionScheduleHistory: (connectionId: number) =>
-    getJSON<ConnectionScheduleDto[]>(`/connections/${connectionId}/schedule/history`),
+    getJSON<ConnectionScheduleRuleDto[]>(`/connections/${connectionId}/schedule/history`),
 
   getNotifications: (limit = 100) => getJSON<NotificationDto[]>(`/notifications?limit=${limit}`),
 

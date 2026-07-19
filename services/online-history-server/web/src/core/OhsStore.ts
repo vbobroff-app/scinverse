@@ -30,8 +30,8 @@ import type {
   InstrumentQueryParams,
   LivenessIntervalDto,
   LiveEvent,
-  ConnectionScheduleDto,
-  PutConnectionScheduleRequest,
+  ConnectionScheduleStateDto,
+  PutConnectionScheduleRuleRequest,
   RecordingDto,
   RecordingScheduleDto,
   SelectionScope,
@@ -238,8 +238,8 @@ export class OhsStore {
   /** Политики автозаписи: instrumentId → schedule. */
   readonly recordingSchedule$ = new BehaviorSubject<ReadonlyMap<number, RecordingScheduleDto>>(new Map());
 
-  /** Текущие расписания соединений (connectionId → schedule), phase 7j. */
-  readonly connectionSchedule$ = new BehaviorSubject<ReadonlyMap<number, ConnectionScheduleDto>>(new Map());
+  /** Состояния расписаний соединений (connectionId → settings + правила), phase 7j v2. */
+  readonly connectionSchedule$ = new BehaviorSubject<ReadonlyMap<number, ConnectionScheduleStateDto>>(new Map());
   readonly coverage$ = new BehaviorSubject<CoverageSegmentDto[]>([]);
   readonly window$ = new BehaviorSubject<CoverageWindow>(defaultWindow());
 
@@ -1284,37 +1284,40 @@ export class OhsStore {
     });
   }
 
-  /** Auto on/off для соединения (UPDATE mode текущей версии). Без окна — ошибка с бэка. */
+  /** Auto on/off для соединения (настройки уровня соединения). */
   setConnectionAuto(connectionId: number, autoEnabled: boolean): void {
-    this.api.putConnectionSchedule(connectionId, { autoEnabled }).subscribe({
-      next: (row) => this.upsertConnectionSchedule(row),
+    this.api.putConnectionScheduleSettings(connectionId, { autoEnabled }).subscribe({
+      next: () => this.refreshConnectionSchedule(connectionId),
       error: (err) => console.error('setConnectionAuto', err),
     });
   }
 
-  /** Утвердить новое окно (SCD-2). */
-  publishConnectionSchedule(connectionId: number, body: PutConnectionScheduleRequest): void {
-    this.api.putConnectionSchedule(connectionId, body).subscribe({
-      next: (row) => this.upsertConnectionSchedule(row),
-      error: (err) => console.error('publishConnectionSchedule', err),
+  /** Утвердить/обновить правило расписания (upsert со SCD-2 + авто-ретайр вложенных). */
+  upsertConnectionScheduleRule(connectionId: number, body: PutConnectionScheduleRuleRequest): void {
+    this.api.putConnectionScheduleRule(connectionId, body).subscribe({
+      next: () => this.refreshConnectionSchedule(connectionId),
+      error: (err) => console.error('upsertConnectionScheduleRule', err),
+    });
+  }
+
+  /** Снять правило (soft-cancel). */
+  cancelConnectionScheduleRule(connectionId: number, scheduleId: number): void {
+    this.api.cancelConnectionScheduleRule(connectionId, scheduleId).subscribe({
+      next: () => this.refreshConnectionSchedule(connectionId),
+      error: (err) => console.error('cancelConnectionScheduleRule', err),
     });
   }
 
   refreshConnectionSchedule(connectionId: number): void {
     this.api.getConnectionSchedule(connectionId).subscribe({
-      next: (row) => this.upsertConnectionSchedule(row),
-      error: () => {
-        // 404 — расписания ещё нет.
-        const next = new Map(this.connectionSchedule$.value);
-        next.delete(connectionId);
-        this.connectionSchedule$.next(next);
-      },
+      next: (state) => this.upsertConnectionSchedule(state),
+      error: (err) => console.error('refreshConnectionSchedule', err),
     });
   }
 
-  private upsertConnectionSchedule(row: ConnectionScheduleDto): void {
+  private upsertConnectionSchedule(state: ConnectionScheduleStateDto): void {
     const next = new Map(this.connectionSchedule$.value);
-    next.set(row.connectionId, row);
+    next.set(state.settings.connectionId, state);
     this.connectionSchedule$.next(next);
   }
 

@@ -1,0 +1,99 @@
+.overview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border, #2a2f3a);
+}
+
+.weekTitle {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #8b93a7);
+}
+
+.week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.dayCol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 2px;
+  border-radius: 6px;
+  background: var(--surface-2, #1b2029);
+}
+
+.dayLabel {
+  font-size: 11px;
+  color: var(--muted, #8b93a7);
+}
+
+.dayWin {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kind_window {
+  color: var(--accent, #4aa3ff);
+}
+
+.kind_off {
+  color: var(--muted, #8b93a7);
+  font-style: italic;
+}
+
+.kind_none {
+  color: var(--muted-2, #5a6172);
+}
+
+.lanes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lane {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--surface-2, #1b2029);
+}
+
+.laneScope {
+  min-width: 84px;
+  font-size: 12px;
+  color: var(--text, #e6e9f0);
+}
+
+.laneWin {
+  flex: 1;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cancelBtn {
+  border: 1px solid var(--border, #2a2f3a);
+  background: transparent;
+  color: var(--muted, #8b93a7);
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cancelBtn:hover {
+  color: var(--danger, #ff6b6b);
+  border-color: var(--danger, #ff6b6b);
+}

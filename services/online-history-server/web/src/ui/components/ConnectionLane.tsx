@@ -3,28 +3,12 @@ import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { useNow } from '../hooks/useNow';
 import { makeProjector } from '../../core/sessionProjection';
+import { hasLiveRules, isConnectedNow } from '../../core/connectionSchedule';
 import type { ConnectionDto } from '../../core/types';
 import { ConnectionAutoToggle, connectionAutoPhase } from './ConnectionAutoToggle';
 import { ConnectionRibbon } from './ConnectionRibbon';
 import { ConnectionSchedulePopover } from './ConnectionSchedulePopover';
 import styles from './ConnectionLane.module.css';
-
-/** Локальные часы браузера vs окно HH:mm[:ss] (через полночь поддерживается). */
-function isLocalTimeInWindow(nowMs: number, startText: string, endText: string): boolean {
-  const d = new Date(nowMs);
-  const nowMin = d.getHours() * 60 + d.getMinutes();
-  const startMin = parseHm(startText);
-  const endMin = parseHm(endText);
-  if (startMin <= endMin) {
-    return nowMin >= startMin && nowMin < endMin;
-  }
-  return nowMin >= startMin || nowMin < endMin;
-}
-
-function parseHm(text: string): number {
-  const [hh, mm] = text.split(':').map((x) => Number(x));
-  return (hh || 0) * 60 + (mm || 0);
-}
 
 /**
  * Панель соединения над фильтром каталога: лейбл + авто-свитч + «Расписание» слева,
@@ -41,12 +25,14 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const connSchedule = connectionSchedules.get(connection.connectionId);
+  const rules = connSchedule?.rules ?? [];
+  const hasRules = hasLiveRules(rules);
   const connInWindow = useMemo(
-    () => (connSchedule ? isLocalTimeInWindow(now, connSchedule.windowStart, connSchedule.windowEnd) : false),
-    [connSchedule, now],
+    () => (hasRules ? isConnectedNow(rules, new Date(now)) : false),
+    [rules, hasRules, now],
   );
   const connAutoPhase = connectionAutoPhase({
-    autoEnabled: connSchedule?.autoEnabled ?? false,
+    autoEnabled: connSchedule?.settings.autoEnabled ?? false,
     connectionStatus: connection.status,
     inWindow: connInWindow,
   });
@@ -65,9 +51,9 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
           <div className={styles.controls}>
             <ConnectionAutoToggle
               phase={connAutoPhase}
-              disabled={!connSchedule}
+              disabled={!hasRules}
               onEnable={() => {
-                if (!connSchedule) {
+                if (!hasRules) {
                   setScheduleOpen(true);
                   return;
                 }
@@ -99,10 +85,11 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
 
       <ConnectionSchedulePopover
         connectionId={connection.connectionId}
-        current={connSchedule}
+        state={connSchedule}
         open={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
-        onPublish={(body) => store.publishConnectionSchedule(connection.connectionId, body)}
+        onUpsertRule={(body) => store.upsertConnectionScheduleRule(connection.connectionId, body)}
+        onCancelRule={(scheduleId) => store.cancelConnectionScheduleRule(connection.connectionId, scheduleId)}
       />
     </>
   );

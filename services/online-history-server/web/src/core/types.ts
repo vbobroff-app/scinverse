@@ -244,31 +244,57 @@ export interface UpsertRecordingScheduleRequest {
   items: RecordingScheduleDto[];
 }
 
-/** Расписание соединения (phase 7j). */
-export interface ConnectionScheduleDto {
+/** Правило расписания соединения (phase 7j v2). Окно = open + durationMin, принадлежит дню открытия. */
+export interface ConnectionScheduleRuleDto {
   scheduleId: number;
   connectionId: number;
-  mode: 'manual' | 'scheduled' | string;
-  autoEnabled: boolean;
-  windowStart: string;
-  windowEnd: string;
-  engine: string;
-  tz: string;
+  scopeKind: 'main' | 'dow' | 'date' | string;
+  dowMask: number | null;
+  dateFrom: string | null;
+  dateTo: string | null;
+  mode: 'window' | 'off' | string;
+  open: string | null;
+  durationMin: number | null;
+  end: string | null;
   effectiveFrom: string;
   effectiveTo: string | null;
+  closeReason: 'superseded' | 'canceled' | string | null;
   changeSource: string;
   changeNote: string | null;
 }
 
-export interface PutConnectionScheduleRequest {
-  mode?: string;
-  autoEnabled?: boolean;
-  windowStart?: string;
-  windowEnd?: string;
-  engine?: string;
-  tz?: string;
+/** Настройки расписания уровня соединения (Auto / ведущий календарь / tz). */
+export interface ConnectionScheduleSettingsDto {
+  connectionId: number;
+  autoEnabled: boolean;
+  engine: string;
+  tz: string;
+}
+
+/** Состояние расписания соединения: настройки + все живые правила. */
+export interface ConnectionScheduleStateDto {
+  settings: ConnectionScheduleSettingsDto;
+  rules: ConnectionScheduleRuleDto[];
+}
+
+/** PUT правила (upsert со SCD-2 + авто-ретайр вложенных того же уровня). */
+export interface PutConnectionScheduleRuleRequest {
+  scopeKind: string;
+  dowMask?: number | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  mode: string;
+  open?: string | null;
+  durationMin?: number | null;
   changeSource?: string;
   changeNote?: string | null;
+}
+
+/** PUT настроек расписания соединения. */
+export interface PutConnectionScheduleSettingsRequest {
+  autoEnabled?: boolean;
+  engine?: string;
+  tz?: string;
 }
 
 export interface NotificationDto {

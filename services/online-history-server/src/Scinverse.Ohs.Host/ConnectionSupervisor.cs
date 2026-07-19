@@ -62,59 +62,71 @@ public sealed class ConnectionSupervisor(
 
     private async Task ReconcileAsync(CancellationToken cancellationToken)
     {
-        var entries = await schedule.ListCurrentScheduledAsync(cancellationToken).ConfigureAwait(false);
-        if (entries.Count == 0)
+        var states = await schedule.ListAutoEnabledAsync(cancellationToken).ConfigureAwait(false);
+        if (states.Count == 0)
         {
             return;
         }
 
         var now = time.GetUtcNow();
-        foreach (var entry in entries)
+        foreach (var state in states)
         {
             try
             {
-                await ReconcileOneAsync(entry, now, cancellationToken).ConfigureAwait(false);
+                await ReconcileOneAsync(state, now, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogWarning(
                     ex,
                     "ConnectionSupervisor: не удалось согласовать Auto для connection {ConnectionId}",
-                    entry.ConnectionId);
+                    state.Settings.ConnectionId);
             }
         }
     }
 
     private async Task ReconcileOneAsync(
-        ConnectionScheduleEntry entry, DateTimeOffset nowUtc, CancellationToken cancellationToken)
+        ConnectionScheduleState state, DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
-        var local = ToLocal(nowUtc, entry.Tz);
+        var settings = state.Settings;
+        var connectionId = settings.ConnectionId;
+        var local = ToLocal(nowUtc, settings.Tz);
         var localTime = TimeOnly.FromDateTime(local.DateTime);
         var localDate = DateOnly.FromDateTime(local.DateTime);
 
-        var session = await ResolveSessionAsync(entry.Engine, localDate, nowUtc, cancellationToken)
-            .ConfigureAwait(false);
-        var tradingDay = session is not null;
-        var inWindow = ConnectionScheduleWindow.Contains(localTime, entry.WindowStart, entry.WindowEnd);
-        var desiredConnected = tradingDay && inWindow;
-        var isConnected = IsConnected(entry.ConnectionId);
+        // Кандидаты — дни открытия {вчера, сегодня}; торговый день нужен только для main-скоупа.
+        var tradingByDay = new Dictionary<DateOnly, bool>();
+        foreach (var openDay in new[] { localDate.AddDays(-1), localDate })
+        {
+            var session = await ResolveSessionAsync(settings.Engine, openDay, nowUtc, cancellationToken)
+                .ConfigureAwait(false);
+            tradingByDay[openDay] = session is not null;
+        }
+
+        var desiredConnected = ConnectionScheduleResolver.IsConnectDesired(
+            state.LiveRules,
+            settings.Engine,
+            localDate,
+            localTime,
+            (_, day) => tradingByDay.GetValueOrDefault(day));
+        var isConnected = IsConnected(connectionId);
 
         if (!desiredConnected)
         {
-            _failCounts.TryRemove(entry.ConnectionId, out _);
-            _nextAttemptAt.TryRemove(entry.ConnectionId, out _);
+            _failCounts.TryRemove(connectionId, out _);
+            _nextAttemptAt.TryRemove(connectionId, out _);
             if (isConnected)
             {
-                await connections.DisconnectAsync(entry.ConnectionId, cancellationToken)
+                await connections.DisconnectAsync(connectionId, cancellationToken)
                     .ConfigureAwait(false);
                 notifications.Publish(
                     "connection.schedule_disconnect",
-                    $"Расписание: отключение {entry.ConnectionId} (вне окна / non-trading)",
+                    $"Расписание: отключение {connectionId} (вне окна / non-trading)",
                     "info",
-                    data: new { entry.ConnectionId });
+                    data: new { connectionId });
                 logger.LogInformation(
-                    "ConnectionSupervisor: disconnect {ConnectionId} (tradingDay={TradingDay}, inWindow={InWindow})",
-                    entry.ConnectionId, tradingDay, inWindow);
+                    "ConnectionSupervisor: disconnect {ConnectionId} (out of schedule window)",
+                    connectionId);
             }
 
             return;
@@ -122,17 +134,17 @@ public sealed class ConnectionSupervisor(
 
         if (isConnected)
         {
-            _failCounts.TryRemove(entry.ConnectionId, out _);
-            _nextAttemptAt.TryRemove(entry.ConnectionId, out _);
+            _failCounts.TryRemove(connectionId, out _);
+            _nextAttemptAt.TryRemove(connectionId, out _);
             return;
         }
 
-        if (_nextAttemptAt.TryGetValue(entry.ConnectionId, out var next) && nowUtc < next)
+        if (_nextAttemptAt.TryGetValue(connectionId, out var next) && nowUtc < next)
         {
             return;
         }
 
-        var fails = _failCounts.GetValueOrDefault(entry.ConnectionId);
+        var fails = _failCounts.GetValueOrDefault(connectionId);
         if (fails >= MaxConnectAttempts)
         {
             return;
@@ -140,48 +152,48 @@ public sealed class ConnectionSupervisor(
 
         notifications.Publish(
             "connection.connecting",
-            $"Расписание: подключение {entry.ConnectionId}, попытка {fails + 1}/{MaxConnectAttempts}",
+            $"Расписание: подключение {connectionId}, попытка {fails + 1}/{MaxConnectAttempts}",
             "info",
-            data: new { entry.ConnectionId, attempt = fails + 1 });
+            data: new { connectionId, attempt = fails + 1 });
 
         // Если по этому подключению открыт инцидент связи (lost, active) — переводим его в underway.
         // severity=warning: underway остаётся «жёлтым, ещё не решено» (маска фона в ленте).
         notifications.Progress(
-            ConnectionManager.LinkIncidentSubject(entry.ConnectionId),
+            ConnectionManager.LinkIncidentSubject(connectionId),
             "connection.reconnecting",
-            $"Восстановление связи {entry.ConnectionId}: попытка {fails + 1}/{MaxConnectAttempts}",
+            $"Восстановление связи {connectionId}: попытка {fails + 1}/{MaxConnectAttempts}",
             severity: "warning",
-            data: new { entry.ConnectionId, attempt = fails + 1 });
+            data: new { connectionId, attempt = fails + 1 });
 
         try
         {
-            await connections.ConnectAsync(entry.ConnectionId, cancellationToken).ConfigureAwait(false);
-            _failCounts.TryRemove(entry.ConnectionId, out _);
-            _nextAttemptAt.TryRemove(entry.ConnectionId, out _);
+            await connections.ConnectAsync(connectionId, cancellationToken).ConfigureAwait(false);
+            _failCounts.TryRemove(connectionId, out _);
+            _nextAttemptAt.TryRemove(connectionId, out _);
             notifications.Publish(
                 "connection.connected",
-                $"Расписание: соединение {entry.ConnectionId} установлено",
+                $"Расписание: соединение {connectionId} установлено",
                 "info",
-                data: new { entry.ConnectionId });
+                data: new { connectionId });
             logger.LogInformation(
-                "ConnectionSupervisor: connect OK {ConnectionId}", entry.ConnectionId);
+                "ConnectionSupervisor: connect OK {ConnectionId}", connectionId);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            var nextFails = _failCounts.AddOrUpdate(entry.ConnectionId, 1, (_, n) => n + 1);
-            _nextAttemptAt[entry.ConnectionId] = nowUtc + RetryPause;
+            var nextFails = _failCounts.AddOrUpdate(connectionId, 1, (_, n) => n + 1);
+            _nextAttemptAt[connectionId] = nowUtc + RetryPause;
             logger.LogWarning(
                 ex,
                 "ConnectionSupervisor: connect fail {ConnectionId} ({Attempt}/{Max})",
-                entry.ConnectionId, nextFails, MaxConnectAttempts);
+                connectionId, nextFails, MaxConnectAttempts);
 
             if (nextFails >= MaxConnectAttempts)
             {
                 notifications.Publish(
                     "connection.connect_failed",
-                    $"Расписание: не удалось подключить {entry.ConnectionId} за {MaxConnectAttempts} попыток",
+                    $"Расписание: не удалось подключить {connectionId} за {MaxConnectAttempts} попыток",
                     "error",
-                    data: new { entry.ConnectionId, attempts = nextFails });
+                    data: new { connectionId, attempts = nextFails });
             }
         }
     }

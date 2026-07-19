@@ -222,20 +222,20 @@ public static class OhsEndpoints
         api.MapGet("/connections/{id:long}/schedule", async (
             long id, IConnectionScheduleStore schedule, CancellationToken ct) =>
         {
-            var row = await schedule.GetCurrentAsync(id, ct);
-            return row is null ? Results.NotFound() : Results.Ok(ToConnectionScheduleDto(row));
+            var state = await schedule.GetStateAsync(id, ct);
+            return Results.Ok(ToScheduleStateDto(state));
         });
 
         api.MapGet("/connections/{id:long}/schedule/history", async (
             long id, IConnectionScheduleStore schedule, CancellationToken ct) =>
         {
             var rows = await schedule.ListHistoryAsync(id, ct);
-            return rows.Select(ToConnectionScheduleDto).ToList();
+            return rows.Select(ToScheduleRuleDto).ToList();
         });
 
-        api.MapPut("/connections/{id:long}/schedule", async (
+        api.MapPut("/connections/{id:long}/schedule/settings", async (
             long id,
-            PutConnectionScheduleRequest request,
+            PutConnectionScheduleSettingsRequest request,
             IConnectionStore connections,
             IConnectionScheduleStore schedule,
             ConnectionSupervisor supervisor,
@@ -246,20 +246,71 @@ public static class OhsEndpoints
                 return Results.NotFound();
             }
 
+            var settings = await schedule.SetSettingsAsync(
+                id, request.AutoEnabled, request.Engine, request.Tz, ct);
+            supervisor.Nudge();
+            return Results.Ok(ToScheduleSettingsDto(settings));
+        });
+
+        api.MapPut("/connections/{id:long}/schedule/rule", async (
+            long id,
+            PutConnectionScheduleRuleRequest request,
+            IConnectionStore connections,
+            IConnectionScheduleStore schedule,
+            ConnectionSupervisor supervisor,
+            INotificationPublisher notifications,
+            CancellationToken ct) =>
+        {
+            if (await connections.GetAsync(id, ct) is null)
+            {
+                return Results.NotFound();
+            }
+
             try
             {
-                var result = await ApplyConnectionSchedulePutAsync(id, request, schedule, ct);
+                var draft = ToRuleDraft(request);
+                var result = await schedule.UpsertRuleAsync(id, draft, ct);
                 supervisor.Nudge();
-                return Results.Ok(ToConnectionScheduleDto(result));
+                notifications.Publish(
+                    "connection.schedule.rule_set",
+                    $"Расписание {id}: правило «{ScopeLabel(result.Rule)}» утверждено",
+                    severity: "info", sourceType: "user", data: new { connectionId = id, result.Rule.ScheduleId });
+                if (result.SupersededIds.Count > 0)
+                {
+                    notifications.Publish(
+                        "connection.schedule.rule_superseded",
+                        $"Расписание {id}: перекрыто правил — {result.SupersededIds.Count}",
+                        severity: "info", sourceType: "system", data: new { connectionId = id, ids = result.SupersededIds });
+                }
+
+                return Results.Ok(ToScheduleRuleDto(result.Rule));
             }
             catch (ArgumentException ex)
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
-            catch (InvalidOperationException ex)
+        });
+
+        api.MapPost("/connections/{id:long}/schedule/rules/{scheduleId:long}/cancel", async (
+            long id,
+            long scheduleId,
+            IConnectionScheduleStore schedule,
+            ConnectionSupervisor supervisor,
+            INotificationPublisher notifications,
+            CancellationToken ct) =>
+        {
+            var canceled = await schedule.CancelRuleAsync(id, scheduleId, ct);
+            if (canceled is null)
             {
-                return Results.BadRequest(new { error = ex.Message });
+                return Results.NotFound(new { error = "Правило не найдено или уже закрыто" });
             }
+
+            supervisor.Nudge();
+            notifications.Publish(
+                "connection.schedule.rule_canceled",
+                $"Расписание {id}: правило «{ScopeLabel(canceled)}» снято",
+                severity: "info", sourceType: "user", data: new { connectionId = id, scheduleId });
+            return Results.Ok(ToScheduleRuleDto(canceled));
         });
 
         api.MapGet("/notifications", (NotificationHub hub, int? limit) =>
@@ -404,7 +455,7 @@ public static class OhsEndpoints
             CancellationToken ct) =>
         {
             // Ручной off тумблера связи → Auto off (phase 7j), как Стоп записи снимает Auto записи.
-            await schedule.SetModeAsync(id, ConnectionScheduleModes.Manual, ct);
+            await schedule.SetAutoAsync(id, false, ct);
             supervisor.Nudge();
 
             var status = await manager.DisconnectAsync(id, ct);
@@ -847,52 +898,25 @@ public static class OhsEndpoints
         info.InstrumentId, info.Ticker, info.Board, info.SourceId, info.ConnectionId, info.SegmentId,
         info.StartedAt, info.TradeCount);
 
-    private static async Task<ConnectionScheduleEntry> ApplyConnectionSchedulePutAsync(
-        long connectionId,
-        PutConnectionScheduleRequest request,
-        IConnectionScheduleStore schedule,
-        CancellationToken ct)
+    private static ConnectionScheduleRuleDraft ToRuleDraft(PutConnectionScheduleRuleRequest request)
     {
-        var mode = ResolveMode(request);
-        var hasWindow = !string.IsNullOrWhiteSpace(request.WindowStart)
-            && !string.IsNullOrWhiteSpace(request.WindowEnd);
+        var scope = (request.ScopeKind ?? "").Trim().ToLowerInvariant();
+        var mode = (request.Mode ?? "").Trim().ToLowerInvariant();
+        var open = string.IsNullOrWhiteSpace(request.Open) ? (TimeOnly?)null : ParseScheduleTime(request.Open!);
+        var source = string.IsNullOrWhiteSpace(request.ChangeSource) ? "ui" : request.ChangeSource.Trim();
 
-        if (hasWindow)
+        return new ConnectionScheduleRuleDraft
         {
-            var start = ParseScheduleTime(request.WindowStart!);
-            var end = ParseScheduleTime(request.WindowEnd!);
-            var engine = string.IsNullOrWhiteSpace(request.Engine) ? "futures" : request.Engine.Trim();
-            var tz = string.IsNullOrWhiteSpace(request.Tz) ? "Europe/Moscow" : request.Tz.Trim();
-            var source = string.IsNullOrWhiteSpace(request.ChangeSource) ? "api" : request.ChangeSource.Trim();
-            return await schedule.PublishWindowAsync(
-                connectionId, mode, start, end, engine, tz, source, request.ChangeNote, ct);
-        }
-
-        var updated = await schedule.SetModeAsync(connectionId, mode, ct);
-        return updated
-            ?? throw new InvalidOperationException(
-                "Нет утверждённого расписания — сначала задайте окно (WindowStart/WindowEnd)");
-    }
-
-    private static string ResolveMode(PutConnectionScheduleRequest request)
-    {
-        if (!string.IsNullOrWhiteSpace(request.Mode))
-        {
-            return request.Mode.Trim().ToLowerInvariant() switch
-            {
-                "manual" or "off" => ConnectionScheduleModes.Manual,
-                "scheduled" or "auto" or "on" => ConnectionScheduleModes.Scheduled,
-                var m => throw new ArgumentException($"Неизвестный mode: {m}"),
-            };
-        }
-
-        if (request.AutoEnabled is bool auto)
-        {
-            return auto ? ConnectionScheduleModes.Scheduled : ConnectionScheduleModes.Manual;
-        }
-
-        // Публикация окна без явного mode — по умолчанию manual (Auto отдельно).
-        return ConnectionScheduleModes.Manual;
+            ScopeKind = scope,
+            DowMask = request.DowMask,
+            DateFrom = request.DateFrom,
+            DateTo = request.DateTo,
+            Mode = mode,
+            OpenTime = open,
+            DurationMin = request.DurationMin,
+            ChangeSource = source,
+            ChangeNote = request.ChangeNote,
+        };
     }
 
     private static TimeOnly ParseScheduleTime(string text)
@@ -905,19 +929,50 @@ public static class OhsEndpoints
         throw new ArgumentException($"Некорректное время: {text}");
     }
 
-    private static ConnectionScheduleDto ToConnectionScheduleDto(ConnectionScheduleEntry e) => new(
-        e.ScheduleId,
-        e.ConnectionId,
-        e.Mode,
-        e.AutoEnabled,
-        e.WindowStart.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
-        e.WindowEnd.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
-        e.Engine,
-        e.Tz,
-        e.EffectiveFrom,
-        e.EffectiveTo,
-        e.ChangeSource,
-        e.ChangeNote);
+    private static string ScopeLabel(ConnectionScheduleRule r) => r.ScopeKind switch
+    {
+        ConnectionScheduleScopes.Main => "основное",
+        ConnectionScheduleScopes.Dow => $"дни {r.DowMask}",
+        ConnectionScheduleScopes.Date => $"{r.DateFrom:dd.MM}–{r.DateTo:dd.MM}",
+        _ => r.ScopeKind,
+    };
+
+    private static ConnectionScheduleStateDto ToScheduleStateDto(ConnectionScheduleState state) => new(
+        ToScheduleSettingsDto(state.Settings),
+        state.LiveRules.Select(ToScheduleRuleDto).ToList());
+
+    private static ConnectionScheduleSettingsDto ToScheduleSettingsDto(ConnectionScheduleSettings s) => new(
+        s.ConnectionId, s.AutoEnabled, s.Engine, s.Tz);
+
+    private static ConnectionScheduleRuleDto ToScheduleRuleDto(ConnectionScheduleRule r)
+    {
+        string? open = null;
+        string? end = null;
+        if (r is { OpenTime: { } o, DurationMin: { } dur })
+        {
+            open = o.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+            var endMinutes = ((int)o.ToTimeSpan().TotalMinutes + dur) % 1440;
+            end = TimeOnly.FromTimeSpan(TimeSpan.FromMinutes(endMinutes))
+                .ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return new ConnectionScheduleRuleDto(
+            r.ScheduleId,
+            r.ConnectionId,
+            r.ScopeKind,
+            r.DowMask,
+            r.DateFrom,
+            r.DateTo,
+            r.Mode,
+            open,
+            r.DurationMin,
+            end,
+            r.EffectiveFrom,
+            r.EffectiveTo,
+            r.CloseReason,
+            r.ChangeSource,
+            r.ChangeNote);
+    }
 
     private static ConnectionDto ToDto(ConnectorConnection connection, string status) => new(
         connection.ConnectionId, connection.SourceId, connection.Name, connection.Kind, connection.Settings,

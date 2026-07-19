@@ -90,31 +90,44 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
         return result ?? [];
     }
 
-    public async Task<ConnectionScheduleDto?> GetConnectionScheduleAsync(
+    public async Task<ConnectionScheduleStateDto> GetConnectionScheduleAsync(
         long id, CancellationToken cancellationToken = default)
     {
         using var response = await http.GetAsync($"/api/connections/{id}/schedule", cancellationToken);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return null;
-        }
-
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<ConnectionScheduleDto>(Json, cancellationToken);
+        return (await response.Content.ReadFromJsonAsync<ConnectionScheduleStateDto>(Json, cancellationToken))!;
     }
 
-    public async Task<ConnectionScheduleDto> PutConnectionScheduleAsync(
-        long id, PutConnectionScheduleRequest request, CancellationToken cancellationToken = default)
+    public async Task<ConnectionScheduleRuleDto> PutConnectionScheduleRuleAsync(
+        long id, PutConnectionScheduleRuleRequest request, CancellationToken cancellationToken = default)
     {
         using var response = await http.PutAsJsonAsync(
-            $"/api/connections/{id}/schedule", request, Json, cancellationToken);
+            $"/api/connections/{id}/schedule/rule", request, Json, cancellationToken);
         response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<ConnectionScheduleDto>(Json, cancellationToken))!;
+        return (await response.Content.ReadFromJsonAsync<ConnectionScheduleRuleDto>(Json, cancellationToken))!;
     }
 
-    public Task<IReadOnlyList<ConnectionScheduleDto>> GetConnectionScheduleHistoryAsync(
+    public async Task<ConnectionScheduleSettingsDto> PutConnectionScheduleSettingsAsync(
+        long id, PutConnectionScheduleSettingsRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PutAsJsonAsync(
+            $"/api/connections/{id}/schedule/settings", request, Json, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ConnectionScheduleSettingsDto>(Json, cancellationToken))!;
+    }
+
+    public async Task<ConnectionScheduleRuleDto> CancelConnectionScheduleRuleAsync(
+        long id, long scheduleId, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsync(
+            $"/api/connections/{id}/schedule/rules/{scheduleId}/cancel", content: null, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ConnectionScheduleRuleDto>(Json, cancellationToken))!;
+    }
+
+    public Task<IReadOnlyList<ConnectionScheduleRuleDto>> GetConnectionScheduleHistoryAsync(
         long id, CancellationToken cancellationToken = default) =>
-        GetListAsync<ConnectionScheduleDto>($"/api/connections/{id}/schedule/history", cancellationToken);
+        GetListAsync<ConnectionScheduleRuleDto>($"/api/connections/{id}/schedule/history", cancellationToken);
 
     public Task<IReadOnlyList<ConnectionDto>> GetConnectionsAsync(CancellationToken cancellationToken = default) =>
         GetListAsync<ConnectionDto>("/api/connections", cancellationToken);

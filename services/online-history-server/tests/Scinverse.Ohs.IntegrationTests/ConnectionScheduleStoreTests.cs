@@ -7,6 +7,10 @@ namespace Scinverse.Ohs.IntegrationTests;
 
 public sealed class ConnectionScheduleStoreTests : IClassFixture<TimescaleFixture>, IAsyncLifetime
 {
+    private const int Weekend = 32 | 64; // Сб,Вс
+    private const int Saturday = 32;
+    private const int Sunday = 64;
+
     private readonly TimescaleFixture _fixture;
     private readonly ConnectionScheduleStore _store;
     private long _connectionId;
@@ -20,7 +24,7 @@ public sealed class ConnectionScheduleStoreTests : IClassFixture<TimescaleFixtur
     public async Task InitializeAsync()
     {
         await using var connection = await _fixture.DataSource.OpenConnectionAsync();
-        await connection.ExecuteAsync("TRUNCATE connection_schedule;");
+        await connection.ExecuteAsync("TRUNCATE connection_schedule; TRUNCATE connection_schedule_settings;");
         _connectionId = await connection.ExecuteScalarAsync<long>(
             """
             INSERT INTO connector_connection (source_id, name, kind, settings)
@@ -33,91 +37,115 @@ public sealed class ConnectionScheduleStoreTests : IClassFixture<TimescaleFixtur
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    [Fact]
-    public async Task PublishWindow_CreatesCurrent_AndSecondPublish_Versions()
+    private static ConnectionScheduleRuleDraft Draft(
+        string scope, string mode, TimeOnly? open = null, int? dur = null, int? mask = null) => new()
     {
-        var v1 = await _store.PublishWindowAsync(
-            _connectionId,
-            ConnectionScheduleModes.Manual,
-            new TimeOnly(6, 0),
-            new TimeOnly(1, 0),
-            "futures",
-            "Europe/Moscow",
-            "ui",
-            "first",
-            CancellationToken.None);
+        ScopeKind = scope,
+        Mode = mode,
+        OpenTime = open,
+        DurationMin = dur,
+        DowMask = mask,
+        ChangeSource = "test",
+    };
 
-        v1.IsCurrent.Should().BeTrue();
-        v1.WindowStart.Should().Be(new TimeOnly(6, 0));
-        v1.ChangeNote.Should().Be("first");
+    [Fact]
+    public async Task Upsert_main_versions_via_scd2()
+    {
+        var v1 = await _store.UpsertRuleAsync(
+            _connectionId, Draft("main", "window", new TimeOnly(7, 0), 600), CancellationToken.None);
+        v1.Rule.IsLive.Should().BeTrue();
+        v1.SupersededIds.Should().BeEmpty();
 
-        var v2 = await _store.PublishWindowAsync(
-            _connectionId,
-            ConnectionScheduleModes.Scheduled,
-            new TimeOnly(7, 0),
-            new TimeOnly(2, 0),
-            "futures",
-            "Europe/Moscow",
-            "preset_moex_futures_pm1h",
-            "second",
-            CancellationToken.None);
+        var v2 = await _store.UpsertRuleAsync(
+            _connectionId, Draft("main", "window", new TimeOnly(8, 0), 660), CancellationToken.None);
+        v2.SupersededIds.Should().Contain(v1.Rule.ScheduleId);
 
-        v2.IsCurrent.Should().BeTrue();
-        v2.AutoEnabled.Should().BeTrue();
-        v2.WindowStart.Should().Be(new TimeOnly(7, 0));
+        var live = await _store.ListLiveRulesAsync(_connectionId, CancellationToken.None);
+        live.Should().ContainSingle().Which.ScheduleId.Should().Be(v2.Rule.ScheduleId);
 
         var history = await _store.ListHistoryAsync(_connectionId, CancellationToken.None);
         history.Should().HaveCount(2);
-        history[0].ScheduleId.Should().Be(v2.ScheduleId);
-        history[1].EffectiveTo.Should().NotBeNull();
-        history[1].ScheduleId.Should().Be(v1.ScheduleId);
-
-        var current = await _store.GetCurrentAsync(_connectionId, CancellationToken.None);
-        current!.ScheduleId.Should().Be(v2.ScheduleId);
     }
 
     [Fact]
-    public async Task SetMode_UpdatesCurrent_WithoutNewVersion()
+    public async Task Auto_retires_subset_masks_as_superseded()
     {
-        await _store.PublishWindowAsync(
-            _connectionId,
-            ConnectionScheduleModes.Manual,
-            new TimeOnly(6, 0),
-            new TimeOnly(1, 0),
-            "futures",
-            "Europe/Moscow",
-            "ui",
-            null,
-            CancellationToken.None);
+        var sun = await _store.UpsertRuleAsync(
+            _connectionId, Draft("dow", "window", new TimeOnly(10, 0), 240, Sunday), CancellationToken.None);
 
-        var updated = await _store.SetModeAsync(
-            _connectionId, ConnectionScheduleModes.Scheduled, CancellationToken.None);
+        // {Вс} ⊆ {Сб,Вс} → закрываем как superseded.
+        var weekend = await _store.UpsertRuleAsync(
+            _connectionId, Draft("dow", "window", new TimeOnly(10, 0), 540, Weekend), CancellationToken.None);
+        weekend.SupersededIds.Should().Contain(sun.Rule.ScheduleId);
 
-        updated!.AutoEnabled.Should().BeTrue();
-        var history = await _store.ListHistoryAsync(_connectionId, CancellationToken.None);
-        history.Should().ContainSingle();
-        history[0].Mode.Should().Be(ConnectionScheduleModes.Scheduled);
+        var live = await _store.ListLiveRulesAsync(_connectionId, CancellationToken.None);
+        live.Should().ContainSingle().Which.DowMask.Should().Be(Weekend);
     }
 
     [Fact]
-    public async Task ListCurrentScheduled_OnlyAutoOn()
+    public async Task Narrow_over_broad_keeps_broad_alive()
     {
-        await _store.PublishWindowAsync(
-            _connectionId,
-            ConnectionScheduleModes.Scheduled,
-            new TimeOnly(6, 0),
-            new TimeOnly(1, 0),
-            "futures",
-            "Europe/Moscow",
-            "ui",
-            null,
-            CancellationToken.None);
+        var weekend = await _store.UpsertRuleAsync(
+            _connectionId, Draft("dow", "window", new TimeOnly(10, 0), 540, Weekend), CancellationToken.None);
 
-        var list = await _store.ListCurrentScheduledAsync(CancellationToken.None);
-        list.Should().Contain(e => e.ConnectionId == _connectionId);
+        // {Сб} ⊄ {Сб,Вс} по правилу «old ⊆ new» (weekend не вложено в {Сб}) → weekend остаётся живым.
+        var sat = await _store.UpsertRuleAsync(
+            _connectionId, Draft("dow", "window", new TimeOnly(14, 0), 300, Saturday), CancellationToken.None);
+        sat.SupersededIds.Should().NotContain(weekend.Rule.ScheduleId);
 
-        await _store.SetModeAsync(_connectionId, ConnectionScheduleModes.Manual, CancellationToken.None);
-        list = await _store.ListCurrentScheduledAsync(CancellationToken.None);
-        list.Should().NotContain(e => e.ConnectionId == _connectionId);
+        var live = await _store.ListLiveRulesAsync(_connectionId, CancellationToken.None);
+        live.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Cancel_closes_rule_as_canceled()
+    {
+        var weekend = await _store.UpsertRuleAsync(
+            _connectionId, Draft("dow", "window", new TimeOnly(10, 0), 540, Weekend), CancellationToken.None);
+
+        var canceled = await _store.CancelRuleAsync(_connectionId, weekend.Rule.ScheduleId, CancellationToken.None);
+        canceled.Should().NotBeNull();
+        canceled!.CloseReason.Should().Be(ConnectionScheduleCloseReasons.Canceled);
+
+        var live = await _store.ListLiveRulesAsync(_connectionId, CancellationToken.None);
+        live.Should().BeEmpty();
+
+        // Повторный cancel уже закрытого → null.
+        var again = await _store.CancelRuleAsync(_connectionId, weekend.Rule.ScheduleId, CancellationToken.None);
+        again.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Settings_default_then_set_and_auto_listing()
+    {
+        var def = await _store.GetSettingsAsync(_connectionId, CancellationToken.None);
+        def.AutoEnabled.Should().BeFalse();
+        def.Engine.Should().Be("futures");
+
+        await _store.UpsertRuleAsync(
+            _connectionId, Draft("main", "window", new TimeOnly(7, 0), 600), CancellationToken.None);
+
+        (await _store.ListAutoEnabledAsync(CancellationToken.None))
+            .Should().NotContain(s => s.Settings.ConnectionId == _connectionId);
+
+        await _store.SetAutoAsync(_connectionId, true, CancellationToken.None);
+        var states = await _store.ListAutoEnabledAsync(CancellationToken.None);
+        var mine = states.Should().ContainSingle(s => s.Settings.ConnectionId == _connectionId).Subject;
+        mine.LiveRules.Should().ContainSingle();
+
+        await _store.SetSettingsAsync(_connectionId, null, "currency", null, CancellationToken.None);
+        (await _store.GetSettingsAsync(_connectionId, CancellationToken.None)).Engine.Should().Be("currency");
+    }
+
+    [Fact]
+    public async Task Off_mode_rule_persists_without_window()
+    {
+        var off = await _store.UpsertRuleAsync(
+            _connectionId, Draft("dow", "off", mask: Weekend), CancellationToken.None);
+        off.Rule.Mode.Should().Be(ConnectionScheduleRuleModes.Off);
+        off.Rule.OpenTime.Should().BeNull();
+
+        var live = await _store.ListLiveRulesAsync(_connectionId, CancellationToken.None);
+        live.Should().ContainSingle().Which.Mode.Should().Be(ConnectionScheduleRuleModes.Off);
     }
 }
