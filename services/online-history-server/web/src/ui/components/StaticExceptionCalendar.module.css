@@ -90,6 +90,7 @@
   background: var(--color-bg-hover);
 }
 
+/* Текущий выбор (яркий). */
 .cellInRange {
   background: color-mix(in srgb, var(--color-accent) 16%, transparent);
 }
@@ -104,20 +105,46 @@
   background: var(--color-accent-hover);
 }
 
+/* Существующее исключение — приглушённый блок. */
+.cellLocked {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 35%, transparent);
+  color: var(--color-text-secondary);
+}
+
+.cellLocked:hover {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+}
+
+/* Off-исключение — красная рамка. */
+.cellLockedOff {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, #e05555 75%, transparent);
+  background: color-mix(in srgb, #e05555 8%, transparent);
+}
+
+.cellLockedOff:hover {
+  background: color-mix(in srgb, #e05555 14%, transparent);
+}
+
+/* Выбранное off-исключение (Перейти) — яркий край, красный акцент. */
+.cellEdgeOff.cellEdge {
+  background: color-mix(in srgb, #e05555 85%, #000);
+  color: #fff;
+}
+
+.cellEdgeOff.cellInRange {
+  background: color-mix(in srgb, #e05555 18%, transparent);
+}
+
 .cellNonTrading {
   color: #e05555;
 }
 
 .cellNonTrading.cellEdge {
   color: #fff;
-  background: color-mix(in srgb, #e05555 85%, #000);
 }
 
-.cellException:not(.cellEdge) {
-  box-shadow: inset 0 0 0 1.5px var(--color-accent);
-}
-
-.spanHint {
+.hint {
   color: #e05555;
   font-size: 10px;
 }
@@ -137,7 +164,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.apply {
+.go {
   height: 26px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
@@ -147,11 +174,11 @@
   cursor: pointer;
 }
 
-.apply:hover:not(:disabled) {
+.go:hover:not(:disabled) {
   background: var(--color-accent-hover);
 }
 
-.apply:disabled {
+.go:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

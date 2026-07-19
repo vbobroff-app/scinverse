@@ -7,6 +7,8 @@ import styles from './WeeklyScheduleOverview.module.css';
 export interface SchedulePreview {
   scopeKind: string;
   dowMask: number | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
   mode: string;
   open: string | null;
   durationMin: number | null;
@@ -83,8 +85,8 @@ export function WeeklyScheduleOverview({ rules, preview, onCancelRule }: Props) 
         connectionId: -1,
         scopeKind: preview.scopeKind,
         dowMask: preview.dowMask,
-        dateFrom: null,
-        dateTo: null,
+        dateFrom: preview.dateFrom ?? null,
+        dateTo: preview.dateTo ?? null,
         mode: preview.mode,
         open: preview.open,
         durationMin: preview.durationMin,

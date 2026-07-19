@@ -1,19 +1,42 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  CalendarDayDto,
   ConnectionScheduleRuleDto,
   ConnectionScheduleStateDto,
   PutConnectionScheduleRuleRequest,
 } from '../../core/types';
 import { OhsApi } from '../../core/api';
-import { dowBit, hmsToMin } from '../../core/connectionSchedule';
+import {
+  dictFromRules,
+  dowLabelFromIso,
+  emptyLayerDict,
+  findDateLayer,
+  findLayer,
+  labelFromDateRange,
+  labelFromMask,
+  layerIdDate,
+  layerIdDow,
+  maskFromDays,
+  promoteExc,
+  promoteStaticExc,
+  resolveLayerForDate,
+  resolveLayerForDow,
+  type ScheduleLayer,
+  type ScheduleLayerDict,
+} from '../../core/scheduleLayerDict';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { CalendarIcon, EyeIcon, PencilIcon } from './icons';
+import { StaticExceptionCalendar } from './StaticExceptionCalendar';
 import {
   DAY_MIN,
+  HORIZON_HI,
+  MAX_SPAN_MIN,
+  OPEN_LO,
   ScheduleWindowRibbon,
   templateToAxisMins,
 } from './ScheduleWindowRibbon';
+import { WeeklyDayColumns, type DayColumn } from './WeeklyDayColumns';
 import { WeeklyScheduleOverview, type SchedulePreview } from './WeeklyScheduleOverview';
 import styles from './ConnectionSchedulePopover.module.css';
 
@@ -70,14 +93,12 @@ const EMPTY_PRESETS: PresetMap = { futures: null, stock: null, currency: null };
 
 const SHIFTS = [0, 1, 2, 3, 4] as const;
 
-/** Маска дней (Пн=1…Вс=64) из набора js-дней. */
-function maskFromDays(days: ReadonlySet<number>): number {
-  let mask = 0;
-  for (const d of days) {
-    mask |= dowBit(d);
-  }
-  return mask;
-}
+const WEEK_JS = [1, 2, 3, 4, 5, 6, 0] as const;
+
+/** Макс. длина static-диапазона (включительно). */
+const MAX_STATIC_SPAN_DAYS = 14;
+/** Окно графика вокруг одиночной даты. */
+const CHART_PAD_DAYS = 3;
 
 function sameDays(a: ReadonlySet<number>, days: number[]): boolean {
   return a.size === days.length && days.every((d) => a.has(d));
@@ -111,11 +132,95 @@ function isShiftValid(w: DayWindow | null, pad: number): boolean {
   return w != null && templateToAxisMins(w.openH, w.openM, w.closeH, w.closeM, pad) != null;
 }
 
-/** Ось (startMin/endMin) из правила окна (open + duration). */
-function ruleToAxis(rule: ConnectionScheduleRuleDto): { startMin: number; endMin: number } | null {
-  if (rule.mode !== 'window' || rule.open == null || rule.durationMin == null) return null;
-  const startMin = hmsToMin(rule.open);
-  return { startMin, endMin: startMin + rule.durationMin };
+function addDaysIso(iso: string, delta: number): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + delta);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function eachIsoDays(from: string, to: string): string[] {
+  const out: string[] = [];
+  let cur = from;
+  while (cur <= to) {
+    out.push(cur);
+    cur = addDaysIso(cur, 1);
+    if (out.length > 31) break;
+  }
+  return out;
+}
+
+function fmtDdMm(iso: string): string {
+  return `${iso.slice(8)}.${iso.slice(5, 7)}`;
+}
+
+type ActiveScope =
+  | { kind: 'main' }
+  | { kind: 'dow'; days: ReadonlySet<number> }
+  | { kind: 'date'; from: string; to: string };
+
+/** Обновить активный слой без смены порядка (порядок — через promote при выборе скоупа). */
+function patchActiveLayer(
+  dict: ScheduleLayerDict,
+  scope: ActiveScope,
+  patch: Partial<Pick<ScheduleLayer, 'mode' | 'startMin' | 'endMin'>>,
+): ScheduleLayerDict {
+  if (scope.kind === 'main') {
+    return { ...dict, main: { ...dict.main, ...patch } };
+  }
+
+  if (scope.kind === 'date') {
+    const id = layerIdDate(scope.from, scope.to);
+    const idx = dict.staticExc.findIndex((e) => e.id === id);
+    const cur: ScheduleLayer =
+      idx >= 0
+        ? dict.staticExc[idx]
+        : {
+            id,
+            scopeKind: 'date',
+            dowMask: null,
+            dateFrom: scope.from,
+            dateTo: scope.to,
+            label: labelFromDateRange(scope.from, scope.to),
+            mode: 'window',
+            startMin: dict.main.startMin,
+            endMin: dict.main.endMin,
+          };
+    const next = { ...cur, ...patch };
+    if (idx >= 0) {
+      const staticExc = dict.staticExc.slice();
+      staticExc[idx] = next;
+      return { ...dict, staticExc };
+    }
+    return { ...dict, staticExc: [...dict.staticExc, next] };
+  }
+
+  const mask = maskFromDays(scope.days);
+  const id = layerIdDow(mask);
+  const idx = dict.exc.findIndex((e) => e.id === id);
+  const cur: ScheduleLayer =
+    idx >= 0
+      ? dict.exc[idx]
+      : {
+          id,
+          scopeKind: 'dow',
+          dowMask: mask,
+          dateFrom: null,
+          dateTo: null,
+          label: labelFromMask(mask),
+          mode: 'window',
+          startMin: dict.main.startMin,
+          endMin: dict.main.endMin,
+        };
+  const next = { ...cur, ...patch };
+  if (idx >= 0) {
+    const exc = dict.exc.slice();
+    exc[idx] = next;
+    return { ...dict, exc };
+  }
+  return { ...dict, exc: [...dict.exc, next] };
 }
 
 /**
@@ -135,6 +240,7 @@ export function ConnectionSchedulePopover({
 
   const rules = useMemo(() => state?.rules ?? [], [state]);
 
+  const [layers, setLayers] = useState<ScheduleLayerDict>(() => emptyLayerDict());
   const [startMin, setStartMin] = useState(6 * 60);
   const [endMin, setEndMin] = useState(DAY_MIN + 60);
   const [engine, setEngine] = useState('futures');
@@ -148,27 +254,58 @@ export function ConnectionSchedulePopover({
   const [history, setHistory] = useState<ConnectionScheduleRuleDto[]>([]);
   const [presets, setPresets] = useState<PresetMap>(EMPTY_PRESETS);
   const [editing, setEditing] = useState(false);
+  const [calOpen, setCalOpen] = useState(false);
+  /** Активный static-скоуп (дата или диапазон). */
+  const [scopeDate, setScopeDate] = useState<{ from: string; to: string } | null>(null);
+  const [calDays, setCalDays] = useState<Map<string, CalendarDayDto>>(() => new Map());
+  const calWrapRef = useRef<HTMLDivElement>(null);
+
+  const mergeCalDays = useCallback((days: CalendarDayDto[]) => {
+    setCalDays((prev) => {
+      const next = new Map(prev);
+      for (const d of days) next.set(d.date, d);
+      return next;
+    });
+  }, []);
+
+  const loadCalendarRange = useCallback(
+    (from: string, till: string) => {
+      const eng = state?.settings.engine ?? 'futures';
+      OhsApi.getEngineCalendar(eng, from, till).subscribe({
+        next: mergeCalDays,
+        error: () => undefined,
+      });
+    },
+    [state?.settings.engine, mergeCalDays],
+  );
+
+  const onCalViewChange = useCallback(
+    (year: number, month: number) => {
+      const from = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+      const last = new Date(year, month + 1, 0).getDate();
+      const till = `${year}-${String(month + 1).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+      loadCalendarRange(from, till);
+    },
+    [loadCalendarRange],
+  );
 
   useEffect(() => {
     if (!open) return;
-    // Старт: если есть правила — просмотр, редактируем «основное»; иначе сразу редактирование.
     setScopeMain(true);
     setWeekdays(new Set(WEEKDAY_DAYS));
+    setScopeDate(null);
     setMode('window');
     setShiftHours(1);
     setNote('');
+    setCalOpen(false);
+    setCalDays(new Map());
     setEditing(rules.length === 0);
 
-    const main = rules.find((r) => r.scopeKind === 'main');
-    const axis = main ? ruleToAxis(main) : null;
-    if (axis) {
-      setStartMin(axis.startMin);
-      setEndMin(axis.endMin);
-      setMode(main!.mode === 'off' ? 'off' : 'window');
-    } else {
-      setStartMin(6 * 60);
-      setEndMin(DAY_MIN + 60);
-    }
+    const dict = rules.length > 0 ? dictFromRules(rules) : emptyLayerDict();
+    setLayers(dict);
+    setStartMin(dict.main.startMin);
+    setEndMin(dict.main.endMin);
+    setMode(dict.main.mode);
     setEngine(state?.settings.engine ?? 'futures');
     setActiveTemplate(TEMPLATES.find((t) => t.engine === (state?.settings.engine ?? 'futures'))?.id ?? 'futures');
 
@@ -199,48 +336,158 @@ export function ConnectionSchedulePopover({
     });
   }, [open, connectionId, rules, state]);
 
+  useEffect(() => {
+    if (!calOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (calWrapRef.current && !calWrapRef.current.contains(e.target as Node)) {
+        setCalOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [calOpen]);
+
   if (!open) return null;
 
   const readOnly = !editing;
   const dowMask = maskFromDays(weekdays);
-  const scopeKind = scopeMain ? 'main' : 'dow';
+  const onDateScope = scopeDate != null;
+  const scopeKind = scopeMain ? 'main' : onDateScope ? 'date' : 'dow';
+  const activeScope: ActiveScope = scopeMain
+    ? { kind: 'main' }
+    : onDateScope
+      ? { kind: 'date', from: scopeDate.from, to: scopeDate.to }
+      : { kind: 'dow', days: weekdays };
+  const hasAnyExc = layers.exc.length > 0 || layers.staticExc.length > 0;
   const activeTpl = TEMPLATES.find((t) => t.id === activeTemplate) ?? null;
-  const dayType = scopeMain ? 'weekday' : dayTypeOf(weekdays);
+  const dayType = onDateScope
+    ? (() => {
+        const js = new Date(`${scopeDate.from}T12:00:00`).getDay();
+        return js === 0 || js === 6 ? 'weekend' : 'weekday';
+      })()
+    : scopeMain
+      ? 'weekday'
+      : dayTypeOf(weekdays);
   const activeTplWin = activeTemplate ? presets[activeTemplate] : null;
   const activeWin = pickWindow(activeTplWin, dayType);
   const baseAxis = activeWin
     ? templateToAxisMins(activeWin.openH, activeWin.openM, activeWin.closeH, activeWin.closeM, 0)
     : null;
 
-  /** Найти живое правило для выбранного скоупа (для загрузки в редактор). */
-  const loadScopeRule = (main: boolean, days: ReadonlySet<number>) => {
-    const rule = main
-      ? rules.find((r) => r.scopeKind === 'main')
-      : rules.find((r) => r.scopeKind === 'dow' && r.dowMask === maskFromDays(days));
-    if (!rule) {
-      setMode('window');
-      return;
-    }
-    setMode(rule.mode === 'off' ? 'off' : 'window');
-    const axis = ruleToAxis(rule);
-    if (axis) {
-      setStartMin(axis.startMin);
-      setEndMin(axis.endMin);
-    }
+  const loadEditorFromLayer = (layer: ScheduleLayer) => {
+    setMode(layer.mode);
+    setStartMin(layer.startMin);
+    setEndMin(layer.endMin);
   };
 
   const chooseScope = (main: boolean, days: number[] | null) => {
     if (readOnly) return;
+    setScopeDate(null);
     setScopeMain(main);
-    const next = days ? new Set(days) : weekdays;
-    if (days) setWeekdays(next);
-    loadScopeRule(main, next);
+    const nextDays = days ? new Set(days) : weekdays;
+    if (days) setWeekdays(nextDays);
+
+    if (main) {
+      loadEditorFromLayer(layers.main);
+      return;
+    }
+
+    const mask = maskFromDays(nextDays);
+    const dt = dayTypeOf(nextDays);
+    const existing = findLayer(layers, false, nextDays);
+
+    let start = layers.main.startMin;
+    let end = layers.main.endMin;
+    let layerMode: ScopeMode = 'window';
+
+    if (existing) {
+      start = existing.startMin;
+      end = existing.endMin;
+      layerMode = existing.mode;
+    } else if (activeTpl && shiftHours != null) {
+      const w = pickWindow(presets[activeTpl.id], dt);
+      const axis = w
+        ? templateToAxisMins(w.openH, w.openM, w.closeH, w.closeM, shiftHours)
+        : null;
+      if (axis) {
+        start = axis.startMin;
+        end = axis.endMin;
+      }
+    }
+
+    const layer: ScheduleLayer = {
+      id: layerIdDow(mask),
+      scopeKind: 'dow',
+      dowMask: mask,
+      dateFrom: null,
+      dateTo: null,
+      label: labelFromMask(mask),
+      mode: layerMode,
+      startMin: start,
+      endMin: end,
+    };
+    setLayers((prev) => promoteExc(prev, layer));
+    loadEditorFromLayer(layer);
   };
 
-  const toggleDay = (dow: number) => {
+  const chooseDateScope = (from: string, to: string) => {
     if (readOnly) return;
-    const next = new Set(weekdays);
-    if (next.has(dow)) {
+    setCalOpen(false);
+    setScopeMain(false);
+    setScopeDate({ from, to });
+
+    const existing = findDateLayer(layers, from, to);
+    let start = layers.main.startMin;
+    let end = layers.main.endMin;
+    let layerMode: ScopeMode = 'window';
+
+    if (existing) {
+      start = existing.startMin;
+      end = existing.endMin;
+      layerMode = existing.mode;
+    } else if (activeTpl && shiftHours != null) {
+      const js = new Date(`${from}T12:00:00`).getDay();
+      const dt: DayType = js === 0 || js === 6 ? 'weekend' : 'weekday';
+      const w = pickWindow(presets[activeTpl.id], dt);
+      const axis = w
+        ? templateToAxisMins(w.openH, w.openM, w.closeH, w.closeM, shiftHours)
+        : null;
+      if (axis) {
+        start = axis.startMin;
+        end = axis.endMin;
+      }
+    }
+
+    const layer: ScheduleLayer = {
+      id: layerIdDate(from, to),
+      scopeKind: 'date',
+      dowMask: null,
+      dateFrom: from,
+      dateTo: to,
+      label: labelFromDateRange(from, to),
+      mode: layerMode,
+      startMin: start,
+      endMin: end,
+    };
+    setLayers((prev) => promoteStaticExc(prev, layer));
+    loadEditorFromLayer(layer);
+
+    const single = from === to;
+    const chartFrom = single ? addDaysIso(from, -CHART_PAD_DAYS) : from;
+    const chartTo = single ? addDaysIso(to, CHART_PAD_DAYS) : to;
+    loadCalendarRange(chartFrom, chartTo);
+  };
+
+  const toggleDay = (dow: number, exclusive = false) => {
+    if (readOnly) return;
+    if (exclusive) {
+      chooseScope(false, [dow]);
+      return;
+    }
+    const next = new Set(onDateScope ? [] : weekdays);
+    if (onDateScope) {
+      next.add(dow);
+    } else if (next.has(dow)) {
       if (next.size > 1) next.delete(dow);
     } else {
       next.add(dow);
@@ -248,16 +495,78 @@ export function ConnectionSchedulePopover({
     chooseScope(false, [...next]);
   };
 
+  const clearExceptions = () => {
+    if (readOnly) return;
+    setCalOpen(false);
+    setScopeDate(null);
+    const main = layers.main;
+    setLayers({ main, exc: [], staticExc: [] });
+    setScopeMain(true);
+    loadEditorFromLayer(main);
+  };
+
+  const clearStaticExceptions = () => {
+    if (readOnly) return;
+    setLayers((prev) => ({ ...prev, staticExc: [] }));
+    if (scopeDate) {
+      setScopeDate(null);
+      setScopeMain(true);
+      loadEditorFromLayer(layers.main);
+    }
+  };
+
+  const setWindow = (s: number, e: number) => {
+    const start = Math.max(OPEN_LO, Math.min(s, DAY_MIN - 5));
+    let end = Math.max(start + 5, e);
+    end = Math.min(end, start + MAX_SPAN_MIN, HORIZON_HI);
+    setStartMin(start);
+    setEndMin(end);
+    setLayers((prev) =>
+      patchActiveLayer(prev, activeScope, { startMin: start, endMin: end, mode: 'window' }),
+    );
+  };
+
+  const setScopeMode = (m: ScopeMode) => {
+    setMode(m);
+    setLayers((prev) => patchActiveLayer(prev, activeScope, { mode: m }));
+  };
+
   const applyTemplate = (tpl: (typeof TEMPLATES)[number], pad: number | null, dt: DayType = dayType) => {
     const w = pickWindow(presets[tpl.id], dt);
     if (!w) return;
-    const axis = templateToAxisMins(w.openH, w.openM, w.closeH, w.closeM, pad ?? 0);
+    const base = templateToAxisMins(w.openH, w.openM, w.closeH, w.closeM, 0);
+    if (!base) return;
+
+    if (pad == null) {
+      // Только подсказка: выбрать шаблон + подтянуть края, лежащие внутри base.
+      // Не расширяем окно за duration ≤24ч (иначе 12:00→06:50 при end=+24ч даёт 29ч).
+      setEngine(tpl.engine);
+      setActiveTemplate(tpl.id);
+      setShiftHours(null);
+      let s = startMin;
+      let e = endMin;
+      if (s > base.startMin && s < base.endMin) {
+        const cand = base.startMin;
+        if (e - cand <= MAX_SPAN_MIN) s = cand;
+      }
+      if (e > base.startMin && e < base.endMin) {
+        const cand = base.endMin;
+        if (cand - s <= MAX_SPAN_MIN) e = cand;
+      }
+      if (e <= s) {
+        s = base.startMin;
+        e = base.endMin;
+      }
+      setWindow(s, e);
+      return;
+    }
+
+    const axis = templateToAxisMins(w.openH, w.openM, w.closeH, w.closeM, pad);
     if (!axis) return;
     setEngine(tpl.engine);
     setActiveTemplate(tpl.id);
     setShiftHours(pad);
-    setStartMin(axis.startMin);
-    setEndMin(axis.endMin);
+    setWindow(axis.startMin, axis.endMin);
   };
 
   const selectShift = (pad: number) => {
@@ -266,8 +575,7 @@ export function ConnectionSchedulePopover({
   };
 
   const onWindowChange = (s: number, e: number) => {
-    setStartMin(s);
-    setEndMin(e);
+    setWindow(s, e);
     setShiftHours(null);
     if (!activeTpl || !baseAxis) return;
     if (s > baseAxis.startMin || e < baseAxis.endMin) setActiveTemplate(null);
@@ -275,10 +583,70 @@ export function ConnectionSchedulePopover({
 
   const openHm = fmtMin(startMin);
   const durationMin = Math.min(Math.max(endMin - startMin, 1), 1439);
+  const durationLabel =
+    mode === 'off' ? 'выкл' : `${openHm} · ${Math.floor(durationMin / 60)}ч ${durationMin % 60}м`;
+
+  const chartColumns: DayColumn[] = onDateScope
+    ? (() => {
+        const single = scopeDate.from === scopeDate.to;
+        const from = single ? addDaysIso(scopeDate.from, -CHART_PAD_DAYS) : scopeDate.from;
+        const to = single ? addDaysIso(scopeDate.to, CHART_PAD_DAYS) : scopeDate.to;
+        return eachIsoDays(from, to).map((iso) => {
+          const w = resolveLayerForDate(layers, iso);
+          const cal = calDays.get(iso);
+          const inScope = iso >= scopeDate.from && iso <= scopeDate.to;
+          const js = new Date(`${iso}T12:00:00`).getDay();
+          const dayMoexWin =
+            activeTplWin != null
+              ? pickWindow(activeTplWin, js === 0 || js === 6 ? 'weekend' : 'weekday')
+              : null;
+          const dayMoex = dayMoexWin
+            ? templateToAxisMins(dayMoexWin.openH, dayMoexWin.openM, dayMoexWin.closeH, dayMoexWin.closeM, 0)
+            : null;
+          return {
+            key: iso,
+            label: `${dowLabelFromIso(iso)} ${fmtDdMm(iso)}`,
+            seg: {
+              mode: w.mode,
+              startMin: w.startMin,
+              endMin: w.endMin,
+              active: inScope,
+              baseStartMin: dayMoex?.startMin ?? null,
+              baseEndMin: dayMoex?.endMin ?? null,
+              nonTrading: cal != null ? !cal.isTrading : undefined,
+            },
+          };
+        });
+      })()
+    : WEEK_JS.map((js) => {
+        const w = resolveLayerForDow(layers, js);
+        const active = scopeMain || weekdays.has(js);
+        const dayMoexWin =
+          activeTplWin != null
+            ? pickWindow(activeTplWin, js === 0 || js === 6 ? 'weekend' : 'weekday')
+            : null;
+        const dayMoex = dayMoexWin
+          ? templateToAxisMins(dayMoexWin.openH, dayMoexWin.openM, dayMoexWin.closeH, dayMoexWin.closeM, 0)
+          : null;
+        return {
+          key: String(js),
+          label: WEEKDAYS.find((x) => x.dow === js)?.label ?? String(js),
+          seg: {
+            mode: w.mode,
+            startMin: w.startMin,
+            endMin: w.endMin,
+            active,
+            baseStartMin: dayMoex?.startMin ?? null,
+            baseEndMin: dayMoex?.endMin ?? null,
+          },
+        };
+      });
 
   const preview: SchedulePreview = {
     scopeKind,
-    dowMask: scopeMain ? null : dowMask,
+    dowMask: scopeKind === 'dow' ? dowMask : null,
+    dateFrom: scopeKind === 'date' && scopeDate ? scopeDate.from : null,
+    dateTo: scopeKind === 'date' && scopeDate ? scopeDate.to : null,
     mode,
     open: mode === 'window' ? `${openHm}:00` : null,
     durationMin: mode === 'window' ? durationMin : null,
@@ -286,15 +654,31 @@ export function ConnectionSchedulePopover({
 
   const approve = () => {
     if (readOnly) return;
-    if (!scopeMain && dowMask === 0) return;
-    const scopeText = scopeMain ? 'основное' : WEEKDAYS.filter((w) => weekdays.has(w.dow)).map((w) => w.label).join(',');
+    if (scopeKind === 'dow' && dowMask === 0) return;
+    if (scopeKind === 'date' && !scopeDate) return;
+    const scopeText =
+      scopeKind === 'main'
+        ? 'основное'
+        : scopeKind === 'date' && scopeDate
+          ? labelFromDateRange(scopeDate.from, scopeDate.to)
+          : WEEKDAYS.filter((w) => weekdays.has(w.dow)).map((w) => w.label).join(',');
     if (!window.confirm(`Утвердить правило «${scopeText}»?`)) return;
     const body: PutConnectionScheduleRuleRequest =
       mode === 'off'
-        ? { scopeKind, dowMask: scopeMain ? null : dowMask, mode: 'off', changeSource: 'ui', changeNote: note.trim() || null }
+        ? {
+            scopeKind,
+            dowMask: scopeKind === 'dow' ? dowMask : null,
+            dateFrom: scopeKind === 'date' && scopeDate ? scopeDate.from : null,
+            dateTo: scopeKind === 'date' && scopeDate ? scopeDate.to : null,
+            mode: 'off',
+            changeSource: 'ui',
+            changeNote: note.trim() || null,
+          }
         : {
             scopeKind,
-            dowMask: scopeMain ? null : dowMask,
+            dowMask: scopeKind === 'dow' ? dowMask : null,
+            dateFrom: scopeKind === 'date' && scopeDate ? scopeDate.from : null,
+            dateTo: scopeKind === 'date' && scopeDate ? scopeDate.to : null,
             mode: 'window',
             open: `${openHm}:00`,
             durationMin,
@@ -333,8 +717,10 @@ export function ConnectionSchedulePopover({
           endMin={endMin}
           highlightDays={highlightDays}
           readOnly={readOnly || mode === 'off'}
+          off={mode === 'off'}
           baseStartMin={baseAxis?.startMin ?? null}
           baseEndMin={baseAxis?.endMin ?? null}
+          durationLabel={durationLabel}
           onChange={onWindowChange}
         />
 
@@ -343,7 +729,7 @@ export function ConnectionSchedulePopover({
           <div className={styles.chips}>
             <button
               type="button"
-              className={[styles.chip, scopeMain ? styles.chipOn : ''].filter(Boolean).join(' ')}
+              className={[styles.chip, scopeMain && !onDateScope ? styles.chipOn : ''].filter(Boolean).join(' ')}
               disabled={readOnly}
               onClick={() => chooseScope(true, null)}
               title="Основное расписание (все дни, база)"
@@ -352,7 +738,21 @@ export function ConnectionSchedulePopover({
             </button>
             <button
               type="button"
-              className={[styles.chip, !scopeMain && sameDays(weekdays, WEEKDAY_DAYS) ? styles.chipOn : '']
+              className={styles.chip}
+              disabled={readOnly || !hasAnyExc}
+              onClick={clearExceptions}
+              title="Сбросить все исключения (periodical + static)"
+            >
+              Очистить
+            </button>
+          </div>
+          <div className={styles.chips}>
+            <button
+              type="button"
+              className={[
+                styles.chip,
+                !scopeMain && !onDateScope && sameDays(weekdays, WEEKDAY_DAYS) ? styles.chipOn : '',
+              ]
                 .filter(Boolean)
                 .join(' ')}
               disabled={readOnly}
@@ -362,7 +762,10 @@ export function ConnectionSchedulePopover({
             </button>
             <button
               type="button"
-              className={[styles.chip, !scopeMain && sameDays(weekdays, WEEKEND_DAYS) ? styles.chipOn : '']
+              className={[
+                styles.chip,
+                !scopeMain && !onDateScope && sameDays(weekdays, WEEKEND_DAYS) ? styles.chipOn : '',
+              ]
                 .filter(Boolean)
                 .join(' ')}
               disabled={readOnly}
@@ -370,27 +773,63 @@ export function ConnectionSchedulePopover({
             >
               Сб, Вс
             </button>
-            <span className={styles.divider} />
-            <button type="button" className={styles.chip} disabled title="Торговый календарь MOEX — позже">
-              <CalendarIcon className={styles.chipIcon} />
-              MOEX
-            </button>
+            <div className={styles.calWrap} ref={calWrapRef}>
+              <button
+                type="button"
+                className={[styles.chip, onDateScope || calOpen ? styles.chipOn : ''].filter(Boolean).join(' ')}
+                disabled={readOnly}
+                aria-expanded={calOpen}
+                onClick={() => setCalOpen((o) => !o)}
+                title="Static-исключение по дате или диапазону"
+              >
+                <CalendarIcon className={styles.chipIcon} />
+                Календарь
+              </button>
+              {calOpen && (
+                <div className={styles.calPop}>
+                  <StaticExceptionCalendar
+                    exceptions={layers.staticExc
+                      .filter((e) => e.dateFrom && e.dateTo)
+                      .map((e) => ({
+                        from: e.dateFrom!,
+                        to: e.dateTo!,
+                        mode: e.mode,
+                      }))}
+                    activeFrom={scopeDate?.from}
+                    activeTo={scopeDate?.to}
+                    maxSpanDays={MAX_STATIC_SPAN_DAYS}
+                    isNonTrading={(iso) => (calDays.has(iso) ? !calDays.get(iso)!.isTrading : false)}
+                    onViewChange={onCalViewChange}
+                    onGo={chooseDateScope}
+                    onClearAll={clearStaticExceptions}
+                  />
+                </div>
+              )}
+            </div>
           </div>
           <div className={styles.days}>
             {WEEKDAYS.map((w) => (
               <button
                 key={w.dow}
                 type="button"
-                className={[styles.day, !scopeMain && weekdays.has(w.dow) ? styles.dayOn : '']
+                className={[
+                  styles.day,
+                  !scopeMain && !onDateScope && weekdays.has(w.dow) ? styles.dayOn : '',
+                ]
                   .filter(Boolean)
                   .join(' ')}
-                disabled={readOnly || scopeMain}
-                onClick={() => toggleDay(w.dow)}
+                disabled={readOnly}
+                onClick={(e) => toggleDay(w.dow, e.ctrlKey || e.metaKey)}
               >
                 {w.label}
               </button>
             ))}
           </div>
+          {onDateScope && scopeDate && (
+            <span className={styles.meta}>
+              Static · {labelFromDateRange(scopeDate.from, scopeDate.to)}
+            </span>
+          )}
         </div>
 
         <div className={[styles.section, readOnly ? styles.sectionLocked : ''].filter(Boolean).join(' ')}>
@@ -400,7 +839,7 @@ export function ConnectionSchedulePopover({
               type="button"
               className={[styles.chip, mode === 'window' ? styles.chipOn : ''].filter(Boolean).join(' ')}
               disabled={readOnly}
-              onClick={() => setMode('window')}
+              onClick={() => setScopeMode('window')}
             >
               Окно связи
             </button>
@@ -408,7 +847,7 @@ export function ConnectionSchedulePopover({
               type="button"
               className={[styles.chip, mode === 'off' ? styles.chipOn : ''].filter(Boolean).join(' ')}
               disabled={readOnly}
-              onClick={() => setMode('off')}
+              onClick={() => setScopeMode('off')}
               title="Нерабочий период (не подключаться)"
             >
               Выключено
@@ -448,6 +887,11 @@ export function ConnectionSchedulePopover({
                 className={[styles.chip, shiftHours === n ? styles.chipOn : ''].filter(Boolean).join(' ')}
                 disabled={readOnly || mode === 'off' || !isShiftValid(activeWin, n)}
                 onClick={() => selectShift(n)}
+                title={
+                  isShiftValid(activeWin, n)
+                    ? `±${n} ч к границам шаблона`
+                    : 'Shift недоступен: open уйдёт во вчера / не сегодня, или duration >24ч'
+                }
               >
                 {n === 0 ? 'Shift 0' : String(n)}
               </button>
@@ -478,6 +922,19 @@ export function ConnectionSchedulePopover({
           />
         </label>
 
+        <WeeklyScheduleOverview
+          rules={rules}
+          preview={editing ? preview : null}
+          onCancelRule={editing ? onCancelRule : undefined}
+        />
+
+        <WeeklyDayColumns
+          key={onDateScope && scopeDate ? `date:${scopeDate.from}:${scopeDate.to}` : 'week'}
+          columns={chartColumns}
+          title={onDateScope ? 'Даты' : 'Неделя'}
+          defaultExpanded={onDateScope}
+        />
+
         <button
           type="button"
           className={styles.approve}
@@ -487,12 +944,6 @@ export function ConnectionSchedulePopover({
         >
           Утвердить
         </button>
-
-        <WeeklyScheduleOverview
-          rules={rules}
-          preview={editing ? preview : null}
-          onCancelRule={editing ? onCancelRule : undefined}
-        />
 
         {history.length > 0 && (
           <section className={styles.history}>

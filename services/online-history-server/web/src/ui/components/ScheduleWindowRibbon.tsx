@@ -1,25 +1,30 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import styles from './ScheduleWindowRibbon.module.css';
 
 const DAY_MIN = 24 * 60;
 const AXIS_MIN = 48 * 60;
-/** Окно соединения ≤ одних суток. */
+/** Окно соединения ≤ одних суток (duration). */
 const MAX_SPAN_MIN = DAY_MIN;
-/** Hard frame горизонта: 00:00 вчера … 24:00 завтра. Дальше лента не едет. */
-const HORIZON_LO = -DAY_MIN;
+/**
+ * Сессия: open только сегодня, close сегодня|завтра.
+ * Hard frame: start ∈ [00:00 today, 24:00 today), end ≤ 24:00 tomorrow.
+ */
+const OPEN_LO = 0;
+const OPEN_HI = DAY_MIN;
 const HORIZON_HI = AXIS_MIN;
 const SNAP = 5;
-/** Виртуальный overscroll (мин), после которого переключаем модель дней. */
-const OVERSCROLL_COMMIT = 40;
+/** Peek вчера при упоре в 00:00 today (без постановки маркеров во вчера). */
+const OVERSCROLL_PEEK = 40;
+const PEEK_MAX = 0.18;
 const SLIDE_MS = 340;
 
-/** 0 = сегодня|завтра, -1 = вчера|сегодня. */
-export type ScheduleViewDay = 0 | -1;
+/** Постановка всегда на today|tomorrow; slide>0 — только визуальный peek вчера. */
+export type ScheduleViewDay = 0;
 
 export interface ScheduleWindowRibbonProps {
   /**
    * Абсолютные минуты от полуночи сегодня.
-   * yesterday-today: примерно [-24h .. +24h], today-tomorrow: [0 .. +48h].
+   * start ∈ [0 .. 24h), end ∈ (start .. start+24h] ∩ ≤48h.
    */
   startMin: number;
   endMin: number;
@@ -31,6 +36,10 @@ export interface ScheduleWindowRibbonProps {
   /** Base-диапазон шаблона (без shift) — чуть светлее внутри окна. */
   baseStartMin?: number | null;
   baseEndMin?: number | null;
+  /** Справа в строке «сегодня / завтра», без лишней высоты. */
+  durationLabel?: string | null;
+  /** Режим «выключено»: штриховка только текущих суток (0..24ч), без окна. */
+  off?: boolean;
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -41,17 +50,9 @@ function snapMin(m: number): number {
   return Math.round(m / SNAP) * SNAP;
 }
 
-function viewOrigin(view: ScheduleViewDay): number {
-  return view * DAY_MIN;
-}
-
-function viewBounds(view: ScheduleViewDay): { lo: number; hi: number } {
-  const lo = viewOrigin(view);
-  // Пара дней, но не шире hard frame горизонта.
-  return {
-    lo: Math.max(lo, HORIZON_LO),
-    hi: Math.min(lo + AXIS_MIN, HORIZON_HI),
-  };
+/** Макс. старт (открытие только сегодня). */
+function maxOpenMin(): number {
+  return OPEN_HI - SNAP;
 }
 
 function dayTitle(dayAbs: number): string {
@@ -105,15 +106,14 @@ type MoveDrag = {
   originClientX: number;
   originStart: number;
   span: number;
-  /** Накопленный уход за край после магнита к 00:00 сегодня. */
   overscroll: number;
 };
 
 type EdgeDrag = { kind: 'start' | 'end' };
 
 /**
- * Редактор окна соединения на оси 48h: две модели дней (вчера|сегодня / сегодня|завтра),
- * непрерывная подсветка диапазона и drag всей полосы / маркеров.
+ * Редактор окна: ось today|tomorrow, peek вчера без постановки.
+ * Модель start + duration→end: open сегодня, close сегодня|завтра, duration ≤24ч.
  */
 export function ScheduleWindowRibbon({
   startMin,
@@ -123,23 +123,25 @@ export function ScheduleWindowRibbon({
   readOnly = false,
   baseStartMin = null,
   baseEndMin = null,
+  durationLabel = null,
+  off = false,
 }: ScheduleWindowRibbonProps) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const rangeRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<MoveDrag | EdgeDrag | null>(null);
   const startMinRef = useRef(startMin);
   const endMinRef = useRef(endMin);
   startMinRef.current = startMin;
   endMinRef.current = endMin;
 
-  const [viewDay, setViewDay] = useState<ScheduleViewDay>(0);
-  /** 0 = today-tomorrow, 1 = yesterday-today (для анимации strip + позиций). */
+  /** 0 = today-tomorrow; >0 = peek вчера (без commit). */
   const [slide, setSlide] = useState(0);
   const slideRef = useRef(0);
   const animRef = useRef<number | null>(null);
   const slidingRef = useRef(false);
 
-  const displayOrigin = viewOrigin(0) + slide * viewOrigin(-1); // 0 → -DAY_MIN
-  const stripShiftPct = -((1 - slide) * (100 / 3)); // -33.33% → 0%
+  const displayOrigin = -slide * DAY_MIN;
+  const stripShiftPct = -((1 - slide) * (100 / 3));
 
   const absToPct = (abs: number) => ((abs - displayOrigin) / AXIS_MIN) * 100;
 
@@ -148,10 +150,43 @@ export function ScheduleWindowRibbon({
   const widthPct = Math.max(0, endPct - startPct);
   const labelsCrowded = endPct - startPct < 10;
 
-  // Подписи по текущей/целевой модели (без мигания на середине анимации).
-  const labelView: ScheduleViewDay = slide >= 0.5 ? -1 : 0;
-  const labelLeftDay = labelView;
-  const labelRightDay = (labelView + 1) as 0 | 1;
+  // Подписи: при peek чуть «вчера|сегодня», иначе сегодня|завтра.
+  const labelLeftDay = slide >= PEEK_MAX * 0.6 ? -1 : 0;
+  const labelRightDay = labelLeftDay + 1;
+
+  const animateSlideTo = useCallback((target: number, onDone?: () => void) => {
+    if (animRef.current != null) {
+      cancelAnimationFrame(animRef.current);
+    }
+    slidingRef.current = true;
+    const from = slideRef.current;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const t = clamp((now - t0) / SLIDE_MS, 0, 1);
+      const next = from + (target - from) * easeOutCubic(t);
+      slideRef.current = next;
+      setSlide(next);
+      if (t < 1) {
+        animRef.current = requestAnimationFrame(tick);
+      } else {
+        animRef.current = null;
+        slideRef.current = target;
+        setSlide(target);
+        slidingRef.current = false;
+        onDone?.();
+      }
+    };
+    animRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (animRef.current != null) {
+        cancelAnimationFrame(animRef.current);
+      }
+    },
+    [],
+  );
 
   const clientXToDeltaMin = useCallback((clientX: number, originClientX: number): number => {
     const el = trackRef.current;
@@ -175,86 +210,6 @@ export function ScheduleWindowRibbon({
     [displayOrigin],
   );
 
-  const animateSlideTo = useCallback((target: 0 | 1, onDone?: () => void) => {
-    if (animRef.current != null) {
-      cancelAnimationFrame(animRef.current);
-    }
-    slidingRef.current = true;
-    const from = slideRef.current;
-    const t0 = performance.now();
-    const tick = (now: number) => {
-      const t = clamp((now - t0) / SLIDE_MS, 0, 1);
-      const next = from + (target - from) * easeOutCubic(t);
-      slideRef.current = next;
-      setSlide(next);
-      if (t < 1) {
-        animRef.current = requestAnimationFrame(tick);
-      } else {
-        animRef.current = null;
-        slideRef.current = target;
-        setSlide(target);
-        setViewDay(target === 0 ? 0 : -1);
-        slidingRef.current = false;
-        onDone?.();
-      }
-    };
-    animRef.current = requestAnimationFrame(tick);
-  }, []);
-
-  useEffect(() => {
-    // Шаблон с уходом вчера / в завтра → анимированный scroll-day.
-    if (dragRef.current || slidingRef.current) {
-      return;
-    }
-    if (startMin < 0) {
-      if (slideRef.current < 1) {
-        animateSlideTo(1);
-      }
-      return;
-    }
-    if (endMin > DAY_MIN && slideRef.current > 0) {
-      animateSlideTo(0);
-    }
-  }, [startMin, endMin, animateSlideTo]);
-
-  useEffect(
-    () => () => {
-      if (animRef.current != null) {
-        cancelAnimationFrame(animRef.current);
-      }
-    },
-    [],
-  );
-
-  const commitScrollLeft = (drag: MoveDrag, clientX: number) => {
-    // today-tomorrow → yesterday-today; окно остаётся на abs-времени (у магнита ~00:00 today).
-    animateSlideTo(1, () => {
-      if (dragRef.current?.kind === 'move') {
-        dragRef.current = {
-          ...dragRef.current,
-          originClientX: clientX,
-          originStart: startMinRef.current,
-          overscroll: 0,
-        };
-      }
-    });
-    drag.overscroll = 0;
-  };
-
-  const commitScrollRight = (drag: MoveDrag, clientX: number) => {
-    animateSlideTo(0, () => {
-      if (dragRef.current?.kind === 'move') {
-        dragRef.current = {
-          ...dragRef.current,
-          originClientX: clientX,
-          originStart: startMinRef.current,
-          overscroll: 0,
-        };
-      }
-    });
-    drag.overscroll = 0;
-  };
-
   const onEdgePointerDown = (which: 'start' | 'end') => (e: ReactPointerEvent<HTMLButtonElement>) => {
     if (readOnly || slidingRef.current) {
       return;
@@ -271,6 +226,8 @@ export function ScheduleWindowRibbon({
     }
     e.preventDefault();
     e.stopPropagation();
+    // preventDefault снимает native-focus — берём явно, чтобы ←/→ работали после drag.
+    e.currentTarget.focus({ preventScroll: true });
     const span = endMin - startMin;
     if (span < SNAP) {
       return;
@@ -285,6 +242,27 @@ export function ScheduleWindowRibbon({
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
+  const nudgeRange = (deltaMin: number) => {
+    if (readOnly || off) return;
+    const span = endMin - startMin;
+    if (span < SNAP) return;
+    const maxStart = Math.min(maxOpenMin(), HORIZON_HI - span);
+    const next = clamp(snapMin(startMin + deltaMin), OPEN_LO, maxStart);
+    if (next === startMin) return;
+    onChange(next, next + span);
+  };
+
+  const onRangeKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (readOnly || off) return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      nudgeRange(-SNAP);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      nudgeRange(SNAP);
+    }
+  };
+
   const onPointerMove = (e: ReactPointerEvent<HTMLElement>) => {
     const drag = dragRef.current;
     if (readOnly || !drag || slidingRef.current) {
@@ -296,81 +274,48 @@ export function ScheduleWindowRibbon({
       const delta = snapMin(rawDelta);
       let desired = drag.originStart + delta;
       const span = drag.span;
-      const view: ScheduleViewDay = slideRef.current >= 0.5 ? -1 : 0;
-      const { lo, hi } = viewBounds(view);
-      const minStart = lo;
-      const maxStart = hi - span;
+      // start только сегодня; end упирается в 24:00 tomorrow / span.
+      const maxStart = Math.min(maxOpenMin(), HORIZON_HI - span);
 
-      if (view === 0) {
-        // Влево: упор в 00:00 сегодня (магнит), overscroll → yesterday-today.
-        // Вправо: hard frame 24:00 tomorrow (maxStart), без дальнейшего scroll.
-        if (desired <= 0) {
-          onChange(0, span);
-          drag.overscroll = -desired;
-          const peek = clamp(drag.overscroll / OVERSCROLL_COMMIT, 0, 1) * 0.18;
-          slideRef.current = peek;
-          setSlide(peek);
-          if (drag.overscroll >= OVERSCROLL_COMMIT) {
-            commitScrollLeft(drag, e.clientX);
-          }
-          return;
-        }
-        drag.overscroll = 0;
-        if (slideRef.current > 0 && slideRef.current < 0.5) {
-          slideRef.current = 0;
-          setSlide(0);
-        }
-        desired = clamp(desired, 0, maxStart);
-        onChange(desired, desired + span);
-        return;
-      }
-
-      // view === -1: вправо упираемся в 24:00 сегодня → today-tomorrow.
-      // Влево: hard frame 00:00 yesterday (minStart), без further scroll.
-      if (desired >= maxStart) {
-        onChange(maxStart, maxStart + span);
-        drag.overscroll = desired - maxStart;
-        const peek = 1 - clamp(drag.overscroll / OVERSCROLL_COMMIT, 0, 1) * 0.18;
+      if (desired <= OPEN_LO) {
+        onChange(OPEN_LO, OPEN_LO + span);
+        drag.overscroll = -desired;
+        const peek = clamp(drag.overscroll / OVERSCROLL_PEEK, 0, 1) * PEEK_MAX;
         slideRef.current = peek;
         setSlide(peek);
-        if (drag.overscroll >= OVERSCROLL_COMMIT) {
-          commitScrollRight(drag, e.clientX);
-        }
+        // Вчера только peek — маркеры во вчера не ставим.
         return;
       }
       drag.overscroll = 0;
-      if (slideRef.current < 1 && slideRef.current > 0.5) {
-        slideRef.current = 1;
-        setSlide(1);
+      if (slideRef.current > 0) {
+        slideRef.current = 0;
+        setSlide(0);
       }
-      desired = clamp(desired, minStart, maxStart);
+      desired = clamp(desired, OPEN_LO, maxStart);
       onChange(desired, desired + span);
       return;
     }
 
     const m = snapMin(clientXToAbs(e.clientX));
-    const view: ScheduleViewDay = slideRef.current >= 0.5 ? -1 : 0;
-    const { lo, hi } = viewBounds(view);
     const s = startMinRef.current;
     const en = endMinRef.current;
     if (drag.kind === 'start') {
-      onChange(clamp(m, Math.max(lo, en - MAX_SPAN_MIN), en - SNAP), en);
+      onChange(
+        clamp(m, Math.max(OPEN_LO, en - MAX_SPAN_MIN), Math.min(en - SNAP, maxOpenMin())),
+        en,
+      );
     } else {
-      onChange(s, clamp(m, s + SNAP, Math.min(hi, s + MAX_SPAN_MIN)));
+      onChange(s, clamp(m, s + SNAP, Math.min(HORIZON_HI, s + MAX_SPAN_MIN)));
     }
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLElement>) => {
-    const drag = dragRef.current;
-    if (!drag) {
+    if (!dragRef.current) {
       return;
     }
-    // Если peek не дотянули до commit — пружина обратно.
-    if (drag.kind === 'move' && !slidingRef.current) {
-      const target: 0 | 1 = slideRef.current >= 0.5 ? 1 : 0;
-      if (Math.abs(slideRef.current - target) > 0.001) {
-        animateSlideTo(target);
-      }
+    // Peek вчера → пружина обратно к today|tomorrow.
+    if (dragRef.current.kind === 'move' && !slidingRef.current && slideRef.current > 0.001) {
+      animateSlideTo(0);
     }
     dragRef.current = null;
     try {
@@ -389,11 +334,13 @@ export function ScheduleWindowRibbon({
     return `${clamp(pct, 2, 98)}%`;
   };
 
-  const leftSpan = dayRangeLabel(labelLeftDay, startMin, endMin);
-  const rightSpan = dayRangeLabel(labelRightDay, startMin, endMin);
+  const leftSpan = off ? null : dayRangeLabel(labelLeftDay, startMin, endMin);
+  const rightSpan = off ? null : dayRangeLabel(labelRightDay, startMin, endMin);
+  const offLeftPct = absToPct(0);
+  const offWidthPct = absToPct(DAY_MIN) - offLeftPct;
 
   return (
-    <div className={[styles.root, readOnly ? styles.readOnly : ''].filter(Boolean).join(' ')}>
+    <div className={[styles.root, readOnly || off ? styles.readOnly : ''].filter(Boolean).join(' ')}>
       <div className={styles.dayLabels}>
         <span>
           {dayTitle(labelLeftDay)}
@@ -403,9 +350,18 @@ export function ScheduleWindowRibbon({
           {dayTitle(labelRightDay)}
           {rightSpan ? ` ${rightSpan}` : ''}
         </span>
+        <span className={styles.durationLabel}>{durationLabel ?? ''}</span>
       </div>
 
-      <div className={styles.track} ref={trackRef}>
+      <div
+        className={styles.track}
+        ref={trackRef}
+        onPointerDown={() => {
+          if (readOnly || off) return;
+          // Клик по ленте (в т.ч. мимо колбаски) — фокус на окно для ←/→.
+          rangeRef.current?.focus({ preventScroll: true });
+        }}
+      >
         <div className={styles.trackClip}>
           <div
             className={styles.trackStrip}
@@ -420,83 +376,104 @@ export function ScheduleWindowRibbon({
             ))}
           </div>
         </div>
-        <div
-          className={styles.range}
-          style={{ left: `${startPct}%`, width: `${widthPct}%` }}
-          role="slider"
-          aria-label="Окно соединения"
-          aria-valuemin={viewBounds(viewDay).lo}
-          aria-valuemax={viewBounds(viewDay).hi}
-          aria-valuenow={startMin}
-          aria-disabled={readOnly}
-          onPointerDown={onRangePointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-        >
-          {baseStartMin != null &&
-            baseEndMin != null &&
-            baseEndMin > baseStartMin &&
-            endMin > startMin && (
-              <span
-                className={styles.rangeBase}
-                style={{
-                  left: `${clamp(((baseStartMin - startMin) / (endMin - startMin)) * 100, 0, 100)}%`,
-                  width: `${clamp(((baseEndMin - baseStartMin) / (endMin - startMin)) * 100, 0, 100)}%`,
-                }}
-                aria-hidden="true"
-              />
-            )}
-        </div>
+        {off ? (
+          <div
+            className={styles.rangeOff}
+            style={{ left: `${offLeftPct}%`, width: `${offWidthPct}%` }}
+            aria-label="Выключено на текущие сутки"
+          />
+        ) : (
+          <div
+            ref={rangeRef}
+            className={styles.range}
+            style={{ left: `${startPct}%`, width: `${widthPct}%` }}
+            role="slider"
+            tabIndex={readOnly ? -1 : 0}
+            aria-label="Окно соединения"
+            aria-valuemin={OPEN_LO}
+            aria-valuemax={HORIZON_HI}
+            aria-valuenow={startMin}
+            aria-valuetext={`${fmtClock(startMin)} – ${fmtClock(endMin)}`}
+            aria-disabled={readOnly}
+            onPointerDown={onRangePointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            onKeyDown={onRangeKeyDown}
+          >
+            {baseStartMin != null &&
+              baseEndMin != null &&
+              endMin > startMin &&
+              (() => {
+                // Base (MOEX) — только пересечение с окном, не «вылезает» за open.
+                const lo = Math.max(baseStartMin, startMin);
+                const hi = Math.min(baseEndMin, endMin);
+                if (hi <= lo) return null;
+                const span = endMin - startMin;
+                return (
+                  <span
+                    className={styles.rangeBase}
+                    style={{
+                      left: `${clamp(((lo - startMin) / span) * 100, 0, 100)}%`,
+                      width: `${clamp(((hi - lo) / span) * 100, 0, 100)}%`,
+                    }}
+                    aria-hidden="true"
+                  />
+                );
+              })()}
+          </div>
+        )}
         <span className={styles.daySep} aria-hidden="true" />
       </div>
 
-      <div className={styles.markers}>
-        <button
-          type="button"
-          className={[styles.marker, styles.markerStart].join(' ')}
-          style={{ left: `${startPct}%` }}
-          aria-label={`Начало окна ${fmtClock(startMin)}`}
-          disabled={readOnly}
-          onPointerDown={onEdgePointerDown('start')}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-        >
-          <span className={styles.triangle} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className={[styles.marker, styles.markerEnd].join(' ')}
-          style={{ left: `${endPct}%` }}
-          aria-label={`Конец окна ${fmtClock(endMin)}`}
-          disabled={readOnly}
-          onPointerDown={onEdgePointerDown('end')}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-        >
-          <span className={styles.triangle} aria-hidden="true" />
-        </button>
-      </div>
+      {!off && (
+        <>
+          <div className={styles.markers}>
+            <button
+              type="button"
+              className={[styles.marker, styles.markerStart].join(' ')}
+              style={{ left: `${startPct}%` }}
+              aria-label={`Начало окна ${fmtClock(startMin)}`}
+              disabled={readOnly}
+              onPointerDown={onEdgePointerDown('start')}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+            >
+              <span className={styles.triangle} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={[styles.marker, styles.markerEnd].join(' ')}
+              style={{ left: `${endPct}%` }}
+              aria-label={`Конец окна ${fmtClock(endMin)}`}
+              disabled={readOnly}
+              onPointerDown={onEdgePointerDown('end')}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+            >
+              <span className={styles.triangle} aria-hidden="true" />
+            </button>
+          </div>
 
-      <div className={styles.timeLabels}>
-        <span className={styles.timeLabel} style={{ left: labelLeft(startPct, 'start') }}>
-          {fmtClock(startMin)}
-        </span>
-        <span className={styles.timeLabel} style={{ left: labelLeft(endPct, 'end') }}>
-          {fmtClock(endMin)}
-        </span>
-      </div>
+          <div className={styles.timeLabels}>
+            <span className={styles.timeLabel} style={{ left: labelLeft(startPct, 'start') }}>
+              {fmtClock(startMin)}
+            </span>
+            <span className={styles.timeLabel} style={{ left: labelLeft(endPct, 'end') }}>
+              {fmtClock(endMin)}
+            </span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
 /**
- * Шаблон open/close + pad часов → абсолютные минуты от полуночи сегодня.
- * Pad расширяет окно: start−pad, end+pad.
- * null, если span > 24ч или окно не влезает в hard frame [00:00 yesterday .. 24:00 tomorrow]
- * и ни в одну из двух моделей дней.
+ * Шаблон open/close + pad → start/end от полуночи сегодня.
+ * null, если duration >24ч, open не сегодня, или open уходит во вчера (pad слишком большой).
  */
 export function templateToAxisMins(
   openH: number,
@@ -509,17 +486,14 @@ export function templateToAxisMins(
   let startMin = snapMin(openH * 60 + openM - padHours * 60);
   let endMin = snapMin(closeH * 60 + closeM + padHours * 60);
   const span = endMin - startMin;
-  // base±shift длиннее суток — shift недоступен.
   if (span < minSpanMin || span > MAX_SPAN_MIN || endMin <= startMin) {
     return null;
   }
-  // Hard frame горизонта.
-  if (startMin < HORIZON_LO || endMin > HORIZON_HI) {
+  // Open только сегодня; shift не может увести start во вчера / в завтра.
+  if (startMin < OPEN_LO || startMin >= OPEN_HI) {
     return null;
   }
-  const inTodayTomorrow = startMin >= 0 && endMin <= AXIS_MIN;
-  const inYesterdayToday = startMin >= -DAY_MIN && endMin <= DAY_MIN;
-  if (!inTodayTomorrow && !inYesterdayToday) {
+  if (endMin > HORIZON_HI) {
     return null;
   }
   return { startMin, endMin };
@@ -531,13 +505,14 @@ export function parseHmToMin(hhmm: string): number {
   return (hh || 0) * 60 + (mm || 0);
 }
 
-/** Минуты (могут быть > суток / отрицательные) → HH:mm в пределах суток. */
+/** Минуты → HH:mm в пределах суток. */
 export function fmtMinToHm(total: number): string {
   return fmtClock(total);
 }
 
 /**
  * Из API-окон HH:mm → минуты от полуночи сегодня (overnight: end уезжает во «завтра»).
+ * Open зажимается в сегодня.
  */
 export function windowToAxisMins(startHm: string, endHm: string): { startMin: number; endMin: number } {
   let startMin = snapMin(parseHmToMin(startHm));
@@ -545,12 +520,12 @@ export function windowToAxisMins(startHm: string, endHm: string): { startMin: nu
   if (endMin <= startMin) {
     endMin += DAY_MIN;
   }
-  startMin = clamp(startMin, 0, AXIS_MIN - SNAP);
-  endMin = clamp(endMin, startMin + SNAP, Math.min(AXIS_MIN, startMin + MAX_SPAN_MIN));
+  startMin = clamp(startMin, OPEN_LO, maxOpenMin());
+  endMin = clamp(endMin, startMin + SNAP, Math.min(HORIZON_HI, startMin + MAX_SPAN_MIN));
   return { startMin, endMin };
 }
 
-/** Абсолютные минуты → пара HH:mm для API (end может быть «раньше» start при overnight). */
+/** Абсолютные минуты → пара HH:mm для API. */
 export function axisMinsToWindow(startMin: number, endMin: number): { start: string; end: string } {
   return {
     start: fmtMinToHm(startMin),
@@ -558,4 +533,6 @@ export function axisMinsToWindow(startMin: number, endMin: number): { start: str
   };
 }
 
-export { DAY_MIN, AXIS_MIN, MAX_SPAN_MIN, HORIZON_LO, HORIZON_HI, SNAP };
+export { DAY_MIN, AXIS_MIN, MAX_SPAN_MIN, OPEN_LO, OPEN_HI, HORIZON_HI, SNAP };
+/** @deprecated alias — сессия не уходит во вчера; open ≥ 00:00 today. */
+export const HORIZON_LO = OPEN_LO;

@@ -1,0 +1,173 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  align-self: flex-start;
+}
+
+.toggle:hover {
+  color: var(--color-text-secondary);
+}
+
+.chevron {
+  display: inline-block;
+  font-size: 13px;
+  line-height: 1;
+  width: 13px;
+  text-align: center;
+  transition: transform 0.15s ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.hint {
+  font-size: 10px;
+  opacity: 0.65;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.chart {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.axisHint {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 28px;
+  flex: none;
+  padding: 2px 0 18px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.cols {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  min-width: 0;
+}
+
+.colsDense {
+  grid-template-columns: repeat(auto-fit, minmax(18px, 1fr));
+  gap: 2px;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Узкая вертикальная ribbon-полоска, не на всю колонку. */
+.track {
+  position: relative;
+  width: 25%;
+  min-width: 8px;
+  height: 136px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.trackDense {
+  width: 40%;
+  min-width: 6px;
+}
+
+.colOff .track {
+  opacity: 0.35;
+}
+
+.midLine {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--color-border);
+  opacity: 0.7;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.seg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-accent, #4dabf7) 22%, transparent);
+  overflow: hidden;
+  z-index: 2;
+}
+
+.segBase {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: color-mix(in srgb, var(--color-accent, #4dabf7) 40%, transparent);
+  pointer-events: none;
+}
+
+.segOff {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* bottom/height задаются inline: только текущие сутки (низ оси) */
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 3px,
+    color-mix(in srgb, var(--color-text-muted) 18%, transparent) 3px,
+    color-mix(in srgb, var(--color-text-muted) 18%, transparent) 6px
+  );
+}
+
+.label {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-align: center;
+  line-height: 1.15;
+}
+
+.labelNonTrading {
+  color: #e05555;
+}
+
+.colOn .label {
+  color: var(--color-text-secondary);
+}
+
+.colOn .labelNonTrading {
+  color: #e05555;
+}

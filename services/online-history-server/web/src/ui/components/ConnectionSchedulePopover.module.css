@@ -103,6 +103,18 @@
   margin: 0 2px;
 }
 
+.calWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.calPop {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 4px);
+  left: 0;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

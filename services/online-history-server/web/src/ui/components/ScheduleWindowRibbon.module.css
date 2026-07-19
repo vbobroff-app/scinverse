@@ -7,9 +7,19 @@
 
 .dayLabels {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: baseline;
   font-size: 11px;
   color: var(--color-text-muted);
+}
+
+.durationLabel {
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  min-width: 4.5em;
+  text-align: right;
 }
 
 /* Общая 48h-ось для % маркеров / диапазона; фон прозрачный — колбаски рисуют дни. */
@@ -94,9 +104,32 @@
   cursor: grabbing;
 }
 
+/* Фокус после клика по колбаске — тонкая полупрозрачная рамка (←/→ только двигают). */
+.range:focus,
+.range:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--color-accent, #4dabf7) 40%, transparent);
+  outline-offset: -1px;
+}
+
 .readOnly .range {
   pointer-events: none;
   cursor: default;
+}
+
+.rangeOff {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: 2px;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 3px,
+    color-mix(in srgb, var(--color-text-muted) 22%, transparent) 3px,
+    color-mix(in srgb, var(--color-text-muted) 22%, transparent) 6px
+  );
 }
 
 .markers {
