@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { MONTHS_RU, MonthGrid } from './MonthGrid';
 import styles from './StaticExceptionCalendar.module.css';
 
@@ -9,7 +9,7 @@ export interface StaticExcRange {
 }
 
 interface Props {
-  /** Уже созданные static-исключения (мертвые блоки на сетке). */
+  /** Static-исключения снизу вверх (last = верхний слой). */
   exceptions: readonly StaticExcRange[];
   /** Текущий активный скоуп (подсветка выбора). */
   activeFrom?: string;
@@ -18,10 +18,20 @@ interface Props {
   /** Неторговые дни биржи (красный текст). */
   isNonTrading?: (iso: string) => boolean;
   onViewChange?: (year: number, month: number) => void;
-  /** Перейти к выбранной дате/диапазону (новый или существующий). */
+  /** Перейти к выбранной дате/диапазону (новый или существующий → promote). */
   onGo: (from: string, to: string) => void;
   /** Сбросить все static-исключения. */
   onClearAll: () => void;
+}
+
+/** Базовый синий + сдвиг по номеру слоя (уникальный тон нахлёста). */
+const TONE_STEP = 14;
+
+export function layerTone(layerIndex: number): string {
+  const hue = 205 + (layerIndex % 7) * TONE_STEP;
+  const sat = 62 + (layerIndex % 3) * 6;
+  const light = 46 + (layerIndex % 4) * 5;
+  return `hsl(${hue} ${sat}% ${light}%)`;
 }
 
 function spanDays(a: string, b: string): number {
@@ -38,22 +48,24 @@ function addDaysIso(iso: string, delta: number): string {
   return `${y}-${m}-${day}`;
 }
 
-function rangesOverlap(aFrom: string, aTo: string, bFrom: string, bTo: string): boolean {
-  return aFrom <= bTo && bFrom <= aTo;
+function fmtRange(from: string, to: string): string {
+  const a = `${from.slice(8)}.${from.slice(5, 7)}`;
+  const b = `${to.slice(8)}.${to.slice(5, 7)}`;
+  return from === to ? a : `${a}–${b}`;
 }
 
-function findCovering(iso: string, exceptions: readonly StaticExcRange[]): StaticExcRange | undefined {
-  return exceptions.find((e) => iso >= e.from && iso <= e.to);
-}
-
-function overlapsAny(from: string, to: string, exceptions: readonly StaticExcRange[]): boolean {
-  return exceptions.some((e) => rangesOverlap(from, to, e.from, e.to));
+function stackOnDay(iso: string, exceptions: readonly StaticExcRange[]): { exc: StaticExcRange; index: number }[] {
+  const out: { exc: StaticExcRange; index: number }[] = [];
+  exceptions.forEach((e, index) => {
+    if (iso >= e.from && iso <= e.to) out.push({ exc: e, index });
+  });
+  return out;
 }
 
 /**
- * Календарь static-исключений расписания соединения.
- * Существующие диапазоны — приглушённые блоки (off — красная рамка); клик по ним выбирает для «Перейти».
- * Новый диапазон — только в свободных днях, без пересечений; макс. длина — maxSpanDays.
+ * Календарь static-исключений: многослойный стек с пересечениями.
+ * Клик — верхний слой; Ctrl/Cmd+клик — новый слой (в т.ч. внутри диапазона), второй клик без Ctrl завершает.
+ * Цвет ячейки = тон верхнего слоя (layerIndex × tone).
  */
 export function StaticExceptionCalendar({
   exceptions,
@@ -71,6 +83,8 @@ export function StaticExceptionCalendar({
   const [view, setView] = useState({ year: initial.getFullYear(), month: initial.getMonth() });
   const [start, setStart] = useState<string | undefined>(activeFrom);
   const [end, setEnd] = useState<string | undefined>(activeTo ?? activeFrom);
+  /** После Ctrl+клика — режим нового слоя, пока не завершим диапазон / не выберем существующий. */
+  const [paintingNew, setPaintingNew] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
 
   useEffect(() => {
@@ -78,54 +92,67 @@ export function StaticExceptionCalendar({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onViewChange
   }, [view.year, view.month]);
 
-  // Синхронизация при смене активного скоупа снаружи.
   useEffect(() => {
     setStart(activeFrom);
     setEnd(activeTo ?? activeFrom);
+    setPaintingNew(false);
   }, [activeFrom, activeTo]);
 
-  const coveringMap = useMemo(() => {
-    const map = new Map<string, StaticExcRange>();
-    for (const e of exceptions) {
+  const stackByDay = useMemo(() => {
+    const map = new Map<string, { exc: StaticExcRange; index: number }[]>();
+    exceptions.forEach((e, index) => {
       let cur = e.from;
-      while (cur <= e.to) {
-        map.set(cur, e);
+      let guard = 0;
+      while (cur <= e.to && guard < 400) {
+        const prev = map.get(cur) ?? [];
+        map.set(cur, [...prev, { exc: e, index }]);
         cur = addDaysIso(cur, 1);
-        if (map.size > 400) break;
+        guard += 1;
       }
-    }
+    });
     return map;
   }, [exceptions]);
 
-  const pick = (value: string) => {
+  const pick = (value: string, withCtrl: boolean) => {
     setHint(null);
-    const covering = findCovering(value, exceptions);
-    // Клик по существующему исключению — выбрать целиком для «Перейти».
-    if (covering) {
-      setStart(covering.from);
-      setEnd(covering.to);
+    const stack = stackOnDay(value, exceptions);
+    const top = stack.length > 0 ? stack[stack.length - 1] : undefined;
+    const midDraft = start != null && end == null;
+
+    if (withCtrl) {
+      setPaintingNew(true);
+    }
+
+    // Обычный клик по слою → выбрать верхний (не в режиме «рисуем новый»).
+    if (!withCtrl && !paintingNew && !midDraft && top) {
+      setStart(top.exc.from);
+      setEnd(top.exc.to);
+      setPaintingNew(false);
       return;
     }
 
-    // Новый выбор только на свободных днях.
-    if (!start || (start && end)) {
+    // Новый слой: Ctrl или продолжение paintingNew / midDraft.
+    if (!start || (start && end != null && !midDraft)) {
+      // Старт нового диапазона (в т.ч. внутри чужого слоя).
       setStart(value);
       setEnd(undefined);
+      setPaintingNew(true);
+      setHint('новый слой — кликните конец диапазона');
       return;
     }
 
+    // Вторая точка диапазона (Ctrl не обязателен).
     let lo = value < start ? value : start;
     let hi = value < start ? start : value;
     if (spanDays(lo, hi) > maxSpanDays) {
       hi = addDaysIso(lo, maxSpanDays - 1);
       setHint(`макс. ${maxSpanDays} дн.`);
-    }
-    if (overlapsAny(lo, hi, exceptions)) {
-      setHint('пересечение с исключением');
-      return;
+    } else {
+      setHint(null);
     }
     setStart(lo);
     setEnd(hi);
+    setPaintingNew(false);
   };
 
   const shiftMonth = (delta: number) => {
@@ -138,26 +165,35 @@ export function StaticExceptionCalendar({
   const reset = () => {
     setStart(undefined);
     setEnd(undefined);
+    setPaintingNew(false);
     setHint(null);
     onClearAll();
   };
 
   const go = () => {
     if (!start) return;
-    const to = end ?? start;
-    // Новый диапазон не должен пересекать чужие (существующий — ок).
-    const exact = exceptions.some((e) => e.from === start && e.to === to);
-    if (!exact && overlapsAny(start, to, exceptions)) {
-      setHint('пересечение с исключением');
-      return;
-    }
-    onGo(start, to);
+    setPaintingNew(false);
+    onGo(start, end ?? start);
   };
 
-  const inDraft = (value: string) =>
-    start !== undefined && end !== undefined && value >= start && value <= end;
+  const inDraft = (value: string) => {
+    if (start == null) return false;
+    if (end == null) return value === start;
+    return value >= start && value <= end;
+  };
 
-  const isEdge = (value: string) => value === start || (end != null && value === end);
+  const isEdge = (value: string) => {
+    if (start == null) return false;
+    if (end == null) return value === start;
+    return value === start || value === end;
+  };
+
+  const draftIsOff =
+    start != null &&
+    exceptions.some((e) => e.from === start && e.to === (end ?? start) && e.mode === 'off');
+
+  /** Тон для текущего draft (следующий слой после существующих). */
+  const draftTone = layerTone(exceptions.length);
 
   return (
     <div className={styles.root}>
@@ -187,14 +223,101 @@ export function StaticExceptionCalendar({
         month={view.month}
         classes={{ weekdays: styles.weekdays, weekday: styles.weekday, grid: styles.cells, empty: styles.empty }}
         renderDay={(value) => {
-          const exc = coveringMap.get(value);
-          const draft = inDraft(value);
+          const stack = stackByDay.get(value) ?? [];
+          const top = stack.length > 0 ? stack[stack.length - 1] : undefined;
+          const inSel = inDraft(value);
           const edge = isEdge(value);
-          const locked = exc != null && !draft;
-          const offExc = exc?.mode === 'off';
-          const draftOff = draft && start && (end ?? start) && exceptions.some(
-            (e) => e.from === start && e.to === (end ?? start) && e.mode === 'off',
-          );
+          const selTo = end ?? start;
+          const selectedMatchesTop =
+            start != null &&
+            selTo != null &&
+            top != null &&
+            top.exc.from === start &&
+            top.exc.to === selTo;
+          /** Выбор существующего слоя, который здесь не верхний — не затираем верх. */
+          const selectedBelow =
+            inSel &&
+            !paintingNew &&
+            end != null &&
+            start != null &&
+            top != null &&
+            !(top.exc.from === start && top.exc.to === selTo);
+
+          // Всегда красим верхним слоем стека; draft-заливка только если рисуем новый или выбран верхний.
+          const showTopFill = stack.length > 0 && !(inSel && (paintingNew || selectedMatchesTop) && !selectedBelow);
+          const showDraftFill = inSel && !selectedBelow && (paintingNew || selectedMatchesTop || stack.length === 0);
+          const showBelowOutline = selectedBelow;
+
+          const topOff = top?.exc.mode === 'off';
+          const anyOff = stack.some((s) => s.exc.mode === 'off');
+          const tone = top ? layerTone(top.index) : undefined;
+          const depth = Math.min(stack.length, 4);
+          const fillAlpha = 0.14 + Math.min(stack.length, 4) * 0.08;
+
+          const titleParts =
+            stack.length > 0
+              ? stack.map((s, i) => {
+                  const mark = i === stack.length - 1 ? '▲' : '·';
+                  const mode = s.exc.mode === 'off' ? 'выкл' : 'окно';
+                  return `${mark} L${s.index + 1} ${fmtRange(s.exc.from, s.exc.to)} (${mode})`;
+                })
+              : isNonTrading?.(value)
+                ? ['Неторговый день']
+                : [];
+          if (stack.length > 0) {
+            titleParts.push('Ctrl+клик — новый слой внутри/поверх');
+          }
+
+          let style: CSSProperties | undefined;
+          if (showTopFill && tone) {
+            style = {
+              background: `color-mix(in srgb, ${tone} ${Math.round(fillAlpha * 100)}%, transparent)`,
+              boxShadow:
+                topOff || anyOff
+                  ? `inset 0 0 0 1.5px color-mix(in srgb, #e05555 80%, transparent), inset 0 0 0 3px color-mix(in srgb, ${tone} 20%, transparent)`
+                  : `inset 0 0 0 1px color-mix(in srgb, ${tone} 45%, transparent)`,
+            };
+          }
+          if (showBelowOutline && tone) {
+            // Нижний выбранный слой: верхний fill остаётся, добавляем пунктир «выбран ниже».
+            style = {
+              ...(style ?? {}),
+              outline: `1px dashed color-mix(in srgb, ${layerTone(
+                exceptions.findIndex((e) => e.from === start && e.to === selTo),
+              )} 70%, transparent)`,
+              outlineOffset: '-2px',
+            };
+          }
+          if (showDraftFill && !edge) {
+            style = {
+              background: `color-mix(in srgb, ${draftTone} 22%, transparent)`,
+              ...(selectedMatchesTop && tone
+                ? {
+                    background: `color-mix(in srgb, ${tone} 28%, transparent)`,
+                    boxShadow: `inset 0 0 0 1.5px ${tone}`,
+                  }
+                : {}),
+            };
+          }
+          if (showDraftFill && edge) {
+            style = {
+              background: draftIsOff
+                ? 'color-mix(in srgb, #e05555 85%, #000)'
+                : selectedMatchesTop && tone
+                  ? tone
+                  : draftTone,
+            };
+          }
+          // Края выбранного нижнего слоя — заметные, но fill дня с верхним слоем не трогаем.
+          if (showBelowOutline && edge) {
+            const belowTone = layerTone(exceptions.findIndex((e) => e.from === start && e.to === selTo));
+            style = {
+              ...(style ?? {}),
+              boxShadow: `inset 0 0 0 2px ${belowTone}`,
+              outline: `1px solid ${belowTone}`,
+              outlineOffset: '-1px',
+            };
+          }
 
           return (
             <button
@@ -202,31 +325,33 @@ export function StaticExceptionCalendar({
               type="button"
               className={[
                 styles.cell,
-                edge ? styles.cellEdge : '',
-                draft && !edge ? styles.cellInRange : '',
-                locked ? styles.cellLocked : '',
-                locked && offExc ? styles.cellLockedOff : '',
-                draft && (offExc || draftOff) ? styles.cellEdgeOff : '',
+                showTopFill ? styles.cellStack : '',
+                showTopFill && depth >= 2 ? styles.cellStackDeep : '',
+                showTopFill && (topOff || anyOff) ? styles.cellStackOff : '',
+                showDraftFill && edge ? styles.cellEdge : '',
+                showDraftFill && !edge ? styles.cellInRange : '',
+                showDraftFill && draftIsOff ? styles.cellEdgeOff : '',
+                showBelowOutline ? styles.cellSelectedBelow : '',
+                paintingNew && midDraftAnchor(value, start, end) ? styles.cellPainting : '',
                 isNonTrading?.(value) ? styles.cellNonTrading : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
-              onClick={() => pick(value)}
-              title={
-                exc
-                  ? exc.mode === 'off'
-                    ? `Static · выкл · ${exc.from.slice(8)}.${exc.from.slice(5, 7)}–${exc.to.slice(8)}.${exc.to.slice(5, 7)}`
-                    : `Static · ${exc.from.slice(8)}.${exc.from.slice(5, 7)}–${exc.to.slice(8)}.${exc.to.slice(5, 7)}`
-                  : isNonTrading?.(value)
-                    ? 'Неторговый день'
-                    : undefined
-              }
+              style={style}
+              onClick={(e) => pick(value, e.ctrlKey || e.metaKey)}
+              title={titleParts.length > 0 ? titleParts.join('\n') : undefined}
             >
               {Number(value.slice(8))}
             </button>
           );
         }}
       />
+
+      <p className={styles.legend}>
+        Клик — верхний слой · <kbd>Ctrl</kbd>+клик — новый внутри · Перейти поднимает слой и снимает
+        вложенные · макс. {maxSpanDays} дн.
+        {paintingNew ? <span className={styles.paintingHint}> · рисуем новый слой</span> : null}
+      </p>
 
       <div className={styles.footer}>
         <span className={styles.selection}>
@@ -241,4 +366,8 @@ export function StaticExceptionCalendar({
       </div>
     </div>
   );
+}
+
+function midDraftAnchor(value: string, start: string | undefined, end: string | undefined): boolean {
+  return start != null && end == null && value === start;
 }

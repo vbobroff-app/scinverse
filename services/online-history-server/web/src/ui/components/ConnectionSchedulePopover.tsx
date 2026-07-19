@@ -469,7 +469,7 @@ export function ConnectionSchedulePopover({
       startMin: start,
       endMin: end,
     };
-    setLayers((prev) => promoteStaticExc(prev, layer));
+    setLayers((prev) => promoteStaticExc(prev, layer, { dropNested: true }));
     loadEditorFromLayer(layer);
 
     const single = from === to;

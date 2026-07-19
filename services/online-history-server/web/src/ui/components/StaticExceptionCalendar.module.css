@@ -1,5 +1,5 @@
 .root {
-  width: 244px;
+  width: 260px;
   padding: var(--spacing-sm);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -84,56 +84,44 @@
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
+  position: relative;
 }
 
 .cell:hover {
-  background: var(--color-bg-hover);
+  filter: brightness(1.08);
 }
 
-/* Текущий выбор (яркий). */
-.cellInRange {
-  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
-}
-
-.cellEdge {
-  background: var(--color-accent);
-  color: #fff;
-  font-weight: 600;
-}
-
-.cellEdge:hover {
-  background: var(--color-accent-hover);
-}
-
-/* Существующее исключение — приглушённый блок. */
-.cellLocked {
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 35%, transparent);
+/* Фон/рамка задаются inline по тону слоя; класс — маркер стека. */
+.cellStack {
   color: var(--color-text-secondary);
 }
 
-.cellLocked:hover {
-  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+.cellStackDeep {
+  font-weight: 600;
 }
 
-/* Off-исключение — красная рамка. */
-.cellLockedOff {
-  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, #e05555 75%, transparent);
-  background: color-mix(in srgb, #e05555 8%, transparent);
+.cellStackOff {
+  color: color-mix(in srgb, #e05555 70%, var(--color-text));
 }
 
-.cellLockedOff:hover {
-  background: color-mix(in srgb, #e05555 14%, transparent);
+.cellEdge {
+  color: #fff;
+  font-weight: 600;
+  z-index: 1;
 }
 
-/* Выбранное off-исключение (Перейти) — яркий край, красный акцент. */
-.cellEdgeOff.cellEdge {
-  background: color-mix(in srgb, #e05555 85%, #000);
+.cellEdgeOff {
   color: #fff;
 }
 
-.cellEdgeOff.cellInRange {
-  background: color-mix(in srgb, #e05555 18%, transparent);
+.cellPainting {
+  outline: 1px dashed color-mix(in srgb, var(--color-accent) 70%, transparent);
+  outline-offset: -1px;
+}
+
+/* Выбран нижний слой: верхний fill на месте, пунктир/рамка — маркер выбора. */
+.cellSelectedBelow {
+  z-index: 0;
 }
 
 .cellNonTrading {
@@ -142,6 +130,25 @@
 
 .cellNonTrading.cellEdge {
   color: #fff;
+}
+
+.legend {
+  margin: 6px 0 0;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+}
+
+.legend kbd {
+  font-size: 10px;
+  padding: 0 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  font-family: inherit;
+}
+
+.paintingHint {
+  color: var(--color-accent);
 }
 
 .hint {

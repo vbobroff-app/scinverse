@@ -198,10 +198,23 @@ export function promoteExc(dict: ScheduleLayerDict, layer: ScheduleLayer): Sched
   return { ...dict, exc: [...rest, layer] };
 }
 
-/** Поднять static-исключение наверх. */
-export function promoteStaticExc(dict: ScheduleLayerDict, layer: ScheduleLayer): ScheduleLayerDict {
+/** Поднять static-исключение наверх; опционально выкинуть полностью вложенные (Mold ⊆ M). */
+export function promoteStaticExc(
+  dict: ScheduleLayerDict,
+  layer: ScheduleLayer,
+  opts?: { dropNested?: boolean },
+): ScheduleLayerDict {
   if (layer.scopeKind !== 'date') return promoteExc(dict, layer);
-  const rest = dict.staticExc.filter((e) => e.id !== layer.id);
+  let rest = dict.staticExc.filter((e) => e.id !== layer.id);
+  if (opts?.dropNested && layer.dateFrom && layer.dateTo) {
+    const from = layer.dateFrom;
+    const to = layer.dateTo;
+    rest = rest.filter((e) => {
+      if (e.dateFrom == null || e.dateTo == null) return true;
+      const nested = e.dateFrom >= from && e.dateTo <= to;
+      return !nested;
+    });
+  }
   return { ...dict, staticExc: [...rest, layer] };
 }
 
