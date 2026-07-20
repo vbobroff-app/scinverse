@@ -691,7 +691,19 @@ export function ConnectionSchedulePopover({
 
   return (
     <div className={styles.backdrop} onClick={onClose} role="presentation">
-      <div className={styles.panel} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Расписание соединения">
+      <div
+        className={[styles.panel, calOpen ? styles.panelCalFocus : ''].filter(Boolean).join(' ')}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Расписание соединения"
+      >
+        {calOpen && (
+          <div
+            className={styles.calScrim}
+            onClick={() => setCalOpen(false)}
+            aria-hidden="true"
+          />
+        )}
         <header className={styles.head}>
           <strong>Расписание соединения</strong>
           <div className={styles.headActions}>
@@ -773,13 +785,17 @@ export function ConnectionSchedulePopover({
             >
               Сб, Вс
             </button>
-            <div className={styles.calWrap} ref={calWrapRef}>
+            <div className={[styles.calWrap, calOpen ? styles.calWrapOpen : ''].filter(Boolean).join(' ')} ref={calWrapRef}>
               <button
                 type="button"
                 className={[styles.chip, onDateScope || calOpen ? styles.chipOn : ''].filter(Boolean).join(' ')}
                 disabled={readOnly}
                 aria-expanded={calOpen}
-                onClick={() => setCalOpen((o) => !o)}
+                onClick={(e) => {
+                  setCalOpen((o) => !o);
+                  // Убрать :focus-visible — иначе chipOn + outline = двойная рамка.
+                  e.currentTarget.blur();
+                }}
                 title="Static-исключение по дате или диапазону"
               >
                 <CalendarIcon className={styles.chipIcon} />
@@ -795,13 +811,12 @@ export function ConnectionSchedulePopover({
                         to: e.dateTo!,
                         mode: e.mode,
                       }))}
-                    activeFrom={scopeDate?.from}
-                    activeTo={scopeDate?.to}
                     maxSpanDays={MAX_STATIC_SPAN_DAYS}
                     isNonTrading={(iso) => (calDays.has(iso) ? !calDays.get(iso)!.isTrading : false)}
                     onViewChange={onCalViewChange}
                     onGo={chooseDateScope}
                     onClearAll={clearStaticExceptions}
+                    onDismiss={() => setCalOpen(false)}
                   />
                 </div>
               )}
@@ -932,7 +947,7 @@ export function ConnectionSchedulePopover({
           key={onDateScope && scopeDate ? `date:${scopeDate.from}:${scopeDate.to}` : 'week'}
           columns={chartColumns}
           title={onDateScope ? 'Даты' : 'Неделя'}
-          defaultExpanded={onDateScope}
+          defaultExpanded
         />
 
         <button

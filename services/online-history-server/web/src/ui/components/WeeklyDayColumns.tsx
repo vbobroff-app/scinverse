@@ -47,7 +47,7 @@ function pct(absMin: number): number {
 export function WeeklyDayColumns({
   columns,
   title = 'Неделя',
-  defaultExpanded = false,
+  defaultExpanded = true,
 }: WeeklyDayColumnsProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const dense = columns.length > 7;

@@ -10,6 +10,7 @@
 }
 
 .panel {
+  position: relative;
   width: min(560px, 94vw);
   max-height: 80vh;
   overflow: auto;
@@ -21,6 +22,22 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Календарь в фокусе: остальное панели заблюрено, скролл заморожен. */
+.panelCalFocus {
+  overflow: hidden;
+}
+
+.calScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--color-bg-elevated, var(--color-bg-input)) 45%, transparent);
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+  cursor: default;
 }
 
 .head {
@@ -108,9 +125,14 @@
   display: inline-flex;
 }
 
+/* Поверх scrim, иначе absolute z-index внутри wrap не пробивает соседний overlay. */
+.calWrapOpen {
+  z-index: 50;
+}
+
 .calPop {
   position: absolute;
-  z-index: 50;
+  z-index: 1;
   top: calc(100% + 4px);
   left: 0;
 }
@@ -148,6 +170,11 @@
   border-color: var(--color-accent);
   background: color-mix(in srgb, var(--color-accent) 22%, transparent);
   color: var(--color-accent);
+}
+
+/* chipOn уже рисует рамку — глобальный :focus-visible даёт двойной контур. */
+.chipOn:focus-visible {
+  outline: none;
 }
 
 .days {
