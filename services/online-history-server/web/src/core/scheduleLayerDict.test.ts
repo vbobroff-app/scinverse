@@ -4,9 +4,14 @@ import {
   emptyLayerDict,
   findDateLayer,
   layerIdDate,
+  normalizeRegularExc,
+  promoteExc,
+  regularBoardSlots,
+  resolveLayerForDow,
   staticExcConnectedComponent,
   unionStaticComponentRange,
   type ScheduleLayer,
+  type ScheduleLayerDict,
 } from './scheduleLayerDict';
 
 function dateLayer(from: string, to: string, partial?: Partial<ScheduleLayer>): ScheduleLayer {
@@ -68,5 +73,151 @@ describe('createStaticExc', () => {
     expect(dict.staticExc).toHaveLength(1);
     expect(dict.staticExc[0].startMin).toBe(700);
     expect(findDateLayer(dict, '2026-07-03', '2026-07-03')).toBeUndefined();
+  });
+});
+
+describe('normalizeRegularExc / resolve with optional main', () => {
+  it('ставит group ниже singles независимо от порядка ввода', () => {
+    const weekday: ScheduleLayer = {
+      id: 'dow:31',
+      scopeKind: 'dow',
+      dowMask: 31,
+      dateFrom: null,
+      dateTo: null,
+      label: 'Будни',
+      mode: 'window',
+      startMin: 600,
+      endMin: 1200,
+    };
+    const mon: ScheduleLayer = {
+      id: 'dow:1',
+      scopeKind: 'dow',
+      dowMask: 1,
+      dateFrom: null,
+      dateTo: null,
+      label: 'Пн',
+      mode: 'off',
+      startMin: 0,
+      endMin: 0,
+    };
+    expect(normalizeRegularExc([mon, weekday]).map((e) => e.id)).toEqual(['dow:31', 'dow:1']);
+  });
+
+  it('promoteExc XOR для групп', () => {
+    let dict = emptyLayerDict();
+    dict = promoteExc(dict, {
+      id: 'dow:31',
+      scopeKind: 'dow',
+      dowMask: 31,
+      dateFrom: null,
+      dateTo: null,
+      label: 'Будни',
+      mode: 'window',
+      startMin: 600,
+      endMin: 1200,
+    });
+    dict = promoteExc(dict, {
+      id: 'dow:96',
+      scopeKind: 'dow',
+      dowMask: 96,
+      dateFrom: null,
+      dateTo: null,
+      label: 'Сб,Вс',
+      mode: 'window',
+      startMin: 700,
+      endMin: 1100,
+    });
+    expect(dict.exc).toHaveLength(1);
+    expect(dict.exc[0].dowMask).toBe(96);
+  });
+
+  it('resolveLayerForDow: null без main и без покрытия', () => {
+    const dict = emptyLayerDict();
+    expect(resolveLayerForDow(dict, 1)).toBeNull();
+  });
+
+  it('resolveLayerForDow: single бьёт group; main необязателен', () => {
+    let dict = emptyLayerDict();
+    dict = promoteExc(dict, {
+      id: 'dow:31',
+      scopeKind: 'dow',
+      dowMask: 31,
+      dateFrom: null,
+      dateTo: null,
+      label: 'Будни',
+      mode: 'window',
+      startMin: 600,
+      endMin: 1200,
+    });
+    dict = promoteExc(dict, {
+      id: 'dow:1',
+      scopeKind: 'dow',
+      dowMask: 1,
+      dateFrom: null,
+      dateTo: null,
+      label: 'Пн',
+      mode: 'off',
+      startMin: 0,
+      endMin: 0,
+    });
+    expect(resolveLayerForDow(dict, 1)?.id).toBe('dow:1');
+    expect(resolveLayerForDow(dict, 2)?.id).toBe('dow:31');
+    expect(resolveLayerForDow(dict, 0)).toBeNull();
+  });
+});
+
+describe('regularBoardSlots (tetris)', () => {
+  const main: ScheduleLayer = {
+    id: 'main',
+    scopeKind: 'main',
+    dowMask: null,
+    dateFrom: null,
+    dateTo: null,
+    label: 'Все',
+    mode: 'window',
+    startMin: 360,
+    endMin: 1500,
+  };
+  const weekdays: ScheduleLayer = {
+    id: 'dow:31',
+    scopeKind: 'dow',
+    dowMask: 31,
+    dateFrom: null,
+    dateTo: null,
+    label: 'Будни',
+    mode: 'window',
+    startMin: 600,
+    endMin: 1200,
+  };
+  const tue: ScheduleLayer = {
+    id: 'dow:2',
+    scopeKind: 'dow',
+    dowMask: 2,
+    dateFrom: null,
+    dateTo: null,
+    label: 'Вт',
+    mode: 'off',
+    startMin: 0,
+    endMin: 0,
+  };
+
+  it('этаж 0 всегда main, даже если main=null', () => {
+    const slots = regularBoardSlots(emptyLayerDict(), 2);
+    expect(slots).toEqual([{ kind: 'main', layer: null }]);
+  });
+
+  it('Вт без группы падает на main (этаж 1)', () => {
+    const dict: ScheduleLayerDict = { main, exc: [tue], staticExc: [] };
+    expect(regularBoardSlots(dict, 2).map((s) => s.kind)).toEqual(['main', 'single']);
+  });
+
+  it('Вт + будни: single на 3-м этаже над group', () => {
+    const dict: ScheduleLayerDict = { main, exc: [weekdays, tue], staticExc: [] };
+    expect(regularBoardSlots(dict, 2).map((s) => s.kind)).toEqual(['main', 'group', 'single']);
+  });
+
+  it('выходной при буднях: только main (группа не покрывает)', () => {
+    const dict: ScheduleLayerDict = { main, exc: [weekdays], staticExc: [] };
+    expect(regularBoardSlots(dict, 0).map((s) => s.kind)).toEqual(['main']);
   });
 });

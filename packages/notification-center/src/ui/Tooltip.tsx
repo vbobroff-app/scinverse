@@ -9,6 +9,8 @@ export interface TipProps {
   content?: string;
   /** Предпочтительная сторона (по умолчанию снизу по центру; у края — сверху). */
   side?: Side;
+  /** Растянуть host на 100% (ячейки сетки / full-width кнопки). */
+  block?: boolean;
   className?: string;
   children: ReactNode;
 }
@@ -23,7 +25,7 @@ interface Pos {
  * Лёгкий кастомный тултип для notification-center (portal → не клипается overflow дока).
  * Не ставьте рядом нативный `title` — будет двойной тултип.
  */
-export function Tip({ content, side = 'bottom', className, children }: TipProps) {
+export function Tip({ content, side = 'bottom', block = false, className, children }: TipProps) {
   const tipId = useId();
   const [pos, setPos] = useState<Pos | null>(null);
 
@@ -63,7 +65,7 @@ export function Tip({ content, side = 'bottom', className, children }: TipProps)
 
   return (
     <span
-      className={[styles.host, className].filter(Boolean).join(' ')}
+      className={[styles.host, block ? styles.hostBlock : '', className].filter(Boolean).join(' ')}
       aria-describedby={pos ? tipId : undefined}
       onMouseEnter={(e) => showFrom(e.currentTarget)}
       onMouseLeave={hide}

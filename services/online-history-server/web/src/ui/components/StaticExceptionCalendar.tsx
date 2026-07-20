@@ -1,3 +1,4 @@
+import { Tip } from '@scinverse/notification-center';
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { datesOverlap } from '../../core/scheduleLayerDict';
 import { MONTHS_RU, MonthGrid } from './MonthGrid';
@@ -256,9 +257,11 @@ export function StaticExceptionCalendar({
   return (
     <div ref={rootRef} className={styles.root} onPointerDown={onRootPointerDown}>
       <div className={styles.header}>
-        <button type="button" className={styles.link} onClick={reset} tabIndex={-1} title="Сбросить все static-исключения">
-          Сбросить
-        </button>
+        <Tip content="Сбросить все static-исключения">
+          <button type="button" className={styles.link} onClick={reset} tabIndex={-1}>
+            Сбросить
+          </button>
+        </Tip>
         <button type="button" className={styles.link} onClick={goToday} tabIndex={-1}>
           Сегодня
         </button>
@@ -326,49 +329,49 @@ export function StaticExceptionCalendar({
           if (stack.length > 0) titleParts.push('Ctrl+клик — новый слой');
 
           return (
-            <button
-              key={value}
-              type="button"
-              className={[
-                styles.cell,
-                hasRibbons ? styles.cellHasLayers : '',
-                selected ? styles.cellSelected : '',
-                edge ? styles.cellEdge : '',
-                paintingNew && start === value && end == null ? styles.cellPainting : '',
-                topOff ? styles.cellTopOff : '',
-                isNonTrading?.(value) ? styles.cellNonTrading : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              onClick={(e) => pick(value, e.ctrlKey || e.metaKey)}
-              title={titleParts.length > 0 ? titleParts.join('\n') : undefined}
-            >
-              <span className={styles.dayNum}>{Number(value.slice(8))}</span>
-              {hasRibbons && (
-                <span className={styles.ribbons} aria-hidden="true">
-                  {aligned.map((s) =>
-                    s.exc ? (
-                      <span
-                        key={`${s.index}-${s.level}`}
-                        className={[styles.ribbon, s.exc.mode === 'off' ? styles.ribbonOff : '']
-                          .filter(Boolean)
-                          .join(' ')}
-                        style={s.exc.mode === 'off' ? undefined : { background: layerTone(s.index) }}
-                      />
-                    ) : (
-                      <span key={`gap-${s.level}`} className={[styles.ribbon, styles.ribbonGap].join(' ')} />
-                    ),
-                  )}
-                  {draftSlots.map((s, i) =>
-                    s.kind === 'draft' ? (
-                      <span key="draft" className={styles.ribbon} style={{ background: draftTone }} />
-                    ) : (
-                      <span key={`draft-gap-${i}`} className={[styles.ribbon, styles.ribbonGap].join(' ')} />
-                    ),
-                  )}
-                </span>
-              )}
-            </button>
+            <Tip key={value} content={titleParts.length > 0 ? titleParts.join('\n') : undefined} block>
+              <button
+                type="button"
+                className={[
+                  styles.cell,
+                  hasRibbons ? styles.cellHasLayers : '',
+                  selected ? styles.cellSelected : '',
+                  edge ? styles.cellEdge : '',
+                  paintingNew && start === value && end == null ? styles.cellPainting : '',
+                  topOff ? styles.cellTopOff : '',
+                  isNonTrading?.(value) ? styles.cellNonTrading : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={(e) => pick(value, e.ctrlKey || e.metaKey)}
+              >
+                <span className={styles.dayNum}>{Number(value.slice(8))}</span>
+                {hasRibbons && (
+                  <span className={styles.ribbons} aria-hidden="true">
+                    {aligned.map((s) =>
+                      s.exc ? (
+                        <span
+                          key={`${s.index}-${s.level}`}
+                          className={[styles.ribbon, s.exc.mode === 'off' ? styles.ribbonOff : '']
+                            .filter(Boolean)
+                            .join(' ')}
+                          style={s.exc.mode === 'off' ? undefined : { background: layerTone(s.index) }}
+                        />
+                      ) : (
+                        <span key={`gap-${s.level}`} className={[styles.ribbon, styles.ribbonGap].join(' ')} />
+                      ),
+                    )}
+                    {draftSlots.map((s, i) =>
+                      s.kind === 'draft' ? (
+                        <span key="draft" className={styles.ribbon} style={{ background: draftTone }} />
+                      ) : (
+                        <span key={`draft-gap-${i}`} className={[styles.ribbon, styles.ribbonGap].join(' ')} />
+                      ),
+                    )}
+                  </span>
+                )}
+              </button>
+            </Tip>
           );
         }}
       />

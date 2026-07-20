@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Tip } from '@scinverse/notification-center';
 import styles from './WeeklyDayColumns.module.css';
 
 const AXIS_MIN = 48 * 60;
@@ -20,6 +21,8 @@ export interface DayColumnSeg {
 export interface DayColumn {
   key: string;
   label: string;
+  /** Кастомный тултип подписи (напр. дата с годом в calendar-режиме). */
+  labelTip?: string;
   seg: DayColumnSeg;
 }
 
@@ -37,6 +40,18 @@ function clamp(n: number, lo: number, hi: number): number {
 
 function pct(absMin: number): number {
   return clamp((absMin / AXIS_MIN) * 100, 0, 100);
+}
+
+/** Минуты оси → HH:mm в пределах суток (как на ленте). */
+function fmtHm(totalMin: number): string {
+  const norm = ((totalMin % 1440) + 1440) % 1440;
+  return `${String(Math.floor(norm / 60)).padStart(2, '0')}:${String(norm % 60).padStart(2, '0')}`;
+}
+
+function windowTip(seg: DayColumnSeg): string | undefined {
+  if (seg.mode === 'off') return 'выкл';
+  if (seg.endMin <= seg.startMin) return undefined;
+  return `${fmtHm(seg.startMin)}–${fmtHm(seg.endMin)}`;
 }
 
 /**
@@ -104,6 +119,9 @@ export function WeeklyDayColumns({
                         className={styles.seg}
                         style={{ bottom: `${bottomPct}%`, height: `${heightPct}%` }}
                       >
+                        <Tip content={windowTip(seg)} block>
+                          <span className={styles.segHit} />
+                        </Tip>
                         {baseOk && (
                           <span
                             className={styles.segBase}
@@ -117,17 +135,22 @@ export function WeeklyDayColumns({
                       <div
                         className={styles.segOff}
                         style={{ bottom: '0%', height: `${(DAY_MIN / AXIS_MIN) * 100}%` }}
-                        aria-hidden="true"
-                      />
+                      >
+                        <Tip content={windowTip(seg)} block>
+                          <span className={styles.segHit} />
+                        </Tip>
+                      </div>
                     )}
                   </div>
-                  <span
-                    className={[styles.label, seg.nonTrading ? styles.labelNonTrading : '']
-                      .filter(Boolean)
-                      .join(' ')}
-                  >
-                    {col.label}
-                  </span>
+                  <Tip content={col.labelTip}>
+                    <span
+                      className={[styles.label, seg.nonTrading ? styles.labelNonTrading : '']
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
+                      {col.label}
+                    </span>
+                  </Tip>
                 </div>
               );
             })}

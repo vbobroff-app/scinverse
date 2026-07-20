@@ -23,6 +23,17 @@
   max-width: 100%;
 }
 
+.hostBlock {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+
+.hostBlock > * {
+  width: 100%;
+}
+
 /* По центру якоря по горизонтали */
 .tipBottom {
   transform: translate(-50%, 0);

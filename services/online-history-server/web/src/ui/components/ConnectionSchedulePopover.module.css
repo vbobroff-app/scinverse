@@ -178,6 +178,12 @@
   color: var(--color-accent);
 }
 
+/* Слой есть, но сейчас не редактируется. */
+.chipHas {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
+  color: var(--color-text);
+}
+
 /* chipOn уже рисует рамку — глобальный :focus-visible даёт двойной контур. */
 .chipOn:focus-visible {
   outline: none;
@@ -190,6 +196,7 @@
 }
 
 .day {
+  width: 100%;
   padding: 4px 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -214,6 +221,52 @@
   border-color: var(--color-accent);
   background: color-mix(in srgb, var(--color-accent) 22%, transparent);
   color: var(--color-accent);
+}
+
+.dayHas {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
+  color: var(--color-text);
+}
+
+/* Tetris periodical: этаж 0 всегда main; выше — group/single без дыр. */
+.regularBoard {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin: 2px 0 8px;
+  /* axisHint 28px + chart gap 6px — под колонками недели */
+  padding: 0 0 0 34px;
+}
+
+.regularCol {
+  min-height: 10px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.regularRibbons {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+  padding: 0 1px;
+  width: 100%;
+}
+
+.regularRibbon {
+  display: block;
+  height: 3px;
+  border-radius: 0;
+  opacity: 0.92;
+}
+
+.regularRibbonGap {
+  opacity: 0;
+  background: transparent;
+}
+
+.regularRibbonUnset {
+  background: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+  opacity: 0.7;
 }
 
 .sectionLocked {

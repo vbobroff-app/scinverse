@@ -24,11 +24,31 @@ export interface ScheduleLayer {
 }
 
 export interface ScheduleLayerDict {
-  main: ScheduleLayer;
-  /** Periodical-исключения (dow), снизу вверх. */
+  /** null = main не задан (только исключения). */
+  main: ScheduleLayer | null;
+  /** Periodical-исключения (dow): group снизу, single сверху (normalizeRegularExc). */
   exc: ScheduleLayer[];
   /** Static-исключения (date), снизу вверх — поверх periodical. */
   staticExc: ScheduleLayer[];
+}
+
+/** Mask будни Пн–Пт. */
+export const MASK_WEEKDAYS = 31;
+/** Mask Сб+Вс. */
+export const MASK_WEEKEND = 96;
+
+export function isGroupMask(mask: number): boolean {
+  return mask === MASK_WEEKDAYS || mask === MASK_WEEKEND;
+}
+
+/** Один бит = один день. */
+export function isSingleDayMask(mask: number): boolean {
+  return mask > 0 && (mask & (mask - 1)) === 0;
+}
+
+export function groupMaskFromDays(days: readonly number[]): number | null {
+  const mask = maskFromDays(new Set(days));
+  return isGroupMask(mask) ? mask : null;
 }
 
 const DOW_SHORT: { bit: number; js: number; label: string }[] = [
@@ -103,8 +123,8 @@ export function defaultMainLayer(startMin = 6 * 60, endMin = 24 * 60 + 60): Sche
   };
 }
 
-export function emptyLayerDict(startMin?: number, endMin?: number): ScheduleLayerDict {
-  return { main: defaultMainLayer(startMin, endMin), exc: [], staticExc: [] };
+export function emptyLayerDict(_startMin?: number, _endMin?: number): ScheduleLayerDict {
+  return { main: null, exc: [], staticExc: [] };
 }
 
 function parseWindow(rule: ConnectionScheduleRuleDto): { mode: LayerMode; startMin: number; endMin: number } {
@@ -171,15 +191,17 @@ function ruleToLayer(rule: ConnectionScheduleRuleDto): ScheduleLayer | null {
 /** Живые правила сервера → словарь (exc / staticExc по effectiveFrom ASC = низ → верх). */
 export function dictFromRules(rules: readonly ConnectionScheduleRuleDto[]): ScheduleLayerDict {
   const mainRule = rules.find((r) => r.scopeKind === 'main');
-  const main = mainRule ? ruleToLayer(mainRule) ?? defaultMainLayer() : defaultMainLayer();
+  const main = mainRule ? ruleToLayer(mainRule) : null;
   const byFrom = (a: ConnectionScheduleRuleDto, b: ConnectionScheduleRuleDto) =>
     Date.parse(a.effectiveFrom) - Date.parse(b.effectiveFrom);
-  const exc = rules
-    .filter((r) => r.scopeKind === 'dow')
-    .slice()
-    .sort(byFrom)
-    .map(ruleToLayer)
-    .filter((x): x is ScheduleLayer => x != null);
+  const exc = normalizeRegularExc(
+    rules
+      .filter((r) => r.scopeKind === 'dow')
+      .slice()
+      .sort(byFrom)
+      .map(ruleToLayer)
+      .filter((x): x is ScheduleLayer => x != null),
+  );
   const staticExc = rules
     .filter((r) => r.scopeKind === 'date')
     .slice()
@@ -189,7 +211,24 @@ export function dictFromRules(rules: readonly ConnectionScheduleRuleDto[]): Sche
   return { main, exc, staticExc };
 }
 
-/** Поднять periodical-исключение наверх. Main не трогаем. */
+/**
+ * Стабильный порядок regular: group (Будни/СбВс) снизу, single-дни сверху.
+ * Прочие mask — между ними.
+ */
+export function normalizeRegularExc(exc: readonly ScheduleLayer[]): ScheduleLayer[] {
+  const groups: ScheduleLayer[] = [];
+  const other: ScheduleLayer[] = [];
+  const singles: ScheduleLayer[] = [];
+  for (const e of exc) {
+    if (e.dowMask == null) continue;
+    if (isGroupMask(e.dowMask)) groups.push(e);
+    else if (isSingleDayMask(e.dowMask)) singles.push(e);
+    else other.push(e);
+  }
+  return [...groups, ...other, ...singles];
+}
+
+/** Поднять periodical-исключение; group XOR; порядок normalizeRegularExc. */
 export function promoteExc(dict: ScheduleLayerDict, layer: ScheduleLayer): ScheduleLayerDict {
   if (layer.scopeKind === 'main') {
     return { ...dict, main: layer };
@@ -197,8 +236,49 @@ export function promoteExc(dict: ScheduleLayerDict, layer: ScheduleLayer): Sched
   if (layer.scopeKind === 'date') {
     return promoteStaticExc(dict, layer);
   }
-  const rest = dict.exc.filter((e) => e.id !== layer.id);
-  return { ...dict, exc: [...rest, layer] };
+  let rest = dict.exc.filter((e) => e.id !== layer.id);
+  if (layer.dowMask != null && isGroupMask(layer.dowMask)) {
+    rest = rest.filter((e) => e.dowMask == null || !isGroupMask(e.dowMask));
+  }
+  return { ...dict, exc: normalizeRegularExc([...rest, layer]) };
+}
+
+export function removeExcById(dict: ScheduleLayerDict, id: string): ScheduleLayerDict {
+  return { ...dict, exc: normalizeRegularExc(dict.exc.filter((e) => e.id !== id)) };
+}
+
+export function findGroupExc(dict: ScheduleLayerDict): ScheduleLayer | undefined {
+  return dict.exc.find((e) => e.dowMask != null && isGroupMask(e.dowMask));
+}
+
+export function findSingleDayExc(dict: ScheduleLayerDict, jsDay: number): ScheduleLayer | undefined {
+  const bit = dowBit(jsDay);
+  return dict.exc.find((e) => e.dowMask === bit);
+}
+
+/**
+ * Tetris-доска periodical по дню (снизу вверх).
+ * Этаж 0 всегда забронирован под main (даже если main=null — пустой/серый слот).
+ * Single падает на main, если группу этот день не покрывает; иначе сидит над group.
+ */
+export type RegularBoardSlot =
+  | { kind: 'main'; layer: ScheduleLayer | null }
+  | { kind: 'group'; layer: ScheduleLayer }
+  | { kind: 'single'; layer: ScheduleLayer };
+
+export function regularBoardSlots(dict: ScheduleLayerDict, jsDay: number): RegularBoardSlot[] {
+  const slots: RegularBoardSlot[] = [{ kind: 'main', layer: dict.main }];
+  const group = findGroupExc(dict);
+  const single = findSingleDayExc(dict, jsDay);
+  const groupCovers = group?.dowMask != null && (group.dowMask & dowBit(jsDay)) !== 0;
+
+  if (groupCovers && group) {
+    slots.push({ kind: 'group', layer: group });
+    if (single) slots.push({ kind: 'single', layer: single });
+  } else if (single) {
+    slots.push({ kind: 'single', layer: single });
+  }
+  return slots;
 }
 
 /** Поднять static-исключение наверх; опционально выкинуть полностью вложенные (Mold ⊆ M). */
@@ -299,7 +379,7 @@ export function findLayer(
   scopeMain: boolean,
   days: ReadonlySet<number>,
 ): ScheduleLayer | undefined {
-  if (scopeMain) return dict.main;
+  if (scopeMain) return dict.main ?? undefined;
   const id = layerIdDow(maskFromDays(days));
   return dict.exc.find((e) => e.id === id);
 }
@@ -313,9 +393,9 @@ export function findDateLayer(
   return dict.staticExc.find((e) => e.id === id);
 }
 
-/** Победитель для дня недели: main → periodical (без static). */
-export function resolveLayerForDow(dict: ScheduleLayerDict, jsDay: number): ScheduleLayer {
-  let winner = dict.main;
+/** Победитель для дня недели: main → periodical (без static). null = ничего не задано. */
+export function resolveLayerForDow(dict: ScheduleLayerDict, jsDay: number): ScheduleLayer | null {
+  let winner: ScheduleLayer | null = dict.main;
   for (const layer of dict.exc) {
     if (layer.dowMask != null && (layer.dowMask & dowBit(jsDay)) !== 0) {
       winner = layer;
@@ -334,7 +414,7 @@ export function dowLabelFromIso(iso: string): string {
 }
 
 /** Победитель для календарной даты: main → periodical → static. */
-export function resolveLayerForDate(dict: ScheduleLayerDict, iso: string): ScheduleLayer {
+export function resolveLayerForDate(dict: ScheduleLayerDict, iso: string): ScheduleLayer | null {
   let winner = resolveLayerForDow(dict, jsDayFromIso(iso));
   for (const layer of dict.staticExc) {
     if (layer.dateFrom != null && layer.dateTo != null && iso >= layer.dateFrom && iso <= layer.dateTo) {
@@ -353,5 +433,5 @@ export function hasStaticExcOn(dict: ScheduleLayerDict, iso: string): boolean {
 
 /** Слои снизу вверх для отладки. */
 export function layersBottomToTop(dict: ScheduleLayerDict): ScheduleLayer[] {
-  return [dict.main, ...dict.exc, ...dict.staticExc];
+  return [...(dict.main ? [dict.main] : []), ...dict.exc, ...dict.staticExc];
 }
