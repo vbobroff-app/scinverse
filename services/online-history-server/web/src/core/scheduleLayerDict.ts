@@ -1,7 +1,10 @@
 import { dowBit } from './connectionSchedule';
 import type { ConnectionScheduleRuleDto } from './types';
 
-/** Черновик слоёв UI: main → periodical (dow) → static (date). Внутри уровня — last refresh наверху. */
+/** Черновик слоёв UI: main → periodical (dow) → static (date).
+ * Static: порядок as created (createStaticExc сверху + drop nested);
+ * выбор существующего (Перейти) порядок не меняет.
+ */
 
 export type LayerMode = 'window' | 'off';
 
@@ -216,6 +219,69 @@ export function promoteStaticExc(
     });
   }
   return { ...dict, staticExc: [...rest, layer] };
+}
+
+/**
+ * Создать static-слой сверху (order as created).
+ * Полностью вложенные диапазоны (включая exact match) удаляются — только при создании.
+ */
+export function createStaticExc(dict: ScheduleLayerDict, layer: ScheduleLayer): ScheduleLayerDict {
+  return promoteStaticExc(dict, layer, { dropNested: true });
+}
+
+/** Пересечение закрытых ISO-диапазонов дат [aFrom,aTo] ∩ [bFrom,bTo]. */
+export function datesOverlap(aFrom: string, aTo: string, bFrom: string, bTo: string): boolean {
+  return aFrom <= bTo && bFrom <= aTo;
+}
+
+/**
+ * Связная компонента static-слоёв по пересечению дат (транзитивно).
+ * Порядок снизу вверх сохраняется. Seed — диапазон выбранного слоя.
+ */
+export function staticExcConnectedComponent(
+  layers: readonly ScheduleLayer[],
+  seedFrom: string,
+  seedTo: string,
+): ScheduleLayer[] {
+  const dated = layers.filter((l) => l.dateFrom != null && l.dateTo != null);
+  if (dated.length === 0) return [];
+
+  const visited = new Set<number>();
+  const queue: number[] = [];
+  for (let i = 0; i < dated.length; i++) {
+    if (datesOverlap(dated[i].dateFrom!, dated[i].dateTo!, seedFrom, seedTo)) {
+      visited.add(i);
+      queue.push(i);
+    }
+  }
+  while (queue.length > 0) {
+    const i = queue.shift()!;
+    for (let j = 0; j < dated.length; j++) {
+      if (visited.has(j)) continue;
+      if (datesOverlap(dated[i].dateFrom!, dated[i].dateTo!, dated[j].dateFrom!, dated[j].dateTo!)) {
+        visited.add(j);
+        queue.push(j);
+      }
+    }
+  }
+  return dated.filter((_, i) => visited.has(i));
+}
+
+/** Объединение дат связной компоненты (или сам seed, если пусто). */
+export function unionStaticComponentRange(
+  layers: readonly ScheduleLayer[],
+  seedFrom: string,
+  seedTo: string,
+): { from: string; to: string } {
+  const component = staticExcConnectedComponent(layers, seedFrom, seedTo);
+  if (component.length === 0) return { from: seedFrom, to: seedTo };
+  let from = component[0].dateFrom!;
+  let to = component[0].dateTo!;
+  for (const l of component) {
+    if (l.dateFrom! < from) from = l.dateFrom!;
+    if (l.dateTo! > to) to = l.dateTo!;
+  }
+  return { from, to };
 }
 
 export function upsertLayer(dict: ScheduleLayerDict, layer: ScheduleLayer): ScheduleLayerDict {

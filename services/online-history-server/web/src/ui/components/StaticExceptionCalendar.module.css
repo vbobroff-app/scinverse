@@ -121,6 +121,12 @@
   opacity: 0.92;
 }
 
+/* Пустой слот уровня: слой из компоненты не покрывает день — сохраняет «этаж» гамбургера. */
+.ribbonGap {
+  opacity: 0;
+  background: transparent;
+}
+
 /* Выключено — сплошная красная полоска, без bordered outline. */
 .ribbonOff {
   background: #e05555;

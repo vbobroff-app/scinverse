@@ -18,9 +18,10 @@ import {
   layerIdDow,
   maskFromDays,
   promoteExc,
-  promoteStaticExc,
+  createStaticExc,
   resolveLayerForDate,
   resolveLayerForDow,
+  unionStaticComponentRange,
   type ScheduleLayer,
   type ScheduleLayerDict,
 } from '../../core/scheduleLayerDict';
@@ -39,6 +40,9 @@ import {
 import { WeeklyDayColumns, type DayColumn } from './WeeklyDayColumns';
 import { WeeklyScheduleOverview, type SchedulePreview } from './WeeklyScheduleOverview';
 import styles from './ConnectionSchedulePopover.module.css';
+
+/** Длительность enter/exit анимации модалки и календаря (см. CSS). */
+const CLOSE_ANIM_MS = 180;
 
 interface Props {
   connectionId: number;
@@ -147,7 +151,7 @@ function eachIsoDays(from: string, to: string): string[] {
   while (cur <= to) {
     out.push(cur);
     cur = addDaysIso(cur, 1);
-    if (out.length > 31) break;
+    if (out.length > 62) break;
   }
   return out;
 }
@@ -161,7 +165,7 @@ type ActiveScope =
   | { kind: 'dow'; days: ReadonlySet<number> }
   | { kind: 'date'; from: string; to: string };
 
-/** Обновить активный слой без смены порядка (порядок — через promote при выборе скоупа). */
+/** Обновить активный слой без смены порядка (порядок static — только при createStaticExc). */
 function patchActiveLayer(
   dict: ScheduleLayerDict,
   scope: ActiveScope,
@@ -254,11 +258,72 @@ export function ConnectionSchedulePopover({
   const [history, setHistory] = useState<ConnectionScheduleRuleDto[]>([]);
   const [presets, setPresets] = useState<PresetMap>(EMPTY_PRESETS);
   const [editing, setEditing] = useState(false);
-  const [calOpen, setCalOpen] = useState(false);
+  /** Календарь смонтирован (включая фазу закрытия). */
+  const [calPresent, setCalPresent] = useState(false);
+  const [calExiting, setCalExiting] = useState(false);
+  const calOpen = calPresent && !calExiting;
+  /** Модалка смонтирована (включая фазу закрытия). */
+  const [panelPresent, setPanelPresent] = useState(open);
+  const [panelExiting, setPanelExiting] = useState(false);
   /** Активный static-скоуп (дата или диапазон). */
   const [scopeDate, setScopeDate] = useState<{ from: string; to: string } | null>(null);
   const [calDays, setCalDays] = useState<Map<string, CalendarDayDto>>(() => new Map());
   const calWrapRef = useRef<HTMLDivElement>(null);
+
+  const closeMs = () =>
+    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? 0
+      : CLOSE_ANIM_MS;
+
+  const openCalendar = useCallback(() => {
+    setCalPresent(true);
+    setCalExiting(false);
+  }, []);
+
+  const closeCalendar = useCallback(() => {
+    setCalPresent((present) => {
+      if (!present) return false;
+      setCalExiting(true);
+      return true;
+    });
+  }, []);
+
+  const closeCalendarInstant = useCallback(() => {
+    setCalPresent(false);
+    setCalExiting(false);
+  }, []);
+
+  useEffect(() => {
+    if (!calExiting) return;
+    const t = window.setTimeout(() => {
+      setCalPresent(false);
+      setCalExiting(false);
+    }, closeMs());
+    return () => window.clearTimeout(t);
+  }, [calExiting]);
+
+  useEffect(() => {
+    if (open) {
+      setPanelPresent(true);
+      setPanelExiting(false);
+      return;
+    }
+    setPanelPresent((present) => {
+      if (!present) return false;
+      setPanelExiting(true);
+      return true;
+    });
+  }, [open]);
+
+  useEffect(() => {
+    if (!panelExiting) return;
+    const t = window.setTimeout(() => {
+      setPanelPresent(false);
+      setPanelExiting(false);
+      closeCalendarInstant();
+    }, closeMs());
+    return () => window.clearTimeout(t);
+  }, [panelExiting, closeCalendarInstant]);
 
   const mergeCalDays = useCallback((days: CalendarDayDto[]) => {
     setCalDays((prev) => {
@@ -297,7 +362,7 @@ export function ConnectionSchedulePopover({
     setMode('window');
     setShiftHours(1);
     setNote('');
-    setCalOpen(false);
+    closeCalendarInstant();
     setCalDays(new Map());
     setEditing(rules.length === 0);
 
@@ -337,17 +402,17 @@ export function ConnectionSchedulePopover({
   }, [open, connectionId, rules, state]);
 
   useEffect(() => {
-    if (!calOpen) return;
+    if (!calPresent || calExiting) return;
     const onDoc = (e: MouseEvent) => {
       if (calWrapRef.current && !calWrapRef.current.contains(e.target as Node)) {
-        setCalOpen(false);
+        closeCalendar();
       }
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
-  }, [calOpen]);
+  }, [calPresent, calExiting, closeCalendar]);
 
-  if (!open) return null;
+  if (!panelPresent) return null;
 
   const readOnly = !editing;
   const dowMask = maskFromDays(weekdays);
@@ -430,18 +495,20 @@ export function ConnectionSchedulePopover({
     loadEditorFromLayer(layer);
   };
 
-  const chooseDateScope = (from: string, to: string) => {
+  const chooseDateScope = (from: string, to: string, opts?: { create?: boolean }) => {
     if (readOnly) return;
-    setCalOpen(false);
+    closeCalendar();
     setScopeMain(false);
     setScopeDate({ from, to });
 
     const existing = findDateLayer(layers, from, to);
+    const isCreate = opts?.create ?? existing == null;
+
     let start = layers.main.startMin;
     let end = layers.main.endMin;
     let layerMode: ScopeMode = 'window';
 
-    if (existing) {
+    if (existing && !isCreate) {
       start = existing.startMin;
       end = existing.endMin;
       layerMode = existing.mode;
@@ -456,6 +523,11 @@ export function ConnectionSchedulePopover({
         start = axis.startMin;
         end = axis.endMin;
       }
+    } else if (existing) {
+      // create поверх того же диапазона — возьмём окно с существующего как старт
+      start = existing.startMin;
+      end = existing.endMin;
+      layerMode = existing.mode;
     }
 
     const layer: ScheduleLayer = {
@@ -469,12 +541,16 @@ export function ConnectionSchedulePopover({
       startMin: start,
       endMin: end,
     };
-    setLayers((prev) => promoteStaticExc(prev, layer, { dropNested: true }));
-    loadEditorFromLayer(layer);
 
-    const single = from === to;
-    const chartFrom = single ? addDaysIso(from, -CHART_PAD_DAYS) : from;
-    const chartTo = single ? addDaysIso(to, CHART_PAD_DAYS) : to;
+    const nextDict = isCreate ? createStaticExc(layers, layer) : layers;
+    if (isCreate) setLayers(nextDict);
+    // Перейти: порядок стека не трогаем
+    loadEditorFromLayer(isCreate ? layer : (existing ?? layer));
+
+    const union = unionStaticComponentRange(nextDict.staticExc, from, to);
+    const single = union.from === union.to;
+    const chartFrom = single ? addDaysIso(union.from, -CHART_PAD_DAYS) : union.from;
+    const chartTo = single ? addDaysIso(union.to, CHART_PAD_DAYS) : union.to;
     loadCalendarRange(chartFrom, chartTo);
   };
 
@@ -497,7 +573,7 @@ export function ConnectionSchedulePopover({
 
   const clearExceptions = () => {
     if (readOnly) return;
-    setCalOpen(false);
+    closeCalendar();
     setScopeDate(null);
     const main = layers.main;
     setLayers({ main, exc: [], staticExc: [] });
@@ -588,9 +664,10 @@ export function ConnectionSchedulePopover({
 
   const chartColumns: DayColumn[] = onDateScope
     ? (() => {
-        const single = scopeDate.from === scopeDate.to;
-        const from = single ? addDaysIso(scopeDate.from, -CHART_PAD_DAYS) : scopeDate.from;
-        const to = single ? addDaysIso(scopeDate.to, CHART_PAD_DAYS) : scopeDate.to;
+        const union = unionStaticComponentRange(layers.staticExc, scopeDate.from, scopeDate.to);
+        const single = union.from === union.to;
+        const from = single ? addDaysIso(union.from, -CHART_PAD_DAYS) : union.from;
+        const to = single ? addDaysIso(union.to, CHART_PAD_DAYS) : union.to;
         return eachIsoDays(from, to).map((iso) => {
           const w = resolveLayerForDate(layers, iso);
           const cal = calDays.get(iso);
@@ -690,17 +767,27 @@ export function ConnectionSchedulePopover({
   };
 
   return (
-    <div className={styles.backdrop} onClick={onClose} role="presentation">
+    <div
+      className={[styles.backdrop, panelExiting ? styles.backdropOut : ''].filter(Boolean).join(' ')}
+      onClick={onClose}
+      role="presentation"
+    >
       <div
-        className={[styles.panel, calOpen ? styles.panelCalFocus : ''].filter(Boolean).join(' ')}
+        className={[
+          styles.panel,
+          panelExiting ? styles.panelOut : '',
+          calPresent ? styles.panelCalFocus : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Расписание соединения"
       >
-        {calOpen && (
+        {calPresent && (
           <div
-            className={styles.calScrim}
-            onClick={() => setCalOpen(false)}
+            className={[styles.calScrim, calExiting ? styles.calScrimOut : ''].filter(Boolean).join(' ')}
+            onClick={closeCalendar}
             aria-hidden="true"
           />
         )}
@@ -785,14 +872,18 @@ export function ConnectionSchedulePopover({
             >
               Сб, Вс
             </button>
-            <div className={[styles.calWrap, calOpen ? styles.calWrapOpen : ''].filter(Boolean).join(' ')} ref={calWrapRef}>
+            <div
+              className={[styles.calWrap, calPresent ? styles.calWrapOpen : ''].filter(Boolean).join(' ')}
+              ref={calWrapRef}
+            >
               <button
                 type="button"
-                className={[styles.chip, onDateScope || calOpen ? styles.chipOn : ''].filter(Boolean).join(' ')}
+                className={[styles.chip, onDateScope || calPresent ? styles.chipOn : ''].filter(Boolean).join(' ')}
                 disabled={readOnly}
                 aria-expanded={calOpen}
                 onClick={(e) => {
-                  setCalOpen((o) => !o);
+                  if (calOpen) closeCalendar();
+                  else openCalendar();
                   // Убрать :focus-visible — иначе chipOn + outline = двойная рамка.
                   e.currentTarget.blur();
                 }}
@@ -801,8 +892,8 @@ export function ConnectionSchedulePopover({
                 <CalendarIcon className={styles.chipIcon} />
                 Календарь
               </button>
-              {calOpen && (
-                <div className={styles.calPop}>
+              {calPresent && (
+                <div className={[styles.calPop, calExiting ? styles.calPopOut : ''].filter(Boolean).join(' ')}>
                   <StaticExceptionCalendar
                     exceptions={layers.staticExc
                       .filter((e) => e.dateFrom && e.dateTo)
@@ -816,7 +907,7 @@ export function ConnectionSchedulePopover({
                     onViewChange={onCalViewChange}
                     onGo={chooseDateScope}
                     onClearAll={clearStaticExceptions}
-                    onDismiss={() => setCalOpen(false)}
+                    onDismiss={closeCalendar}
                   />
                 </div>
               )}

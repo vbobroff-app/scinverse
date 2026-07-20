@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { datesOverlap } from '../../core/scheduleLayerDict';
 import { MONTHS_RU, MonthGrid } from './MonthGrid';
 import styles from './StaticExceptionCalendar.module.css';
 
@@ -14,7 +15,7 @@ interface Props {
   maxSpanDays?: number;
   isNonTrading?: (iso: string) => boolean;
   onViewChange?: (year: number, month: number) => void;
-  onGo: (from: string, to: string) => void;
+  onGo: (from: string, to: string, opts: { create: boolean }) => void;
   onClearAll: () => void;
   /** Esc без выделения — закрыть календарь (как click-outside). */
   onDismiss?: () => void;
@@ -64,6 +65,53 @@ function stackOnDay(
     if (iso >= e.from && iso <= e.to) out.push({ exc: e, index });
   });
   return out;
+}
+
+/**
+ * Визуальные «доски»: уровень слоя = max(уровень пересечённых ниже) + 1.
+ * Чистый визуал — не индекс в массиве; доска плоская на весь свой диапазон.
+ */
+function assignBoardLevels(exceptions: readonly StaticExcRange[]): number[] {
+  const levels: number[] = [];
+  for (let i = 0; i < exceptions.length; i++) {
+    const e = exceptions[i];
+    let maxUnder = -1;
+    for (let j = 0; j < i; j++) {
+      if (datesOverlap(e.from, e.to, exceptions[j].from, exceptions[j].to)) {
+        maxUnder = Math.max(maxUnder, levels[j]);
+      }
+    }
+    levels[i] = maxUnder + 1;
+  }
+  return levels;
+}
+
+/** Слоты гамбургера на день: 0..maxLevel, с пропусками где доска не лежит. */
+function boardRibbonsForDay(
+  iso: string,
+  exceptions: readonly StaticExcRange[],
+  boardLevels: readonly number[],
+): { index: number; level: number; exc: StaticExcRange | null }[] {
+  const covering: { index: number; level: number; exc: StaticExcRange }[] = [];
+  exceptions.forEach((e, index) => {
+    if (iso >= e.from && iso <= e.to) {
+      covering.push({ index, level: boardLevels[index] ?? 0, exc: e });
+    }
+  });
+  if (covering.length === 0) return [];
+
+  const maxLevel = Math.max(...covering.map((c) => c.level));
+  const byLevel = new Map(covering.map((c) => [c.level, c]));
+  const slots: { index: number; level: number; exc: StaticExcRange | null }[] = [];
+  for (let level = 0; level <= maxLevel; level++) {
+    const hit = byLevel.get(level);
+    slots.push(
+      hit
+        ? { index: hit.index, level, exc: hit.exc }
+        : { index: -1, level, exc: null },
+    );
+  }
+  return slots;
 }
 
 /**
@@ -121,20 +169,7 @@ export function StaticExceptionCalendar({
     return () => document.removeEventListener('keydown', onKey, true);
   }, []);
 
-  const stackByDay = useMemo(() => {
-    const map = new Map<string, { exc: StaticExcRange; index: number }[]>();
-    exceptions.forEach((e, index) => {
-      let cur = e.from;
-      let guard = 0;
-      while (cur <= e.to && guard < 400) {
-        const prev = map.get(cur) ?? [];
-        map.set(cur, [...prev, { exc: e, index }]);
-        cur = addDaysIso(cur, 1);
-        guard += 1;
-      }
-    });
-    return map;
-  }, [exceptions]);
+  const boardLevels = useMemo(() => assignBoardLevels(exceptions), [exceptions]);
 
   const pick = (value: string, withCtrl: boolean) => {
     setHint(null);
@@ -183,10 +218,18 @@ export function StaticExceptionCalendar({
     onClearAll();
   };
 
+  const selTo = end ?? start;
+  const selectedLayerIndex =
+    start != null && selTo != null
+      ? exceptions.findIndex((e) => e.from === start && e.to === selTo)
+      : -1;
+  /** Клик по существующему слою → Перейти; новый диапазон → Создать. */
+  const isExistingSelect = selectedLayerIndex >= 0 && !paintingNew;
+
   const go = () => {
     if (!start) return;
     setPaintingNew(false);
-    onGo(start, end ?? start);
+    onGo(start, end ?? start, { create: !isExistingSelect });
   };
 
   const inSel = (value: string) => {
@@ -200,12 +243,6 @@ export function StaticExceptionCalendar({
     if (end == null) return value === start;
     return value === start || value === end;
   };
-
-  const selTo = end ?? start;
-  const selectedLayerIndex =
-    start != null && selTo != null
-      ? exceptions.findIndex((e) => e.from === start && e.to === selTo)
-      : -1;
 
   const onRootPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     const t = e.target as HTMLElement;
@@ -244,27 +281,48 @@ export function StaticExceptionCalendar({
         month={view.month}
         classes={{ weekdays: styles.weekdays, weekday: styles.weekday, grid: styles.cells, empty: styles.empty }}
         renderDay={(value) => {
-          const stack = stackByDay.get(value) ?? [];
+          const stack = stackOnDay(value, exceptions);
+          const aligned = boardRibbonsForDay(value, exceptions, boardLevels);
           const selected = inSel(value);
           const edge = isEdge(value);
-          const top = stack.length > 0 ? stack[stack.length - 1] : undefined;
-          const topOff = top?.exc.mode === 'off';
-          /** Черновик нового слоя — полоска сразу сверху, пока нет в exceptions. */
+          const topCovering = [...aligned].reverse().find((s) => s.exc != null);
+          const topOff = topCovering?.exc?.mode === 'off';
+          /** Черновик: доска на max(пересечённых) + 1. */
           const showDraftRibbon = selected && selectedLayerIndex < 0 && start != null;
-          const hasRibbons = stack.length > 0 || showDraftRibbon;
+          const draftLevel = showDraftRibbon
+            ? (() => {
+                const lo = start!;
+                const hi = end ?? start!;
+                let maxUnder = -1;
+                exceptions.forEach((e, i) => {
+                  if (datesOverlap(lo, hi, e.from, e.to)) {
+                    maxUnder = Math.max(maxUnder, boardLevels[i] ?? 0);
+                  }
+                });
+                return maxUnder + 1;
+              })()
+            : 0;
           const draftTone = layerTone(exceptions.length);
+          const maxAligned = aligned.length > 0 ? aligned[aligned.length - 1].level : -1;
+          const draftSlots: { kind: 'gap' | 'draft' }[] = [];
+          if (showDraftRibbon) {
+            for (let lv = maxAligned + 1; lv < draftLevel; lv++) draftSlots.push({ kind: 'gap' });
+            draftSlots.push({ kind: 'draft' });
+          }
+          const hasRibbons = aligned.length > 0 || showDraftRibbon;
 
           const titleParts =
             stack.length > 0
               ? stack.map((s, i) => {
                   const mark = i === stack.length - 1 ? '▲' : '·';
                   const mode = s.exc.mode === 'off' ? 'выкл' : 'окно';
-                  return `${mark} L${s.index + 1} ${fmtRange(s.exc.from, s.exc.to)} (${mode})`;
+                  const board = (boardLevels[s.index] ?? 0) + 1;
+                  return `${mark} L${s.index + 1} доска ${board} ${fmtRange(s.exc.from, s.exc.to)} (${mode})`;
                 })
               : isNonTrading?.(value)
                 ? ['Неторговый день']
                 : [];
-          if (showDraftRibbon) titleParts.push('▲ новый слой (черновик)');
+          if (showDraftRibbon) titleParts.push(`▲ новый слой (доска ${draftLevel + 1})`);
           if (stack.length > 0) titleParts.push('Ctrl+клик — новый слой');
 
           return (
@@ -288,17 +346,25 @@ export function StaticExceptionCalendar({
               <span className={styles.dayNum}>{Number(value.slice(8))}</span>
               {hasRibbons && (
                 <span className={styles.ribbons} aria-hidden="true">
-                  {stack.map((s) => (
-                    <span
-                      key={`${s.index}-${s.exc.from}`}
-                      className={[styles.ribbon, s.exc.mode === 'off' ? styles.ribbonOff : '']
-                        .filter(Boolean)
-                        .join(' ')}
-                      style={s.exc.mode === 'off' ? undefined : { background: layerTone(s.index) }}
-                    />
-                  ))}
-                  {showDraftRibbon && (
-                    <span className={styles.ribbon} style={{ background: draftTone }} />
+                  {aligned.map((s) =>
+                    s.exc ? (
+                      <span
+                        key={`${s.index}-${s.level}`}
+                        className={[styles.ribbon, s.exc.mode === 'off' ? styles.ribbonOff : '']
+                          .filter(Boolean)
+                          .join(' ')}
+                        style={s.exc.mode === 'off' ? undefined : { background: layerTone(s.index) }}
+                      />
+                    ) : (
+                      <span key={`gap-${s.level}`} className={[styles.ribbon, styles.ribbonGap].join(' ')} />
+                    ),
+                  )}
+                  {draftSlots.map((s, i) =>
+                    s.kind === 'draft' ? (
+                      <span key="draft" className={styles.ribbon} style={{ background: draftTone }} />
+                    ) : (
+                      <span key={`draft-gap-${i}`} className={[styles.ribbon, styles.ribbonGap].join(' ')} />
+                    ),
                   )}
                 </span>
               )}
@@ -319,7 +385,7 @@ export function StaticExceptionCalendar({
           {hint ? <span className={styles.hint}> ({hint})</span> : null}
         </span>
         <button type="button" className={styles.go} onClick={go} disabled={!start}>
-          Перейти
+          {isExistingSelect ? 'Редактировать' : 'Создать'}
         </button>
       </div>
     </div>
