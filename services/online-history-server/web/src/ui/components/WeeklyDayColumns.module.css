@@ -173,6 +173,31 @@
     color-mix(in srgb, var(--color-text-muted) 12%, transparent);
 }
 
+/* Diff-режим: осталось / добавили / убрали. */
+.diffSeg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 2px;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.diffKept {
+  background: color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+  z-index: 2;
+}
+
+.diffAdded {
+  background: color-mix(in srgb, var(--color-accent, #4dabf7) 48%, transparent);
+  z-index: 3;
+}
+
+.diffRemoved {
+  background: color-mix(in srgb, #e05555 42%, transparent);
+  z-index: 3;
+}
+
 .label {
   display: block;
   font-size: 10px;

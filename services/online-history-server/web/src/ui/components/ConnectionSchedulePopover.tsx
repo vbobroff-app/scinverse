@@ -25,6 +25,7 @@ import {
   layerIdDate,
   layerIdDow,
   layerIdMain,
+  layersBottomToTop,
   maskFromDays,
   normalizeRegularExc,
   promoteExc,
@@ -39,6 +40,7 @@ import {
 } from '../../core/scheduleLayerDict';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
+import { ConfirmDialog, type MessageBoxSeverity } from './ConfirmDialog';
 import { CalendarIcon, EyeIcon, PencilIcon } from './icons';
 import { layerTone, StaticExceptionCalendar } from './StaticExceptionCalendar';
 import {
@@ -51,6 +53,15 @@ import {
 } from './ScheduleWindowRibbon';
 import { WeeklyDayColumns, type DayColumn } from './WeeklyDayColumns';
 import styles from './ConnectionSchedulePopover.module.css';
+
+/** Локальный message box поверх модалки расписания. */
+type ScheduleMsgBox = {
+  severity: MessageBoxSeverity;
+  title: string;
+  message: string;
+  /** Если задан — confirm (ОК + Отмена); иначе alert (только ОК). */
+  onConfirm?: () => void;
+};
 
 /** Длительность enter/exit анимации модалки и календаря (см. CSS). */
 const CLOSE_ANIM_MS = 180;
@@ -272,6 +283,123 @@ function patchActiveLayer(
   return patchOneDowLayer(dict, mask, patch, seed);
 }
 
+/** Стабильный id слоя для правила base (совпадает с layerId* в scheduleLayerDict). */
+function ruleLayerId(rule: ConnectionScheduleRuleDto): string | null {
+  if (rule.scopeKind === 'main') return layerIdMain();
+  if (rule.scopeKind === 'dow') return rule.dowMask != null && rule.dowMask > 0 ? layerIdDow(rule.dowMask) : null;
+  if (rule.scopeKind === 'date') return rule.dateFrom && rule.dateTo ? layerIdDate(rule.dateFrom, rule.dateTo) : null;
+  return null;
+}
+
+/** Отличается ли черновой слой от base-слоя того же id (для отбора реальных изменений). */
+function layerDiffers(a: ScheduleLayer, b: ScheduleLayer): boolean {
+  if (a.mode !== b.mode) return true;
+  if (a.mode === 'off') return false; // окно нерелевантно
+  return a.startMin !== b.startMin || a.endMin !== b.endMin;
+}
+
+/** Слой черновика → тело PUT (open+durationMin из абсолютных минут оси). */
+function layerToPutBody(layer: ScheduleLayer, changeNote: string | null): PutConnectionScheduleRuleRequest {
+  const base = {
+    scopeKind: layer.scopeKind,
+    dowMask: layer.scopeKind === 'dow' ? layer.dowMask : null,
+    dateFrom: layer.scopeKind === 'date' ? layer.dateFrom : null,
+    dateTo: layer.scopeKind === 'date' ? layer.dateTo : null,
+    changeSource: 'ui',
+    changeNote,
+  };
+  if (layer.mode === 'off') {
+    return { ...base, mode: 'off' };
+  }
+  const openMin = ((layer.startMin % 1440) + 1440) % 1440;
+  const durationMin = Math.min(Math.max(layer.endMin - layer.startMin, 1), 1439);
+  const open = `${String(Math.floor(openMin / 60)).padStart(2, '0')}:${String(openMin % 60).padStart(2, '0')}:00`;
+  return { ...base, mode: 'window', open, durationMin };
+}
+
+/** Интервал окна на оси 48h; off/пусто → null. */
+interface Iv {
+  s: number;
+  e: number;
+}
+function layerToIv(layer: ScheduleLayer | null): Iv | null {
+  if (!layer || layer.mode !== 'window' || layer.endMin <= layer.startMin) return null;
+  return { s: layer.startMin, e: layer.endMin };
+}
+/** Куски a, не покрытые b (разность множеств по времени). */
+function subtractIv(a: Iv | null, b: Iv | null): Iv[] {
+  if (!a) return [];
+  if (!b) return [a];
+  const out: Iv[] = [];
+  if (b.s > a.s) out.push({ s: a.s, e: Math.min(b.s, a.e) });
+  if (b.e < a.e) out.push({ s: Math.max(b.e, a.s), e: a.e });
+  return out.filter((iv) => iv.e > iv.s);
+}
+function intersectIv(a: Iv | null, b: Iv | null): Iv[] {
+  if (!a || !b) return [];
+  const s = Math.max(a.s, b.s);
+  const e = Math.min(a.e, b.e);
+  return e > s ? [{ s, e }] : [];
+}
+
+type DiffKind = 'added' | 'removed' | 'modified';
+interface DiffEntry {
+  id: string;
+  label: string;
+  kind: DiffKind;
+  before: ScheduleLayer | null;
+  after: ScheduleLayer | null;
+}
+
+/** Дифф base-словаря против чернового: added/modified/removed по каждому слою. */
+function computeDiffEntries(base: ScheduleLayerDict, cur: ScheduleLayerDict): DiffEntry[] {
+  const baseArr = layersBottomToTop(base);
+  const curArr = layersBottomToTop(cur);
+  const baseById = new Map(baseArr.map((l) => [l.id, l]));
+  const curIds = new Set(curArr.map((l) => l.id));
+  const out: DiffEntry[] = [];
+  for (const l of curArr) {
+    const b = baseById.get(l.id);
+    if (!b) out.push({ id: l.id, label: scopeLabel(l), kind: 'added', before: null, after: l });
+    else if (layerDiffers(l, b)) out.push({ id: l.id, label: scopeLabel(l), kind: 'modified', before: b, after: l });
+  }
+  for (const b of baseArr) {
+    if (!curIds.has(b.id)) out.push({ id: b.id, label: scopeLabel(b), kind: 'removed', before: b, after: null });
+  }
+  return out;
+}
+
+function scopeLabel(l: ScheduleLayer): string {
+  return l.scopeKind === 'main' ? 'Основное' : l.label;
+}
+
+/** Источник изменения → человекочитаемо. */
+function sourceLabel(source: string | null | undefined): string {
+  if (source === 'ui') return 'оператор';
+  if (source === 'system') return 'система';
+  if (source === 'schedule') return 'расписание';
+  return source ?? '—';
+}
+
+/** Окно слоя текстом: HH:MM–HH:MM | «выкл» | «—». */
+function winText(l: ScheduleLayer | null): string {
+  if (!l) return '—';
+  if (l.mode === 'off') return 'выкл';
+  return `${fmtMin(l.startMin)}–${fmtMin(l.endMin)}`;
+}
+
+/** Дельта длительности окна (для modified): «+1ч 30м» / «−45м». */
+function durDeltaText(before: ScheduleLayer | null, after: ScheduleLayer | null): string {
+  if (!before || !after || before.mode !== 'window' || after.mode !== 'window') return '';
+  const d = after.endMin - after.startMin - (before.endMin - before.startMin);
+  if (d === 0) return '';
+  const sign = d > 0 ? '+' : '−';
+  const abs = Math.abs(d);
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  return ` (${sign}${h ? `${h}ч ` : ''}${m}м)`;
+}
+
 /**
  * Popover расписания Connection (phase 7j v2): выбор скоупа (основное / дни), режим window|off,
  * окно = open+duration на ленте 48h, read-only обзор недели с дорожками правил.
@@ -292,7 +420,7 @@ export function ConnectionSchedulePopover({
   const [layers, setLayers] = useState<ScheduleLayerDict>(() => emptyLayerDict());
   const [startMin, setStartMin] = useState(6 * 60);
   const [endMin, setEndMin] = useState(DAY_MIN + 60);
-  const [engine, setEngine] = useState('futures');
+  const [, setEngine] = useState('futures');
   const [shiftHours, setShiftHours] = useState<number | null>(1);
   const [activeTemplate, setActiveTemplate] = useState<TemplateId | null>('futures');
   /** Скоуп-«основное» (main) vs дни (dow). */
@@ -303,6 +431,8 @@ export function ConnectionSchedulePopover({
   const [history, setHistory] = useState<ConnectionScheduleRuleDto[]>([]);
   const [presets, setPresets] = useState<PresetMap>(EMPTY_PRESETS);
   const [editing, setEditing] = useState(false);
+  /** Шаг мастера: редактирование ↔ подтверждение (diff-превью). */
+  const [view, setView] = useState<'edit' | 'confirm'>('edit');
   /** Обзор всех слоёв (агрегация): маркеры только смотрим. */
   const [aggregateView, setAggregateView] = useState(false);
   /** Календарь смонтирован (включая фазу закрытия). */
@@ -319,6 +449,11 @@ export function ConnectionSchedulePopover({
   const panelRef = useRef<HTMLDivElement>(null);
   /** Память last-known окна слоя на сессию поповера (снял → вернул). */
   const layerMemRef = useRef<Map<string, LayerMemory>>(new Map());
+  /** Снимок base (живые правила с бэка) на сессию edit — для диффа при «Утвердить». */
+  const baseDictRef = useRef<ScheduleLayerDict>(emptyLayerDict());
+  /** id слоя base → scheduleId (для soft-cancel снятых при утверждении). */
+  const baseSchedIdRef = useRef<Map<string, number>>(new Map());
+  const [msgBox, setMsgBox] = useState<ScheduleMsgBox | null>(null);
 
   const rememberLayer = useCallback((id: string, mem: LayerMemory) => {
     layerMemRef.current.set(id, mem);
@@ -383,6 +518,26 @@ export function ConnectionSchedulePopover({
     return () => window.clearTimeout(t);
   }, [panelExiting, closeCalendarInstant]);
 
+  /** Высота оболочки: растёт до максимума за сессию, не сжимается при Eye↔Pencil. */
+  const panelMinHRef = useRef(0);
+  useEffect(() => {
+    if (!panelPresent || panelExiting) {
+      panelMinHRef.current = 0;
+      if (panelRef.current) panelRef.current.style.minHeight = '';
+      return;
+    }
+    const el = panelRef.current;
+    if (!el) return;
+    const id = requestAnimationFrame(() => {
+      const h = el.getBoundingClientRect().height;
+      if (h > panelMinHRef.current + 0.5) {
+        panelMinHRef.current = h;
+        el.style.minHeight = `${Math.ceil(h)}px`;
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [panelPresent, panelExiting, editing, view]);
+
   const mergeCalDays = useCallback((days: CalendarDayDto[]) => {
     setCalDays((prev) => {
       const next = new Map(prev);
@@ -420,11 +575,20 @@ export function ConnectionSchedulePopover({
     closeCalendarInstant();
     setCalDays(new Map());
     setEditing(rules.length === 0);
+    setView('edit');
     setAggregateView(false);
 
     const dict = rules.length > 0 ? dictFromRules(rules) : emptyLayerDict();
     setLayers(dict);
     seedLayerMemory(layerMemRef.current, dict);
+    // Снимок base для диффа при утверждении (immutable в этой сессии edit).
+    baseDictRef.current = dict;
+    const schedIds = new Map<string, number>();
+    for (const r of rules) {
+      const id = ruleLayerId(r);
+      if (id) schedIds.set(id, r.scheduleId);
+    }
+    baseSchedIdRef.current = schedIds;
     if (dict.main) {
       setScopeMain(true);
       setWeekdays(new Set(WEEKDAY_DAYS));
@@ -503,7 +667,6 @@ export function ConnectionSchedulePopover({
   const markersLocked = readOnly || aggregateView || mode === 'off';
   const dowMask = maskFromDays(weekdays);
   const onDateScope = scopeDate != null;
-  const scopeKind = scopeMain ? 'main' : onDateScope ? 'date' : 'dow';
   const activeScope: ActiveScope = scopeMain
     ? { kind: 'main' }
     : onDateScope
@@ -1059,54 +1222,124 @@ export function ConnectionSchedulePopover({
         };
       });
 
-  const approve = () => {
-    if (readOnly || !hasActiveLayer) return;
-    if (scopeKind === 'main' && !layers.main) return;
-    if (scopeKind === 'dow' && dowMask === 0) return;
-    if (scopeKind === 'date' && !scopeDate) return;
-    const scopeText =
-      scopeKind === 'main'
-        ? 'основное'
-        : scopeKind === 'date' && scopeDate
-          ? labelFromDateRange(scopeDate.from, scopeDate.to)
-          : WEEKDAYS.filter((w) => weekdays.has(w.dow)).map((w) => w.label).join(',');
-    if (!window.confirm(`Утвердить правило «${scopeText}»?`)) return;
+  /** Дифф чернового словаря против base: новые/изменённые → upsert, снятые из base → cancel. */
+  const diffChanges = (): { upserts: PutConnectionScheduleRuleRequest[]; cancels: number[] } => {
+    const changeNote = note.trim() || null;
+    const base = baseDictRef.current;
+    const baseById = new Map(layersBottomToTop(base).map((l) => [l.id, l]));
+    const cur = layersBottomToTop(layers);
+    const curIds = new Set(cur.map((l) => l.id));
 
-    const multiSingles =
-      scopeKind === 'dow' && weekdays.size > 1 && !isGroupMask(dowMask);
-
-    const makeBody = (mask: number | null): PutConnectionScheduleRuleRequest =>
-      mode === 'off'
-        ? {
-            scopeKind,
-            dowMask: scopeKind === 'dow' ? mask : null,
-            dateFrom: scopeKind === 'date' && scopeDate ? scopeDate.from : null,
-            dateTo: scopeKind === 'date' && scopeDate ? scopeDate.to : null,
-            mode: 'off',
-            changeSource: 'ui',
-            changeNote: note.trim() || null,
-          }
-        : {
-            scopeKind,
-            dowMask: scopeKind === 'dow' ? mask : null,
-            dateFrom: scopeKind === 'date' && scopeDate ? scopeDate.from : null,
-            dateTo: scopeKind === 'date' && scopeDate ? scopeDate.to : null,
-            mode: 'window',
-            open: `${openHm}:00`,
-            durationMin,
-            changeSource: 'ui',
-            changeNote: note.trim() || null,
-          };
-
-    if (multiSingles) {
-      for (const d of weekdays) {
-        onUpsertRule(makeBody(maskFromDays(new Set([d]))));
-      }
-    } else {
-      onUpsertRule(makeBody(scopeKind === 'dow' ? dowMask : null));
+    const upserts: PutConnectionScheduleRuleRequest[] = [];
+    for (const l of cur) {
+      const b = baseById.get(l.id);
+      if (!b || layerDiffers(l, b)) upserts.push(layerToPutBody(l, changeNote));
     }
+
+    const cancels: number[] = [];
+    for (const b of layersBottomToTop(base)) {
+      if (curIds.has(b.id)) continue;
+      const sid = baseSchedIdRef.current.get(b.id);
+      if (sid != null) cancels.push(sid);
+    }
+
+    return { upserts, cancels };
+  };
+
+  const hasPendingChanges = (): boolean => {
+    const { upserts, cancels } = diffChanges();
+    return upserts.length + cancels.length > 0;
+  };
+
+  /** Шаг 1 → 2: собрать дифф и показать превью (без отправки). */
+  const approve = () => {
+    if (readOnly) return;
+    if (!hasPendingChanges()) {
+      setMsgBox({
+        severity: 'info',
+        title: 'Нет изменений',
+        message: 'Нет изменений для утверждения.',
+      });
+      return;
+    }
+    setView('confirm');
+  };
+
+  /** Шаг 2: отправить всё на сервер. */
+  const commit = () => {
+    const { upserts, cancels } = diffChanges();
+    for (const body of upserts) onUpsertRule(body);
+    for (const sid of cancels) onCancelRule(sid);
     onClose();
   };
+
+  /** Вернуть черновик к сохранённому base (сброс несохранённых правок). */
+  const resetDraftToBase = () => {
+    const dict = rules.length > 0 ? dictFromRules(rules) : emptyLayerDict();
+    setLayers(dict);
+    seedLayerMemory(layerMemRef.current, dict);
+    baseDictRef.current = dict;
+    const schedIds = new Map<string, number>();
+    for (const r of rules) {
+      const id = ruleLayerId(r);
+      if (id) schedIds.set(id, r.scheduleId);
+    }
+    baseSchedIdRef.current = schedIds;
+    setScopeDate(null);
+    setAggregateView(false);
+    if (dict.main) {
+      setScopeMain(true);
+      setWeekdays(new Set(WEEKDAY_DAYS));
+      setStartMin(dict.main.startMin);
+      setEndMin(dict.main.endMin);
+      setMode(dict.main.mode);
+    } else {
+      setScopeMain(false);
+      setWeekdays(new Set());
+    }
+  };
+
+  const doRefreshFromBase = () => {
+    resetDraftToBase();
+    store.refreshConnectionSchedule(connectionId);
+  };
+
+  const handleRefresh = () => {
+    if (readOnly) return;
+    if (hasPendingChanges()) {
+      setMsgBox({
+        severity: 'warning',
+        title: 'Обновить из базы?',
+        message: 'Несохранённые изменения будут потеряны.',
+        onConfirm: doRefreshFromBase,
+      });
+      return;
+    }
+    doRefreshFromBase();
+  };
+
+  const lastChange =
+    history.length > 0
+      ? history.reduce((a, b) => (Date.parse(b.effectiveFrom) > Date.parse(a.effectiveFrom) ? b : a))
+      : null;
+
+  const diffEntries = view === 'confirm' ? computeDiffEntries(baseDictRef.current, layers) : [];
+  const cleared = layersBottomToTop(layers).length === 0 && layersBottomToTop(baseDictRef.current).length > 0;
+
+  const diffColumns: DayColumn[] = WEEK_JS.map((js) => {
+    const b = layerToIv(resolveLayerForDow(baseDictRef.current, js));
+    const d = layerToIv(resolveLayerForDow(layers, js));
+    const pieces = [
+      ...intersectIv(b, d).map((iv) => ({ startMin: iv.s, endMin: iv.e, kind: 'kept' as const })),
+      ...subtractIv(d, b).map((iv) => ({ startMin: iv.s, endMin: iv.e, kind: 'added' as const })),
+      ...subtractIv(b, d).map((iv) => ({ startMin: iv.s, endMin: iv.e, kind: 'removed' as const })),
+    ];
+    return {
+      key: String(js),
+      label: WEEKDAYS.find((x) => x.dow === js)?.label ?? String(js),
+      seg: { mode: 'window', startMin: 0, endMin: 0, active: true, diffPieces: pieces },
+    };
+  });
 
   return (
     <div
@@ -1135,18 +1368,20 @@ export function ConnectionSchedulePopover({
           />
         )}
         <header className={styles.head}>
-          <strong>Расписание соединения</strong>
+          <strong>{view === 'confirm' ? 'Подтверждение изменений' : 'Расписание соединения'}</strong>
           <div className={styles.headActions}>
-            <Tip content={editing ? 'Режим редактирования' : 'Режим просмотра'}>
-              <button
-                type="button"
-                className={styles.iconBtn}
-                onClick={() => setEditing((v) => !v)}
-                aria-pressed={editing}
-              >
-                {editing ? <PencilIcon className={styles.headIcon} /> : <EyeIcon className={styles.headIcon} />}
-              </button>
-            </Tip>
+            {view === 'edit' && (
+              <Tip content={editing ? 'Режим редактирования' : 'Режим просмотра'}>
+                <button
+                  type="button"
+                  className={styles.iconBtn}
+                  onClick={() => setEditing((v) => !v)}
+                  aria-pressed={editing}
+                >
+                  {editing ? <PencilIcon className={styles.headIcon} /> : <EyeIcon className={styles.headIcon} />}
+                </button>
+              </Tip>
+            )}
             <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Закрыть">
               <span className={styles.closeGlyph} aria-hidden="true">
                 ×
@@ -1155,6 +1390,8 @@ export function ConnectionSchedulePopover({
           </div>
         </header>
 
+        {view === 'edit' && (
+        <>
         <ScheduleWindowRibbon
           startMin={startMin}
           endMin={endMin}
@@ -1198,6 +1435,11 @@ export function ConnectionSchedulePopover({
                   }}
                 >
                   Просмотр
+                </button>
+              </Tip>
+              <Tip content="Вернуться к сохранённому расписанию" boundaryRef={panelRef}>
+                <button type="button" className={styles.chip} disabled={readOnly} onClick={handleRefresh}>
+                  Обновить
                 </button>
               </Tip>
               <Tip content="Очистить все установленные" boundaryRef={panelRef}>
@@ -1432,16 +1674,17 @@ export function ConnectionSchedulePopover({
           </span>
         </div>
 
-        <label className={styles.note}>
-          Комментарий
-          <input
-            type="text"
-            value={note}
-            placeholder="например: брокер рвёт до 07:00"
-            disabled={readOnly}
-            onChange={(e) => setNote(e.target.value)}
-          />
-        </label>
+        {editing && (
+          <label className={styles.note}>
+            Комментарий
+            <input
+              type="text"
+              value={note}
+              placeholder="например: брокер рвёт до 07:00"
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </label>
+        )}
 
         <WeeklyDayColumns
           key={onDateScope && scopeDate ? `date:${scopeDate.from}:${scopeDate.to}` : 'week'}
@@ -1542,53 +1785,111 @@ export function ConnectionSchedulePopover({
           </div>
         )}
 
-        <Tip
-          content={
-            readOnly
-              ? 'Переключитесь в режим редактирования'
-              : aggregateView
-                ? 'Выберите слой (Все / колбаска) для редактирования'
-                : !hasActiveLayer
-                  ? 'Выберите слой'
-                  : undefined
-          }
-          block
-        >
-          <button
-            type="button"
-            className={styles.approve}
-            onClick={approve}
-            disabled={readOnly || aggregateView || !hasActiveLayer}
-          >
-            Утвердить
-          </button>
-        </Tip>
+        {!editing && (
+          <div className={styles.lastChange}>
+            {lastChange ? (
+              <>
+                Последнее изменение: <span>{new Date(lastChange.effectiveFrom).toLocaleString('ru-RU')}</span>
+                {' · '}
+                {sourceLabel(lastChange.changeSource)}
+                {lastChange.changeNote ? ` · ${lastChange.changeNote}` : ''}
+              </>
+            ) : (
+              'Изменений пока не было'
+            )}
+          </div>
+        )}
 
-        {history.length > 0 && (
-          <section className={styles.history}>
-            <h4>История</h4>
-            <ul>
-              {history.slice(0, 12).map((h) => (
-                <li key={h.scheduleId}>
-                  <span>
-                    {h.mode === 'off'
-                      ? 'выкл'
-                      : h.open
-                        ? `${h.open.slice(0, 5)}–${(h.end ?? '').slice(0, 5)}`
-                        : '—'}{' '}
-                    · {h.scopeKind}
-                    {h.closeReason ? ` · ${h.closeReason}` : ''}
+        </>
+        )}
+
+        {view === 'confirm' && (
+          <section className={styles.confirmStep}>
+            <WeeklyDayColumns key="diff" columns={diffColumns} title="Что изменится (эффективно)" defaultExpanded />
+            <div className={styles.diffLegend} aria-hidden="true">
+              <span>
+                <i className={[styles.dot, styles.dotKept].join(' ')} /> без изменений
+              </span>
+              <span>
+                <i className={[styles.dot, styles.dotAdded].join(' ')} /> добавлено
+              </span>
+              <span>
+                <i className={[styles.dot, styles.dotRemoved].join(' ')} /> убрано
+              </span>
+            </div>
+            <div className={styles.section}>
+              <span className={styles.sectionTitle}>Правила</span>
+              <ul className={styles.diffList}>
+                {diffEntries.map((e) => (
+                  <li
+                    key={e.id}
+                    className={[styles.diffRow, styles[`diffRow_${e.kind}`]].filter(Boolean).join(' ')}
+                  >
+                    <span className={styles.diffScope}>{e.label}</span>
+                    <span className={styles.diffWin}>
+                      {e.kind === 'added'
+                        ? `→ ${winText(e.after)}`
+                        : e.kind === 'removed'
+                          ? `${winText(e.before)} → снять`
+                          : `${winText(e.before)} → ${winText(e.after)}${durDeltaText(e.before, e.after)}`}
+                    </span>
+                    <span className={styles.diffTag}>
+                      {e.kind === 'added' ? 'добавлено' : e.kind === 'removed' ? 'снять' : 'изменено'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {cleared && (
+                <span className={styles.clearWarn}>
+                  <span className={styles.warnIcon} aria-hidden="true">
+                    ⚠
                   </span>
-                  <span className={styles.meta}>
-                    {new Date(h.effectiveFrom).toLocaleString('ru-RU')} · {h.changeSource}
-                    {h.changeNote ? ` · ${h.changeNote}` : ''}
-                  </span>
-                </li>
-              ))}
-            </ul>
+                  Расписание будет очищено — автоподключение отключится.
+                </span>
+              )}
+            </div>
           </section>
         )}
+
+        <div className={styles.footer}>
+        {view === 'edit' ? (
+          <Tip
+            content={readOnly ? 'Переключитесь в режим редактирования' : 'Проверить и утвердить изменения'}
+            block
+          >
+            <button type="button" className={styles.approve} onClick={approve} disabled={readOnly}>
+              Утвердить
+            </button>
+          </Tip>
+        ) : (
+          <div className={styles.confirmFooter}>
+            <button type="button" className={styles.backBtn} onClick={() => setView('edit')}>
+              ← Вернуться к редактированию
+            </button>
+            <button type="button" className={styles.approve} onClick={commit}>
+              Подтвердить изменения
+            </button>
+          </div>
+        )}
+        </div>
+
       </div>
+
+      {msgBox && (
+        <ConfirmDialog
+          severity={msgBox.severity}
+          title={msgBox.title}
+          message={msgBox.message}
+          confirmLabel="ОК"
+          cancelLabel={msgBox.onConfirm ? 'Отмена' : null}
+          onConfirm={() => {
+            const next = msgBox.onConfirm;
+            setMsgBox(null);
+            next?.();
+          }}
+          onCancel={msgBox.onConfirm ? () => setMsgBox(null) : undefined}
+        />
+      )}
     </div>
   );
 }

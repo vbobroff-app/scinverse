@@ -308,6 +308,7 @@
   gap: 4px;
   font-size: 12px;
   color: var(--color-text-muted);
+  width: 100%;
 }
 
 .note input {
@@ -334,26 +335,28 @@
   cursor: not-allowed;
 }
 
-.history h4 {
-  margin: 0 0 6px;
+/* Кнопки внизу: лишняя высота сессии уходит сюда, а не дырами у графика. */
+.footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.lastChange {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 4px;
+  min-height: 1.35em;
   font-size: 12px;
   color: var(--color-text-muted);
+  width: 100%;
 }
 
-.history ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.history li {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 12px;
+.lastChange span {
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .meta {
@@ -373,6 +376,156 @@
 .metaActive {
   color: var(--color-text);
   font-weight: 600;
+}
+
+/* ── Шаг подтверждения (diff-превью) ─────────────────────────── */
+.confirmStep {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: scheduleStepIn 0.2s ease-out;
+}
+
+.diffLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  padding-left: 34px;
+}
+
+.diffLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.dotKept {
+  background: color-mix(in srgb, var(--color-text-muted) 40%, transparent);
+}
+
+.dotAdded {
+  background: color-mix(in srgb, var(--color-accent, #4dabf7) 60%, transparent);
+}
+
+.dotRemoved {
+  background: color-mix(in srgb, #e05555 55%, transparent);
+}
+
+.diffList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.diffRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--color-text) 3%, transparent);
+}
+
+.diffRow_added {
+  border-left-color: var(--color-accent, #4dabf7);
+}
+
+.diffRow_removed {
+  border-left-color: #e05555;
+}
+
+.diffRow_modified {
+  border-left-color: #e0a355;
+}
+
+.diffScope {
+  font-weight: 600;
+  color: var(--color-text);
+  flex: none;
+  min-width: 92px;
+}
+
+.diffWin {
+  flex: 1;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.diffTag {
+  flex: none;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
+
+.clearWarn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, #e05555 12%, transparent);
+  color: #e05555;
+  font-size: 12px;
+}
+
+.warnIcon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.confirmFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.backBtn {
+  flex: none;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.backBtn:hover {
+  border-color: var(--color-border-focus);
+  color: var(--color-text);
+}
+
+.confirmFooter .approve {
+  flex: 1;
+}
+
+@keyframes scheduleStepIn {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 @keyframes scheduleBackdropIn {
@@ -482,7 +635,8 @@
   .backdropOut,
   .panelOut,
   .calScrimOut,
-  .calPopOut {
+  .calPopOut,
+  .confirmStep {
     animation: none;
   }
 }

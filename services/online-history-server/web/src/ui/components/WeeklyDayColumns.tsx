@@ -18,6 +18,15 @@ export interface DayColumnSeg {
   nonTrading?: boolean;
   /** Подпись слоя в тултипе колбаски (напр. «Все», «Будни»). */
   layerLabel?: string;
+  /** Diff-режим: раскрашенные куски вместо обычного окна (base vs черновик). */
+  diffPieces?: DiffPiece[] | null;
+}
+
+/** Кусок diff-колбаски: осталось (серый) / добавили (синий) / убрали (красный). */
+export interface DiffPiece {
+  startMin: number;
+  endMin: number;
+  kind: 'kept' | 'added' | 'removed';
 }
 
 export interface DayColumn {
@@ -117,6 +126,7 @@ export function WeeklyDayColumns({
                 : 0;
               const tip = windowTip(seg);
               const clickable = onSegClick != null && (seg.mode === 'off' || heightPct > 0);
+              const diffPieces = seg.diffPieces ?? null;
 
               return (
                 <div
@@ -125,7 +135,32 @@ export function WeeklyDayColumns({
                 >
                   <div className={[styles.track, dense ? styles.trackDense : ''].filter(Boolean).join(' ')}>
                     <span className={styles.midLine} aria-hidden="true" />
-                    {seg.mode === 'window' && heightPct > 0 && (
+                    {diffPieces &&
+                      diffPieces.map((p, i) => {
+                        const pSpan = Math.max(0, p.endMin - p.startMin);
+                        const pBottom = pct(p.startMin);
+                        const pHeight = clamp((pSpan / AXIS_MIN) * 100, 0, 100 - pBottom);
+                        if (pHeight <= 0) return null;
+                        const cls =
+                          p.kind === 'added'
+                            ? styles.diffAdded
+                            : p.kind === 'removed'
+                              ? styles.diffRemoved
+                              : styles.diffKept;
+                        const sign = p.kind === 'added' ? '+ ' : p.kind === 'removed' ? '− ' : '';
+                        return (
+                          <div
+                            key={`${p.kind}-${i}`}
+                            className={[styles.diffSeg, cls].join(' ')}
+                            style={{ bottom: `${pBottom}%`, height: `${pHeight}%` }}
+                          >
+                            <Tip content={`${sign}${fmtHm(p.startMin)}–${fmtHm(p.endMin)}`} block>
+                              <span className={styles.segHit} />
+                            </Tip>
+                          </div>
+                        );
+                      })}
+                    {!diffPieces && seg.mode === 'window' && heightPct > 0 && (
                       <div
                         className={[styles.seg, clickable ? styles.segClickable : '']
                           .filter(Boolean)
@@ -157,7 +192,7 @@ export function WeeklyDayColumns({
                         )}
                       </div>
                     )}
-                    {seg.mode === 'off' && (
+                    {!diffPieces && seg.mode === 'off' && (
                       <div
                         className={[styles.segOff, clickable ? styles.segClickable : '']
                           .filter(Boolean)
