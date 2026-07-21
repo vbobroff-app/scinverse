@@ -16,6 +16,8 @@ export interface DayColumnSeg {
   baseEndMin?: number | null;
   /** Неторговый день (подсветка подписи). */
   nonTrading?: boolean;
+  /** Подпись слоя в тултипе колбаски (напр. «Все», «Будни»). */
+  layerLabel?: string;
 }
 
 export interface DayColumn {
@@ -32,6 +34,8 @@ export interface WeeklyDayColumnsProps {
   title?: string;
   /** Раскрыт ли график при первом рендере. */
   defaultExpanded?: boolean;
+  /** Клик по колбаске — выбрать слой дня. */
+  onSegClick?: (key: string) => void;
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -49,9 +53,10 @@ function fmtHm(totalMin: number): string {
 }
 
 function windowTip(seg: DayColumnSeg): string | undefined {
-  if (seg.mode === 'off') return 'выкл';
+  const head = seg.layerLabel ? `${seg.layerLabel} · ` : '';
+  if (seg.mode === 'off') return `${head}выкл`;
   if (seg.endMin <= seg.startMin) return undefined;
-  return `${fmtHm(seg.startMin)}–${fmtHm(seg.endMin)}`;
+  return `${head}${fmtHm(seg.startMin)}–${fmtHm(seg.endMin)}`;
 }
 
 /**
@@ -63,6 +68,7 @@ export function WeeklyDayColumns({
   columns,
   title = 'Неделя',
   defaultExpanded = true,
+  onSegClick,
 }: WeeklyDayColumnsProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const dense = columns.length > 7;
@@ -88,7 +94,10 @@ export function WeeklyDayColumns({
             <span>+24ч</span>
             <span>00:00</span>
           </div>
-          <div className={[styles.cols, dense ? styles.colsDense : ''].filter(Boolean).join(' ')}>
+          <div
+            className={[styles.cols, dense ? styles.colsDense : ''].filter(Boolean).join(' ')}
+            style={{ gridTemplateColumns: `repeat(${Math.max(columns.length, 1)}, minmax(0, 1fr))` }}
+          >
             {columns.map((col) => {
               const seg = col.seg;
               const span = Math.max(0, seg.endMin - seg.startMin);
@@ -106,6 +115,8 @@ export function WeeklyDayColumns({
               const baseHeightRel = baseOk
                 ? clamp(((baseHi - baseLo) / span) * 100, 0, 100 - baseBottomRel)
                 : 0;
+              const tip = windowTip(seg);
+              const clickable = onSegClick != null && (seg.mode === 'off' || heightPct > 0);
 
               return (
                 <div
@@ -116,10 +127,25 @@ export function WeeklyDayColumns({
                     <span className={styles.midLine} aria-hidden="true" />
                     {seg.mode === 'window' && heightPct > 0 && (
                       <div
-                        className={styles.seg}
+                        className={[styles.seg, clickable ? styles.segClickable : '']
+                          .filter(Boolean)
+                          .join(' ')}
                         style={{ bottom: `${bottomPct}%`, height: `${heightPct}%` }}
+                        role={clickable ? 'button' : undefined}
+                        tabIndex={clickable ? 0 : undefined}
+                        onClick={clickable ? () => onSegClick(col.key) : undefined}
+                        onKeyDown={
+                          clickable
+                            ? (e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  onSegClick(col.key);
+                                }
+                              }
+                            : undefined
+                        }
                       >
-                        <Tip content={windowTip(seg)} block>
+                        <Tip content={tip} block>
                           <span className={styles.segHit} />
                         </Tip>
                         {baseOk && (
@@ -133,10 +159,25 @@ export function WeeklyDayColumns({
                     )}
                     {seg.mode === 'off' && (
                       <div
-                        className={styles.segOff}
+                        className={[styles.segOff, clickable ? styles.segClickable : '']
+                          .filter(Boolean)
+                          .join(' ')}
                         style={{ bottom: '0%', height: `${(DAY_MIN / AXIS_MIN) * 100}%` }}
+                        role={clickable ? 'button' : undefined}
+                        tabIndex={clickable ? 0 : undefined}
+                        onClick={clickable ? () => onSegClick(col.key) : undefined}
+                        onKeyDown={
+                          clickable
+                            ? (e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  onSegClick(col.key);
+                                }
+                              }
+                            : undefined
+                        }
                       >
-                        <Tip content={windowTip(seg)} block>
+                        <Tip content={tip} block>
                           <span className={styles.segHit} />
                         </Tip>
                       </div>

@@ -15,8 +15,10 @@
 .panel {
   position: relative;
   width: min(560px, 94vw);
-  max-height: 80vh;
-  overflow: auto;
+  /* backdrop padding-top 12vh — забираем остаток экрана, без лишнего скролла */
+  max-height: calc(100vh - 12vh - 20px);
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 16px;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
@@ -26,6 +28,7 @@
   flex-direction: column;
   gap: 12px;
   animation: schedulePanelIn 0.2s ease-out;
+  min-height: 0;
 }
 
 /* Календарь в фокусе: остальное панели заблюрено, скролл заморожен. */
@@ -115,6 +118,13 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.chipCluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
 }
 
 .divider {
@@ -236,6 +246,8 @@
   margin: 2px 0 8px;
   /* axisHint 28px + chart gap 6px — под колонками недели */
   padding: 0 0 0 34px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .regularCol {
@@ -259,6 +271,10 @@
   opacity: 0.92;
 }
 
+.regularRibbonDim {
+  opacity: 0.28;
+}
+
 .regularRibbonGap {
   opacity: 0;
   background: transparent;
@@ -267,6 +283,14 @@
 .regularRibbonUnset {
   background: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
   opacity: 0.7;
+}
+
+.staticBoardDense {
+  gap: 2px;
+}
+
+.staticBoardDense .regularRibbon {
+  height: 2px;
 }
 
 .sectionLocked {
@@ -333,8 +357,17 @@
 }
 
 .meta {
+  display: block;
+  min-height: 1.35em;
   color: var(--color-text-muted);
   font-size: 11px;
+  line-height: 1.35;
+}
+
+.metaDisabled {
+  opacity: 0.45;
+  user-select: none;
+  pointer-events: none;
 }
 
 .metaActive {

@@ -8,6 +8,7 @@ import {
   promoteExc,
   regularBoardSlots,
   resolveLayerForDow,
+  staticBoardSlots,
   staticExcConnectedComponent,
   unionStaticComponentRange,
   type ScheduleLayer,
@@ -219,5 +220,36 @@ describe('regularBoardSlots (tetris)', () => {
   it('выходной при буднях: только main (группа не покрывает)', () => {
     const dict: ScheduleLayerDict = { main, exc: [weekdays], staticExc: [] };
     expect(regularBoardSlots(dict, 0).map((s) => s.kind)).toEqual(['main']);
+  });
+});
+
+describe('staticBoardSlots (tetris, без main)', () => {
+  it('на день без static — пусто', () => {
+    expect(staticBoardSlots(emptyLayerDict(), '2026-07-10')).toEqual([]);
+  });
+
+  it('одиночный слой падает на дно колонки', () => {
+    let dict = emptyLayerDict();
+    dict = createStaticExc(dict, dateLayer('2026-07-01', '2026-07-10'));
+    expect(staticBoardSlots(dict, '2026-07-05').map((l) => l.id)).toEqual([
+      'date:2026-07-01:2026-07-10',
+    ]);
+    expect(staticBoardSlots(dict, '2026-07-20')).toEqual([]);
+  });
+
+  it('пересечение: нижний board level снизу, верхний сверху; без дыр на день только с верхним', () => {
+    let dict = emptyLayerDict();
+    dict = createStaticExc(dict, dateLayer('2026-07-01', '2026-07-10'));
+    dict = createStaticExc(dict, dateLayer('2026-07-05', '2026-07-14'));
+    expect(staticBoardSlots(dict, '2026-07-03').map((l) => l.id)).toEqual([
+      'date:2026-07-01:2026-07-10',
+    ]);
+    expect(staticBoardSlots(dict, '2026-07-07').map((l) => l.id)).toEqual([
+      'date:2026-07-01:2026-07-10',
+      'date:2026-07-05:2026-07-14',
+    ]);
+    expect(staticBoardSlots(dict, '2026-07-12').map((l) => l.id)).toEqual([
+      'date:2026-07-05:2026-07-14',
+    ]);
   });
 });

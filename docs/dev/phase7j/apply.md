@@ -1,5 +1,8 @@
 # Phase 7j — apply: расписание соединения (Auto + Supervisor)
 
+> **v1 (исторический).** Схема одного окна (V021, `window_start/end`, `mode`) заменена якорной
+> моделью V024 (`open+duration`, слоистые правила) — см. [v2-exceptions.md](v2-exceptions.md).
+
 **Статус:** IN PROGRESS. Детали MVP относительно [plan.md](plan.md).
 
 ## UX (зафиксировано)

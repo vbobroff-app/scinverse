@@ -317,16 +317,16 @@ export function StaticExceptionCalendar({
           const titleParts =
             stack.length > 0
               ? stack.map((s, i) => {
-                  const mark = i === stack.length - 1 ? '▲' : '·';
-                  const mode = s.exc.mode === 'off' ? 'выкл' : 'окно';
-                  const board = (boardLevels[s.index] ?? 0) + 1;
-                  return `${mark} L${s.index + 1} доска ${board} ${fmtRange(s.exc.from, s.exc.to)} (${mode})`;
+                  const isTop = i === stack.length - 1;
+                  // ▲ только у активного: при черновике — ни у кого из стека; иначе у верхнего.
+                  const mark = !showDraftRibbon && isTop ? '▲' : '·';
+                  const level = (boardLevels[s.index] ?? 0) + 1;
+                  return `${mark} L${level} ${fmtRange(s.exc.from, s.exc.to)}`;
                 })
-              : isNonTrading?.(value)
-                ? ['Неторговый день']
-                : [];
-          if (showDraftRibbon) titleParts.push(`▲ новый слой (доска ${draftLevel + 1})`);
-          if (stack.length > 0) titleParts.push('Ctrl+клик — новый слой');
+              : [];
+          if (showDraftRibbon && start) {
+            titleParts.push(`▲ Новый слой L${draftLevel + 1} ${fmtRange(start, end ?? start)}`);
+          }
 
           return (
             <Tip key={value} content={titleParts.length > 0 ? titleParts.join('\n') : undefined} block>
@@ -377,7 +377,7 @@ export function StaticExceptionCalendar({
       />
 
       <p className={styles.legend}>
-        Полоски = слои · клик — верхний · <kbd>Ctrl</kbd>+клик — новый · макс. {maxSpanDays} дн.
+        Полоски = слои · клик — верхний · макс. {maxSpanDays} дн.
       </p>
 
       <div className={styles.footer}>

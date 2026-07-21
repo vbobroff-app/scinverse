@@ -70,13 +70,13 @@
 .cols {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* число колонок задаётся inline из columns.length (неделя = 7, даты = N) */
   gap: 4px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .colsDense {
-  grid-template-columns: repeat(auto-fit, minmax(18px, 1fr));
   gap: 2px;
 }
 
@@ -132,6 +132,14 @@
   z-index: 2;
 }
 
+.segClickable {
+  cursor: pointer;
+}
+
+.segClickable:hover {
+  background: color-mix(in srgb, var(--color-accent, #4dabf7) 34%, transparent);
+}
+
 .segHit {
   display: block;
   width: 100%;
@@ -171,6 +179,7 @@
   color: var(--color-text-muted);
   text-align: center;
   line-height: 1.15;
+  white-space: pre-line;
 }
 
 .labelNonTrading {

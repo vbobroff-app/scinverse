@@ -8,6 +8,7 @@ import type {
 } from '../../core/types';
 import { OhsApi } from '../../core/api';
 import {
+  assignStaticBoardLevels,
   createStaticExc,
   daysFromMask,
   defaultMainLayer,
@@ -31,6 +32,7 @@ import {
   removeExcById,
   resolveLayerForDate,
   resolveLayerForDow,
+  staticBoardSlots,
   unionStaticComponentRange,
   type ScheduleLayer,
   type ScheduleLayerDict,
@@ -48,7 +50,6 @@ import {
   templateToAxisMins,
 } from './ScheduleWindowRibbon';
 import { WeeklyDayColumns, type DayColumn } from './WeeklyDayColumns';
-import { WeeklyScheduleOverview, type SchedulePreview } from './WeeklyScheduleOverview';
 import styles from './ConnectionSchedulePopover.module.css';
 
 /** Длительность enter/exit анимации модалки и календаря (см. CSS). */
@@ -302,6 +303,8 @@ export function ConnectionSchedulePopover({
   const [history, setHistory] = useState<ConnectionScheduleRuleDto[]>([]);
   const [presets, setPresets] = useState<PresetMap>(EMPTY_PRESETS);
   const [editing, setEditing] = useState(false);
+  /** Обзор всех слоёв (агрегация): маркеры только смотрим. */
+  const [aggregateView, setAggregateView] = useState(false);
   /** Календарь смонтирован (включая фазу закрытия). */
   const [calPresent, setCalPresent] = useState(false);
   const [calExiting, setCalExiting] = useState(false);
@@ -313,6 +316,7 @@ export function ConnectionSchedulePopover({
   const [scopeDate, setScopeDate] = useState<{ from: string; to: string } | null>(null);
   const [calDays, setCalDays] = useState<Map<string, CalendarDayDto>>(() => new Map());
   const calWrapRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   /** Память last-known окна слоя на сессию поповера (снял → вернул). */
   const layerMemRef = useRef<Map<string, LayerMemory>>(new Map());
 
@@ -416,6 +420,7 @@ export function ConnectionSchedulePopover({
     closeCalendarInstant();
     setCalDays(new Map());
     setEditing(rules.length === 0);
+    setAggregateView(false);
 
     const dict = rules.length > 0 ? dictFromRules(rules) : emptyLayerDict();
     setLayers(dict);
@@ -495,6 +500,7 @@ export function ConnectionSchedulePopover({
   if (!panelPresent) return null;
 
   const readOnly = !editing;
+  const markersLocked = readOnly || aggregateView || mode === 'off';
   const dowMask = maskFromDays(weekdays);
   const onDateScope = scopeDate != null;
   const scopeKind = scopeMain ? 'main' : onDateScope ? 'date' : 'dow';
@@ -504,6 +510,7 @@ export function ConnectionSchedulePopover({
       ? { kind: 'date', from: scopeDate.from, to: scopeDate.to }
       : { kind: 'dow', days: weekdays };
   const hasAnyExc = layers.exc.length > 0 || layers.staticExc.length > 0;
+  const hasAnyLayers = layers.main != null || hasAnyExc;
   const activeTpl = TEMPLATES.find((t) => t.id === activeTemplate) ?? null;
   const dayType = onDateScope
     ? (() => {
@@ -532,11 +539,48 @@ export function ConnectionSchedulePopover({
     return { startMin: 6 * 60, endMin: DAY_MIN + 60, mode: 'window' as ScopeMode };
   };
 
+  /** Выбрать слой для редактирования (клик по колбаске / чипу). */
+  const selectLayer = (layer: ScheduleLayer) => {
+    setAggregateView(false);
+    if (layer.scopeKind === 'main') {
+      setScopeDate(null);
+      setScopeMain(true);
+      loadEditorFromLayer(layer);
+      return;
+    }
+    if (layer.scopeKind === 'date' && layer.dateFrom && layer.dateTo) {
+      setScopeMain(false);
+      setScopeDate({ from: layer.dateFrom, to: layer.dateTo });
+      loadEditorFromLayer(layer);
+      return;
+    }
+    if (layer.dowMask != null) {
+      setScopeDate(null);
+      setScopeMain(false);
+      setWeekdays(new Set(daysFromMask(layer.dowMask)));
+      loadEditorFromLayer(layer);
+    }
+  };
+
+  const onChartSegClick = (key: string) => {
+    if (readOnly) return;
+    if (onDateScope) {
+      const w = resolveLayerForDate(layers, key);
+      if (w) selectLayer(w);
+      return;
+    }
+    const js = Number(key);
+    if (!Number.isFinite(js)) return;
+    const w = resolveLayerForDow(layers, js);
+    if (w) selectLayer(w);
+  };
+
   /** [Все]: click active → снять main; иначе создать/выбрать. */
   const toggleMain = () => {
     if (readOnly) return;
+    setAggregateView(false);
     setScopeDate(null);
-    if (layers.main && scopeMain && !onDateScope) {
+    if (layers.main && scopeMain && !onDateScope && !aggregateView) {
       rememberLayer(layers.main.id, memFromLayer({ mode, startMin, endMin }));
       setLayers((prev) => ({ ...prev, main: null }));
       setScopeMain(false);
@@ -563,6 +607,7 @@ export function ConnectionSchedulePopover({
   /** [Будни]/[Сб,Вс]: XOR; повторный клик по выбранной → снять группу. */
   const toggleGroup = (days: number[]) => {
     if (readOnly) return;
+    setAggregateView(false);
     setScopeDate(null);
     const mask = maskFromDays(new Set(days));
     const id = layerIdDow(mask);
@@ -623,6 +668,7 @@ export function ConnectionSchedulePopover({
   /** [Пн]…[Вс]: single; Ctrl/Cmd — multi-select для солидарных маркеров. */
   const toggleSingleDay = (dow: number, additive = false) => {
     if (readOnly) return;
+    setAggregateView(false);
     setScopeDate(null);
 
     if (additive) {
@@ -739,6 +785,7 @@ export function ConnectionSchedulePopover({
 
   const chooseDateScope = (from: string, to: string, opts?: { create?: boolean }) => {
     if (readOnly) return;
+    setAggregateView(false);
     closeCalendar();
     setScopeMain(false);
     setScopeDate({ from, to });
@@ -804,20 +851,20 @@ export function ConnectionSchedulePopover({
     loadCalendarRange(chartFrom, chartTo);
   };
 
-  const clearExceptions = () => {
+  const clearAllChanges = () => {
     if (readOnly) return;
+    setAggregateView(false);
     closeCalendar();
     setScopeDate(null);
+    if (layers.main) rememberLayer(layers.main.id, memFromLayer(layers.main));
     for (const e of layers.exc) rememberLayer(e.id, memFromLayer(e));
     for (const e of layers.staticExc) rememberLayer(e.id, memFromLayer(e));
-    setLayers((prev) => ({ main: prev.main, exc: [], staticExc: [] }));
-    if (layers.main) {
-      setScopeMain(true);
-      loadEditorFromLayer(layers.main);
-    } else {
-      setScopeMain(false);
-      setWeekdays(new Set());
-    }
+    setLayers(emptyLayerDict());
+    setScopeMain(false);
+    setWeekdays(new Set());
+    setStartMin(6 * 60);
+    setEndMin(DAY_MIN + 60);
+    setMode('window');
   };
 
   const clearStaticExceptions = () => {
@@ -938,7 +985,11 @@ export function ConnectionSchedulePopover({
         const single = union.from === union.to;
         const from = single ? addDaysIso(union.from, -CHART_PAD_DAYS) : union.from;
         const to = single ? addDaysIso(union.to, CHART_PAD_DAYS) : union.to;
-        return eachIsoDays(from, to).map((iso) => {
+        const isos = eachIsoDays(from, to);
+        // ≤7 колонок — «Ср 01.07» в одну строку; иначе у всех день над датой.
+        const stackLabels = isos.length > 7;
+        const boardLevels = assignStaticBoardLevels(layers.staticExc);
+        return isos.map((iso) => {
           const w = resolveLayerForDate(layers, iso);
           const cal = calDays.get(iso);
           const inScope = iso >= scopeDate.from && iso <= scopeDate.to;
@@ -950,25 +1001,42 @@ export function ConnectionSchedulePopover({
           const dayMoex = dayMoexWin
             ? templateToAxisMins(dayMoexWin.openH, dayMoexWin.openM, dayMoexWin.closeH, dayMoexWin.closeM, 0)
             : null;
+          const dow = dowLabelFromIso(iso);
+          const dm = fmtDdMm(iso);
+          const resolved = w;
+          let layerLabel = resolved?.label;
+          if (resolved?.scopeKind === 'date') {
+            const idx = layers.staticExc.findIndex((e) => e.id === resolved.id);
+            layerLabel = `L${(idx >= 0 ? (boardLevels[idx] ?? 0) : 0) + 1}`;
+          } else if (resolved?.scopeKind === 'main') {
+            layerLabel = 'Main';
+          }
           return {
             key: iso,
-            label: `${dowLabelFromIso(iso)} ${fmtDdMm(iso)}`,
-            labelTip: `${dowLabelFromIso(iso)} ${fmtDdMm(iso)}.${iso.slice(0, 4)}`,
+            label: stackLabels ? `${dow}\n${dm}` : `${dow}\u00a0${dm}`,
+            labelTip: `${dow} ${dm}.${iso.slice(0, 4)}`,
             seg: {
-              mode: w?.mode ?? 'window',
-              startMin: w?.startMin ?? 0,
-              endMin: w?.endMin ?? 0,
-              active: inScope,
+              mode: resolved?.mode ?? 'window',
+              startMin: resolved?.startMin ?? 0,
+              endMin: resolved?.endMin ?? 0,
+              active: aggregateView ? true : inScope,
               baseStartMin: dayMoex?.startMin ?? null,
               baseEndMin: dayMoex?.endMin ?? null,
               nonTrading: cal != null ? !cal.isTrading : undefined,
+              layerLabel,
             },
           };
         });
       })()
     : WEEK_JS.map((js) => {
         const w = resolveLayerForDow(layers, js);
-        const active = scopeMain ? layers.main != null : weekdays.has(js);
+        // Подсветка только дней текущего слоя: main → где main выигрывает;
+        // dow → дни скоупа. Иначе «Все» зажигало всю неделю вместе с исключениями.
+        const active = aggregateView
+          ? true
+          : scopeMain
+            ? w?.scopeKind === 'main'
+            : weekdays.has(js);
         const dayMoexWin =
           activeTplWin != null
             ? pickWindow(activeTplWin, js === 0 || js === 6 ? 'weekend' : 'weekday')
@@ -986,19 +1054,10 @@ export function ConnectionSchedulePopover({
             active,
             baseStartMin: dayMoex?.startMin ?? null,
             baseEndMin: dayMoex?.endMin ?? null,
+            layerLabel: w?.scopeKind === 'main' ? 'Main' : w?.label,
           },
         };
       });
-
-  const preview: SchedulePreview = {
-    scopeKind,
-    dowMask: scopeKind === 'dow' ? dowMask : null,
-    dateFrom: scopeKind === 'date' && scopeDate ? scopeDate.from : null,
-    dateTo: scopeKind === 'date' && scopeDate ? scopeDate.to : null,
-    mode,
-    open: mode === 'window' ? `${openHm}:00` : null,
-    durationMin: mode === 'window' ? durationMin : null,
-  };
 
   const approve = () => {
     if (readOnly || !hasActiveLayer) return;
@@ -1056,6 +1115,7 @@ export function ConnectionSchedulePopover({
       role="presentation"
     >
       <div
+        ref={panelRef}
         className={[
           styles.panel,
           panelExiting ? styles.panelOut : '',
@@ -1099,7 +1159,7 @@ export function ConnectionSchedulePopover({
           startMin={startMin}
           endMin={endMin}
           highlightDays={highlightDays}
-          readOnly={readOnly || mode === 'off' || !hasActiveLayer}
+          readOnly={markersLocked || !hasActiveLayer}
           off={mode === 'off'}
           baseStartMin={baseAxis?.startMin ?? null}
           baseEndMin={baseAxis?.endMin ?? null}
@@ -1110,13 +1170,13 @@ export function ConnectionSchedulePopover({
         <div className={[styles.section, readOnly ? styles.sectionLocked : ''].filter(Boolean).join(' ')}>
           <span className={styles.sectionTitle}>Область правила</span>
           <div className={styles.chips}>
-            <Tip content="Основное расписание (можно снять)">
+            <Tip content="Основное расписание (неделя)" boundaryRef={panelRef}>
               <button
                 type="button"
                 className={[
                   styles.chip,
-                  layers.main && scopeMain && !onDateScope ? styles.chipOn : '',
-                  layers.main && !(scopeMain && !onDateScope) ? styles.chipHas : '',
+                  !aggregateView && layers.main && scopeMain && !onDateScope ? styles.chipOn : '',
+                  layers.main && (aggregateView || !(scopeMain && !onDateScope)) ? styles.chipHas : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -1126,26 +1186,41 @@ export function ConnectionSchedulePopover({
                 Все
               </button>
             </Tip>
-            <Tip content="Сбросить все исключения (periodical + static)">
-              <button
-                type="button"
-                className={styles.chip}
-                disabled={readOnly || !hasAnyExc}
-                onClick={clearExceptions}
-              >
-                Очистить
-              </button>
-            </Tip>
+            <span className={styles.chipCluster}>
+              <Tip content="Общее расписание" boundaryRef={panelRef}>
+                <button
+                  type="button"
+                  className={[styles.chip, aggregateView ? styles.chipOn : ''].filter(Boolean).join(' ')}
+                  disabled={readOnly}
+                  onClick={() => {
+                    setAggregateView(true);
+                    setScopeDate(null);
+                  }}
+                >
+                  Просмотр
+                </button>
+              </Tip>
+              <Tip content="Очистить все установленные" boundaryRef={panelRef}>
+                <button
+                  type="button"
+                  className={styles.chip}
+                  disabled={readOnly || !hasAnyLayers}
+                  onClick={clearAllChanges}
+                >
+                  Очистить
+                </button>
+              </Tip>
+            </span>
           </div>
           <div className={styles.chips}>
-            <Tip content="Регулярное исключение · группа будни (XOR с выходными)">
+            <Tip content="Регулярное исключение · Будни" boundaryRef={panelRef}>
               <button
                 type="button"
                 className={[
                   styles.chip,
-                  !scopeMain && !onDateScope && sameDays(weekdays, WEEKDAY_DAYS) ? styles.chipOn : '',
+                  !aggregateView && !scopeMain && !onDateScope && sameDays(weekdays, WEEKDAY_DAYS) ? styles.chipOn : '',
                   findLayer(layers, false, new Set(WEEKDAY_DAYS)) &&
-                  !(!scopeMain && !onDateScope && sameDays(weekdays, WEEKDAY_DAYS))
+                  !(!aggregateView && !scopeMain && !onDateScope && sameDays(weekdays, WEEKDAY_DAYS))
                     ? styles.chipHas
                     : '',
                 ]
@@ -1157,14 +1232,14 @@ export function ConnectionSchedulePopover({
                 Будни
               </button>
             </Tip>
-            <Tip content="Регулярное исключение · группа Сб+Вс (XOR с буднями)">
+            <Tip content="Регулярное исключение · Выходные" boundaryRef={panelRef}>
               <button
                 type="button"
                 className={[
                   styles.chip,
-                  !scopeMain && !onDateScope && sameDays(weekdays, WEEKEND_DAYS) ? styles.chipOn : '',
+                  !aggregateView && !scopeMain && !onDateScope && sameDays(weekdays, WEEKEND_DAYS) ? styles.chipOn : '',
                   findLayer(layers, false, new Set(WEEKEND_DAYS)) &&
-                  !(!scopeMain && !onDateScope && sameDays(weekdays, WEEKEND_DAYS))
+                  !(!aggregateView && !scopeMain && !onDateScope && sameDays(weekdays, WEEKEND_DAYS))
                     ? styles.chipHas
                     : '',
                 ]
@@ -1180,7 +1255,7 @@ export function ConnectionSchedulePopover({
               className={[styles.calWrap, calPresent ? styles.calWrapOpen : ''].filter(Boolean).join(' ')}
               ref={calWrapRef}
             >
-              <Tip content="Одиночное исключение (по датам)">
+              <Tip content="Одиночное исключение (по датам)" boundaryRef={panelRef}>
                 <button
                   type="button"
                   className={[styles.chip, onDateScope || calPresent ? styles.chipOn : ''].filter(Boolean).join(' ')}
@@ -1222,9 +1297,13 @@ export function ConnectionSchedulePopover({
             {WEEKDAYS.map((w) => {
               const hasSingle = findSingleDayExc(layers, w.dow) != null;
               const editingDay =
-                !scopeMain && !onDateScope && weekdays.has(w.dow) && !isGroupMask(maskFromDays(weekdays));
+                !aggregateView &&
+                !scopeMain &&
+                !onDateScope &&
+                weekdays.has(w.dow) &&
+                !isGroupMask(maskFromDays(weekdays));
               return (
-                <Tip key={w.dow} content="Регулярное исключение (день). Ctrl — несколько дней" block>
+                <Tip key={w.dow} content="Регулярное исключение (день)" block boundaryRef={panelRef}>
                   <button
                     type="button"
                     className={[
@@ -1250,14 +1329,23 @@ export function ConnectionSchedulePopover({
           )}
         </div>
 
-        <div className={[styles.section, readOnly || !hasActiveLayer ? styles.sectionLocked : ''].filter(Boolean).join(' ')}>
+        <div
+          className={[
+            styles.section,
+            readOnly || aggregateView || !hasActiveLayer ? styles.sectionLocked : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
           <span className={styles.sectionTitle}>Режим</span>
           <div className={styles.chips}>
             <Tip content="On/Off по расписанию">
               <button
                 type="button"
-                className={[styles.chip, mode === 'window' ? styles.chipOn : ''].filter(Boolean).join(' ')}
-                disabled={readOnly || !hasActiveLayer}
+                className={[styles.chip, !aggregateView && mode === 'window' ? styles.chipOn : '']
+                  .filter(Boolean)
+                  .join(' ')}
+                disabled={readOnly || aggregateView || !hasActiveLayer}
                 onClick={() => setScopeMode('window')}
               >
                 Окно связи
@@ -1266,8 +1354,10 @@ export function ConnectionSchedulePopover({
             <Tip content="Off-интервал (не подключаться)">
               <button
                 type="button"
-                className={[styles.chip, mode === 'off' ? styles.chipOn : ''].filter(Boolean).join(' ')}
-                disabled={readOnly || !hasActiveLayer}
+                className={[styles.chip, !aggregateView && mode === 'off' ? styles.chipOn : '']
+                  .filter(Boolean)
+                  .join(' ')}
+                disabled={readOnly || aggregateView || !hasActiveLayer}
                 onClick={() => setScopeMode('off')}
               >
                 Выключено
@@ -1277,7 +1367,10 @@ export function ConnectionSchedulePopover({
         </div>
 
         <div
-          className={[styles.section, readOnly || mode === 'off' || !hasActiveLayer ? styles.sectionLocked : '']
+          className={[
+            styles.section,
+            readOnly || aggregateView || mode === 'off' || !hasActiveLayer ? styles.sectionLocked : '',
+          ]
             .filter(Boolean)
             .join(' ')}
         >
@@ -1293,7 +1386,7 @@ export function ConnectionSchedulePopover({
                   className={[styles.chip, activeTemplate === tpl.id ? styles.chipOn : '']
                     .filter(Boolean)
                     .join(' ')}
-                  disabled={readOnly || mode === 'off' || !hasActiveLayer || !canApply}
+                  disabled={readOnly || aggregateView || mode === 'off' || !hasActiveLayer || !canApply}
                   onClick={() => applyTemplate(tpl, shiftHours)}
                 >
                   {tpl.label}
@@ -1306,14 +1399,14 @@ export function ConnectionSchedulePopover({
                 key={n}
                 content={
                   isShiftValid(activeWin, n)
-                    ? `Shift ±${n} ч к диапазону`
+                    ? `Shift ±${n}ч`
                     : 'Shift недоступен: open уйдёт во вчера, или duration >24ч'
                 }
               >
                 <button
                   type="button"
                   className={[styles.chip, shiftHours === n ? styles.chipOn : ''].filter(Boolean).join(' ')}
-                  disabled={readOnly || mode === 'off' || !hasActiveLayer || !isShiftValid(activeWin, n)}
+                  disabled={readOnly || aggregateView || mode === 'off' || !hasActiveLayer || !isShiftValid(activeWin, n)}
                   onClick={() => selectShift(n)}
                 >
                   {n === 0 ? 'Shift 0' : String(n)}
@@ -1321,18 +1414,22 @@ export function ConnectionSchedulePopover({
               </Tip>
             ))}
           </div>
-          {activeTplWin && (
-            <span className={styles.meta}>
-              Из market_schedule ·{' '}
-              <span className={dayType === 'weekday' ? styles.metaActive : undefined}>
-                будни {fmtWindow(activeTplWin.wd)}
-              </span>
-              {' · '}
-              <span className={dayType === 'weekend' ? styles.metaActive : undefined}>
-                выходные {activeTplWin.we ? fmtWindow(activeTplWin.we) : 'нет торгов'}
-              </span>
-            </span>
-          )}
+          <span className={[styles.meta, !activeTplWin ? styles.metaDisabled : ''].filter(Boolean).join(' ')}>
+            {activeTplWin ? (
+              <>
+                Из market_schedule ·{' '}
+                <span className={dayType === 'weekday' ? styles.metaActive : undefined}>
+                  будни {fmtWindow(activeTplWin.wd)}
+                </span>
+                {' · '}
+                <span className={dayType === 'weekend' ? styles.metaActive : undefined}>
+                  выходные {activeTplWin.we ? fmtWindow(activeTplWin.we) : 'нет торгов'}
+                </span>
+              </>
+            ) : (
+              'Из market_schedule'
+            )}
+          </span>
         </div>
 
         <label className={styles.note}>
@@ -1346,17 +1443,12 @@ export function ConnectionSchedulePopover({
           />
         </label>
 
-        <WeeklyScheduleOverview
-          rules={rules}
-          preview={editing ? preview : null}
-          onCancelRule={editing ? onCancelRule : undefined}
-        />
-
         <WeeklyDayColumns
           key={onDateScope && scopeDate ? `date:${scopeDate.from}:${scopeDate.to}` : 'week'}
           columns={chartColumns}
           title={onDateScope ? 'Даты' : 'Неделя'}
           defaultExpanded
+          onSegClick={editing ? onChartSegClick : undefined}
         />
 
         {!onDateScope && (
@@ -1373,6 +1465,17 @@ export function ConnectionSchedulePopover({
                 if (slot.kind === 'group') return layerTone(0);
                 return layerTone(1);
               };
+              /** Слот текущего редактируемого слоя — остальные приглушены. */
+              const ribbonOn = (slot: (typeof slots)[number]): boolean => {
+                if (aggregateView) return true;
+                if (scopeMain) return slot.kind === 'main' && slot.layer != null;
+                if (!weekdays.has(w.dow)) return false;
+                if (slot.kind === 'main' || !slot.layer) return false;
+                if (isGroupMask(dowMask)) {
+                  return slot.kind === 'group' && slot.layer.dowMask === dowMask;
+                }
+                return slot.kind === 'single';
+              };
               return (
                 <div key={w.dow} className={styles.regularCol}>
                   <div className={styles.regularRibbons}>
@@ -1382,6 +1485,7 @@ export function ConnectionSchedulePopover({
                         className={[
                           styles.regularRibbon,
                           slot.kind === 'main' && !slot.layer ? styles.regularRibbonUnset : '',
+                          !ribbonOn(slot) ? styles.regularRibbonDim : '',
                         ]
                           .filter(Boolean)
                           .join(' ')}
@@ -1399,12 +1503,62 @@ export function ConnectionSchedulePopover({
           </div>
         )}
 
-        <Tip content={readOnly ? 'Переключитесь в режим редактирования' : !hasActiveLayer ? 'Выберите слой' : undefined} block>
+        {onDateScope && (
+          <div
+            className={[
+              styles.regularBoard,
+              styles.staticBoard,
+              chartColumns.length > 7 ? styles.staticBoardDense : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            style={{
+              gridTemplateColumns: `repeat(${Math.max(chartColumns.length, 1)}, minmax(0, 1fr))`,
+            }}
+            aria-label="Слои static по датам"
+          >
+            {chartColumns.map((col) => {
+              const slots = staticBoardSlots(layers, col.key);
+              return (
+                <div key={col.key} className={styles.regularCol}>
+                  <div className={styles.regularRibbons}>
+                    {slots.map((layer) => {
+                      const idx = layers.staticExc.findIndex((e) => e.id === layer.id);
+                      const bg =
+                        layer.mode === 'off' ? '#e05555' : layerTone(idx >= 0 ? idx : 0);
+                      return (
+                        <span
+                          key={layer.id}
+                          className={styles.regularRibbon}
+                          style={{ background: bg }}
+                          title={layer.label}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <Tip
+          content={
+            readOnly
+              ? 'Переключитесь в режим редактирования'
+              : aggregateView
+                ? 'Выберите слой (Все / колбаска) для редактирования'
+                : !hasActiveLayer
+                  ? 'Выберите слой'
+                  : undefined
+          }
+          block
+        >
           <button
             type="button"
             className={styles.approve}
             onClick={approve}
-            disabled={readOnly || !hasActiveLayer}
+            disabled={readOnly || aggregateView || !hasActiveLayer}
           >
             Утвердить
           </button>

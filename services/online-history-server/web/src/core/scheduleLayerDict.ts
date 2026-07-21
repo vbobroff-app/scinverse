@@ -281,6 +281,50 @@ export function regularBoardSlots(dict: ScheduleLayerDict, jsDay: number): Regul
   return slots;
 }
 
+/**
+ * Визуальные доски static: уровень слоя = max(уровень пересечённых ниже) + 1
+ * (как в календаре). Без main — static сами по себе верхний tier.
+ */
+export function assignStaticBoardLevels(layers: readonly ScheduleLayer[]): number[] {
+  const levels: number[] = [];
+  for (let i = 0; i < layers.length; i++) {
+    const e = layers[i];
+    if (e.dateFrom == null || e.dateTo == null) {
+      levels[i] = 0;
+      continue;
+    }
+    let maxUnder = -1;
+    for (let j = 0; j < i; j++) {
+      const o = layers[j];
+      if (o.dateFrom == null || o.dateTo == null) continue;
+      if (datesOverlap(e.dateFrom, e.dateTo, o.dateFrom, o.dateTo)) {
+        maxUnder = Math.max(maxUnder, levels[j] ?? 0);
+      }
+    }
+    levels[i] = maxUnder + 1;
+  }
+  return levels;
+}
+
+/**
+ * Tetris static на календарный день: только covering слои, снизу вверх по board level.
+ * Дыр нет — кирпич падает; main не участвует.
+ */
+export function staticBoardSlots(dict: ScheduleLayerDict, iso: string): ScheduleLayer[] {
+  const levels = assignStaticBoardLevels(dict.staticExc);
+  return dict.staticExc
+    .map((layer, i) => ({ layer, level: levels[i] ?? 0, index: i }))
+    .filter(
+      ({ layer }) =>
+        layer.dateFrom != null &&
+        layer.dateTo != null &&
+        iso >= layer.dateFrom &&
+        iso <= layer.dateTo,
+    )
+    .sort((a, b) => a.level - b.level || a.index - b.index)
+    .map((x) => x.layer);
+}
+
 /** Поднять static-исключение наверх; опционально выкинуть полностью вложенные (Mold ⊆ M). */
 export function promoteStaticExc(
   dict: ScheduleLayerDict,

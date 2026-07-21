@@ -89,7 +89,7 @@ scinverse/
 | 7g | Слой сделок на Ганте: присутствие торгов по бакетам (лесенка), app-кэш `V008`, `/coverage/activity` | DONE | [phase7g](./dev/phase7g/plan.md) |
 | **7h** | **Честная подложка: recovery (`V009`), живость (`V010`/`V011`), автомат связи + пинг, красная разметка разрывов** | **DONE** | [phase7h/report](./dev/phase7h/report.md), [incident](./dev/phase7h/incident.md) |
 | 7i | «Управление записью»: полуавтомат Auto + Supervisor (MOEX) | IN PROGRESS | [phase7i/apply](./dev/phase7i/apply.md) |
-| **7j** | **Расписание соединения: Auto Connection + Supervisor + SCD-2 окно + notify** | **IN PROGRESS** | [phase7j/plan](./dev/phase7j/plan.md) · [apply](./dev/phase7j/apply.md) |
+| **7j** | **Расписание соединения: Auto Connection + Supervisor + якорная модель (open+duration) + слоистые исключения (main/dow/date, SCD-2) + notify** | **DONE** | [phase7j/report](./dev/phase7j/report.md) · [v2-exceptions](./dev/phase7j/v2-exceptions.md) |
 | 8 | CI/CD (GitHub Actions + compose `migrator`) | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` | TODO | — |
 | 10 | Multi-user & auth (Keycloak + `user_settings` + роли) | PLANNED | [phase10](./dev/phase10/plan.md) |

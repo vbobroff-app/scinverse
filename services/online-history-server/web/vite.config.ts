@@ -27,8 +27,12 @@ export default defineConfig({
       allow: [rootDir, notificationCenterRoot, path.resolve(rootDir, '../../..')],
     },
     watch: {
-      // pnpm hardlink/symlink: явно следим за пакетом вне web/
-      ignored: [`!${notificationCenterRoot.replace(/\\/g, '/')}/**`],
+      // Windows: native FS events часто «замирают» (Cursor/AV) — polling стабильнее.
+      usePolling: true,
+      interval: 200,
+      // Важно: не ставить ignored: ['!outside/**'] — одиночный negation
+      // в chokidar игнорирует всё КРОМЕ этого пути (web/src «пропадает» из watch).
+      // Пакет вне root уже подхватывается через alias + fs.allow.
     },
   },
   optimizeDeps: {

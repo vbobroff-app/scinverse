@@ -41,7 +41,7 @@
 | 7g | Слой сделок: присутствие торгов по бакетам (лесенка), app-кэш, `/coverage/activity` | 2 | DONE | [7g](../phase7g/plan.md) |
 | **7h** | **Честная подложка: recovery, живость захвата, автомат связи, красная разметка разрывов** | **2** | **DONE** | [7h](../phase7h/report.md) |
 | 7i | «Управление записью»: полуавтомат Auto + Supervisor (MOEX) | 3 | IN PROGRESS | [7i](../phase7i/apply.md) |
-| **7j** | **Расписание соединения: Auto Connection + Supervisor + SCD-2 окно + notify lifecycle** | **3** | **IN PROGRESS** | [7j](../phase7j/plan.md) · [apply](../phase7j/apply.md) |
+| **7j** | **Расписание соединения: Auto Connection + Supervisor + якорная модель + слоистые исключения (main/dow/date, SCD-2) + notify** | **3** | **DONE** | [7j report](../phase7j/report.md) · [v2-exceptions](../phase7j/v2-exceptions.md) |
 
 ## Текущий фокус (цель 2 → цель 3)
 
