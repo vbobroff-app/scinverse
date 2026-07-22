@@ -255,6 +255,7 @@ public static class OhsEndpoints
         api.MapPut("/connections/{id:long}/schedule/rule", async (
             long id,
             PutConnectionScheduleRuleRequest request,
+            string? batchId,
             IConnectionStore connections,
             IConnectionScheduleStore schedule,
             ConnectionSupervisor supervisor,
@@ -271,16 +272,19 @@ public static class OhsEndpoints
                 var draft = ToRuleDraft(request);
                 var result = await schedule.UpsertRuleAsync(id, draft, ct);
                 supervisor.Nudge();
-                notifications.Publish(
-                    "connection.schedule.rule_set",
-                    $"Расписание {id}: правило «{ScopeLabel(result.Rule)}» утверждено",
-                    severity: "info", sourceType: "user", data: new { connectionId = id, result.Rule.ScheduleId });
-                if (result.SupersededIds.Count > 0)
+                if (string.IsNullOrWhiteSpace(batchId))
                 {
                     notifications.Publish(
-                        "connection.schedule.rule_superseded",
-                        $"Расписание {id}: перекрыто правил — {result.SupersededIds.Count}",
-                        severity: "info", sourceType: "system", data: new { connectionId = id, ids = result.SupersededIds });
+                        "connection.schedule.rule_set",
+                        $"Расписание {id}: правило «{ScopeLabel(result.Rule)}» утверждено",
+                        severity: "info", sourceType: "user", data: new { connectionId = id, result.Rule.ScheduleId });
+                    if (result.SupersededIds.Count > 0)
+                    {
+                        notifications.Publish(
+                            "connection.schedule.rule_superseded",
+                            $"Расписание {id}: перекрыто правил — {result.SupersededIds.Count}",
+                            severity: "info", sourceType: "system", data: new { connectionId = id, ids = result.SupersededIds });
+                    }
                 }
 
                 return Results.Ok(ToScheduleRuleDto(result.Rule));
@@ -294,6 +298,7 @@ public static class OhsEndpoints
         api.MapPost("/connections/{id:long}/schedule/rules/{scheduleId:long}/cancel", async (
             long id,
             long scheduleId,
+            string? batchId,
             IConnectionScheduleStore schedule,
             ConnectionSupervisor supervisor,
             INotificationPublisher notifications,
@@ -306,11 +311,85 @@ public static class OhsEndpoints
             }
 
             supervisor.Nudge();
-            notifications.Publish(
-                "connection.schedule.rule_canceled",
-                $"Расписание {id}: правило «{ScopeLabel(canceled)}» снято",
-                severity: "info", sourceType: "user", data: new { connectionId = id, scheduleId });
+            if (string.IsNullOrWhiteSpace(batchId))
+            {
+                notifications.Publish(
+                    "connection.schedule.rule_canceled",
+                    $"Расписание {id}: правило «{ScopeLabel(canceled)}» снято",
+                    severity: "info", sourceType: "user", data: new { connectionId = id, scheduleId });
+            }
+
             return Results.Ok(ToScheduleRuleDto(canceled));
+        });
+
+        api.MapPost("/connections/{id:long}/schedule/compose", (
+            long id,
+            ScheduleComposeRequest request,
+            INotificationPublisher notifications) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.BatchId))
+            {
+                return Results.BadRequest(new { error = "batchId обязателен" });
+            }
+
+            var kind = (request.Kind ?? "").Trim().ToLowerInvariant();
+            if (kind is not ("cleared" or "applied" or "recreated"))
+            {
+                return Results.BadRequest(new { error = "kind: cleared | applied | recreated" });
+            }
+
+            var items = request.Items ?? Array.Empty<ScheduleComposeItemDto>();
+            var corr = request.BatchId.Trim();
+            var n = items.Count;
+            var headline = kind switch
+            {
+                "cleared" => n > 0 ? $"Расписание {id} очищено ({n})" : $"Расписание {id} очищено",
+                "recreated" => n > 0 ? $"Расписание {id} пересоздано ({n})" : $"Расписание {id} пересоздано",
+                _ => n > 0 ? $"Расписание {id} изменено ({n})" : $"Расписание {id} изменено",
+            };
+
+            var lines = new List<string>
+            {
+                kind switch
+                {
+                    "cleared" => $"Расписание {id}: очищено",
+                    "recreated" => $"Расписание {id}: пересоздано",
+                    _ => $"Расписание {id}: изменения применены",
+                },
+            };
+            foreach (var i in items)
+            {
+                var verb = i.Kind.Equals("canceled", StringComparison.OrdinalIgnoreCase) ? "снято"
+                    : i.Kind.Equals("set", StringComparison.OrdinalIgnoreCase) ? "утверждено"
+                    : i.Kind;
+                lines.Add($"Расписание {id}: правило «{i.Label}» {verb}");
+            }
+
+            var userCode = kind switch
+            {
+                "cleared" => "connection.schedule.cleared",
+                "recreated" => "connection.schedule.recreated",
+                _ => "connection.schedule.batch_applied",
+            };
+
+            // User: короткий заголовок; детали — data.lines (столбик в expand дока).
+            notifications.Publish(
+                userCode,
+                headline,
+                severity: "info",
+                sourceType: "user",
+                data: new { connectionId = id, kind, items, lines },
+                correlationId: corr);
+
+            notifications.Publish(
+                "connection.schedule.batch",
+                $"Расписание {id}: batch ({n})",
+                severity: "info",
+                sourceType: "system",
+                data: new { connectionId = id, kind, items },
+                correlationId: corr);
+
+            return Results.Ok(new { connectionId = id, kind, count = n });
         });
 
         api.MapGet("/notifications", (NotificationHub hub, int? limit) =>

@@ -1,4 +1,4 @@
-import { BehaviorSubject, EMPTY, from, of, throwError, type Observable, type Subscription } from 'rxjs';
+import { BehaviorSubject, EMPTY, forkJoin, from, of, throwError, type Observable, type Subscription } from 'rxjs';
 import { catchError, finalize, map, mergeMap, switchMap, tap, timeout, toArray } from 'rxjs/operators';
 import { bucketSecondsForTimeframe } from './activityBucket';
 import { OhsApi, type OhsApiClient } from './api';
@@ -31,7 +31,9 @@ import type {
   LivenessIntervalDto,
   LiveEvent,
   ConnectionScheduleStateDto,
+  ConnectionScheduleRuleDto,
   PutConnectionScheduleRuleRequest,
+  ScheduleComposeItemDto,
   RecordingDto,
   RecordingScheduleDto,
   SelectionScope,
@@ -1269,7 +1271,7 @@ export class OhsStore {
   }
 
   /** Сброс зависшего «подключается…» (тумблер снова кликабелен). */
-  cancelConnect(connectionId: number): void {
+  cancelConnect(): void {
     this.refreshConnections();
   }
 
@@ -1305,6 +1307,52 @@ export class OhsStore {
     this.api.cancelConnectionScheduleRule(connectionId, scheduleId).subscribe({
       next: () => this.refreshConnectionSchedule(connectionId),
       error: (err) => console.error('cancelConnectionScheduleRule', err),
+    });
+  }
+
+  /**
+   * Пачка schedule-операций + Notification Composer:
+   * атомарные notify глушатся через batchId; в конце — одно user + одно system.
+   */
+  applyConnectionScheduleBatch(
+    connectionId: number,
+    args: {
+      upserts: PutConnectionScheduleRuleRequest[];
+      cancels: number[];
+      composeKind: 'cleared' | 'applied' | 'recreated';
+      items: ScheduleComposeItemDto[];
+    },
+  ): void {
+    const batchId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `sched-${connectionId}-${Date.now()}`;
+    const upsertOps = args.upserts.map((body) =>
+      this.api.putConnectionScheduleRule(connectionId, body, { batchId }),
+    );
+    const cancelOps = args.cancels.map((scheduleId) =>
+      this.api.cancelConnectionScheduleRule(connectionId, scheduleId, { batchId }),
+    );
+    const ops = [...upsertOps, ...cancelOps];
+    const run = (ops.length > 0 ? forkJoin(ops) : of<ConnectionScheduleRuleDto[]>([])).pipe(
+      switchMap((results) => {
+        // Первые upserts.length ответов — новые правила (уже со scheduleId);
+        // их порядок совпадает с порядком 'set'-items — дозаполняем id.
+        const newIds = results.slice(0, upsertOps.length).map((r) => r?.scheduleId ?? null);
+        let ui = 0;
+        const items = args.items.map((it) =>
+          it.kind === 'set' && it.scheduleId == null ? { ...it, scheduleId: newIds[ui++] ?? null } : it,
+        );
+        return this.api.composeConnectionSchedule(connectionId, {
+          batchId,
+          kind: args.composeKind,
+          items,
+        });
+      }),
+      finalize(() => this.refreshConnectionSchedule(connectionId)),
+    );
+    run.subscribe({
+      error: (err) => console.error('applyConnectionScheduleBatch', err),
     });
   }
 

@@ -297,6 +297,20 @@ export interface PutConnectionScheduleSettingsRequest {
   tz?: string;
 }
 
+/** Элемент пачки Notification Composer. */
+export interface ScheduleComposeItemDto {
+  kind: 'set' | 'canceled' | string;
+  label: string;
+  scheduleId?: number | null;
+}
+
+/** Итог пачки schedule-операций (user-summary + system batch). */
+export interface ScheduleComposeRequest {
+  batchId: string;
+  kind: 'cleared' | 'applied' | 'recreated';
+  items: ScheduleComposeItemDto[];
+}
+
 export interface NotificationDto {
   id: string;
   ts: string;

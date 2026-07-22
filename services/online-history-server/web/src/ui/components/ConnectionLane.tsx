@@ -25,7 +25,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const connSchedule = connectionSchedules.get(connection.connectionId);
-  const rules = connSchedule?.rules ?? [];
+  const rules = useMemo(() => connSchedule?.rules ?? [], [connSchedule]);
   const hasRules = hasLiveRules(rules);
   const connInWindow = useMemo(
     () => (hasRules ? isConnectedNow(rules, new Date(now)) : false),
@@ -88,8 +88,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
         state={connSchedule}
         open={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
-        onUpsertRule={(body) => store.upsertConnectionScheduleRule(connection.connectionId, body)}
-        onCancelRule={(scheduleId) => store.cancelConnectionScheduleRule(connection.connectionId, scheduleId)}
+        onApplyBatch={(args) => store.applyConnectionScheduleBatch(connection.connectionId, args)}
       />
     </>
   );

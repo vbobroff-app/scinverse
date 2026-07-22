@@ -48,6 +48,13 @@ function detailText(event: NotificationEvent): string | null {
   if (!event.data || Object.keys(event.data).length === 0) {
     return null;
   }
+  const lines = event.data.lines;
+  if (Array.isArray(lines) && lines.length > 0 && lines.every((x) => typeof x === 'string')) {
+    return (lines as string[]).join('\n');
+  }
+  if (typeof event.data.detail === 'string' && event.data.detail.trim()) {
+    return event.data.detail;
+  }
   try {
     return JSON.stringify(event.data, null, 2);
   } catch {

@@ -22,6 +22,8 @@
 | 7j.10 | **v2:** API GET state / PUT rule / PUT settings / POST cancel + notify-коды | DONE | `connection.schedule.rule_set/.rule_superseded/.rule_canceled` |
 | 7j.11 | **v2:** фронт — поповер авторинга скоупа, `WeeklyScheduleOverview`, клиентский резолвер | DONE | dow-исключения; `date`-авторинг — перспектива |
 | 7j.12 | **v2:** тесты — резолвер unit (9) + стор integration (6) | DONE | unit 131 ✓ / integration 43 ✓ / web 27 ✓ |
+| 7j.13 | **Notify Composer:** user-summary на clear/approve поверх атомарных `rule_*` | DONE | [notify-composer.md](notify-composer.md); `batchId` + `POST …/compose` |
+| 7j.14 | **Market / calendar profile** на schedule settings (не на rule); UI без хардкода MOEX | PLANNED | см. [market-profile.md](market-profile.md) |
 
 ## Лог выполнения
 

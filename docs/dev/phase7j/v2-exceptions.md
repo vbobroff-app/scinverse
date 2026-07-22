@@ -32,6 +32,8 @@ MVP хранил **одно** окно суток на соединение (`wi
 - **Режим правила:** `mode` = `window` | `off` (нерабочий период). `main` тоже может быть `off`.
 - **`main` необязателен:** можно жить на одних исключениях; день без правил → не подключаемся (без ошибки).
 - **Auto (вкл/выкл), engine, tz — на уровне соединения** (`connection_schedule_settings`), не на строке-правиле.
+
+**Планируется:** явный calendar / market profile на settings (MOEX — частный случай; CME и др.); пресеты UI от профиля, не хардкод — [market-profile.md](market-profile.md).
 - **Отмена — по строке-правилу** (дорожки в overview), не по чипсу. Чипсы = авторинг скоупа.
 - **Пресеты — только информативные** подсказки редактора, на логику не влияют.
 
@@ -152,9 +154,10 @@ v1-UI наполняет `scope_kind IN ('main','dow')`; `date_*` заведен
 
 ### Уведомления
 
-- `connection.schedule.rule_set` (info, source `user`) — правило утверждено;
-- `connection.schedule.rule_superseded` (info, source `system`) — сколько живых перекрыто;
-- `connection.schedule.rule_canceled` (info, source `user`) — правило снято.
+- `connection.schedule.rule_set` (info, source `user`) — правило утверждено (одиночный вызов, без `batchId`);
+- `connection.schedule.rule_superseded` (info, source `system`) — сколько живых перекрыто (без `batchId`);
+- `connection.schedule.rule_canceled` (info, source `user`) — правило снято (без `batchId`);
+- **Composer (пачка):** `connection.schedule.cleared` / `…batch_applied` (user) + `connection.schedule.batch` (system) — см. [notify-composer.md](notify-composer.md).
 
 ## Фронтенд
 

@@ -207,6 +207,21 @@ public sealed record PutConnectionScheduleSettingsRequest(
     string? Engine,
     string? Tz);
 
+/// <summary>Элемент пачки для Notification Composer (user-summary + system batch).</summary>
+public sealed record ScheduleComposeItemDto(
+    string Kind,
+    string Label,
+    long? ScheduleId = null);
+
+/// <summary>
+/// Итог пачки schedule-операций: одно user-уведомление + одно system.
+/// Атомарные rule_*/cancel при <c>batchId</c> на PUT/cancel не публикуются.
+/// </summary>
+public sealed record ScheduleComposeRequest(
+    string BatchId,
+    string Kind,
+    IReadOnlyList<ScheduleComposeItemDto> Items);
+
 /// <summary>Подключение коннектора (без секретов) + рантайм-статус.</summary>
 public sealed record ConnectionDto(
     long ConnectionId,

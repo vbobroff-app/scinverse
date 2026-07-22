@@ -13,6 +13,7 @@ import type {
   ConnectionScheduleSettingsDto,
   PutConnectionScheduleRuleRequest,
   PutConnectionScheduleSettingsRequest,
+  ScheduleComposeRequest,
   NotificationDto,
   CaptureLivenessDto,
   LinkLivenessDto,
@@ -134,14 +135,32 @@ export const OhsApi = {
   getConnectionSchedule: (connectionId: number) =>
     getJSON<ConnectionScheduleStateDto>(`/connections/${connectionId}/schedule`),
 
-  putConnectionScheduleRule: (connectionId: number, body: PutConnectionScheduleRuleRequest) =>
-    put<ConnectionScheduleRuleDto>(`/connections/${connectionId}/schedule/rule`, body),
+  putConnectionScheduleRule: (
+    connectionId: number,
+    body: PutConnectionScheduleRuleRequest,
+    opts?: { batchId?: string },
+  ) =>
+    put<ConnectionScheduleRuleDto>(
+      `/connections/${connectionId}/schedule/rule${opts?.batchId ? `?batchId=${encodeURIComponent(opts.batchId)}` : ''}`,
+      body,
+    ),
 
   putConnectionScheduleSettings: (connectionId: number, body: PutConnectionScheduleSettingsRequest) =>
     put<ConnectionScheduleSettingsDto>(`/connections/${connectionId}/schedule/settings`, body),
 
-  cancelConnectionScheduleRule: (connectionId: number, scheduleId: number) =>
-    post<ConnectionScheduleRuleDto>(`/connections/${connectionId}/schedule/rules/${scheduleId}/cancel`),
+  cancelConnectionScheduleRule: (
+    connectionId: number,
+    scheduleId: number,
+    opts?: { batchId?: string },
+  ) =>
+    post<ConnectionScheduleRuleDto>(
+      `/connections/${connectionId}/schedule/rules/${scheduleId}/cancel${
+        opts?.batchId ? `?batchId=${encodeURIComponent(opts.batchId)}` : ''
+      }`,
+    ),
+
+  composeConnectionSchedule: (connectionId: number, body: ScheduleComposeRequest) =>
+    post<void>(`/connections/${connectionId}/schedule/compose`, body),
 
   getConnectionScheduleHistory: (connectionId: number) =>
     getJSON<ConnectionScheduleRuleDto[]>(`/connections/${connectionId}/schedule/history`),

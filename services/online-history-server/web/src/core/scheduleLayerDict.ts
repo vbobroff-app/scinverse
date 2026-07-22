@@ -123,7 +123,7 @@ export function defaultMainLayer(startMin = 6 * 60, endMin = 24 * 60 + 60): Sche
   };
 }
 
-export function emptyLayerDict(_startMin?: number, _endMin?: number): ScheduleLayerDict {
+export function emptyLayerDict(): ScheduleLayerDict {
   return { main: null, exc: [], staticExc: [] };
 }
 

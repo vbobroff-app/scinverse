@@ -483,8 +483,8 @@ export function templateToAxisMins(
   padHours: number,
   minSpanMin = 60,
 ): { startMin: number; endMin: number } | null {
-  let startMin = snapMin(openH * 60 + openM - padHours * 60);
-  let endMin = snapMin(closeH * 60 + closeM + padHours * 60);
+  const startMin = snapMin(openH * 60 + openM - padHours * 60);
+  const endMin = snapMin(closeH * 60 + closeM + padHours * 60);
   const span = endMin - startMin;
   if (span < minSpanMin || span > MAX_SPAN_MIN || endMin <= startMin) {
     return null;

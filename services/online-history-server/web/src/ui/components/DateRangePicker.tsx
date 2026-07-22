@@ -76,7 +76,7 @@ export function DateRangePicker({
       setEnd(undefined);
       return;
     }
-    let lo = value < start ? value : start;
+    const lo = value < start ? value : start;
     let hi = value < start ? start : value;
     if (maxSpanDays != null && spanDays(lo, hi) > maxSpanDays) {
       hi = addDaysIso(lo, maxSpanDays - 1);

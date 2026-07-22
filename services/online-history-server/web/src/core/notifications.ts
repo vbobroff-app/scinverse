@@ -136,8 +136,10 @@ function seedDemoNotifications(): void {
   });
 }
 
-// Демо-лента — только dev-сборка; в prod источник ленты = реальный бэклог (GET /api/notifications) + WS.
-if (import.meta.env.DEV) {
+// Демо-лента только по явному флагу (иначе после рестарта Host «живые» события
+// из ring-buffer пропадают, а фейки остаются и путают приёмку).
+// Включить: VITE_NC_DEMO=1 в .env / .env.local и перезапуск Vite.
+if (import.meta.env.DEV && import.meta.env.VITE_NC_DEMO === '1') {
   seedDemoNotifications();
 }
 

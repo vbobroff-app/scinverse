@@ -5,6 +5,7 @@ import type {
   ConnectionScheduleRuleDto,
   ConnectionScheduleStateDto,
   PutConnectionScheduleRuleRequest,
+  ScheduleComposeItemDto,
 } from '../../core/types';
 import { OhsApi } from '../../core/api';
 import {
@@ -77,8 +78,12 @@ interface Props {
   state: ConnectionScheduleStateDto | undefined;
   open: boolean;
   onClose: () => void;
-  onUpsertRule: (body: PutConnectionScheduleRuleRequest) => void;
-  onCancelRule: (scheduleId: number) => void;
+  onApplyBatch: (args: {
+    upserts: PutConnectionScheduleRuleRequest[];
+    cancels: number[];
+    composeKind: 'cleared' | 'applied' | 'recreated';
+    items: ScheduleComposeItemDto[];
+  }) => void;
 }
 
 /** Дни недели: Пн..Вс, значение — js dow (0=вс..6=сб). */
@@ -367,6 +372,69 @@ function layerToPutBody(layer: ScheduleLayer, changeNote: string | null): PutCon
   return { ...base, mode: 'window', open, durationMin };
 }
 
+/** Маска дней → «Сб, Вс» (порядок Пн..Вс). */
+function dowNames(mask: number): string {
+  const set = new Set(daysFromMask(mask));
+  return WEEKDAYS.filter((w) => set.has(w.dow)).map((w) => w.label).join(', ');
+}
+
+/** Подпись скоупа как на бэке (ScopeLabel) — для Composer items. */
+function composeScopeLabel(layer: Pick<ScheduleLayer, 'scopeKind' | 'dowMask' | 'dateFrom' | 'dateTo' | 'label'>): string {
+  if (layer.scopeKind === 'main') return 'основное';
+  if (layer.scopeKind === 'dow') {
+    const mask = layer.dowMask ?? 0;
+    const names = dowNames(mask);
+    return names ? `${names} (дни ${mask})` : `дни ${mask}`;
+  }
+  if (layer.dateFrom && layer.dateTo) {
+    const fmt = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+    return layer.dateFrom === layer.dateTo
+      ? fmt(layer.dateFrom)
+      : `${fmt(layer.dateFrom)}–${fmt(layer.dateTo)}`;
+  }
+  return layer.label || 'date';
+}
+
+function composeScopeLabelFromPut(body: PutConnectionScheduleRuleRequest): string {
+  return composeScopeLabel({
+    scopeKind: body.scopeKind as ScheduleLayer['scopeKind'],
+    dowMask: body.dowMask ?? null,
+    dateFrom: body.dateFrom ?? null,
+    dateTo: body.dateTo ?? null,
+    label: '',
+  });
+}
+
+/** Минуты оси → «HH:MM» (mod суток). */
+function hhmmFromMin(min: number): string {
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/** Суффикс окна для подписи правила: «05:50–00:50» или «выкл». */
+function windowSuffix(mode: string, startMin: number, endMin: number): string {
+  return mode === 'off' ? 'выкл' : `${hhmmFromMin(startMin)}–${hhmmFromMin(endMin)}`;
+}
+
+/** «HH:MM[:SS]» → минуты 0..1439. */
+function openStrToMin(open?: string | null): number {
+  if (!open) return 0;
+  const [h, m] = open.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+/** Подпись правила для Composer: скоуп + окно, напр. «Ср (дни 4) 05:50–00:50». */
+function composeItemLabel(layer: ScheduleLayer): string {
+  return `${composeScopeLabel(layer)} ${windowSuffix(layer.mode, layer.startMin, layer.endMin)}`;
+}
+
+function composeItemLabelFromPut(body: PutConnectionScheduleRuleRequest): string {
+  const scope = composeScopeLabelFromPut(body);
+  if (body.mode === 'off') return `${scope} выкл`;
+  const startMin = openStrToMin(body.open);
+  return `${scope} ${windowSuffix('window', startMin, startMin + (body.durationMin ?? 0))}`;
+}
+
 /** Интервал окна на оси 48h; off/пусто → null. */
 interface Iv {
   s: number;
@@ -403,21 +471,29 @@ interface DiffEntry {
 
 /** Полоски слева у строки правила (confirm).
  * main/regular: blue = было, light = стало/добавили; red = отмена.
- * static: yellow вместо light. */
+ * static: yellow вместо light.
+ * Создание main с нуля — одна полоска (без «было»). */
 type DiffStripe = 'blue' | 'light' | 'red' | 'yellow';
 
 function diffStripes(e: DiffEntry): DiffStripe[] {
-  const isStatic = diffScopeKind(e) === 'static';
+  const scope = diffScopeKind(e);
+  const isStatic = scope === 'static';
   if (e.kind === 'modified') return [isStatic ? 'yellow' : 'light'];
   if (e.kind === 'removed') return ['red'];
+  // Main впервые: не «было+стало», одна полоска.
+  if (e.kind === 'added' && scope === 'main') {
+    return e.after?.mode === 'off' ? ['red'] : ['light'];
+  }
   // Добавлена отмена (off): было + красная.
   if (e.after?.mode === 'off') return ['blue', 'red'];
-  // Добавлено окно: было + светлая (static → желтоватая).
+  // Добавлено окно поверх / static: было + светлая (static → muted).
   return ['blue', isStatic ? 'yellow' : 'light'];
 }
 
 function diffTag(e: DiffEntry): string {
-  if (e.kind === 'added') return 'добавлено';
+  if (e.kind === 'added') {
+    return e.after?.scopeKind === 'main' ? 'создано' : 'добавлено';
+  }
   if (e.kind === 'removed') return 'отменено';
   return 'изменено';
 }
@@ -501,8 +577,7 @@ export function ConnectionSchedulePopover({
   state,
   open,
   onClose,
-  onUpsertRule,
-  onCancelRule,
+  onApplyBatch,
 }: Props) {
   const store = useOhsStore();
   const highlightDays = useBehavior(store.highlightDays$);
@@ -1277,7 +1352,7 @@ export function ConnectionSchedulePopover({
     loadCalendarRange(chartFrom, chartTo);
   };
 
-  const clearAllChanges = () => {
+  const doClearAllChanges = () => {
     if (readOnly) return;
     setAggregateView(false);
     closeCalendar();
@@ -1291,6 +1366,17 @@ export function ConnectionSchedulePopover({
     setStartMin(6 * 60);
     setEndMin(DAY_MIN + 60);
     setMode('window');
+  };
+
+  const clearAllChanges = () => {
+    if (readOnly || !hasAnyLayers) return;
+    setMsgBox({
+      severity: 'warning',
+      title: 'Расписание будет полностью отменено.',
+      message: 'Очистить полностью все расписание?',
+      confirmLabel: 'Да',
+      onConfirm: doClearAllChanges,
+    });
   };
 
   const clearStaticExceptions = () => {
@@ -1552,11 +1638,38 @@ export function ConnectionSchedulePopover({
     setView('confirm');
   };
 
-  /** Шаг 2: отправить всё на сервер. */
+  /** Шаг 2: отправить всё на сервер (пачка + Composer). */
   const commit = () => {
     const { upserts, cancels } = diffChanges();
-    for (const body of upserts) onUpsertRule(body);
-    for (const sid of cancels) onCancelRule(sid);
+    const base = baseDictRef.current;
+    const idToLayer = new Map(layersBottomToTop(base).map((l) => [l.id, l]));
+    const schedToLayerId = new Map(
+      [...baseSchedIdRef.current.entries()].map(([layerId, sid]) => [sid, layerId]),
+    );
+    const items: ScheduleComposeItemDto[] = [
+      ...cancels.map((sid) => {
+        const layerId = schedToLayerId.get(sid);
+        const layer = layerId ? idToLayer.get(layerId) : undefined;
+        return {
+          kind: 'canceled' as const,
+          label: layer ? composeItemLabel(layer) : `id ${sid}`,
+          scheduleId: sid,
+        };
+      }),
+      ...upserts.map((body) => ({
+        kind: 'set' as const,
+        label: composeItemLabelFromPut(body),
+      })),
+    ];
+    const baseEmpty = layersBottomToTop(base).length === 0;
+    const curEmpty = layersBottomToTop(layers).length === 0;
+    const composeKind: 'cleared' | 'applied' | 'recreated' =
+      upserts.length === 0 && cancels.length > 0 && curEmpty
+        ? 'cleared'
+        : baseEmpty && cancels.length === 0 && upserts.length > 0
+          ? 'recreated'
+          : 'applied';
+    onApplyBatch({ upserts, cancels, composeKind, items });
     hardClose();
   };
 
