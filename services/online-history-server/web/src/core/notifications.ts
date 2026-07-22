@@ -5,6 +5,8 @@
 
 import { createNotificationBus, notify } from '@scinverse/notification-center';
 import type {
+  NotificationInteraction,
+  NotificationLocalization,
   NotificationSeverity,
   NotificationSourceType,
   NotificationStatus,
@@ -16,6 +18,21 @@ const KNOWN_STATUSES: readonly NotificationStatus[] = ['active', 'underway', 're
 function toStatus(value: string | null | undefined): NotificationStatus | undefined {
   return value && (KNOWN_STATUSES as readonly string[]).includes(value)
     ? (value as NotificationStatus)
+    : undefined;
+}
+
+const KNOWN_INTERACTIONS: readonly NotificationInteraction[] = ['user', 'system'];
+const KNOWN_LOCALIZATIONS: readonly NotificationLocalization[] = ['internal', 'external'];
+
+function toInteraction(value: string | null | undefined): NotificationInteraction | undefined {
+  return value && (KNOWN_INTERACTIONS as readonly string[]).includes(value)
+    ? (value as NotificationInteraction)
+    : undefined;
+}
+
+function toLocalization(value: string | null | undefined): NotificationLocalization | undefined {
+  return value && (KNOWN_LOCALIZATIONS as readonly string[]).includes(value)
+    ? (value as NotificationLocalization)
     : undefined;
 }
 import { notificationDockStore } from './notificationDockStorage';
@@ -240,6 +257,9 @@ export function publishServerNotification(dto: NotificationDto): void {
     code: dto.code,
     message: dto.message,
     sourceType,
+    // Оси атрибуции материализованы бэком (phase 11.2); при отсутствии шина выведет из sourceType.
+    interaction: toInteraction(dto.interaction),
+    localization: toLocalization(dto.localization),
     status: toStatus(dto.status),
     correlationId: dto.correlationId ?? undefined,
     data,

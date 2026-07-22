@@ -324,6 +324,12 @@ export interface NotificationDto {
   /** Ключ инцидента для upsert перехода статуса (группировка событий). */
   correlationId?: string | null;
   data?: unknown;
+  /** Кто инициировал (материализовано бэком, phase 11.2): user | system. */
+  interaction?: string | null;
+  /** Контур: internal | external. */
+  localization?: string | null;
+  /** Отображаемое имя актора (снимок): «Оператор» / имя пользователя / сервис. */
+  actorLabel?: string | null;
 }
 
 export interface ConnectionDto {

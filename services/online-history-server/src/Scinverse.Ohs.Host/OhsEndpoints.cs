@@ -392,6 +392,8 @@ public static class OhsEndpoints
             return Results.Ok(new { connectionId = id, kind, count = n });
         });
 
+        // Бэклог — из тёплого ring-buffer (Publish пишет синхронно; после рестарта буфер гидрируется
+        // из БД, см. NotificationPersistWriter). Долговременный лог пишется асинхронно и служит аудитом.
         api.MapGet("/notifications", (NotificationHub hub, int? limit) =>
             hub.List(limit is > 0 and <= 500 ? limit : 100));
 
