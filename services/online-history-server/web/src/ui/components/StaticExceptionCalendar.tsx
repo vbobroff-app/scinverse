@@ -33,8 +33,24 @@ const LAYER_BLUES = [
   'hsl(204 28% 60%)',
 ] as const;
 
+/** Календарные (static) на доске Eye+Календарь — желтоватые, отличимо от main/regular. */
+const STATIC_PREVIEW_YELLOWS = [
+  'hsl(42 88% 62%)',
+  'hsl(38 82% 56%)',
+  'hsl(46 78% 68%)',
+  'hsl(34 70% 52%)',
+] as const;
+
 export function layerTone(layerIndex: number): string {
   return LAYER_BLUES[((layerIndex % LAYER_BLUES.length) + LAYER_BLUES.length) % LAYER_BLUES.length];
+}
+
+/** Static на preview-доске (View+Календарь). */
+export function staticPreviewTone(layerIndex: number): string {
+  return STATIC_PREVIEW_YELLOWS[
+    ((layerIndex % STATIC_PREVIEW_YELLOWS.length) + STATIC_PREVIEW_YELLOWS.length) %
+      STATIC_PREVIEW_YELLOWS.length
+  ];
 }
 
 function spanDays(a: string, b: string): number {
