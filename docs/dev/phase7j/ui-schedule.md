@@ -1,6 +1,6 @@
 # Phase 7j — UI расписания соединения (модалка)
 
-**Статус:** целевая модель для оживления UI (base с бэка + локальные changes).  
+**Статус:** `DONE` (base с бэка + локальные changes; двухшаговый approve с diff-превью; пачка через Composer). **Обновлено:** 2026-07-22.  
 **Точка входа:** полоса «Связь» → кнопка **Расписание** → модалка `ConnectionSchedulePopover`  
 (`services/online-history-server/web/src/ui/components/ConnectionSchedulePopover.tsx`).  
 Доменные решения слоёв / SCD-2 — [v2-exceptions.md](v2-exceptions.md).
@@ -46,7 +46,21 @@ static (date)  >  regular (dow)  >  main
 Фокус слоя (не aggregate): подсвечены только дни/ленты **текущего** скоупа; остальные
 приглушены (в т.ч. при выборе **main** / `[Все]`).
 
-Чип **[Очистить]** — сбросить локальные слои (в целевой модели: очистить `changes`, base не трогать).
+Чип **[Очистить]** — сбросить локальные слои (спрашивает подтверждение; на approve это станет
+пачкой `cancel` всех base-правил).
+
+**Двухшаговый approve (реализовано):** `Утвердить` не шлёт сразу, а переводит в под-вид
+`confirm` с **diff-превью** (`WeeklyDayColumns`, цвета kept/added/removed) + текстовым списком
+изменений; `Подтвердить` отправляет пачку, `← Вернуться` — назад в edit. При полной очистке —
+предупреждение «Расписание будет очищено».
+
+**Guardrail на правку main (реализовано):** предупреждение всплывает только при **первой реальной**
+мутации основного слоя (сдвиг маркера / MOEX-шаблон / off), не при выборе; «Отмена» откатывает
+main к сохранённому base; после «Изменить» — молчит до переоткрытия модалки.
+
+**Live-push баннер (реализовано):** если пока модалка открыта в правке с несохранёнными
+изменениями расписание сменилось на сервере (сигнатура правил ≠ базовой) — показывается баннер
+«Обновить», не затирая черновик.
 
 ---
 
@@ -95,12 +109,13 @@ interface ScheduleLayerDict {
 
 | Поле | Смысл |
 |------|--------|
-| `base: ScheduleLayerDict` | `dictFromRules(state.rules)` — снимок с бэка, immutable в сессии edit |
-| `changes: ScheduleLayerDict` | локальный черновик (то, что сейчас в коде часто зовётся `layers`) |
-| эффективный словарь | `merge(base, changes)` — для графика / «Просмотр» |
+| `baseDictRef: ScheduleLayerDict` | `dictFromRules(state.rules)` — снимок с бэка, immutable в сессии edit; `baseSchedIdRef: Map<layerId, scheduleId>` держит связь для `cancel` |
+| `layers: ScheduleLayerDict` | локальный черновик (`changes`) |
+| diff при approve | `diffChanges()`: слои `layers`, отличные от base → `upserts`; base-слои, исчезнувшие из `layers` → `cancels` (по `scheduleId`) |
 
-**Сейчас (gap):** при открытии `layers = dictFromRules(rules)` — base и changes не разделены;
-«Утвердить» шлёт **одно** активное правило (`PUT …/rule`), а не пачку changes.
+**Реализовано:** base (`baseDictRef`) и changes (`layers`) разведены; `Утвердить` собирает **пачку**
+(все изменённые/добавленные upsert + все снятые cancel) и уходит через `applyConnectionScheduleBatch`
+(см. §4.2 и [notify-composer.md](notify-composer.md)).
 
 ### 3.3. Маска дней (`dowMask`)
 
@@ -189,9 +204,19 @@ interface ConnectionScheduleRuleDto {
 | `open` + `durationMin` | `startMin` = минуты из `open`; `endMin` = `startMin + durationMin` |
 | — | `id` / `label` вычисляются на клиенте |
 
-### 4.2. Утверждение `[changes]` → бэк
+### 4.2. Утверждение `[changes]` → бэк (пачка + Composer)
 
-**Сейчас (реализовано):** на каждое утверждаемое правило —
+**Реализовано:** `commit` считает `diffChanges()` → `{ upserts, cancels }` и вызывает
+`OhsStore.applyConnectionScheduleBatch`, который:
+
+1. генерит `batchId`;
+2. шлёт все `PUT …/rule?batchId=` и `POST …/rules/{id}/cancel?batchId=` (атомарные notify **глушатся**);
+3. `POST …/schedule/compose` → одно user + одно system уведомление с общим `correlationId`;
+4. `refreshConnectionSchedule` (перечитать base).
+
+Детали формата и `kind` (cleared\|applied\|recreated) — [notify-composer.md](notify-composer.md).
+
+Одиночное правило (без пачки) — тот же endpoint без `batchId`:
 
 ```
 PUT /api/connections/{id}/schedule/rule
@@ -215,10 +240,6 @@ interface PutConnectionScheduleRuleRequest {
 
 Бэк: SCD-2 upsert + авто-ретайр `Mold ⊆ M` того же уровня → `superseded`.  
 Ответ: `ConnectionScheduleRuleDto` (новая живая версия).
-
-**Целевое поведение UI:** кнопка **Утвердить** отправляет **все** слои из `changes`
-(main + каждый exc + каждый staticExc), либо пачкой, либо серией PUT; после успеха —
-перечитать `GET …/schedule` в `base`, обнулить `changes`.
 
 Дополнительно уже есть:
 
@@ -366,15 +387,24 @@ body: { rules: PutConnectionScheduleRuleRequest[] }
 | Словарь слоёв | `web/src/core/scheduleLayerDict.ts` |
 | Резолвер по DTO (фаза на карточке) | `web/src/core/connectionSchedule.ts` |
 | DTO / API | `web/src/core/types.ts`, `web/src/core/api.ts` |
-| Store | `web/src/core/OhsStore.ts` (`upsertConnectionScheduleRule`, …) |
+| Store | `web/src/core/OhsStore.ts` (`applyConnectionScheduleBatch`, `refreshConnectionSchedule`, …) |
+| Notification Composer | [notify-composer.md](notify-composer.md); `NotificationRow` (`packages/notification-center`) |
 | Домен бэка | см. [v2-exceptions.md](v2-exceptions.md) |
 
 ---
 
-## 8. Следующий шаг реализации (фронт)
+## 8. Статус реализации (фронт)
 
-1. Развести в поповере `base` и `changes` (сейчас одно поле `layers`).
-2. График / Просмотр = `merge(base, changes)`.
-3. Edit пишет только в `changes`; base не мутировать.
-4. Утвердить = flush всех changes + reload base.
-5. Очистить = `changes = empty` (base остаётся).
+Базовый цикл реализован:
+
+1. ✅ Разведены `baseDictRef` (снимок) и `layers` (черновик).
+2. ✅ График / Просмотр строятся из эффективного словаря.
+3. ✅ Edit пишет в `layers`; base не мутируется (guardrail стережёт правку main).
+4. ✅ Утвердить = двухшаговый diff-превью → пачка upsert/cancel через Composer → reload base.
+5. ✅ Очистить = пачка `cancel` всех base-правил (с подтверждением).
+
+**Перспектива (7j.15–7j.16):**
+
+- `date`-авторинг static-исключений на фронте (календарь дат уже есть, добить UX).
+- Пагинация графика дат по месяцам для диапазонов > ~1 мес (см. [todo.md](todo.md)).
+- Пресеты из рыночного профиля settings вместо хардкода MOEX (см. [market-profile.md](market-profile.md)).
