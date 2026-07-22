@@ -480,9 +480,9 @@ function diffStripes(e: DiffEntry): DiffStripe[] {
   const isStatic = scope === 'static';
   if (e.kind === 'modified') return [isStatic ? 'yellow' : 'light'];
   if (e.kind === 'removed') return ['red'];
-  // Main впервые: не «было+стало», одна полоска.
+  // Main впервые: не «было+стало», одна синяя (не светло-синяя — та для изменений).
   if (e.kind === 'added' && scope === 'main') {
-    return e.after?.mode === 'off' ? ['red'] : ['light'];
+    return e.after?.mode === 'off' ? ['red'] : ['blue'];
   }
   // Добавлена отмена (off): было + красная.
   if (e.after?.mode === 'off') return ['blue', 'red'];

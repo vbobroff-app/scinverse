@@ -173,12 +173,13 @@
     color-mix(in srgb, var(--color-text-muted) 12%, transparent);
 }
 
-/* Diff-режим: осталось / добавили / убрали. */
+/* Diff-режим: осталось / добавили / убрали.
+ * Зоны без скругления — стыки плоские; форма колбаски от .track (overflow + radius). */
 .diffSeg {
   position: absolute;
   left: 0;
   right: 0;
-  border-radius: 2px;
+  border-radius: 0;
   overflow: hidden;
   z-index: 2;
 }
