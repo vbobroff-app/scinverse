@@ -15,6 +15,8 @@ interface Props {
   /** `null` / без `onCancel` — режим alert (только ОК). */
   cancelLabel?: string | null;
   danger?: boolean;
+  /** Опциональный чекбокс между сообщением и кнопками (напр. «Больше не показывать»). */
+  checkbox?: { label: string; checked: boolean; onChange: (checked: boolean) => void };
   onConfirm: () => void;
   onCancel?: () => void;
 }
@@ -26,6 +28,7 @@ export function ConfirmDialog({
   confirmLabel = 'ОК',
   cancelLabel = 'Отмена',
   danger = false,
+  checkbox,
   onConfirm,
   onCancel,
 }: Props) {
@@ -55,6 +58,16 @@ export function ConfirmDialog({
           </h4>
         </header>
         <p className={styles.message}>{message}</p>
+        {checkbox && (
+          <label className={styles.checkbox}>
+            <input
+              type="checkbox"
+              checked={checkbox.checked}
+              onChange={(e) => checkbox.onChange(e.target.checked)}
+            />
+            {checkbox.label}
+          </label>
+        )}
         <div className={styles.actions}>
           <Button variant={danger || tone === 'error' ? 'danger' : 'primary'} onClick={onConfirm} autoFocus>
             {confirmLabel}

@@ -41,6 +41,20 @@
   word-break: break-word;
 }
 
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox input {
+  cursor: pointer;
+}
+
 .actions {
   display: flex;
   gap: var(--spacing-sm);

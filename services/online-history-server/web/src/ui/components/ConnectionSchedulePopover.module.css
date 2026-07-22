@@ -675,6 +675,65 @@ input.metaBlockField {
   line-height: 1;
 }
 
+/* Ненавязчивый баннер: расписание изменилось на сервере. */
+.serverBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, #e0a355 55%, var(--color-border));
+  background: color-mix(in srgb, #e0a355 12%, transparent);
+  color: var(--color-text);
+  font-size: 12px;
+}
+
+.serverBannerIcon {
+  font-size: 14px;
+  line-height: 1;
+  color: #e0a355;
+}
+
+.serverBannerText {
+  flex: 1;
+  min-width: 0;
+}
+
+.serverBannerBtn {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-accent, #4dabf7);
+  background: transparent;
+  color: var(--color-accent, #4dabf7);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.serverBannerBtn:hover {
+  background: color-mix(in srgb, var(--color-accent, #4dabf7) 18%, transparent);
+}
+
+.serverBannerClose {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.serverBannerClose:hover {
+  color: var(--color-text);
+}
+
 .confirmFooter {
   display: flex;
   align-items: center;

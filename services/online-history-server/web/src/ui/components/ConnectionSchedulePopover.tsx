@@ -59,8 +59,14 @@ type ScheduleMsgBox = {
   severity: MessageBoxSeverity;
   title: string;
   message: string;
-  /** Если задан — confirm (ОК + Отмена); иначе alert (только ОК). */
-  onConfirm?: () => void;
+  /** Показать чекбокс «Больше не показывать» (значение приходит в onConfirm). */
+  checkbox?: boolean;
+  /** Подпись подтверждающей кнопки (по умолчанию «ОК»). */
+  confirmLabel?: string;
+  /** Если задан — confirm (кнопка + Отмена); иначе alert (только подтверждение). */
+  onConfirm?: (dontAskAgain: boolean) => void;
+  /** Реакция на «Отмена» (например, откатить изменение). */
+  onCancel?: () => void;
 };
 
 /** Длительность enter/exit анимации модалки и календаря (см. CSS). */
@@ -318,6 +324,30 @@ function layerDiffers(a: ScheduleLayer, b: ScheduleLayer): boolean {
   return a.startMin !== b.startMin || a.endMin !== b.endMin;
 }
 
+/** Есть ли расхождение чернового словаря с base (добавлено/изменено/снято). */
+function pendingExists(base: ScheduleLayerDict, cur: ScheduleLayerDict): boolean {
+  const baseArr = layersBottomToTop(base);
+  const curArr = layersBottomToTop(cur);
+  const baseById = new Map(baseArr.map((l) => [l.id, l]));
+  const curIds = new Set(curArr.map((l) => l.id));
+  for (const l of curArr) {
+    const b = baseById.get(l.id);
+    if (!b || layerDiffers(l, b)) return true;
+  }
+  for (const b of baseArr) {
+    if (!curIds.has(b.id)) return true;
+  }
+  return false;
+}
+
+/** Стабильная сигнатура набора правил сервера (для детекта внешних изменений). */
+function rulesSignature(rules: readonly ConnectionScheduleRuleDto[]): string {
+  return rules
+    .map((r) => `${r.scheduleId}:${r.scopeKind}:${r.dowMask ?? ''}:${r.dateFrom ?? ''}:${r.dateTo ?? ''}:${r.mode}:${r.open ?? ''}:${r.durationMin ?? ''}`)
+    .sort()
+    .join('|');
+}
+
 /** Слой черновика → тело PUT (open+durationMin из абсолютных минут оси). */
 function layerToPutBody(layer: ScheduleLayer, changeNote: string | null): PutConnectionScheduleRuleRequest {
   const base = {
@@ -525,11 +555,28 @@ export function ConnectionSchedulePopover({
   /** id слоя base → scheduleId (для soft-cancel снятых при утверждении). */
   const baseSchedIdRef = useRef<Map<string, number>>(new Map());
   const [msgBox, setMsgBox] = useState<ScheduleMsgBox | null>(null);
+  /** Значение чекбокса «Больше не показывать» в текущем msgBox. */
+  const [msgDontAsk, setMsgDontAsk] = useState(false);
+  /** Расписание изменилось на сервере, пока правим (баннер). */
+  const [serverChanged, setServerChanged] = useState(false);
   /**
    * Click-out → сохранить черновик до следующего открытия.
    * × / commit → сбросить (осознанный выход).
    */
   const preserveDraftRef = useRef(false);
+  /** «Больше не показывать» для предупреждения о правке main — до переоткрытия модалки. */
+  const suppressMainWarnRef = useRef(false);
+  /** Предупреждение о правке main уже открыто (не переоткрывать по каждому тику drag). */
+  const mainWarnPendingRef = useRef(false);
+  /** Панель уже инициализирована в этой сессии открытия (для детекта live-push). */
+  const panelInitedRef = useRef(false);
+  /** Сигнатура правил, из которых собран текущий base (для сравнения с сервером). */
+  const baseSigRef = useRef('');
+  /** Зеркала для чтения в эффектах без пересборки зависимостей. */
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
 
   const softClose = useCallback(() => {
     preserveDraftRef.current = true;
@@ -679,17 +726,36 @@ export function ConnectionSchedulePopover({
   }, [view, confirmCalOn]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      panelInitedRef.current = false;
+      return;
+    }
 
     // Click-out: вернуть тот же черновик (слои, confirm, скоуп…).
     if (preserveDraftRef.current) {
       preserveDraftRef.current = false;
+      panelInitedRef.current = true;
       closeCalendarInstant();
       OhsApi.getConnectionScheduleHistory(connectionId).subscribe({
         next: setHistory,
         error: () => setHistory([]),
       });
       return;
+    }
+
+    // Live-push: state/rules сменились на сервере, пока модалка открыта.
+    if (panelInitedRef.current) {
+      if (rulesSignature(rules) === baseSigRef.current) return; // наше же изменение
+      // Правим с несохранёнными изменениями → не затираем, показываем баннер.
+      if (editingRef.current && pendingExists(baseDictRef.current, layersRef.current)) {
+        setServerChanged(true);
+        OhsApi.getConnectionScheduleHistory(connectionId).subscribe({
+          next: setHistory,
+          error: () => setHistory([]),
+        });
+        return;
+      }
+      // Иначе безопасно принять новую версию (провал в полную реинициализацию).
     }
 
     setMode('window');
@@ -751,6 +817,12 @@ export function ConnectionSchedulePopover({
     setEngine(state?.settings.engine ?? 'futures');
     setActiveTemplate(TEMPLATES.find((t) => t.engine === (state?.settings.engine ?? 'futures'))?.id ?? 'futures');
 
+    panelInitedRef.current = true;
+    baseSigRef.current = rulesSignature(rules);
+    suppressMainWarnRef.current = false;
+    mainWarnPendingRef.current = false;
+    setServerChanged(false);
+
     OhsApi.getConnectionScheduleHistory(connectionId).subscribe({
       next: setHistory,
       error: () => setHistory([]),
@@ -802,6 +874,45 @@ export function ConnectionSchedulePopover({
     const to = single ? addDaysIso(span.to, CHART_PAD_DAYS) : span.to;
     loadCalendarRange(from, to);
   }, [editing, scopeDate, layers, loadCalendarRange]);
+
+  /**
+   * Guardrail #3: предупредить при ПЕРВОМ реальном изменении существующего
+   * основного слоя (двинули маркер / MOEX-шаблон / shift / off). Клик и выбор
+   * main без правки окна не тревожат. После подтверждения — молчим до
+   * переоткрытия модалки. «Отмена» откатывает main к сохранённому base.
+   */
+  useEffect(() => {
+    if (!editing || view !== 'edit') return;
+    if (suppressMainWarnRef.current || mainWarnPendingRef.current) return;
+    const base = baseDictRef.current.main;
+    const cur = layers.main;
+    if (!base || !cur || !layerDiffers(cur, base)) return;
+    mainWarnPendingRef.current = true;
+    setMsgDontAsk(false);
+    setMsgBox({
+      severity: 'warning',
+      title: 'Изменить основной слой?',
+      message: 'Правка основного слоя глобально изменит расписание для всех дней.',
+      confirmLabel: 'Изменить',
+      onConfirm: () => {
+        mainWarnPendingRef.current = false;
+        suppressMainWarnRef.current = true;
+      },
+      onCancel: () => {
+        mainWarnPendingRef.current = false;
+        const baseMain = baseDictRef.current.main;
+        setLayers((prev) => ({ ...prev, main: baseMain ? { ...baseMain } : null }));
+        if (baseMain) {
+          rememberLayer(baseMain.id, memFromLayer(baseMain));
+          if (scopeMain) {
+            setMode(baseMain.mode);
+            setStartMin(baseMain.startMin);
+            setEndMin(baseMain.endMin);
+          }
+        }
+      },
+    });
+  }, [layers.main, editing, view, scopeMain, rememberLayer]);
 
   if (!panelPresent) return null;
 
@@ -882,18 +993,10 @@ export function ConnectionSchedulePopover({
     if (w) selectLayer(w);
   };
 
-  /** [Все]: click active → снять main; иначе создать/выбрать. */
-  const toggleMain = () => {
-    if (readOnly) return;
+  /** Активировать main для редактирования (выбрать существующий / создать). */
+  const activateMainScope = () => {
     setAggregateView(false);
     setScopeDate(null);
-    if (layers.main && scopeMain && !onDateScope && !showAggregate) {
-      rememberLayer(layers.main.id, memFromLayer({ mode, startMin, endMin }));
-      setLayers((prev) => ({ ...prev, main: null }));
-      setScopeMain(false);
-      setWeekdays(new Set());
-      return;
-    }
     if (layers.main) {
       setScopeMain(true);
       loadEditorFromLayer(layers.main);
@@ -909,6 +1012,22 @@ export function ConnectionSchedulePopover({
     setLayers((prev) => ({ ...prev, main }));
     setScopeMain(true);
     loadEditorFromLayer(main);
+  };
+
+  /** [Все]: click active → снять main; иначе создать/выбрать (без предупреждения). */
+  const toggleMain = () => {
+    if (readOnly) return;
+    // Отжатие активного main = снятие. Это удаление (видно в диффе) — без предупреждения.
+    if (layers.main && scopeMain && !onDateScope && !showAggregate) {
+      setAggregateView(false);
+      setScopeDate(null);
+      rememberLayer(layers.main.id, memFromLayer({ mode, startMin, endMin }));
+      setLayers((prev) => ({ ...prev, main: null }));
+      setScopeMain(false);
+      setWeekdays(new Set());
+      return;
+    }
+    activateMainScope();
   };
 
   /** [Будни]/[Сб,Вс]: XOR; повторный клик по выбранной → снять группу. */
@@ -1453,6 +1572,8 @@ export function ConnectionSchedulePopover({
       if (id) schedIds.set(id, r.scheduleId);
     }
     baseSchedIdRef.current = schedIds;
+    baseSigRef.current = rulesSignature(rules);
+    setServerChanged(false);
     setScopeDate(null);
     setAggregateView(false);
     if (dict.main) {
@@ -1713,6 +1834,25 @@ export function ConnectionSchedulePopover({
 
         {view === 'edit' && (
         <div className={[styles.editStep, editStepIn ? styles.editStepIn : ''].filter(Boolean).join(' ')}>
+        {serverChanged && (
+          <div className={styles.serverBanner} role="status">
+            <span className={styles.serverBannerIcon} aria-hidden="true">
+              ⟳
+            </span>
+            <span className={styles.serverBannerText}>Расписание изменилось на сервере</span>
+            <button type="button" className={styles.serverBannerBtn} onClick={resetDraftToBase}>
+              Обновить
+            </button>
+            <button
+              type="button"
+              className={styles.serverBannerClose}
+              onClick={() => setServerChanged(false)}
+              aria-label="Скрыть"
+            >
+              ×
+            </button>
+          </div>
+        )}
         <ScheduleWindowRibbon
           startMin={startMin}
           endMin={endMin}
@@ -2354,14 +2494,28 @@ export function ConnectionSchedulePopover({
           severity={msgBox.severity}
           title={msgBox.title}
           message={msgBox.message}
-          confirmLabel="ОК"
+          confirmLabel={msgBox.confirmLabel ?? 'ОК'}
           cancelLabel={msgBox.onConfirm ? 'Отмена' : null}
+          checkbox={
+            msgBox.checkbox
+              ? { label: 'Больше не показывать', checked: msgDontAsk, onChange: setMsgDontAsk }
+              : undefined
+          }
           onConfirm={() => {
             const next = msgBox.onConfirm;
+            const dontAsk = msgDontAsk;
             setMsgBox(null);
-            next?.();
+            next?.(dontAsk);
           }}
-          onCancel={msgBox.onConfirm ? () => setMsgBox(null) : undefined}
+          onCancel={
+            msgBox.onConfirm
+              ? () => {
+                  const cancel = msgBox.onCancel;
+                  setMsgBox(null);
+                  cancel?.();
+                }
+              : undefined
+          }
         />
       )}
     </div>

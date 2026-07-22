@@ -210,7 +210,7 @@ export function StaticExceptionCalendar({
       return;
     }
 
-    let lo = value < start ? value : start;
+    const lo = value < start ? value : start;
     let hi = value < start ? start : value;
     if (spanDays(lo, hi) > maxSpanDays) {
       hi = addDaysIso(lo, maxSpanDays - 1);

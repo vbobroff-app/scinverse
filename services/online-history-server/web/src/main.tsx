@@ -14,6 +14,11 @@ if (savedTheme === 'light' || savedTheme === 'dark') {
 const store = new OhsStore();
 store.start();
 
+// Dev-хук: доступ к стору из консоли (симуляция live-push расписания и т.п.).
+if (import.meta.env.DEV) {
+  (window as unknown as { __ohsStore?: OhsStore }).__ohsStore = store;
+}
+
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error('#root не найден');
