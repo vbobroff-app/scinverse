@@ -629,6 +629,10 @@ input.metaBlockField {
   background: hsl(204 85% 68%);
 }
 
+.stripe_yellow {
+  background: hsl(0deg 0% 64.73%);
+}
+
 .stripe_red {
   background: #e05555;
 }

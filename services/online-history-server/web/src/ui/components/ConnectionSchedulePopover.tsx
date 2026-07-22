@@ -372,16 +372,18 @@ interface DiffEntry {
 }
 
 /** Полоски слева у строки правила (confirm).
- * Два синих: blue = было (темнее), light = стало/добавили (светлее); red = отмена. */
-type DiffStripe = 'blue' | 'light' | 'red';
+ * main/regular: blue = было, light = стало/добавили; red = отмена.
+ * static: yellow вместо light. */
+type DiffStripe = 'blue' | 'light' | 'red' | 'yellow';
 
 function diffStripes(e: DiffEntry): DiffStripe[] {
-  if (e.kind === 'modified') return ['light'];
+  const isStatic = diffScopeKind(e) === 'static';
+  if (e.kind === 'modified') return [isStatic ? 'yellow' : 'light'];
   if (e.kind === 'removed') return ['red'];
   // Добавлена отмена (off): было + красная.
   if (e.after?.mode === 'off') return ['blue', 'red'];
-  // Добавлено окно: было + светлая.
-  return ['blue', 'light'];
+  // Добавлено окно: было + светлая (static → желтоватая).
+  return ['blue', isStatic ? 'yellow' : 'light'];
 }
 
 function diffTag(e: DiffEntry): string {
@@ -402,6 +404,7 @@ const DIFF_STRIPE_CLASS: Record<DiffStripe, string> = {
   blue: styles.stripe_blue,
   light: styles.stripe_light,
   red: styles.stripe_red,
+  yellow: styles.stripe_yellow,
 };
 
 const DIFF_SCOPE_BG: Record<'main' | 'regular' | 'static', string> = {
@@ -1493,7 +1496,17 @@ export function ConnectionSchedulePopover({
 
   const diffMain = diffEntries.filter((e) => diffScopeKind(e) === 'main');
   const diffRegular = diffEntries.filter((e) => diffScopeKind(e) === 'regular');
-  const diffStatic = diffEntries.filter((e) => diffScopeKind(e) === 'static');
+  const diffStatic = diffEntries
+    .filter((e) => diffScopeKind(e) === 'static')
+    .slice()
+    .sort((a, b) => {
+      const aFrom = (a.after ?? a.before)?.dateFrom ?? '';
+      const bFrom = (b.after ?? b.before)?.dateFrom ?? '';
+      if (aFrom !== bFrom) return aFrom < bFrom ? -1 : 1;
+      const aTo = (a.after ?? a.before)?.dateTo ?? '';
+      const bTo = (b.after ?? b.before)?.dateTo ?? '';
+      return aTo < bTo ? -1 : aTo > bTo ? 1 : 0;
+    });
 
   const renderDiffRow = (e: DiffEntry) => (
     <li key={e.id} className={[styles.diffRow, DIFF_SCOPE_BG[diffScopeKind(e)]].join(' ')}>

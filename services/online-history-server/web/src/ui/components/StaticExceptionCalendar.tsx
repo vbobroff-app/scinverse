@@ -33,12 +33,12 @@ const LAYER_BLUES = [
   'hsl(204 28% 60%)',
 ] as const;
 
-/** Календарные (static) на доске Eye+Календарь — желтоватые, отличимо от main/regular. */
+/** Календарные (static) на доске Eye+Календарь — тот же оттенок, чуть светлее полосок confirm. */
 const STATIC_PREVIEW_YELLOWS = [
-  'hsl(42 88% 62%)',
-  'hsl(38 82% 56%)',
-  'hsl(46 78% 68%)',
-  'hsl(34 70% 52%)',
+  'hsl(27.1deg 16.16% 68%)',
+  'hsl(27deg 16% 62%)',
+  'hsl(27deg 16% 74%)',
+  'hsl(27deg 14% 56%)',
 ] as const;
 
 export function layerTone(layerIndex: number): string {
