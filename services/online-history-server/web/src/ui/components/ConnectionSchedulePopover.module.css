@@ -297,12 +297,8 @@
   opacity: 0.92;
 }
 
-.note input:disabled {
-  opacity: 0.7;
-  cursor: default;
-}
-
-.note {
+/* Общий двухстрочный блок: «История» (view) ↔ «Комментарий» (edit). */
+.metaBlock {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -311,12 +307,37 @@
   width: 100%;
 }
 
-.note input {
+.metaBlockField {
+  box-sizing: border-box;
+  min-height: 32px;
+  height: 32px;
   padding: 6px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-bg-input);
   color: var(--color-text);
+  font: inherit;
+  line-height: 1.35;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0 4px;
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+input.metaBlockField {
+  display: block;
+  color: var(--color-text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.metaBlockField span {
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .approve {
@@ -335,28 +356,12 @@
   cursor: not-allowed;
 }
 
-/* Кнопки внизу: лишняя высота сессии уходит сюда, а не дырами у графика. */
 .footer {
   margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 0;
-}
-
-.lastChange {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0 4px;
-  min-height: 1.35em;
-  font-size: 12px;
-  color: var(--color-text-muted);
-  width: 100%;
-}
-
-.lastChange span {
-  color: var(--color-text-secondary);
-  font-variant-numeric: tabular-nums;
+  flex: none;
 }
 
 .meta {
@@ -383,7 +388,77 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   animation: scheduleStepIn 0.2s ease-out;
+}
+
+.editStep {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.editStepIn {
+  animation: scheduleStepBackIn 0.2s ease-out;
+}
+
+.confirmFinal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+  padding-top: 12px;
+}
+
+.confirmFinalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.confirmFinalHead .sectionTitle {
+  flex: none;
+}
+
+.confirmFinalHead .chips {
+  padding-right: 12px;
+}
+
+.confirmDiff {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: none;
+  margin-top: auto;
+  padding-bottom: 12px;
+}
+
+.confirmRules {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 12px;
+}
+
+.confirmDiffChart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.confirmSubTitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
 }
 
 .diffLegend {
@@ -429,28 +504,126 @@
   gap: 4px;
 }
 
+.diffGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+}
+
+.diffGroupToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  align-self: flex-start;
+  text-align: left;
+}
+
+.diffGroupToggle:hover {
+  color: var(--color-text-secondary);
+}
+
+/* Свёрнут — как строка правила (фон + рамка scope). */
+.diffGroupToggleCollapsed {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px 5px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 600;
+  box-sizing: border-box;
+  align-self: stretch;
+}
+
+.diffGroupToggleCollapsed:hover {
+  border-color: var(--color-border-focus);
+  color: var(--color-text);
+}
+
+.diffGroupChevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  font-size: 12px;
+  line-height: 1;
+  width: 12px;
+  color: var(--color-text-muted);
+  transition: transform 0.15s ease;
+}
+
+.diffGroupChevronOpen {
+  transform: rotate(90deg);
+}
+
+.diffGroup .diffList {
+  padding-left: 2px;
+}
+
 .diffRow {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px;
+  padding: 5px 8px 5px 6px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
-  border-left-width: 3px;
   font-size: 12px;
   background: color-mix(in srgb, var(--color-text) 3%, transparent);
 }
 
-.diffRow_added {
-  border-left-color: var(--color-accent, #4dabf7);
+/* Лёгкие маски scope: main темнее → regular → static светлее. */
+.diffRow_main {
+  background: color-mix(in srgb, hsl(204 70% 28%) 14%, transparent);
+  border-color: color-mix(in srgb, hsl(204 70% 35%) 28%, var(--color-border));
 }
 
-.diffRow_removed {
-  border-left-color: #e05555;
+.diffRow_regular {
+  background: color-mix(in srgb, hsl(204deg 42.95% 47.49%) 16%, transparent);
+  border-color: color-mix(in srgb, hsl(204deg 42.95% 47.49%) 22%, var(--color-border));
 }
 
-.diffRow_modified {
-  border-left-color: #e0a355;
+.diffRow_static {
+  background: color-mix(in srgb, #83b9e5 12%, transparent);
+  border-color: color-mix(in srgb, #83b9e5 24%, var(--color-border));
+}
+
+.diffStripes {
+  display: flex;
+  flex-direction: row;
+  align-self: stretch;
+  flex: none;
+  gap: 2px;
+  width: auto;
+}
+
+.diffStripes i {
+  display: block;
+  width: 3px;
+  border-radius: 1px;
+  align-self: stretch;
+  min-height: 100%;
+}
+
+.stripe_blue {
+  background: color-mix(in srgb, var(--color-accent, #4dabf7) 78%, #000);
+}
+
+.stripe_light {
+  background: hsl(204 85% 68%);
+}
+
+.stripe_red {
+  background: #e05555;
 }
 
 .diffScope {
@@ -521,6 +694,17 @@
   from {
     opacity: 0;
     transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scheduleStepBackIn {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
   }
   to {
     opacity: 1;
@@ -636,7 +820,8 @@
   .panelOut,
   .calScrimOut,
   .calPopOut,
-  .confirmStep {
+  .confirmStep,
+  .editStepIn {
     animation: none;
   }
 }

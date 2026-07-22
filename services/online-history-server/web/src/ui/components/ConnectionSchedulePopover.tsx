@@ -351,6 +351,45 @@ interface DiffEntry {
   after: ScheduleLayer | null;
 }
 
+/** Полоски слева у строки правила (confirm).
+ * Два синих: blue = было (темнее), light = стало/добавили (светлее); red = отмена. */
+type DiffStripe = 'blue' | 'light' | 'red';
+
+function diffStripes(e: DiffEntry): DiffStripe[] {
+  if (e.kind === 'modified') return ['light'];
+  if (e.kind === 'removed') return ['red'];
+  // Добавлена отмена (off): было + красная.
+  if (e.after?.mode === 'off') return ['blue', 'red'];
+  // Добавлено окно: было + светлая.
+  return ['blue', 'light'];
+}
+
+function diffTag(e: DiffEntry): string {
+  if (e.kind === 'added') return 'добавлено';
+  if (e.kind === 'removed') return 'отменено';
+  return 'изменено';
+}
+
+/** main / dow(regular) / date(static) — для лёгкой маски фона. */
+function diffScopeKind(e: DiffEntry): 'main' | 'regular' | 'static' {
+  const layer = e.after ?? e.before;
+  if (layer?.scopeKind === 'date') return 'static';
+  if (layer?.scopeKind === 'dow') return 'regular';
+  return 'main';
+}
+
+const DIFF_STRIPE_CLASS: Record<DiffStripe, string> = {
+  blue: styles.stripe_blue,
+  light: styles.stripe_light,
+  red: styles.stripe_red,
+};
+
+const DIFF_SCOPE_BG: Record<'main' | 'regular' | 'static', string> = {
+  main: styles.diffRow_main,
+  regular: styles.diffRow_regular,
+  static: styles.diffRow_static,
+};
+
 /** Дифф base-словаря против чернового: added/modified/removed по каждому слою. */
 function computeDiffEntries(base: ScheduleLayerDict, cur: ScheduleLayerDict): DiffEntry[] {
   const baseArr = layersBottomToTop(base);
@@ -445,6 +484,13 @@ export function ConnectionSchedulePopover({
   /** Активный static-скоуп (дата или диапазон). */
   const [scopeDate, setScopeDate] = useState<{ from: string; to: string } | null>(null);
   const [calDays, setCalDays] = useState<Map<string, CalendarDayDto>>(() => new Map());
+  /** Анимация входа edit только при возврате с confirm (не при первом открытии). */
+  const [editStepIn, setEditStepIn] = useState(false);
+  /** Toggle-группа MOEX на confirm (null = все выкл.). */
+  const [confirmTemplate, setConfirmTemplate] = useState<TemplateId | null>(null);
+  /** Аккордеоны групп правил на confirm (≥2 regular/static). */
+  const [regularOpen, setRegularOpen] = useState(false);
+  const [staticOpen, setStaticOpen] = useState(false);
   const calWrapRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   /** Память last-known окна слоя на сессию поповера (снял → вернул). */
@@ -454,6 +500,29 @@ export function ConnectionSchedulePopover({
   /** id слоя base → scheduleId (для soft-cancel снятых при утверждении). */
   const baseSchedIdRef = useRef<Map<string, number>>(new Map());
   const [msgBox, setMsgBox] = useState<ScheduleMsgBox | null>(null);
+
+  /** Зафиксировать размер панели (edit → confirm без прыжка высоты). */
+  const lockPanelSize = useCallback(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const h = Math.ceil(el.getBoundingClientRect().height);
+    el.style.minHeight = `${h}px`;
+    el.style.height = `${h}px`;
+  }, []);
+
+  const unlockPanelSize = useCallback(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    el.style.minHeight = '';
+    el.style.height = '';
+  }, []);
+
+  /** Confirm → edit: разблокировать высоту и включить анимацию входа. */
+  const goToEdit = useCallback(() => {
+    unlockPanelSize();
+    setEditStepIn(true);
+    setView('edit');
+  }, [unlockPanelSize]);
 
   const rememberLayer = useCallback((id: string, mem: LayerMemory) => {
     layerMemRef.current.set(id, mem);
@@ -511,32 +580,13 @@ export function ConnectionSchedulePopover({
   useEffect(() => {
     if (!panelExiting) return;
     const t = window.setTimeout(() => {
+      unlockPanelSize();
       setPanelPresent(false);
       setPanelExiting(false);
       closeCalendarInstant();
     }, closeMs());
     return () => window.clearTimeout(t);
-  }, [panelExiting, closeCalendarInstant]);
-
-  /** Высота оболочки: растёт до максимума за сессию, не сжимается при Eye↔Pencil. */
-  const panelMinHRef = useRef(0);
-  useEffect(() => {
-    if (!panelPresent || panelExiting) {
-      panelMinHRef.current = 0;
-      if (panelRef.current) panelRef.current.style.minHeight = '';
-      return;
-    }
-    const el = panelRef.current;
-    if (!el) return;
-    const id = requestAnimationFrame(() => {
-      const h = el.getBoundingClientRect().height;
-      if (h > panelMinHRef.current + 0.5) {
-        panelMinHRef.current = h;
-        el.style.minHeight = `${Math.ceil(h)}px`;
-      }
-    });
-    return () => cancelAnimationFrame(id);
-  }, [panelPresent, panelExiting, editing, view]);
+  }, [panelExiting, closeCalendarInstant, unlockPanelSize]);
 
   const mergeCalDays = useCallback((days: CalendarDayDto[]) => {
     setCalDays((prev) => {
@@ -576,6 +626,10 @@ export function ConnectionSchedulePopover({
     setCalDays(new Map());
     setEditing(rules.length === 0);
     setView('edit');
+    setEditStepIn(false);
+    setConfirmTemplate(null);
+    setRegularOpen(false);
+    setStaticOpen(false);
     setAggregateView(false);
 
     const dict = rules.length > 0 ? dictFromRules(rules) : emptyLayerDict();
@@ -1262,6 +1316,8 @@ export function ConnectionSchedulePopover({
       });
       return;
     }
+    lockPanelSize();
+    setConfirmTemplate(activeTemplate);
     setView('confirm');
   };
 
@@ -1326,6 +1382,60 @@ export function ConnectionSchedulePopover({
   const diffEntries = view === 'confirm' ? computeDiffEntries(baseDictRef.current, layers) : [];
   const cleared = layersBottomToTop(layers).length === 0 && layersBottomToTop(baseDictRef.current).length > 0;
 
+  const diffMain = diffEntries.filter((e) => diffScopeKind(e) === 'main');
+  const diffRegular = diffEntries.filter((e) => diffScopeKind(e) === 'regular');
+  const diffStatic = diffEntries.filter((e) => diffScopeKind(e) === 'static');
+
+  const renderDiffRow = (e: DiffEntry) => (
+    <li key={e.id} className={[styles.diffRow, DIFF_SCOPE_BG[diffScopeKind(e)]].join(' ')}>
+      <span className={styles.diffStripes} aria-hidden="true">
+        {diffStripes(e).map((s, i) => (
+          <i key={`${s}-${i}`} className={DIFF_STRIPE_CLASS[s]} />
+        ))}
+      </span>
+      <span className={styles.diffScope}>{e.label}</span>
+      <span className={styles.diffWin}>
+        {e.kind === 'added'
+          ? `→ ${winText(e.after)}`
+          : e.kind === 'removed'
+            ? `${winText(e.before)} → снять`
+            : `${winText(e.before)} → ${winText(e.after)}${durDeltaText(e.before, e.after)}`}
+      </span>
+      <span className={styles.diffTag}>{diffTag(e)}</span>
+    </li>
+  );
+
+  /** Новое расписание на confirm — все дни активны; base = сессия выбранного MOEX. */
+  const confirmTplWin = confirmTemplate ? presets[confirmTemplate] : null;
+  const resultColumns: DayColumn[] = chartColumns.map((col) => {
+    let baseStartMin: number | null = null;
+    let baseEndMin: number | null = null;
+    if (confirmTplWin) {
+      const js = onDateScope
+        ? new Date(`${col.key}T12:00:00`).getDay()
+        : Number(col.key);
+      const dayWin = Number.isFinite(js)
+        ? pickWindow(confirmTplWin, js === 0 || js === 6 ? 'weekend' : 'weekday')
+        : null;
+      const axis = dayWin
+        ? templateToAxisMins(dayWin.openH, dayWin.openM, dayWin.closeH, dayWin.closeM, 0)
+        : null;
+      if (axis) {
+        baseStartMin = axis.startMin;
+        baseEndMin = axis.endMin;
+      }
+    }
+    return {
+      ...col,
+      seg: {
+        ...col.seg,
+        active: true,
+        baseStartMin,
+        baseEndMin,
+      },
+    };
+  });
+
   const diffColumns: DayColumn[] = WEEK_JS.map((js) => {
     const b = layerToIv(resolveLayerForDow(baseDictRef.current, js));
     const d = layerToIv(resolveLayerForDow(layers, js));
@@ -1368,20 +1478,32 @@ export function ConnectionSchedulePopover({
           />
         )}
         <header className={styles.head}>
-          <strong>{view === 'confirm' ? 'Подтверждение изменений' : 'Расписание соединения'}</strong>
+          <strong>Расписание соединения</strong>
           <div className={styles.headActions}>
-            {view === 'edit' && (
-              <Tip content={editing ? 'Режим редактирования' : 'Режим просмотра'}>
-                <button
-                  type="button"
-                  className={styles.iconBtn}
-                  onClick={() => setEditing((v) => !v)}
-                  aria-pressed={editing}
-                >
-                  {editing ? <PencilIcon className={styles.headIcon} /> : <EyeIcon className={styles.headIcon} />}
-                </button>
-              </Tip>
-            )}
+            <Tip
+              content={
+                view === 'confirm'
+                  ? 'Вернуться к редактированию'
+                  : editing
+                    ? 'Режим редактирования'
+                    : 'Режим просмотра'
+              }
+            >
+              <button
+                type="button"
+                className={styles.iconBtn}
+                onClick={() => {
+                  if (view === 'confirm') {
+                    goToEdit();
+                    return;
+                  }
+                  setEditing((v) => !v);
+                }}
+                aria-pressed={editing}
+              >
+                {editing ? <PencilIcon className={styles.headIcon} /> : <EyeIcon className={styles.headIcon} />}
+              </button>
+            </Tip>
             <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Закрыть">
               <span className={styles.closeGlyph} aria-hidden="true">
                 ×
@@ -1391,7 +1513,7 @@ export function ConnectionSchedulePopover({
         </header>
 
         {view === 'edit' && (
-        <>
+        <div className={[styles.editStep, editStepIn ? styles.editStepIn : ''].filter(Boolean).join(' ')}>
         <ScheduleWindowRibbon
           startMin={startMin}
           endMin={endMin}
@@ -1405,7 +1527,7 @@ export function ConnectionSchedulePopover({
         />
 
         <div className={[styles.section, readOnly ? styles.sectionLocked : ''].filter(Boolean).join(' ')}>
-          <span className={styles.sectionTitle}>Область правила</span>
+          <span className={styles.sectionTitle}>Правила</span>
           <div className={styles.chips}>
             <Tip content="Основное расписание (неделя)" boundaryRef={panelRef}>
               <button
@@ -1497,7 +1619,7 @@ export function ConnectionSchedulePopover({
               className={[styles.calWrap, calPresent ? styles.calWrapOpen : ''].filter(Boolean).join(' ')}
               ref={calWrapRef}
             >
-              <Tip content="Одиночное исключение (по датам)" boundaryRef={panelRef}>
+              <Tip content="Календарное исключение" boundaryRef={panelRef}>
                 <button
                   type="button"
                   className={[styles.chip, onDateScope || calPresent ? styles.chipOn : ''].filter(Boolean).join(' ')}
@@ -1616,7 +1738,7 @@ export function ConnectionSchedulePopover({
             .filter(Boolean)
             .join(' ')}
         >
-          <span className={styles.sectionTitle}>Шаблоны (подсказки)</span>
+          <span className={styles.sectionTitle}>Шаблоны</span>
           <div className={styles.chips}>
             {TEMPLATES.map((tpl) => {
               const w = pickWindow(presets[tpl.id], dayType);
@@ -1673,18 +1795,6 @@ export function ConnectionSchedulePopover({
             )}
           </span>
         </div>
-
-        {editing && (
-          <label className={styles.note}>
-            Комментарий
-            <input
-              type="text"
-              value={note}
-              placeholder="например: брокер рвёт до 07:00"
-              onChange={(e) => setNote(e.target.value)}
-            />
-          </label>
-        )}
 
         <WeeklyDayColumns
           key={onDateScope && scopeDate ? `date:${scopeDate.from}:${scopeDate.to}` : 'week'}
@@ -1785,89 +1895,179 @@ export function ConnectionSchedulePopover({
           </div>
         )}
 
-        {!editing && (
-          <div className={styles.lastChange}>
-            {lastChange ? (
-              <>
-                Последнее изменение: <span>{new Date(lastChange.effectiveFrom).toLocaleString('ru-RU')}</span>
-                {' · '}
-                {sourceLabel(lastChange.changeSource)}
-                {lastChange.changeNote ? ` · ${lastChange.changeNote}` : ''}
-              </>
-            ) : (
-              'Изменений пока не было'
-            )}
+        {/* Один слот под графиком: История (view) ↔ Комментарий (edit) — одинаковая высота. */}
+        {editing ? (
+          <label className={styles.metaBlock}>
+            Комментарий
+            <input
+              type="text"
+              className={styles.metaBlockField}
+              value={note}
+              placeholder="например: брокер рвёт до 07:00"
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </label>
+        ) : (
+          <div className={styles.metaBlock}>
+            История
+            <div className={styles.metaBlockField}>
+              {lastChange ? (
+                <>
+                  Последнее изменение:{' '}
+                  <span>{new Date(lastChange.effectiveFrom).toLocaleString('ru-RU')}</span>
+                  {' · '}
+                  {sourceLabel(lastChange.changeSource)}
+                  {lastChange.changeNote ? ` · ${lastChange.changeNote}` : ''}
+                </>
+              ) : (
+                'Изменений пока не было'
+              )}
+            </div>
           </div>
         )}
 
-        </>
+        </div>
         )}
 
         {view === 'confirm' && (
           <section className={styles.confirmStep}>
-            <WeeklyDayColumns key="diff" columns={diffColumns} title="Что изменится (эффективно)" defaultExpanded />
-            <div className={styles.diffLegend} aria-hidden="true">
-              <span>
-                <i className={[styles.dot, styles.dotKept].join(' ')} /> без изменений
-              </span>
-              <span>
-                <i className={[styles.dot, styles.dotAdded].join(' ')} /> добавлено
-              </span>
-              <span>
-                <i className={[styles.dot, styles.dotRemoved].join(' ')} /> убрано
-              </span>
+            <div className={styles.confirmFinal}>
+              <div className={styles.confirmFinalHead}>
+                <span className={styles.sectionTitle}>Новое расписание</span>
+                <div className={styles.chips}>
+                  {TEMPLATES.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      className={[styles.chip, confirmTemplate === tpl.id ? styles.chipOn : '']
+                        .filter(Boolean)
+                        .join(' ')}
+                      aria-pressed={confirmTemplate === tpl.id}
+                      onClick={() => setConfirmTemplate((cur) => (cur === tpl.id ? null : tpl.id))}
+                    >
+                      {tpl.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <WeeklyDayColumns
+                key="result"
+                columns={resultColumns}
+                title="Что будет установлено"
+                defaultExpanded
+              />
             </div>
-            <div className={styles.section}>
-              <span className={styles.sectionTitle}>Правила</span>
-              <ul className={styles.diffList}>
-                {diffEntries.map((e) => (
-                  <li
-                    key={e.id}
-                    className={[styles.diffRow, styles[`diffRow_${e.kind}`]].filter(Boolean).join(' ')}
-                  >
-                    <span className={styles.diffScope}>{e.label}</span>
-                    <span className={styles.diffWin}>
-                      {e.kind === 'added'
-                        ? `→ ${winText(e.after)}`
-                        : e.kind === 'removed'
-                          ? `${winText(e.before)} → снять`
-                          : `${winText(e.before)} → ${winText(e.after)}${durDeltaText(e.before, e.after)}`}
+
+            <div className={styles.confirmDiff}>
+              <span className={styles.sectionTitle}>Подтверждение изменений</span>
+              <div className={styles.confirmRules}>
+                <span className={styles.confirmSubTitle}>Правила</span>
+                <ul className={styles.diffList}>
+                  {diffMain.map(renderDiffRow)}
+
+                  {diffRegular.length === 1 && renderDiffRow(diffRegular[0]!)}
+                  {diffRegular.length >= 2 && (
+                    <li className={styles.diffGroup}>
+                      <button
+                        type="button"
+                        className={[
+                          styles.diffGroupToggle,
+                          !regularOpen ? styles.diffGroupToggleCollapsed : '',
+                          !regularOpen ? styles.diffRow_regular : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        aria-expanded={regularOpen}
+                        onClick={() => setRegularOpen((v) => !v)}
+                      >
+                        <span
+                          className={[styles.diffGroupChevron, regularOpen ? styles.diffGroupChevronOpen : '']
+                            .filter(Boolean)
+                            .join(' ')}
+                        >
+                          ▸
+                        </span>
+                        {regularOpen ? (
+                          <>Регулярные ({diffRegular.length})</>
+                        ) : (
+                          <span className={styles.diffScope}>Регулярные ({diffRegular.length})</span>
+                        )}
+                      </button>
+                      {regularOpen && <ul className={styles.diffList}>{diffRegular.map(renderDiffRow)}</ul>}
+                    </li>
+                  )}
+
+                  {diffStatic.length === 1 && renderDiffRow(diffStatic[0]!)}
+                  {diffStatic.length >= 2 && (
+                    <li className={styles.diffGroup}>
+                      <button
+                        type="button"
+                        className={[
+                          styles.diffGroupToggle,
+                          !staticOpen ? styles.diffGroupToggleCollapsed : '',
+                          !staticOpen ? styles.diffRow_static : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        aria-expanded={staticOpen}
+                        onClick={() => setStaticOpen((v) => !v)}
+                      >
+                        <span
+                          className={[styles.diffGroupChevron, staticOpen ? styles.diffGroupChevronOpen : '']
+                            .filter(Boolean)
+                            .join(' ')}
+                        >
+                          ▸
+                        </span>
+                        {staticOpen ? (
+                          <>Календарные ({diffStatic.length})</>
+                        ) : (
+                          <span className={styles.diffScope}>Календарные ({diffStatic.length})</span>
+                        )}
+                      </button>
+                      {staticOpen && <ul className={styles.diffList}>{diffStatic.map(renderDiffRow)}</ul>}
+                    </li>
+                  )}
+                </ul>
+                {cleared && (
+                  <span className={styles.clearWarn}>
+                    <span className={styles.warnIcon} aria-hidden="true">
+                      ⚠
                     </span>
-                    <span className={styles.diffTag}>
-                      {e.kind === 'added' ? 'добавлено' : e.kind === 'removed' ? 'снять' : 'изменено'}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              {cleared && (
-                <span className={styles.clearWarn}>
-                  <span className={styles.warnIcon} aria-hidden="true">
-                    ⚠
+                    Расписание будет очищено — автоподключение отключится.
                   </span>
-                  Расписание будет очищено — автоподключение отключится.
-                </span>
-              )}
+                )}
+              </div>
+              <div className={styles.confirmDiffChart}>
+                <WeeklyDayColumns key="diff" columns={diffColumns} title="Что изменится" defaultExpanded />
+                <div className={styles.diffLegend} aria-hidden="true">
+                  <span>
+                    <i className={[styles.dot, styles.dotKept].join(' ')} /> без изменений
+                  </span>
+                  <span>
+                    <i className={[styles.dot, styles.dotAdded].join(' ')} /> добавлено
+                  </span>
+                  <span>
+                    <i className={[styles.dot, styles.dotRemoved].join(' ')} /> снято
+                  </span>
+                </div>
+              </div>
             </div>
           </section>
         )}
 
         <div className={styles.footer}>
         {view === 'edit' ? (
-          <Tip
-            content={readOnly ? 'Переключитесь в режим редактирования' : 'Проверить и утвердить изменения'}
-            block
-          >
-            <button type="button" className={styles.approve} onClick={approve} disabled={readOnly}>
-              Утвердить
-            </button>
-          </Tip>
+          <button type="button" className={styles.approve} onClick={approve} disabled={readOnly}>
+            Утвердить
+          </button>
         ) : (
           <div className={styles.confirmFooter}>
-            <button type="button" className={styles.backBtn} onClick={() => setView('edit')}>
+            <button type="button" className={styles.backBtn} onClick={goToEdit}>
               ← Вернуться к редактированию
             </button>
             <button type="button" className={styles.approve} onClick={commit}>
-              Подтвердить изменения
+              Подтвердить
             </button>
           </div>
         )}
