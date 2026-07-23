@@ -145,19 +145,22 @@ v1-UI наполняет `scope_kind IN ('main','dow')`; `date_*` заведен
 |-------|------------|
 | `GET /api/connections/{id}/schedule` | state: `settings` + живые `rules` (с производным `end`). Всегда 200 (дефолтные настройки, пустой список). |
 | `GET …/schedule/history` | полная история правил |
-| `PUT …/schedule/rule` | upsert правила (SCD-2 + авто-ретайр). Тело `PutConnectionScheduleRuleRequest` |
+| `POST …/schedule/batch` | **атомарная пачка (Saga, 7j.17):** `{ batchId, kind, upserts[], cancels[], items[] }` → всё-или-ничего в одной tx + сводка в NC. Заменил одиночные `rule`/`cancel` и `compose` |
 | `PUT …/schedule/settings` | Auto / engine / tz (`PutConnectionScheduleSettingsRequest`) |
-| `POST …/schedule/rules/{scheduleId}/cancel` | soft-cancel правила |
 
 Ручной `POST …/disconnect` → `SetAuto(false)`. DTO: `ConnectionScheduleRuleDto`,
-`ConnectionScheduleSettingsDto`, `ConnectionScheduleStateDto`.
+`ConnectionScheduleSettingsDto`, `ConnectionScheduleStateDto`, `ScheduleBatchRequest`/`ScheduleBatchResultDto`.
+Safety-net: `GlobalExceptionHandler : IExceptionHandler` → `ohs.unhandled` + ProblemDetails 500.
 
 ### Уведомления
 
-- `connection.schedule.rule_set` (info, source `user`) — правило утверждено (одиночный вызов, без `batchId`);
-- `connection.schedule.rule_superseded` (info, source `system`) — сколько живых перекрыто (без `batchId`);
-- `connection.schedule.rule_canceled` (info, source `user`) — правило снято (без `batchId`);
-- **Composer (пачка):** `connection.schedule.cleared` / `…batch_applied` (user) + `connection.schedule.batch` (system) — см. [notify-composer.md](notify-composer.md).
+- **Пачка (7j.17):** `connection.schedule.applied` (info) / `…cleared` (warning) / `…recreated` (ok) —
+  user; `connection.schedule.batch` (info) — system; общий `correlationId = batchId`. См.
+  [notify-composer.md](notify-composer.md), [error-handling.md](error-handling.md).
+- **Settings:** `connection.schedule.auto_enabled` / `…auto_disabled` (info, user); при инфра-сбое —
+  `…settings_failed` (error).
+- **Ошибки:** валидация → 400 без NC (инлайн-баннер попапа); инфра → user·error + system·error;
+  404 → user·warning; необработанное → `ohs.unhandled` (system·critical).
 
 ## Фронтенд
 
@@ -168,10 +171,10 @@ v1-UI наполняет `scope_kind IN ('main','dow')`; `date_*` заведен
   upsert правила. Пресеты `market_schedule` — информативные подсказки. История.
 - `WeeklyScheduleOverview.tsx` (+ css) — read-only обзор: строка дней Пн..Вс (эффективно, с учётом
   приоритетов) + дорожки живых правил с кнопкой «снять» + предпросмотр текущей правки.
-- `core/api.ts`, `core/types.ts` — методы `getConnectionSchedule` / `putConnectionScheduleRule` /
-  `putConnectionScheduleSettings` / `cancelConnectionScheduleRule`; типы правил/настроек/состояния.
+- `core/api.ts`, `core/types.ts` — методы `getConnectionSchedule` / `applyScheduleBatch` /
+  `putConnectionScheduleSettings`; типы правил/настроек/состояния.
 - `OhsStore` — `connectionSchedule$: Map<id, ConnectionScheduleStateDto>`;
-  `setConnectionAuto` / `upsertConnectionScheduleRule` / `cancelConnectionScheduleRule` /
+  `setConnectionAuto` / `applyConnectionScheduleBatch` (один `POST …/batch` + `onSuccess/onError`) /
   `refreshConnectionSchedule`.
 - `ConnectionLane.tsx` — Auto доступен при наличии ≥1 живого правила; фаза «в окне» — через `isConnectedNow`.
 

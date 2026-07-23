@@ -6,7 +6,7 @@
 
 **Контекст.** Очистить / Утвердить → N атомарных `rule_canceled` / `rule_set` → N строк в доке на одно действие.
 
-**Сделано:** [notify-composer.md](notify-composer.md) — `batchId` глушит атомарные notify; `POST …/compose` → одно user + одно system.
+**Сделано:** [notify-composer.md](notify-composer.md) — одно действие → атомарный `POST …/schedule/batch` → одно user + одно system (severity по kind: applied=info/cleared=warning/recreated=ok). См. также [error-handling.md](error-handling.md) (7j.17).
 
 ## Рынок / календарный профиль
 

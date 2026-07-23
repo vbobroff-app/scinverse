@@ -206,23 +206,20 @@ interface ConnectionScheduleRuleDto {
 
 ### 4.2. Утверждение `[changes]` → бэк (пачка + Composer)
 
-**Реализовано:** `commit` считает `diffChanges()` → `{ upserts, cancels }` и вызывает
-`OhsStore.applyConnectionScheduleBatch`, который:
+**Реализовано (7j.17):** `commit` считает `diffChanges()` → `{ upserts, cancels }` и вызывает
+`OhsStore.applyConnectionScheduleBatch`, который делает **один атомарный** запрос:
 
 1. генерит `batchId`;
-2. шлёт все `PUT …/rule?batchId=` и `POST …/rules/{id}/cancel?batchId=` (атомарные notify **глушатся**);
-3. `POST …/schedule/compose` → одно user + одно system уведомление с общим `correlationId`;
-4. `refreshConnectionSchedule` (перечитать base).
+2. `POST …/schedule/batch` с `{ batchId, kind, upserts[], cancels[], items[] }` — сервер
+   выполняет все upsert/cancel в **одной транзакции** (Saga: всё-или-ничего) и публикует одно
+   user + одно system уведомление с общим `correlationId = batchId`;
+3. `handlers.onSuccess` → закрыть попап + `refreshConnectionSchedule`; `handlers.onError` →
+   оставить попап с инлайн-баннером и кнопкой «Повторить».
 
-Детали формата и `kind` (cleared\|applied\|recreated) — [notify-composer.md](notify-composer.md).
+Детали формата, `kind` (cleared\|applied\|recreated) и severity — [notify-composer.md](notify-composer.md),
+[error-handling.md](error-handling.md).
 
-Одиночное правило (без пачки) — тот же endpoint без `batchId`:
-
-```
-PUT /api/connections/{id}/schedule/rule
-```
-
-тело:
+Тело одного upsert-элемента (`PutConnectionScheduleRuleRequest`):
 
 ```ts
 interface PutConnectionScheduleRuleRequest {
@@ -238,15 +235,13 @@ interface PutConnectionScheduleRuleRequest {
 }
 ```
 
-Бэк: SCD-2 upsert + авто-ретайр `Mold ⊆ M` того же уровня → `superseded`.  
-Ответ: `ConnectionScheduleRuleDto` (новая живая версия).
+Бэк: SCD-2 upsert + авто-ретайр `Mold ⊆ M` того же уровня → `superseded`; cancels → soft-cancel.
 
-Дополнительно уже есть:
+Прочие эндпоинты:
 
 | Метод | Назначение |
 |-------|------------|
-| `PUT …/schedule/settings` | Auto / engine / tz |
-| `POST …/schedule/rules/{scheduleId}/cancel` | soft-cancel живого правила base |
+| `PUT …/schedule/settings` | Auto / engine / tz (NC: `auto_enabled`/`auto_disabled`, `settings_failed`) |
 | `GET …/schedule/history` | история (закрытые + живые) для блока «История» |
 
 ### 4.3. Пример тел PUT
@@ -354,27 +349,17 @@ map `id → scheduleId` из base).
 
 ## 6. Что бэку нужно для прикрутки
 
-Минимальный контракт уже есть и совпадает с UI:
+Контракт реализован (7j.17) и совпадает с UI:
 
 1. **`GET …/schedule`** всегда отдаёт полный `[base]`: settings + все живые rules
    (`main` ≤1, любые `dow`/`date`). Пустой список — валидно.
-2. **`PUT …/rule`** принимает те же `scopeKind` / маски / даты / `open`+`durationMin`, что шлёт
-   поповер; SCD-2 и ⊆-ретайр — ответственность бэка (UI не шлёт `scheduleId` на upsert).
+2. **`POST …/schedule/batch`** принимает `{ batchId, kind, upserts[], cancels[], items[] }`:
+   каждый upsert — те же `scopeKind` / маски / даты / `open`+`durationMin`, что шлёт поповер;
+   SCD-2 и ⊆-ретайр — ответственность бэка (UI не шлёт `scheduleId` на upsert). Вся пачка —
+   **атомарно** в одной транзакции (Saga); при любом сбое — полный откат + user·error.
 3. Производное поле **`end`** в DTO желательно оставлять — история и отладка.
-4. После серии upsert — клиент делает **повторный GET** (или бэк возвращает полный state —
-   удобнее для UI, пока не обязательно).
-5. **`cancel`** по `scheduleId` для отмены живого base-правила из UI (когда появится явная
-   кнопка отмены слоя base).
-
-Опционально (улучшение контракта под пачку changes):
-
-```
-PUT /api/connections/{id}/schedule/changes
-body: { rules: PutConnectionScheduleRuleRequest[] }
-→ ConnectionScheduleStateDto
-```
-
-Пока UI может эмулировать циклом существующих PUT.
+4. После успешной пачки — клиент делает **повторный GET** (`refreshConnectionSchedule`).
+5. Отмена живого base-правила из UI — через `cancels[]` в той же пачке.
 
 ---
 

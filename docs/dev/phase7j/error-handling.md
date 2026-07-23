@@ -1,6 +1,6 @@
 # Phase 7j — Обработка исключений расписания + информирование в NC
 
-Статус: **СПРОЕКТИРОВАНО** (форматы NC согласованы на fake-прототипах), реализация — по плану §7.
+Статус: **РЕАЛИЗОВАНО** (форматы NC согласованы на fake-прототипах и подтверждены в UI). Чеклист — §7.
 
 Связано: [report.md](report.md), [notify-composer.md](notify-composer.md), [ui-schedule.md](ui-schedule.md).
 
@@ -80,11 +80,11 @@ POST /api/connections/{id}/schedule/batch
 
 Сервер в **одной транзакции**: валидирует все drafts → применяет cancels+upserts (та же логика
 SCD-2 supersede) → backfill `scheduleId` в `set`-items делает сам. Успех → commit + публикация
-user·info + system·info. Инфра-сбой → **rollback** + user·error + system·error. Ответ
-`{ ok, applied[], superseded[] }` либо соответствующий HTTP-код + `{ error }`.
+user-строки (severity по `kind`, см. §2) + system·info. Инфра-сбой → **rollback** + user·error +
+system·error. Ответ `{ ok, applied[], superseded[] }` либо соответствующий HTTP-код + `{ error }`.
 
-Убирает класс «частичная запись» и клиентский костыль backfill'а id. `compose`-эндпоинт становится
-не нужен (логика переезжает в batch).
+Убирает класс «частичная запись» и клиентский костыль backfill'а id. `compose`-эндпоинт удалён
+(логика переехала в batch).
 
 ### B. Глобальный exception-handler (safety-net)
 
@@ -96,16 +96,17 @@ ProblemDetails 500 (без стека наружу) + лог Serilog с `request
 
 - `commit()` **не** делает `hardClose()` вслепую: на сбое попап остаётся открыт с инлайн-баннером,
   черновик сохранён; закрывается только при `ok`.
-- `applyConnectionScheduleBatch` — один вызов `POST …/batch`; `ok` → refresh + close; 4xx/5xx →
-  баннер (NC-строку опубликовал сервер); обрыв сети → клиентский `notify.error` + refresh.
-- Одиночные операции (если останутся) — обёртка `runCommand` вместо `console.error`.
+- `applyConnectionScheduleBatch` — один вызов `POST …/batch` + `handlers.onSuccess/onError`; `ok` →
+  refresh + `onSuccess` (close); 4xx/5xx → `onError` → баннер (NC-строку опубликовал сервер); обрыв
+  сети (`status 0`) → клиентский `notify.error` + refresh + `onError`.
+- Одиночные rule/cancel-пути удалены (YAGNI): весь авторинг идёт через batch.
 
 ---
 
 ## 4. Словарь NC-сообщений (согласованный каталог)
 
-Fake-прототипы всех кейсов — `web/src/core/ncFakeSchedule.ts` (DEV, `window.__ncFake.*`;
-удалить после реализации).
+Формат каждого кейса согласовывался на dev-харнессе `web/src/core/ncFakeSchedule.ts`
+(`window.__ncFake.*`); после подтверждения в UI харнесс удалён.
 
 ### Операция «пачка» (`POST …/schedule/batch`)
 
@@ -130,9 +131,10 @@ Fake-прототипы всех кейсов — `web/src/core/ncFakeSchedule.t
 
 ### Одиночные rule/cancel (3a/3b/3c)
 
-**Мёртвые пути** для текущего UI (весь авторинг идёт через batch; `upsert/cancelConnectionScheduleRule`
-в сторе не вызываются). При реализации — эндпоинты удалить либо оставить с базовой обработкой ошибок
-**без отдельного NC-UX**.
+**Удалены** (YAGNI): эндпоинты `PUT …/schedule/rule` и `POST …/schedule/rules/{id}/cancel`, их методы
+в `IOhsApi`/`OhsApiClient`, обёртки в `api.ts`/`OhsStore` и хелпер `ScopeLabel`. Весь авторинг идёт
+через batch. Store-примитивы `UpsertRuleAsync`/`CancelRuleAsync` сохранены (SCD-2, покрыты
+integration-тестами; `ApplyBatchAsync` переиспользует общий `ApplyUpsertAsync`).
 
 ### Глобальный safety-net
 
@@ -142,7 +144,9 @@ Fake-прототипы всех кейсов — `web/src/core/ncFakeSchedule.t
 
 ### Тексты (согласовано)
 
-- **1a recreated** — user: `Расписание 3 («Finam»): пересоздано (2)`; lines: `Правило «основное
+- **1a applied** (`info`) — user: `Расписание 3 («Finam»): изменено (3)`; system: `Расписание 3: batch (3)`.
+- **1a cleared** (`warning`) — user: `Расписание 3 («Finam»): сброшено (2)`; system: `Расписание 3: batch (2)`.
+- **1a recreated** (`ok`) — user: `Расписание 3 («Finam»): пересоздано (2)`; lines: `Правило «основное
   05:50-00:50» утверждено` / `Правило «Сб, Вс (дни 96) 08:50-20:00» утверждено`. system: `Расписание 3: batch (2)`.
 - **1c** — user: `Расписание 3 («Finam»): не удалось сохранить изменения`; lines: `Изменения не
   применены — ошибка хранилища` / `Повторите попытку; при повторной ошибке — обратитесь к

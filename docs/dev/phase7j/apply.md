@@ -123,6 +123,19 @@ Single-flight connect только через `ConnectionManager` (не дубл
 
 **Перспектива:** полный 11.2 (`ILogger`-sink, user-actions, фильтры) — без смены контракта события.
 
+### Runtime NC — стандарт (7j.17 / 7j.18)
+
+Коды выше — контракт события; **форматы/severity/группировка** приведены к единому стандарту:
+
+- **7j.17 — редактирование расписания** (реализовано): атомарный `POST …/schedule/batch` (Saga) +
+  глобальный `IExceptionHandler`; severity по смыслу перехода (applied=info/cleared=warning/recreated=ok),
+  user/system-дисциплина, `correlationId=batchId`, попап без оптимизма. Каталог и детали —
+  [error-handling.md](error-handling.md), сводки — [notify-composer.md](notify-composer.md).
+- **7j.18 — авто-connect и инциденты** (план): подтянуть `ConnectionSupervisor`/`ConnectionManager`
+  к эталону ручного connect — имя `Подключение {id} («{name}»)` (id первичен), `connected/recovered=ok`,
+  `connecting/reconnecting=warning`, общий `correlationId` на авто-серию/инцидент, `sourceType=system`.
+  Аудит текущего состояния, целевой каталог и приёмочная матрица — [auto-connect.md](auto-connect.md).
+
 ### Креды
 
 MVP: как сейчас (`appsettings.Local` / in-memory). Персист для ночного Auto — отдельно.

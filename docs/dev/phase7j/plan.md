@@ -1,36 +1,39 @@
 # Phase 7j — Расписание соединения (Connection schedule)
 
-> **v1 (исторический).** Единственное окно суток заменено якорной моделью со слоистыми исключениями —
-> см. [v2-exceptions.md](v2-exceptions.md). Разделы ниже описывают исходный MVP.
+> **Эволюция фазы.** v1 MVP (одно окно суток, V021) → **v2 якорная модель** (`open+duration`,
+> слоистые правила `main/dow/date`, SCD-2 — [v2-exceptions.md](v2-exceptions.md)) → Notification
+> Composer + UI diff-approve (7j.13/14) → **обработка исключений редактирования** (7j.17: атомарный
+> `batch`/Saga + глобальный exception-handler — [error-handling.md](error-handling.md)) → **Auto Connect:
+> исключения и инциденты** (7j.18 — [auto-connect.md](auto-connect.md)). Живой статус — [report.md](report.md).
 
-**Статус:** `IN PROGRESS`. Зависимости: **7h / 7h.8** (автомат связи, `link_liveness`, лента Connection),
-**7c** (календарь ISS / `IMarketCalendar`), **7e** (тумблер связи). Соседняя **7i** (Auto записи) —
-проекция: запись вооружается, когда связь жива; connect/disconnect по расписанию — зона 7j.
-Контекст — [../../promt.md](../../promt.md). Детали реализации — [apply.md](apply.md); статус —
-[report.md](report.md).
+**Статус:** ядро `DONE`; **активная задача — 7j.18 Auto Connect (все исключения + инциденты)**;
+в очереди — 7j.15 (рыночный профиль) / 7j.16 (`date`-авторинг). Зависимости: **7h / 7h.8**
+(автомат связи, `link_liveness`, лента Connection), **7c** (`IMarketCalendar`), **7e** (тумблер связи).
+Соседняя **7i** (Auto записи) — проекция живой связи. Детали реализации — [apply.md](apply.md);
+статус/лог — [report.md](report.md). **Обновлено:** 2026-07-23.
 
 ## Проблема
 
-Связь с брокером поднимается вручную (тумблер в шапке провайдера). Ночной/выходной присмотр,
-обрывы и повторные connect — на операторе. Лента Connection (7h.8) уже показывает факт связи, но
-**политики «когда держать линк»** нет: нет окна суток, нет Auto, нет журнала «какое окно пробовали
-и почему отказались расширять».
+Связь с брокером поднимается вручную (тумблер в шапке провайдера). Ночной/выходной присмотр, обрывы
+и повторные connect — на операторе. Лента Connection (7h.8) показывает факт связи, но **политики
+«когда держать линк»** нет. И даже с расписанием: если авто-connect сбоит, связь рвётся, ретраи не
+удаются — оператор должен это **видеть в Notification Center** единообразно, а не догадываться.
 
-Запись (7i) сознательно **не** поднимает связь (TRANSAQ process-global). Значит владельцем
-расписания connect должен быть слой Connection.
+Запись (7i) сознательно **не** поднимает связь (TRANSAQ process-global) — владельцем расписания
+connect является слой Connection.
 
 ## Идея
 
-У **Connection** — своё расписание (проще биржевого: только `window_start` / `window_end`, без
-внутридневных фаз) и **Auto**, зеркальный записи:
+У **Connection** — своё расписание (якорь `open+duration` + слоистые исключения `main/dow/date`) и
+**Auto**, зеркальный записи:
 
-- Auto on → Supervisor сам включает/выключает тумблер связи по окну + календарю дней ведущего `engine`;
-- ручной off тумблера связи → Auto off;
-- ручной connect при Auto off — без расписания;
-- лента Connection / `link_liveness` — факт; запись и её лента — **проекция** живой связи (7h.8d —
-  follow-up).
+- Auto on → `ConnectionSupervisor` включает/выключает тумблер связи по окну + календарю ведущего `engine`;
+- ручной off тумблера → Auto off; ручной connect при Auto off — без расписания;
+- лента Connection / `link_liveness` — факт; запись и её лента — проекция живой связи;
+- **все исключения и инциденты** (обрыв, ретраи, исчерпание попыток, ошибки БД, необработанные
+  исключения) → в NC по единому стандарту (имя, severity, группировка) — как у редактирования (7j.17).
 
-История окон — SCD-2 (операционная память: «неделю назад уже расширяли — брокер рвал»).
+История правил — SCD-2 (операционная память).
 
 ## Зависимости
 
@@ -38,9 +41,9 @@
 |------|-------------|
 | 7e | Тумблер связи в `ProviderCard` (не двигаем) |
 | 7h | `ConnectionManager`, `server_status`, reconnect, `LivenessProbe` 15 с |
-| 7h.8 | `link_liveness`, `ConnectionRibbon` |
+| 7h.8 | `link_liveness`, `ConnectionRibbon`, ось инцидента связи |
 | 7c | `IMarketCalendar` — торговые дни ведущего `engine` |
-| 11 (частично) | Тонкий notify-hub для кодов lifecycle; полный 11.2 — перспектива |
+| 11 (тонкий срез) | `NotificationHub`/`INotificationPublisher` (Publish + инцидентная ось Open/Progress/Resolve); полный 11.2 — перспектива |
 
 ## Модель слоёв
 
@@ -50,39 +53,100 @@ connection_schedule → ConnectionSupervisor → ConnectionManager → link_live
 recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 ```
 
-## Область (MVP)
+## Дорожная карта под-фаз
 
-- Таблица `connection_schedule` (V021): SCD-2 по окну; `mode` (Auto) — UPDATE in-place.
-- `ConnectionSupervisor`: тик 15 с (= `LivenessProbeSeconds`), nudge после PUT, retry Connect ×5.
-- Анти-DDoS: не connect/probe в non-trading и вне окна; probe только в биржевой сессии при тишине.
-- API GET/PUT schedule + history; notify-коды lifecycle → док.
-- UI: в полосе `Связь · Finam` — **[Auto][Расписание]**; тумблер связи в ProviderCard как есть;
-  popover окна (ось open/close, пресеты MOEX ± N ч, Утвердить → confirm).
+Живой статус и лог — [report.md](report.md); ниже — scope и указатели.
 
-## Вне области
+| # | Область | Статус | Док |
+|---|---------|--------|-----|
+| 7j.1–7j.5 | v1 MVP: V021 окно + store/API + Supervisor + notify + UI + тесты | DONE (заменено v2) | — |
+| 7j.6–7j.12 | **v2:** V024 якорь + слоистые правила, домен/резолвер, стор, супервизор, API, фронт, тесты | DONE | [v2-exceptions.md](v2-exceptions.md) |
+| 7j.13 | Notification Composer (одно user + одно system на пачку) | DONE | [notify-composer.md](notify-composer.md) |
+| 7j.14 | UI: двухшаговый diff-approve, guardrail main, live-push баннер | DONE | [ui-schedule.md](ui-schedule.md) |
+| 7j.17 | Обработка исключений **редактирования**: атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler` + severity-модель + попап без оптимизма | DONE | [error-handling.md](error-handling.md) |
+| **7j.18** | **Auto Connect: все исключения + инциденты** (см. ниже) | **PLANNED (активная)** | [auto-connect.md](auto-connect.md) |
+| 7j.15 | Рыночный/календарный профиль на settings; UI без хардкода MOEX | PLANNED | [market-profile.md](market-profile.md) |
+| 7j.16 | `date`-авторинг на фронте + пагинация графика по месяцам | PLANNED | [todo.md](todo.md) |
 
-- 7h.8d (сегмент через обрыв + красная проекция на инструмент).
-- Персист кредов (MVP = Local / in-memory).
-- Join календарей рынков; `changed_by` (phase 10).
-- Полный phase 11.2 beyond connection-кодов.
+## Активная задача — 7j.18: Auto Connect по расписанию (исключения + инциденты)
 
-## Критерии приёмки
+### Цель
 
-1. Auto + утверждённое окно → connect в окне / disconnect вне; в non-trading днях ведущего `engine`
-   связь по Auto не поднимается.
+Довести авто-подключение по расписанию и обработку инцидентов связи до продакшн-уровня: связь
+поднимается / держится / гасится по расписанию, а **все исключения и инциденты** (обрыв, ретраи,
+исчерпание попыток, ошибки БД/инфраструктуры, необработанные исключения) видны в NC в **едином
+стандарте** 7j.17 — с именем подключения, осмысленной severity и группировкой в один сворачиваемый
+сеанс/инцидент.
+
+Эталон уже существует — **ручной connect** (`POST …/connect`): user-intent + system-серия
+`connecting(warning)→connected(ok)/failed(error)` на общем `correlationId`, имя `«{name}»`. Задача —
+подтянуть авто-путь (`ConnectionSupervisor`) и инциденты (`ConnectionManager`) к этому эталону.
+
+### Область (scope)
+
+1. **Единый стандарт рантайм-NC** (наследует 7j.17):
+   - имя `Подключение {id} («{name}»)` (id первичен) во всех строках supervisor/manager;
+     в системном техаудите допускается только `{id}`;
+   - severity по смыслу перехода: `connecting/reconnecting = warning`, `connected/recovered = ok`,
+     `lost/connect_failed = error`, `schedule_disconnect = info`;
+   - source: намерение оператора = `user`, исполнение/инциденты = `system`;
+   - `correlationId`: авто-серия попыток и инцидент связи сворачиваются каждый под один corr.
+2. **Резолв имени:** helper с кэшем в `ConnectionManager` (`ResolveLabelAsync`/`ConnLabel`);
+   `ConnectionSupervisor` берёт имя через него.
+3. **`ConnectionSupervisor`:** имя во всех строках; `connected → ok`; `connecting → warning + underway`;
+   общий `correlationId` на авто-серию; `schedule_disconnect` с именем.
+4. **`ConnectionManager`:** имя в `lost`/`recovered`/`reconnecting` (инцидентная ось
+   Open→Progress→Resolve по `LinkIncidentSubject` уже корректна — правится только presentation).
+5. **Каталог рантайм-NC** — [auto-connect.md](auto-connect.md) §5; перекрёстная ссылка из
+   [error-handling.md](error-handling.md) (единый каталог NC фазы).
+6. **Инфра-ошибки авто-connect:** ретраи не глотают исключение молча; после исчерпания попыток —
+   `connect_failed` (error) в NC (свериться/закрепить); необработанное — `GlobalExceptionHandler` (7j.17).
+7. **Тесты/приёмка:** synthetic → живой прогон на Finam id=3 (анти-DDoS: реальный Finam не ронять
+   tight-loop / в выходные).
+
+### Вне области (7j.18)
+
+- Персист кредов для ночного Auto (отдельно).
+- Полный phase 11.2 (user-actions/фильтры сверх connection-кодов).
+- Market/calendar profile (7j.15), `date`-авторинг (7j.16).
+
+### Критерии приёмки (7j.18)
+
+| # | Сценарий | Ожидаемая лента NC |
+|---|----------|--------------------|
+| 1 | Окно наступило, connect с 1-й попытки | `connecting`(warning) → `connected`(ok), один corr, имя во всех |
+| 2 | Авто-connect: 2 фейла + успех | `connecting` ×3 (warning) → `connected`(ok), один corr |
+| 3 | Авто-connect: исчерпаны попытки | `connecting` ×max → `connect_failed`(error), один corr |
+| 4 | Вне окна / non-trading | `schedule_disconnect`(info) с именем |
+| 5 | Обрыв во время окна | `lost`(error, Open) → `reconnecting`(warning, Progress) → `recovered`(ok, Resolve), один инцидент-corr |
+| 6 | Ручной connect (регресс) | без изменений (эталон не задет) |
+| 7 | Сборка/тесты | `dotnet build` solution + тесты зелёные |
+
+## Критерии приёмки фазы
+
+1. Auto + утверждённое расписание → connect в окне / disconnect вне; в non-trading днях ведущего
+   `engine` связь по Auto не поднимается.
 2. Ручной disconnect тумблера → Auto off; ручной connect при Auto off работает без расписания.
-3. Auto без утверждённого окна включить нельзя.
-4. Смена окна → новая SCD-2 версия (+ note/source); клик Auto → UPDATE `mode`, без новой версии.
-5. После 5 неудачных Connect — notify error; Finam не долбится tight-loop / в выходные.
-6. Lifecycle-события видны в notification center.
-7. `tsc` + vitest + backend-тесты зелёные.
+3. Auto без живых правил включить нельзя.
+4. Правка расписания → атомарно (Saga, 7j.17): всё-или-ничего, без частичной записи; на сбое —
+   попап остаётся с баннером + Retry, в NC — error.
+5. После N неудачных Connect — `connect_failed` (error) в NC; Finam не долбится tight-loop / в выходные.
+6. **Все lifecycle-события и инциденты связи видны в NC в едином стандарте** (имя, severity,
+   группировка) — 7j.18.
+7. `tsc` + vitest + backend-тесты + `dotnet build` solution зелёные.
 
 ## Зафиксированные решения
 
-1. **`engine`:** один ведущий календарь, без join; FORTS/`futures` обычно шире — выходных почти нет.
+1. **`engine`:** один ведущий календарь, без join.
 2. **Креды:** MVP Local; персист — отдельно.
 3. **UI:** тумблер связи не двигаем; Auto в панели Связь управляет им.
-4. **Auto без schedule:** запрещён.
-5. **Notify:** тонкий hub в 7j; полный 11.2 — перспектива.
-6. **Retry:** ~5–10 с между попытками ×5.
-7. **История окон:** SCD-2; опечатка → новый пуш + note; `changed_at` не нужен.
+4. **Auto без расписания:** запрещён.
+5. **Notify:** тонкий hub в 7j (Publish + инцидентная ось); полный 11.2 — перспектива.
+6. **Retry:** пауза ~8 с между попытками, ×5.
+7. **История правил:** SCD-2; опечатка → новый пуш + note.
+8. **Именование NC:** `Подключение/Расписание {id} («{name}»)` — id первичен; в системных — только id.
+9. **Severity по смыслу перехода:** позитивный переход = `ok`; в процессе = `warning`; сбой =
+   `error`/`critical`.
+10. **Атомарность правок:** редактирование расписания — атомарный `batch` (Saga), без частичной записи.
+11. **Safety-net:** глобальный `IExceptionHandler` → `ohs.unhandled` (system·critical).
+12. **Оптимизм в UI:** попап расписания не закрывается на сбое (баннер + «Повторить»).

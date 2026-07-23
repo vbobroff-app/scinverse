@@ -1,6 +1,8 @@
 # Phase 7j — report: расписание соединения
 
-**Статус:** `DONE` (v1 MVP + v2 якорная модель / dow-исключения + двухшаговый diff-approve + Notification Composer). **Обновлено:** 2026-07-22.
+**Статус:** `DONE` по ядру (v1 MVP + v2 якорная модель / dow-исключения + двухшаговый diff-approve +
+Notification Composer + **атомарный batch (Saga) и обработка исключений**). Остаток: 7j.15/7j.16
+(профиль/`date`-авторинг) и 7j.18 (Auto-connect NC & incident hardening). **Обновлено:** 2026-07-23.
 
 Актуальный статус фазы. Обновляется по мере выполнения задач из [plan.md](plan.md) /
 [apply.md](apply.md). Якорная модель + слоистые исключения — [v2-exceptions.md](v2-exceptions.md).
@@ -26,6 +28,8 @@
 | 7j.14 | **UI:** двухшаговый approve с diff-превью, guardrail на правку main, live-push баннер | DONE | `WeeklyDayColumns` diff (kept/added/removed), `ConfirmDialog`, `__ohsStore` dev-хук, демо-лента под `VITE_NC_DEMO` |
 | 7j.15 | **Market / calendar profile** на schedule settings (не на rule); UI без хардкода MOEX | PLANNED | см. [market-profile.md](market-profile.md) |
 | 7j.16 | **`date`-авторинг на фронте** (static-исключения) + пагинация графика по месяцам | PLANNED | см. [todo.md](todo.md) |
+| 7j.17 | **Обработка исключений расписания:** атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler` + severity-модель (applied=info / cleared=warning / recreated=ok, 2a/2b) + попап без оптимизма (баннер + Retry); удалены одиночные rule/cancel/compose | DONE | см. [error-handling.md](error-handling.md); коммиты `86bd497`, `e1ed5b7` |
+| 7j.18 | **Auto-connect NC & incident hardening:** каталог рантайм-NC связи (имя подключения, severity connecting=warning/connected=ok/lost=error, corr инцидента), проброс имени в supervisor/manager, группировка ретраев, приёмочная матрица | PLANNED | см. [auto-connect.md](auto-connect.md) |
 
 ## Лог выполнения
 
@@ -36,6 +40,7 @@
 | 2026-07-18 | 7j.5: интеграционные store-тесты (`ConnectionScheduleStoreTests`) 3/3 на Testcontainers (SCD-2 версия окна, SetMode без версии, ListCurrentScheduled только Auto on) | зелёные |
 | 2026-07-18 | Живая приёмка `ConnectionSupervisor` на synthetic (id=1): критерий 1 connect в окне (`connect OK 1`, NC `connection.connected`) + disconnect вне окна (окно 03:00–04:00 → `connection.schedule_disconnect` «вне окна / non-trading»); критерий 2 ручной `/disconnect` → `mode=manual, auto=False`; критерий 3 PUT `{mode:auto}` без окна → **400**; критерий 6 lifecycle в NC | приёмка пройдена; крит. 5 (×5 fail) — только code-path (synthetic всегда connect; реальный Finam ронять нельзя — анти-DDoS) |
 | 2026-07-19 | **v2** якорная модель + слоистые исключения: V024 (rebuild → `_settings` + правила main/dow/date, `open+duration`, SCD-2 + `close_reason`), домен + `ConnectionScheduleResolver`, стор (UpsertRule SCD-2 + авто-ретайр ⊆-масок как superseded, CancelRule canceled, settings), супервизор на резолвере, API (GET state / PUT rule / PUT settings / POST cancel), notify-коды `connection.schedule.*`, фронт (поповер авторинга скоупа + `WeeklyScheduleOverview` + клиентский резолвер) | unit 131 ✓ / integration 43 ✓ / web 27 ✓; V024 применена; смоук на synthetic id=1 ✓; детали — [v2-exceptions.md](v2-exceptions.md) |
+| 2026-07-23 | **7j.17 — обработка исключений расписания.** Клиентская оркестрация (N PUT/cancel + `compose`) заменена атомарным `POST …/schedule/batch` (Saga: `ApplyBatchAsync` — всё в одной tx, откат при любом сбое). NC-дисциплина: успех → user (severity по kind: applied=info/cleared=warning/recreated=ok) + system·info batch; валидация → 400 без NC (инлайн-баннер); инфра → user·error+system·error (общий corr); 404 → user·warning; обрыв сети → клиентский user·error. Auto on/off → `auto_enabled`/`auto_disabled` (2a) + `settings_failed` (2b). Глобальный `GlobalExceptionHandler` → `ohs.unhandled` (system·critical, corr=requestId) + ProblemDetails 500. Попап без оптимизма (баннер+Retry). Удалены одиночные rule/cancel (эндпоинты, `IOhsApi`/клиент, обёртки, `ScopeLabel`) и `compose`; убран dev-харнесс `ncFakeSchedule`. Живая приёмка на Finam id=3 ✓ | tsc 0 / eslint 0 err / web 27 ✓ / dotnet build solution 0; коммиты `86bd497`, `e1ed5b7`; см. [error-handling.md](error-handling.md) |
 | 2026-07-22 | **UI-полировка + Notification Composer.** Двухшаговый approve с diff-превью (`WeeklyDayColumns`: kept/added/removed; последняя-строка вместо истории; comment в edit); guardrail #3 — предупреждение только при **первой реальной** правке main (drag/MOEX-shift), с откатом по «Отмена»; live-push баннер при серверном изменении во время правки (детект по сигнатуре правил); `__ohsStore` dev-хук для симуляции live-push; демо-лента под флагом `VITE_NC_DEMO`. **Composer**: `batchId` глушит атомарные `rule_set/canceled`, `POST …/compose` → одно user + одно system с общим `correlationId`; `kind` cleared\|applied\|recreated (recreated = запись на пустое расписание); богатые подписи «Сб, Вс (дни 96) 08:50–20:00»; backfill нового `scheduleId` в `set`-items из ответов PUT. Живая приёмка на Finam id=3: очистить/пересоздать/изменить ✓ | tsc 0 / eslint 0 err; dotnet build 0; коммиты `16dca5d`, `c4d4e61` |
 
 ## Ключевые артефакты
@@ -47,9 +52,12 @@
   **`ConnectionScheduleResolver`** (+ константы `…Scopes/RuleModes/CloseReasons/Dow`)
 - `IConnectionScheduleStore` / `ConnectionScheduleStore` (UpsertRule + авто-ретайр, CancelRule, settings)
 - `ConnectionSupervisor` (тик = `LivenessProbeSeconds`; резолвер по живым правилам)
-- `NotificationHub` / `INotificationPublisher`
-- REST: `GET /schedule` (state), `PUT …/schedule/rule`, `PUT …/schedule/settings`,
-  `POST …/schedule/rules/{id}/cancel`, `GET …/schedule/history`, `GET /api/notifications`
+- `NotificationHub` / `INotificationPublisher`; **`GlobalExceptionHandler : IExceptionHandler`** (safety-net → `ohs.unhandled`)
+- REST: `GET /schedule` (state), **`POST …/schedule/batch`** (атомарная пачка, Saga — заменил
+  одиночные `rule`/`cancel` и `compose`), `PUT …/schedule/settings`, `GET …/schedule/history`,
+  `GET /api/notifications`
+- Store: `ApplyBatchAsync` (supersede+insert+cancel в одной tx); `UpsertRuleAsync`/`CancelRuleAsync` —
+  SCD-2-примитивы под integration-тесты (переиспользуют `ApplyUpsertAsync`)
 - Ручной `POST …/disconnect` → Auto off (`SetAuto(false)`)
 
 ### Frontend
@@ -58,7 +66,8 @@
 - `WeeklyDayColumns` (столбчатый недельный график, режим diff: kept/added/removed), `ConfirmDialog` (in-modal msgbox: severity, чекбокс, onCancel)
 - `core/connectionSchedule.ts` — клиентский резолвер; `core/scheduleLayerDict.ts` — `ScheduleLayerDict` (base/changes)
 - Полоса Связь в `InstrumentPicker`/`ConnectionLane`: Auto + Расписание
-- `OhsStore.connectionSchedule$: Map<id, ConnectionScheduleStateDto>`; `applyConnectionScheduleBatch` (пачка PUT/cancel с `batchId` → `POST …/compose`); WS `notification` → `publishServerNotification`
+- `OhsStore.connectionSchedule$: Map<id, ConnectionScheduleStateDto>`; `applyConnectionScheduleBatch` (**один** `POST …/schedule/batch` + `handlers.onSuccess/onError`; при обрыве сети — клиентский `notify.error`); WS `notification` → `publishServerNotification`
+- Попап `commit()` — без оптимистичного закрытия: на сбое остаётся с баннером `commitError` + кнопкой «Повторить», закрывается только при успехе
 - `NotificationRow` рендерит `data.lines` столбиком; демо-лента под `VITE_NC_DEMO=1`; `window.__ohsStore` (dev) для симуляции live-push
 
 ## Итог
