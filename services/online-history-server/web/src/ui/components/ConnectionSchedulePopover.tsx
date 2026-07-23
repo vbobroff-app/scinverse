@@ -476,24 +476,23 @@ interface DiffEntry {
 }
 
 /** Полоски слева у строки правила (confirm).
- * main/regular: blue = было, light = стало/добавили; red = отмена.
- * static: yellow вместо light.
- * Создание main с нуля — одна полоска (без «было»). */
-type DiffStripe = 'blue' | 'light' | 'red' | 'yellow';
+ * blue = тёмно-синяя (было / создание main); light = светло-синяя (добавлено, палитра календаря);
+ * red = выкл; warn = отменено; yellow/muted = static изменено. */
+type DiffStripe = 'blue' | 'light' | 'red' | 'yellow' | 'warn';
 
 function diffStripes(e: DiffEntry): DiffStripe[] {
   const scope = diffScopeKind(e);
   const isStatic = scope === 'static';
   if (e.kind === 'modified') return [isStatic ? 'yellow' : 'light'];
-  if (e.kind === 'removed') return ['red'];
+  if (e.kind === 'removed') return ['warn'];
   // Main впервые: не «было+стало», одна синяя (не светло-синяя — та для изменений).
   if (e.kind === 'added' && scope === 'main') {
     return e.after?.mode === 'off' ? ['red'] : ['blue'];
   }
-  // Добавлена отмена (off): было + красная.
+  // Добавлена отмена (off): тёмно-синяя + красная.
   if (e.after?.mode === 'off') return ['blue', 'red'];
-  // Добавлено окно поверх / static: было + светлая (static → muted).
-  return ['blue', isStatic ? 'yellow' : 'light'];
+  // Добавлено окно (regular / static): тёмно-синяя + светло-синяя.
+  return ['blue', 'light'];
 }
 
 function diffTag(e: DiffEntry): string {
@@ -517,6 +516,7 @@ const DIFF_STRIPE_CLASS: Record<DiffStripe, string> = {
   light: styles.stripe_light,
   red: styles.stripe_red,
   yellow: styles.stripe_yellow,
+  warn: styles.stripe_warn,
 };
 
 const DIFF_SCOPE_BG: Record<'main' | 'regular' | 'static', string> = {
@@ -627,6 +627,8 @@ export function ConnectionSchedulePopover({
   /** Аккордеоны групп правил на confirm (≥2 regular/static). */
   const [regularOpen, setRegularOpen] = useState(true);
   const [staticOpen, setStaticOpen] = useState(false);
+  /** Стек слоёв, снятых через календарь «Отменить» (для «Восстановить»). */
+  const [staticUndo, setStaticUndo] = useState<ScheduleLayer[]>([]);
   const calWrapRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   /** Память last-known окна слоя на сессию поповера (снял → вернул). */
@@ -855,6 +857,7 @@ export function ConnectionSchedulePopover({
     setConfirmCalOn(false);
     setRegularOpen(true);
     setStaticOpen(false);
+    setStaticUndo([]);
     setAggregateView(rules.length > 0);
 
     const dict = rules.length > 0 ? dictFromRules(rules) : emptyLayerDict();
@@ -1382,7 +1385,7 @@ export function ConnectionSchedulePopover({
     if (readOnly || !hasAnyLayers) return;
     setMsgBox({
       severity: 'warning',
-      title: 'Расписание будет полностью отменено.',
+      title: 'Расписание будет сброшено',
       message: 'Очистить полностью все расписание?',
       confirmLabel: 'Да',
       onConfirm: doClearAllChanges,
@@ -1393,6 +1396,7 @@ export function ConnectionSchedulePopover({
     if (readOnly) return;
     for (const e of layers.staticExc) rememberLayer(e.id, memFromLayer(e));
     setLayers((prev) => ({ ...prev, staticExc: [] }));
+    setStaticUndo([]);
     if (scopeDate) {
       setScopeDate(null);
       if (layers.main) {
@@ -1403,6 +1407,55 @@ export function ConnectionSchedulePopover({
         setWeekdays(new Set());
       }
     }
+  };
+
+  const requestClearStaticExceptions = () => {
+    if (readOnly) return;
+    if (layers.staticExc.length === 0) {
+      clearStaticExceptions();
+      return;
+    }
+    setMsgBox({
+      severity: 'warning',
+      title: 'Календарные правила будут отменены',
+      message: 'Очистить полностью весь календарь?',
+      confirmLabel: 'Да',
+      onConfirm: clearStaticExceptions,
+    });
+  };
+
+  /** Календарь · Отменить: снять выделенный static-слой в undo. */
+  const cancelSelectedStaticLayer = (from: string, to: string) => {
+    if (readOnly) return;
+    const layer = layers.staticExc.find((e) => e.dateFrom === from && e.dateTo === to);
+    if (!layer) return;
+    rememberLayer(layer.id, memFromLayer(layer));
+    setStaticUndo((prev) => [...prev, layer]);
+    setLayers((prev) => removeExcById(prev, layer.id));
+    if (scopeDate?.from === from && scopeDate?.to === to) {
+      setScopeDate(null);
+      if (layers.main) {
+        setScopeMain(true);
+        loadEditorFromLayer(layers.main);
+      } else {
+        setScopeMain(false);
+        setWeekdays(new Set());
+      }
+    }
+  };
+
+  /** Календарь · Восстановить: последний слой из undo. */
+  const restoreLastStaticLayer = () => {
+    if (readOnly) return;
+    setStaticUndo((prev) => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1]!;
+      setLayers((dict) => {
+        if (dict.staticExc.some((e) => e.id === last.id)) return dict;
+        return { ...dict, staticExc: [...dict.staticExc, last] };
+      });
+      return prev.slice(0, -1);
+    });
   };
 
   const hasActiveLayer =
@@ -2122,7 +2175,16 @@ export function ConnectionSchedulePopover({
               <Tip content="Календарное исключение" boundaryRef={panelRef}>
                 <button
                   type="button"
-                  className={[styles.chip, onDateScope || calPresent ? styles.chipOn : ''].filter(Boolean).join(' ')}
+                  className={[
+                    styles.chip,
+                    onDateScope || calPresent ? styles.chipOn : '',
+                    layers.staticExc.length > 0 &&
+                    (showAggregate || !(onDateScope || calPresent))
+                      ? styles.chipHas
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
                   disabled={readOnly}
                   aria-expanded={calOpen}
                   onClick={(e) => {
@@ -2150,7 +2212,10 @@ export function ConnectionSchedulePopover({
                     isNonTrading={(iso) => (calDays.has(iso) ? !calDays.get(iso)!.isTrading : false)}
                     onViewChange={onCalViewChange}
                     onGo={chooseDateScope}
-                    onClearAll={clearStaticExceptions}
+                    onClearAll={requestClearStaticExceptions}
+                    onCancelSelected={cancelSelectedStaticLayer}
+                    onRestore={restoreLastStaticLayer}
+                    canRestore={staticUndo.length > 0}
                     onDismiss={closeCalendar}
                   />
                 </div>
@@ -2604,7 +2669,7 @@ export function ConnectionSchedulePopover({
                     <span className={styles.warnIcon} aria-hidden="true">
                       ⚠
                     </span>
-                    Расписание будет очищено — автоподключение отключится.
+                    Расписание будет сброшено — автоподключение отключится.
                   </span>
                 )}
               </div>

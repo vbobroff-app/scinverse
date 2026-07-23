@@ -10,7 +10,16 @@
 .header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 8px;
   margin-bottom: var(--spacing-xs);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
 }
 
 .link {
@@ -21,8 +30,13 @@
   cursor: pointer;
 }
 
-.link:hover {
+.link:hover:not(:disabled) {
   background: var(--color-bg-hover);
+}
+
+.link:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .nav {

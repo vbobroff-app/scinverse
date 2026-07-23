@@ -17,7 +17,13 @@ interface Props {
   isNonTrading?: (iso: string) => boolean;
   onViewChange?: (year: number, month: number) => void;
   onGo: (from: string, to: string, opts: { create: boolean }) => void;
+  /** Запрос полной очистки (confirm — на стороне родителя). */
   onClearAll: () => void;
+  /** Снять выделенный существующий слой. */
+  onCancelSelected?: (from: string, to: string) => void;
+  /** Вернуть последний снятый через Отменить. */
+  onRestore?: () => void;
+  canRestore?: boolean;
   /** Esc без выделения — закрыть календарь (как click-outside). */
   onDismiss?: () => void;
 }
@@ -143,6 +149,9 @@ export function StaticExceptionCalendar({
   onViewChange,
   onGo,
   onClearAll,
+  onCancelSelected,
+  onRestore,
+  canRestore = false,
   onDismiss,
 }: Props) {
   const today = new Date();
@@ -228,9 +237,7 @@ export function StaticExceptionCalendar({
     setView({ year: base.getFullYear(), month: base.getMonth() });
   };
 
-  const goToday = () => setView({ year: today.getFullYear(), month: today.getMonth() });
-
-  const reset = () => {
+  const requestClearAll = () => {
     clearSelection();
     onClearAll();
   };
@@ -242,6 +249,14 @@ export function StaticExceptionCalendar({
       : -1;
   /** Клик по существующему слою → Перейти; новый диапазон → Создать. */
   const isExistingSelect = selectedLayerIndex >= 0 && !paintingNew;
+
+  const cancelSelected = () => {
+    if (!isExistingSelect || start == null) return;
+    const from = start;
+    const to = end ?? start;
+    onCancelSelected?.(from, to);
+    clearSelection();
+  };
 
   const go = () => {
     if (!start) return;
@@ -273,14 +288,35 @@ export function StaticExceptionCalendar({
   return (
     <div ref={rootRef} className={styles.root} onPointerDown={onRootPointerDown}>
       <div className={styles.header}>
-        <Tip content="Сбросить все static-исключения">
-          <button type="button" className={styles.link} onClick={reset} tabIndex={-1}>
+        <div className={styles.headerLeft}>
+          <Tip content="Снять выделенный календарный слой">
+            <button
+              type="button"
+              className={styles.link}
+              onClick={cancelSelected}
+              disabled={!isExistingSelect || !onCancelSelected}
+              tabIndex={-1}
+            >
+              Отменить
+            </button>
+          </Tip>
+          <Tip content="Вернуть последний снятый слой">
+            <button
+              type="button"
+              className={styles.link}
+              onClick={() => onRestore?.()}
+              disabled={!canRestore || !onRestore}
+              tabIndex={-1}
+            >
+              Восстановить
+            </button>
+          </Tip>
+        </div>
+        <Tip content="Очистить все календарные исключения">
+          <button type="button" className={styles.link} onClick={requestClearAll} tabIndex={-1}>
             Сбросить
           </button>
         </Tip>
-        <button type="button" className={styles.link} onClick={goToday} tabIndex={-1}>
-          Сегодня
-        </button>
       </div>
 
       <div className={styles.nav}>
@@ -404,7 +440,7 @@ export function StaticExceptionCalendar({
           {hint ? <span className={styles.hint}> ({hint})</span> : null}
         </span>
         <button type="button" className={styles.go} onClick={go} disabled={!start}>
-          {isExistingSelect ? 'Редактировать' : 'Создать'}
+          {isExistingSelect ? 'Перейти' : 'Создать'}
         </button>
       </div>
     </div>

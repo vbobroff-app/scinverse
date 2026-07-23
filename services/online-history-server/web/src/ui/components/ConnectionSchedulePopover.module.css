@@ -625,12 +625,17 @@ input.metaBlockField {
   background: color-mix(in srgb, var(--color-accent, #4dabf7) 78%, #000);
 }
 
+/* Светло-синяя — ближе к лентам календаря / графику (LAYER_BLUES). */
 .stripe_light {
-  background: hsl(204 85% 68%);
+  background: hsl(204 95% 72%);
 }
 
 .stripe_yellow {
   background: hsl(0deg 0% 64.73%);
+}
+
+.stripe_warn {
+  background: var(--color-warning, #d29922);
 }
 
 .stripe_red {
@@ -658,6 +663,7 @@ input.metaBlockField {
   color: var(--color-text-muted);
 }
 
+/* Как NC warning-строка: желтоватый фон/рамка, не красный «error». */
 .clearWarn {
   display: flex;
   align-items: center;
@@ -665,14 +671,16 @@ input.metaBlockField {
   margin-top: 4px;
   padding: 6px 8px;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, #e05555 12%, transparent);
-  color: #e05555;
+  border: 1px solid color-mix(in srgb, var(--color-warning, #d29922) 40%, transparent);
+  background: color-mix(in srgb, var(--color-warning, #d29922) 12%, var(--color-bg-input, #2c2e33));
+  color: color-mix(in srgb, var(--color-warning, #d29922) 70%, var(--color-text, #e6e6e6));
   font-size: 12px;
 }
 
 .warnIcon {
   font-size: 14px;
   line-height: 1;
+  color: var(--color-warning, #d29922);
 }
 
 /* Ненавязчивый баннер: расписание изменилось на сервере. */

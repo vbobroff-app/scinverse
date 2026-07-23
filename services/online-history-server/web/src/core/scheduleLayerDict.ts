@@ -244,7 +244,11 @@ export function promoteExc(dict: ScheduleLayerDict, layer: ScheduleLayer): Sched
 }
 
 export function removeExcById(dict: ScheduleLayerDict, id: string): ScheduleLayerDict {
-  return { ...dict, exc: normalizeRegularExc(dict.exc.filter((e) => e.id !== id)) };
+  return {
+    ...dict,
+    exc: normalizeRegularExc(dict.exc.filter((e) => e.id !== id)),
+    staticExc: dict.staticExc.filter((e) => e.id !== id),
+  };
 }
 
 export function findGroupExc(dict: ScheduleLayerDict): ScheduleLayer | undefined {

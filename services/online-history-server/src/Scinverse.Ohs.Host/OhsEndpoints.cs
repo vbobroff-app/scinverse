@@ -1044,7 +1044,7 @@ public static class OhsEndpoints
         var n = items.Count;
         var headline = kind switch
         {
-            "cleared" => n > 0 ? $"{ScheduleWho(id, name)}: очищено ({n})" : $"{ScheduleWho(id, name)}: очищено",
+            "cleared" => n > 0 ? $"{ScheduleWho(id, name)}: сброшено ({n})" : $"{ScheduleWho(id, name)}: сброшено",
             "recreated" => n > 0 ? $"{ScheduleWho(id, name)}: пересоздано ({n})" : $"{ScheduleWho(id, name)}: пересоздано",
             _ => n > 0 ? $"{ScheduleWho(id, name)}: изменено ({n})" : $"{ScheduleWho(id, name)}: изменено",
         };
