@@ -73,12 +73,14 @@ type SettingsToggleKey =
   | 'showFilters'
   | 'trackUnread'
   | 'showStatusLogo'
+  | 'showType'
   | 'sendToTray';
 
 const SHOW_TOGGLES: { key: SettingsToggleKey; label: string }[] = [
   { key: 'showFilters', label: 'Панель фильтров' },
   { key: 'trackUnread', label: 'Учёт непрочитанных' },
-  { key: 'showStatusLogo', label: 'Логотип статуса' },
+  { key: 'showStatusLogo', label: 'Показывать логотип' },
+  { key: 'showType', label: 'Показывать тип' },
 ];
 
 const ACTION_TOGGLES: { key: SettingsToggleKey; label: string }[] = [
@@ -543,6 +545,7 @@ export function NotificationDock({
                   event={evt}
                   formatTs={formatTs}
                   showStatusLogo={settings.showStatusLogo}
+                  showType={settings.showType}
                   unread={
                     showUnreadUi &&
                     (evt.severity === 'warning' ||

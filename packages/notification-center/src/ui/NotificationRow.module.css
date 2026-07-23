@@ -89,6 +89,7 @@
   flex: none;
   font-family: var(--font-family-mono, ui-monospace, monospace);
   font-size: 11px;
+  margin-top: 4px;
   color: var(--color-text-muted, #6c757d);
   white-space: nowrap;
   min-width: 130px;

@@ -11,19 +11,21 @@ interface Props {
   event: NotificationEvent;
   formatTs: FormatTs;
   unread?: boolean;
-  /** Показывать иконку severity («логотип статуса»). Иначе — текстовая метка. */
+  /** Показывать иконку severity (логотип). Независимо от {@link showType}. */
   showStatusLogo?: boolean;
+  /** Показывать текстовую метку типа (Info:/ERROR:/…) за иконкой. Независимо от {@link showStatusLogo}. */
+  showType?: boolean;
   onOpen?: (event: NotificationEvent) => void;
   /** Клик по Id инцидента (`correlationId`) — фильтрует ленту до этого инцидента. */
   onFilterIncident?: (correlationId: string) => void;
 }
 
 const SEVERITY_LABEL: Record<NotificationSeverity, string> = {
-  ok: 'Ok:',
-  info: 'Info:',
-  warning: 'Warning:',
-  error: 'Error:',
-  critical: 'Critical:',
+  ok: 'OK:',
+  info: 'INFO:',
+  warning: 'WARNING:',
+  error: 'ERROR:',
+  critical: 'FATAL:',
 };
 
 /**
@@ -67,6 +69,7 @@ export function NotificationRow({
   formatTs,
   unread,
   showStatusLogo = true,
+  showType = true,
   onOpen,
   onFilterIncident,
 }: Props) {
@@ -115,9 +118,8 @@ export function NotificationRow({
             ▴
           </span>
         </button>
-        {showStatusLogo ? (
-          <SeverityIcon severity={event.severity} />
-        ) : (
+        {showStatusLogo && <SeverityIcon severity={event.severity} />}
+        {showType && (
           <span className={styles.severityLabel} aria-label={event.severity}>
             {SEVERITY_LABEL[event.severity]}
           </span>

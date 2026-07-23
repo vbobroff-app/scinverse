@@ -24,6 +24,7 @@ describe('notificationDockStore', () => {
       showFilters: true,
       trackUnread: true,
       showStatusLogo: true,
+      showType: true,
       sendToTray: false,
     });
     localStorage.removeItem(NOTIFICATION_DOCK_STORAGE_KEY);
@@ -145,6 +146,7 @@ describe('notificationDockStore', () => {
       showFilters: false,
       trackUnread: false,
       showStatusLogo: true,
+      showType: true,
       sendToTray: true,
     });
     const loaded = loadNotificationDock();
