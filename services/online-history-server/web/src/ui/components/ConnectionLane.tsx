@@ -88,7 +88,9 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
         state={connSchedule}
         open={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
-        onApplyBatch={(args) => store.applyConnectionScheduleBatch(connection.connectionId, args)}
+        onApplyBatch={(args, handlers) =>
+          store.applyConnectionScheduleBatch(connection.connectionId, args, handlers)
+        }
       />
     </>
   );

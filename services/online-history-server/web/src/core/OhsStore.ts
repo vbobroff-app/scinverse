@@ -1,4 +1,6 @@
-import { BehaviorSubject, EMPTY, forkJoin, from, of, throwError, type Observable, type Subscription } from 'rxjs';
+import { BehaviorSubject, EMPTY, from, of, throwError, type Observable, type Subscription } from 'rxjs';
+import { notify } from '@scinverse/notification-center';
+import { notificationBus } from './notifications';
 import { catchError, finalize, map, mergeMap, switchMap, tap, timeout, toArray } from 'rxjs/operators';
 import { bucketSecondsForTimeframe } from './activityBucket';
 import { OhsApi, type OhsApiClient } from './api';
@@ -31,7 +33,6 @@ import type {
   LivenessIntervalDto,
   LiveEvent,
   ConnectionScheduleStateDto,
-  ConnectionScheduleRuleDto,
   PutConnectionScheduleRuleRequest,
   ScheduleComposeItemDto,
   RecordingDto,
@@ -1294,25 +1295,12 @@ export class OhsStore {
     });
   }
 
-  /** Утвердить/обновить правило расписания (upsert со SCD-2 + авто-ретайр вложенных). */
-  upsertConnectionScheduleRule(connectionId: number, body: PutConnectionScheduleRuleRequest): void {
-    this.api.putConnectionScheduleRule(connectionId, body).subscribe({
-      next: () => this.refreshConnectionSchedule(connectionId),
-      error: (err) => console.error('upsertConnectionScheduleRule', err),
-    });
-  }
-
-  /** Снять правило (soft-cancel). */
-  cancelConnectionScheduleRule(connectionId: number, scheduleId: number): void {
-    this.api.cancelConnectionScheduleRule(connectionId, scheduleId).subscribe({
-      next: () => this.refreshConnectionSchedule(connectionId),
-      error: (err) => console.error('cancelConnectionScheduleRule', err),
-    });
-  }
-
   /**
-   * Пачка schedule-операций + Notification Composer:
-   * атомарные notify глушатся через batchId; в конце — одно user + одно system.
+   * Атомарная пачка schedule-операций (Saga, всё-или-ничего): один POST …/schedule/batch.
+   * Сервер применяет всё в одной транзакции и публикует сводку в NC. Клиент только сверяет
+   * истину (refresh) и решает судьбу попапа через {@link handlers}: `onSuccess` — закрыть,
+   * `onError` — оставить открытым с баннером. При обрыве сети (`status 0`) сервер опубликовать
+   * не мог — публикуем клиентский NC (кейс 1e).
    */
   applyConnectionScheduleBatch(
     connectionId: number,
@@ -1322,38 +1310,60 @@ export class OhsStore {
       composeKind: 'cleared' | 'applied' | 'recreated';
       items: ScheduleComposeItemDto[];
     },
+    handlers?: {
+      onSuccess?: () => void;
+      onError?: (info: { kind: 'server' | 'network'; message?: string }) => void;
+    },
   ): void {
     const batchId =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : `sched-${connectionId}-${Date.now()}`;
-    const upsertOps = args.upserts.map((body) =>
-      this.api.putConnectionScheduleRule(connectionId, body, { batchId }),
-    );
-    const cancelOps = args.cancels.map((scheduleId) =>
-      this.api.cancelConnectionScheduleRule(connectionId, scheduleId, { batchId }),
-    );
-    const ops = [...upsertOps, ...cancelOps];
-    const run = (ops.length > 0 ? forkJoin(ops) : of<ConnectionScheduleRuleDto[]>([])).pipe(
-      switchMap((results) => {
-        // Первые upserts.length ответов — новые правила (уже со scheduleId);
-        // их порядок совпадает с порядком 'set'-items — дозаполняем id.
-        const newIds = results.slice(0, upsertOps.length).map((r) => r?.scheduleId ?? null);
-        let ui = 0;
-        const items = args.items.map((it) =>
-          it.kind === 'set' && it.scheduleId == null ? { ...it, scheduleId: newIds[ui++] ?? null } : it,
-        );
-        return this.api.composeConnectionSchedule(connectionId, {
-          batchId,
-          kind: args.composeKind,
-          items,
-        });
-      }),
-      finalize(() => this.refreshConnectionSchedule(connectionId)),
-    );
-    run.subscribe({
-      error: (err) => console.error('applyConnectionScheduleBatch', err),
-    });
+    this.api
+      .applyScheduleBatch(connectionId, {
+        batchId,
+        kind: args.composeKind,
+        upserts: args.upserts,
+        cancels: args.cancels,
+        items: args.items,
+      })
+      .subscribe({
+        next: () => {
+          this.refreshConnectionSchedule(connectionId);
+          handlers?.onSuccess?.();
+        },
+        error: (err) => {
+          // Атомарная транзакция → частичной записи не бывает; всё равно сверяем истину.
+          this.refreshConnectionSchedule(connectionId);
+          const status = (err as { status?: number })?.status ?? 0;
+          if (status === 0) {
+            // 1e: запрос не дошёл/таймаут — сервер не опубликовал, публикуем сами (user·error).
+            const name =
+              this.connections$.value.find((c) => c.connectionId === connectionId)?.name ??
+              String(connectionId);
+            notify.error(notificationBus, {
+              module: 'ohs.connection',
+              code: 'connection.schedule.batch_failed',
+              sourceType: 'user',
+              correlationId: batchId,
+              message: `Расписание ${connectionId} («${name}»): нет связи с сервером`,
+              data: {
+                connectionId,
+                batchId,
+                lines: [
+                  'Изменения не подтверждены — проверьте состояние после переподключения',
+                  'Повторите попытку',
+                ],
+              },
+            });
+            handlers?.onError?.({ kind: 'network' });
+          } else {
+            // 4xx/5xx: NC уже опубликовал сервер — попапу оставить баннер.
+            const message = (err as { response?: { error?: string } })?.response?.error;
+            handlers?.onError?.({ kind: 'server', message });
+          }
+        },
+      });
   }
 
   refreshConnectionSchedule(connectionId: number): void {

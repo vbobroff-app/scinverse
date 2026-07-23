@@ -297,18 +297,27 @@ export interface PutConnectionScheduleSettingsRequest {
   tz?: string;
 }
 
-/** Элемент пачки Notification Composer. */
+/** Элемент сводки пачки (user-summary + system batch): что именно применено/снято. */
 export interface ScheduleComposeItemDto {
   kind: 'set' | 'canceled' | string;
   label: string;
   scheduleId?: number | null;
 }
 
-/** Итог пачки schedule-операций (user-summary + system batch). */
-export interface ScheduleComposeRequest {
+/** Атомарная пачка schedule-операций (Saga, всё-или-ничего): один запрос вместо N PUT/cancel + compose. */
+export interface ScheduleBatchRequest {
   batchId: string;
   kind: 'cleared' | 'applied' | 'recreated';
+  upserts: PutConnectionScheduleRuleRequest[];
+  cancels: number[];
   items: ScheduleComposeItemDto[];
+}
+
+/** Итог атомарной пачки: применённые правила (со scheduleId) + перекрытые id. */
+export interface ScheduleBatchResultDto {
+  ok: boolean;
+  applied: ConnectionScheduleRuleDto[];
+  superseded: number[];
 }
 
 export interface NotificationDto {

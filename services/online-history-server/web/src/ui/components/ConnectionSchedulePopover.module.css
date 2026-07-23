@@ -753,6 +753,13 @@ input.metaBlockField {
   color: var(--color-text);
 }
 
+.confirmFooterWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
 .confirmFooter {
   display: flex;
   align-items: center;

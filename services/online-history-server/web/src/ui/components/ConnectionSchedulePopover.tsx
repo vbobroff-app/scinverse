@@ -78,12 +78,18 @@ interface Props {
   state: ConnectionScheduleStateDto | undefined;
   open: boolean;
   onClose: () => void;
-  onApplyBatch: (args: {
-    upserts: PutConnectionScheduleRuleRequest[];
-    cancels: number[];
-    composeKind: 'cleared' | 'applied' | 'recreated';
-    items: ScheduleComposeItemDto[];
-  }) => void;
+  onApplyBatch: (
+    args: {
+      upserts: PutConnectionScheduleRuleRequest[];
+      cancels: number[];
+      composeKind: 'cleared' | 'applied' | 'recreated';
+      items: ScheduleComposeItemDto[];
+    },
+    handlers?: {
+      onSuccess?: () => void;
+      onError?: (info: { kind: 'server' | 'network'; message?: string }) => void;
+    },
+  ) => void;
 }
 
 /** Дни недели: Пн..Вс, значение — js dow (0=вс..6=сб). */
@@ -634,6 +640,10 @@ export function ConnectionSchedulePopover({
   const [msgDontAsk, setMsgDontAsk] = useState(false);
   /** Расписание изменилось на сервере, пока правим (баннер). */
   const [serverChanged, setServerChanged] = useState(false);
+  /** Сбой сохранения пачки: попап остаётся в confirm с инлайн-баннером (черновик сохранён). */
+  const [commitError, setCommitError] = useState<string | null>(null);
+  /** Пачка отправлена, ждём ответ сервера (блокируем «Подтвердить» от дабл-клика). */
+  const [committing, setCommitting] = useState(false);
   /**
    * Click-out → сохранить черновик до следующего открытия.
    * × / commit → сбросить (осознанный выход).
@@ -1677,8 +1687,28 @@ export function ConnectionSchedulePopover({
         : baseEmpty && cancels.length === 0 && upserts.length > 0
           ? 'recreated'
           : 'applied';
-    onApplyBatch({ upserts, cancels, composeKind, items });
-    hardClose();
+    // Оптимистично НЕ закрываем: ждём исход. Успех → hardClose; сбой → баннер, попап открыт, черновик цел.
+    setCommitError(null);
+    setCommitting(true);
+    onApplyBatch(
+      { upserts, cancels, composeKind, items },
+      {
+        onSuccess: () => {
+          setCommitting(false);
+          hardClose();
+        },
+        onError: (info) => {
+          setCommitting(false);
+          setCommitError(
+            info.kind === 'network'
+              ? 'Нет связи с сервером — изменения не подтверждены. Повторите попытку.'
+              : info.message
+                ? `Не удалось сохранить изменения: ${info.message}`
+                : 'Не удалось сохранить изменения. Повторите попытку; при повторной ошибке — обратитесь к администратору.',
+          );
+        },
+      },
+    );
   };
 
   /** Вернуть черновик к сохранённому base (сброс несохранённых правок). */
@@ -2607,13 +2637,28 @@ export function ConnectionSchedulePopover({
             Утвердить
           </button>
         ) : (
-          <div className={styles.confirmFooter}>
-            <button type="button" className={styles.backBtn} onClick={goToEdit}>
-              ← Вернуться к редактированию
-            </button>
-            <button type="button" className={styles.approve} onClick={commit}>
-              Подтвердить
-            </button>
+          <div className={styles.confirmFooterWrap}>
+            {commitError && (
+              <div className={styles.durationBanner} role="alert">
+                <span className={styles.durationBannerIcon} aria-hidden="true">
+                  ⚠
+                </span>
+                <span className={styles.serverBannerText}>{commitError}</span>
+              </div>
+            )}
+            <div className={styles.confirmFooter}>
+              <button type="button" className={styles.backBtn} onClick={goToEdit} disabled={committing}>
+                ← Вернуться к редактированию
+              </button>
+              <button
+                type="button"
+                className={styles.approve}
+                onClick={commit}
+                disabled={committing}
+              >
+                {committing ? 'Сохранение…' : commitError ? 'Повторить' : 'Подтвердить'}
+              </button>
+            </div>
           </div>
         )}
         </div>
