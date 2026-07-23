@@ -694,6 +694,25 @@ input.metaBlockField {
   color: #e0a355;
 }
 
+/* Валидация: окно длиннее 24 ч (частая ошибка) — красный тон, блокирует «Утвердить». */
+.durationBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-error, #ff6b6b) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--color-error, #ff6b6b) 12%, transparent);
+  color: var(--color-text);
+  font-size: 12px;
+}
+
+.durationBannerIcon {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--color-error, #ff6b6b);
+}
+
 .serverBannerText {
   flex: 1;
   min-width: 0;

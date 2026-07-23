@@ -1490,6 +1490,10 @@ export function ConnectionSchedulePopover({
   const durationMin = Math.min(Math.max(endMin - startMin, 1), 1439);
   const durationLabel =
     mode === 'off' ? 'выкл' : `${openHm} · ${Math.floor(durationMin / 60)}ч ${durationMin % 60}м`;
+  // Валидация: окно длиннее 24 ч. Обычный drag капается на 24 ч, но шаблон/shift пишут
+  // start/end напрямую и могут «пробить» лимит; на сохранении duration молча режется до 23:59,
+  // поэтому ловим сырую длительность и блокируем «Утвердить» с явным баннером.
+  const durationOverflow = hasActiveLayer && mode !== 'off' && endMin - startMin > MAX_SPAN_MIN;
 
   /**
    * Eye + Календарь: полная лента static (как confirm), не только выбранный скоуп.
@@ -1622,6 +1626,10 @@ export function ConnectionSchedulePopover({
   /** Шаг 1 → 2: собрать дифф и показать превью (без отправки). */
   const approve = () => {
     if (readOnly) return;
+    if (durationOverflow) {
+      // Баннер уже показан в edit-виде; в confirm не пускаем — иначе окно молча урежется.
+      return;
+    }
     if (!hasPendingChanges()) {
       setMsgBox({
         severity: 'info',
@@ -1964,6 +1972,16 @@ export function ConnectionSchedulePopover({
             >
               ×
             </button>
+          </div>
+        )}
+        {durationOverflow && (
+          <div className={styles.durationBanner} role="alert">
+            <span className={styles.durationBannerIcon} aria-hidden="true">
+              ⚠
+            </span>
+            <span className={styles.serverBannerText}>
+              Длительность окна больше 24 ч — так сохранить нельзя. Уменьшите время закрытия.
+            </span>
           </div>
         )}
         <ScheduleWindowRibbon
