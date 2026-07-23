@@ -207,20 +207,29 @@ public sealed record PutConnectionScheduleSettingsRequest(
     string? Engine,
     string? Tz);
 
-/// <summary>Элемент пачки для Notification Composer (user-summary + system batch).</summary>
+/// <summary>Элемент пачки для сводки (user-summary + system batch): что именно применено/снято.</summary>
 public sealed record ScheduleComposeItemDto(
     string Kind,
     string Label,
     long? ScheduleId = null);
 
 /// <summary>
-/// Итог пачки schedule-операций: одно user-уведомление + одно system.
-/// Атомарные rule_*/cancel при <c>batchId</c> на PUT/cancel не публикуются.
+/// Атомарная пачка schedule-операций (Saga, всё-или-ничего): один запрос заменяет N PUT/cancel +
+/// отдельный compose. Сервер в одной транзакции применяет <see cref="Upserts"/> и <see cref="Cancels"/>,
+/// сам делает backfill <c>scheduleId</c> в <see cref="Items"/> и публикует сводку в NC.
 /// </summary>
-public sealed record ScheduleComposeRequest(
+public sealed record ScheduleBatchRequest(
     string BatchId,
     string Kind,
+    IReadOnlyList<PutConnectionScheduleRuleRequest> Upserts,
+    IReadOnlyList<long> Cancels,
     IReadOnlyList<ScheduleComposeItemDto> Items);
+
+/// <summary>Итог атомарной пачки: применённые правила (со <c>scheduleId</c>) + перекрытые id.</summary>
+public sealed record ScheduleBatchResultDto(
+    bool Ok,
+    IReadOnlyList<ConnectionScheduleRuleDto> Applied,
+    IReadOnlyList<long> Superseded);
 
 /// <summary>Подключение коннектора (без секретов) + рантайм-статус.</summary>
 public sealed record ConnectionDto(

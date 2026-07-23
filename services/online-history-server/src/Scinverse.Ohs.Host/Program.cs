@@ -108,6 +108,10 @@ builder.Services.AddTransient<SchedulePreflight>();
 builder.Services.AddHostedService<OhsWorker>();
 builder.Services.AddHostedService<NotificationPersistWriter>();
 
+// Safety-net неперехваченных исключений (phase 7j §3.B): ProblemDetails 500 + ohs.unhandled в NC.
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddCors(options => options.AddPolicy("admin-dev", policy =>
@@ -123,6 +127,9 @@ builder.Services.AddCors(options => options.AddPolicy("admin-dev", policy =>
 }));
 
 var app = builder.Build();
+
+// Раньше маршрутов: перехватывает исключения из эндпоинтов (safety-net → ohs.unhandled + 500).
+app.UseExceptionHandler();
 
 app.UseSerilogRequestLogging();
 

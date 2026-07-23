@@ -239,98 +239,71 @@ public static class OhsEndpoints
             IConnectionStore connections,
             IConnectionScheduleStore schedule,
             ConnectionSupervisor supervisor,
-            CancellationToken ct) =>
-        {
-            if (await connections.GetAsync(id, ct) is null)
-            {
-                return Results.NotFound();
-            }
-
-            var settings = await schedule.SetSettingsAsync(
-                id, request.AutoEnabled, request.Engine, request.Tz, ct);
-            supervisor.Nudge();
-            return Results.Ok(ToScheduleSettingsDto(settings));
-        });
-
-        api.MapPut("/connections/{id:long}/schedule/rule", async (
-            long id,
-            PutConnectionScheduleRuleRequest request,
-            string? batchId,
-            IConnectionStore connections,
-            IConnectionScheduleStore schedule,
-            ConnectionSupervisor supervisor,
             INotificationPublisher notifications,
             CancellationToken ct) =>
         {
-            if (await connections.GetAsync(id, ct) is null)
+            var connection = await connections.GetAsync(id, ct);
+            if (connection is null)
             {
                 return Results.NotFound();
             }
 
             try
             {
-                var draft = ToRuleDraft(request);
-                var result = await schedule.UpsertRuleAsync(id, draft, ct);
+                var settings = await schedule.SetSettingsAsync(
+                    id, request.AutoEnabled, request.Engine, request.Tz, ct);
                 supervisor.Nudge();
-                if (string.IsNullOrWhiteSpace(batchId))
+
+                // 2a: публикуем только при явном переключении Auto (плановое действие оператора → info).
+                if (request.AutoEnabled is { } auto)
                 {
                     notifications.Publish(
-                        "connection.schedule.rule_set",
-                        $"Расписание {id}: правило «{ScopeLabel(result.Rule)}» утверждено",
-                        severity: "info", sourceType: "user", data: new { connectionId = id, result.Rule.ScheduleId });
-                    if (result.SupersededIds.Count > 0)
-                    {
-                        notifications.Publish(
-                            "connection.schedule.rule_superseded",
-                            $"Расписание {id}: перекрыто правил — {result.SupersededIds.Count}",
-                            severity: "info", sourceType: "system", data: new { connectionId = id, ids = result.SupersededIds });
-                    }
+                        auto ? "connection.schedule.auto_enabled" : "connection.schedule.auto_disabled",
+                        $"{ScheduleWho(id, connection.Name)}: автоподключение {(auto ? "включено" : "выключено")}",
+                        severity: "info", sourceType: "user", data: new { connectionId = id });
                 }
 
-                return Results.Ok(ToScheduleRuleDto(result.Rule));
+                return Results.Ok(ToScheduleSettingsDto(settings));
             }
-            catch (ArgumentException ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                return Results.BadRequest(new { error = ex.Message });
+                // 2b: инфра/БД → user·error + system·error (тумблер в UI откатится по refresh).
+                notifications.Publish(
+                    "connection.schedule.settings_failed",
+                    $"{ScheduleWho(id, connection.Name)}: не удалось изменить автоподключение",
+                    severity: "error", sourceType: "user",
+                    data: new { connectionId = id, lines = SettingsFailedUserLines });
+                notifications.Publish(
+                    "connection.schedule.storage_error",
+                    $"Расписание {id}: ошибка хранилища при сохранении настроек",
+                    severity: "error", sourceType: "system",
+                    data: new
+                    {
+                        connectionId = id,
+                        lines = new[] { SummarizeException(ex), "Настройка не записана, состояние не изменено" },
+                    });
+                return Results.Json(
+                    new { error = "Не удалось изменить настройки расписания" },
+                    statusCode: StatusCodes.Status500InternalServerError);
             }
         });
 
-        api.MapPost("/connections/{id:long}/schedule/rules/{scheduleId:long}/cancel", async (
+        // Атомарная пачка (Saga, всё-или-ничего): один запрос заменяет N PUT/cancel + compose.
+        // Успех → user·info summary + system·info batch. Валидация → 400 без NC (инлайн-баннер).
+        // Инфра/БД → rollback (в store) + user·error + system·error, 500. Не найдено → 404 + user·warning.
+        api.MapPost("/connections/{id:long}/schedule/batch", async (
             long id,
-            long scheduleId,
-            string? batchId,
+            ScheduleBatchRequest request,
+            IConnectionStore connections,
             IConnectionScheduleStore schedule,
             ConnectionSupervisor supervisor,
             INotificationPublisher notifications,
+            ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
-            var canceled = await schedule.CancelRuleAsync(id, scheduleId, ct);
-            if (canceled is null)
-            {
-                return Results.NotFound(new { error = "Правило не найдено или уже закрыто" });
-            }
-
-            supervisor.Nudge();
-            if (string.IsNullOrWhiteSpace(batchId))
-            {
-                notifications.Publish(
-                    "connection.schedule.rule_canceled",
-                    $"Расписание {id}: правило «{ScopeLabel(canceled)}» снято",
-                    severity: "info", sourceType: "user", data: new { connectionId = id, scheduleId });
-            }
-
-            return Results.Ok(ToScheduleRuleDto(canceled));
-        });
-
-        api.MapPost("/connections/{id:long}/schedule/compose", (
-            long id,
-            ScheduleComposeRequest request,
-            INotificationPublisher notifications) =>
-        {
-            if (string.IsNullOrWhiteSpace(request.BatchId))
-            {
-                return Results.BadRequest(new { error = "batchId обязателен" });
-            }
+            var batchId = string.IsNullOrWhiteSpace(request.BatchId)
+                ? Guid.NewGuid().ToString("N")
+                : request.BatchId.Trim();
 
             var kind = (request.Kind ?? "").Trim().ToLowerInvariant();
             if (kind is not ("cleared" or "applied" or "recreated"))
@@ -338,58 +311,74 @@ public static class OhsEndpoints
                 return Results.BadRequest(new { error = "kind: cleared | applied | recreated" });
             }
 
-            var items = request.Items ?? Array.Empty<ScheduleComposeItemDto>();
-            var corr = request.BatchId.Trim();
-            var n = items.Count;
-            var headline = kind switch
+            var connection = await connections.GetAsync(id, ct);
+            if (connection is null)
             {
-                "cleared" => n > 0 ? $"Расписание {id} очищено ({n})" : $"Расписание {id} очищено",
-                "recreated" => n > 0 ? $"Расписание {id} пересоздано ({n})" : $"Расписание {id} пересоздано",
-                _ => n > 0 ? $"Расписание {id} изменено ({n})" : $"Расписание {id} изменено",
-            };
-
-            var lines = new List<string>
-            {
-                kind switch
-                {
-                    "cleared" => $"Расписание {id}: очищено",
-                    "recreated" => $"Расписание {id}: пересоздано",
-                    _ => $"Расписание {id}: изменения применены",
-                },
-            };
-            foreach (var i in items)
-            {
-                var verb = i.Kind.Equals("canceled", StringComparison.OrdinalIgnoreCase) ? "снято"
-                    : i.Kind.Equals("set", StringComparison.OrdinalIgnoreCase) ? "утверждено"
-                    : i.Kind;
-                lines.Add($"Расписание {id}: правило «{i.Label}» {verb}");
+                // 1d: подключение не найдено → 404, user·warning (не инфра-сбой).
+                notifications.Publish(
+                    "connection.schedule.batch_failed",
+                    $"Расписание {id}: не удалось сохранить изменения — подключение не найдено",
+                    severity: "warning", sourceType: "user",
+                    data: new { connectionId = id, batchId },
+                    correlationId: batchId);
+                return Results.NotFound(new { error = $"Подключение {id} не найдено" });
             }
 
-            var userCode = kind switch
+            List<ConnectionScheduleRuleDraft> drafts;
+            try
             {
-                "cleared" => "connection.schedule.cleared",
-                "recreated" => "connection.schedule.recreated",
-                _ => "connection.schedule.batch_applied",
-            };
+                drafts = (request.Upserts ?? []).Select(ToRuleDraft).ToList();
+            }
+            catch (ArgumentException ex)
+            {
+                // 1b: валидация ввода → 400, БЕЗ NC (не шумим лентой из-за опечаток).
+                return Results.BadRequest(new { error = ex.Message });
+            }
 
-            // User: короткий заголовок; детали — data.lines (столбик в expand дока).
-            notifications.Publish(
-                userCode,
-                headline,
-                severity: "info",
-                sourceType: "user",
-                data: new { connectionId = id, kind, items, lines },
-                correlationId: corr);
+            ScheduleBatchResult result;
+            try
+            {
+                result = await schedule.ApplyBatchAsync(id, drafts, request.Cancels ?? [], ct);
+            }
+            catch (ArgumentException ex)
+            {
+                // 1b: доменная валидация внутри store → 400, БЕЗ NC.
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 1c: инфра/БД — транзакция откачена в store; user·error + system·error, 500.
+                loggerFactory.CreateLogger("OhsEndpoints").LogError(
+                    ex, "Сбой сохранения пачки расписания {ConnectionId} (batchId={BatchId})", id, batchId);
+                notifications.Publish(
+                    "connection.schedule.batch_failed",
+                    $"{ScheduleWho(id, connection.Name)}: не удалось сохранить изменения",
+                    severity: "error", sourceType: "user",
+                    data: new { connectionId = id, batchId, lines = BatchFailedUserLines },
+                    correlationId: batchId);
+                notifications.Publish(
+                    "connection.schedule.storage_error",
+                    $"Расписание {id}: ошибка хранилища при сохранении пачки",
+                    severity: "error", sourceType: "system",
+                    data: new
+                    {
+                        connectionId = id,
+                        batchId,
+                        lines = new[] { SummarizeException(ex), "Откат транзакции, состояние не изменено" },
+                    },
+                    correlationId: batchId);
+                return Results.Json(
+                    new { error = "Не удалось сохранить изменения расписания" },
+                    statusCode: StatusCodes.Status500InternalServerError);
+            }
 
-            notifications.Publish(
-                "connection.schedule.batch",
-                $"Расписание {id}: batch ({n})",
-                severity: "info",
-                sourceType: "system",
-                data: new { connectionId = id, kind, items },
-                correlationId: corr);
+            supervisor.Nudge();
+            PublishBatchSuccess(notifications, id, connection.Name, batchId, kind, request.Items ?? [], result);
 
-            return Results.Ok(new { connectionId = id, kind, count = n });
+            return Results.Ok(new ScheduleBatchResultDto(
+                true,
+                result.Applied.Select(ToScheduleRuleDto).ToList(),
+                result.SupersededIds));
         });
 
         // Бэклог — из тёплого ring-buffer (Publish пишет синхронно; после рестарта буфер гидрируется
@@ -1010,13 +999,98 @@ public static class OhsEndpoints
         throw new ArgumentException($"Некорректное время: {text}");
     }
 
-    private static string ScopeLabel(ConnectionScheduleRule r) => r.ScopeKind switch
+    private static readonly string[] BatchFailedUserLines =
+    [
+        "Изменения не применены — ошибка хранилища",
+        "Повторите попытку; при повторной ошибке — обратитесь к администратору",
+    ];
+
+    private static readonly string[] SettingsFailedUserLines =
+    [
+        "Настройка не сохранена — ошибка хранилища",
+        "Повторите попытку; при повторной ошибке — обратитесь к администратору",
+    ];
+
+    /// <summary>User-подпись расписания: id основной, имя в скобках (имя может меняться).</summary>
+    private static string ScheduleWho(long connectionId, string name) => $"Расписание {connectionId} («{name}»)";
+
+    /// <summary>Краткая суть исключения для NC/аудита (тип + message, усечение ≤500). Полный стек — только в логе.</summary>
+    private static string SummarizeException(Exception ex)
     {
-        ConnectionScheduleScopes.Main => "основное",
-        ConnectionScheduleScopes.Dow => $"дни {r.DowMask}",
-        ConnectionScheduleScopes.Date => $"{r.DateFrom:dd.MM}–{r.DateTo:dd.MM}",
-        _ => r.ScopeKind,
-    };
+        var summary = $"{ex.GetType().FullName}: {ex.Message}";
+        return summary.Length > 500 ? summary[..500] + "…" : summary;
+    }
+
+    /// <summary>Сводка успешной пачки: user·info (заголовок + lines) + system·info batch, общий correlationId.</summary>
+    private static void PublishBatchSuccess(
+        INotificationPublisher notifications,
+        long id,
+        string name,
+        string batchId,
+        string kind,
+        IReadOnlyList<ScheduleComposeItemDto> requestItems,
+        ScheduleBatchResult result)
+    {
+        // Backfill scheduleId в 'set'-items из applied (порядок set-items ↔ порядок применённых upsert'ов).
+        var appliedIds = result.Applied.Select(r => r.ScheduleId).ToList();
+        var next = 0;
+        var items = requestItems
+            .Select(it => it.Kind.Equals("set", StringComparison.OrdinalIgnoreCase)
+                    && it.ScheduleId is null && next < appliedIds.Count
+                ? it with { ScheduleId = appliedIds[next++] }
+                : it)
+            .ToList();
+
+        var n = items.Count;
+        var headline = kind switch
+        {
+            "cleared" => n > 0 ? $"{ScheduleWho(id, name)}: очищено ({n})" : $"{ScheduleWho(id, name)}: очищено",
+            "recreated" => n > 0 ? $"{ScheduleWho(id, name)}: пересоздано ({n})" : $"{ScheduleWho(id, name)}: пересоздано",
+            _ => n > 0 ? $"{ScheduleWho(id, name)}: изменено ({n})" : $"{ScheduleWho(id, name)}: изменено",
+        };
+
+        // lines без тавтологии «Расписание N:» (id уже в заголовке).
+        var lines = items
+            .Select(it =>
+            {
+                var verb = it.Kind.Equals("canceled", StringComparison.OrdinalIgnoreCase) ? "снято"
+                    : it.Kind.Equals("set", StringComparison.OrdinalIgnoreCase) ? "утверждено"
+                    : it.Kind;
+                return $"Правило «{it.Label}» {verb}";
+            })
+            .ToList();
+
+        var userCode = kind switch
+        {
+            "cleared" => "connection.schedule.cleared",
+            "recreated" => "connection.schedule.recreated",
+            _ => "connection.schedule.batch_applied",
+        };
+
+        // Симметрия состояния расписания: очистка → пустое (warning); пересоздание из пустого →
+        // расписание появилось (ok, позитивный переход); правка существующего → рутинный info.
+        var userSeverity = kind switch
+        {
+            "cleared" => "warning",
+            "recreated" => "ok",
+            _ => "info",
+        };
+
+        notifications.Publish(
+            userCode,
+            headline,
+            severity: userSeverity, sourceType: "user",
+            data: new { connectionId = id, batchId, kind, items, lines },
+            correlationId: batchId);
+
+        // System — техаудит: только id (имя опускаем, оно для user-ленты).
+        notifications.Publish(
+            "connection.schedule.batch",
+            $"Расписание {id}: batch ({n})",
+            severity: "info", sourceType: "system",
+            data: new { connectionId = id, batchId, kind, items },
+            correlationId: batchId);
+    }
 
     private static ConnectionScheduleStateDto ToScheduleStateDto(ConnectionScheduleState state) => new(
         ToScheduleSettingsDto(state.Settings),

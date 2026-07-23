@@ -48,10 +48,14 @@ persist, WS, гидрация бэклога) — не хватало дисци
 - Тавтологию «Расписание {id}:» в каждой строке `lines` НЕ повторяем (id уже в заголовке).
 - `items` в `data` — camelCase (`kind/label/scheduleId`).
 
-**Severity:**
-- Рутинные плановые действия (правки расписания, Auto on/off) → `info`.
-- `ok` резервируем за реальными позитивными переходами состояния (связь установлена, инцидент закрыт).
+**Severity (user-строки пачки):**
+- Рутинная правка существующего расписания (`applied`) и Auto on/off → `info`.
+- Очистка (`cleared`) → `warning`: расписание стало пустым (Auto без окон) — состояние-предупреждение.
+- Пересоздание из пустого (`recreated`) → `ok`: позитивный переход, расписание появилось. Симметрия
+  с `cleared` (как `connecting·warning → connected·ok`).
+- `ok` в остальном резервируем за реальными позитивными переходами (связь установлена, инцидент закрыт).
 - Инфра-сбой → `error`; неперехваченное → `critical`.
+- system-строка `batch` — всегда `info` (техаудит, не дублирует user-severity).
 
 **Диагностируемость (trace):**
 - Полный stack trace → **только серверный лог** (безопасность + размер).
@@ -107,9 +111,9 @@ Fake-прототипы всех кейсов — `web/src/core/ncFakeSchedule.t
 
 | # | Проблема | HTTP | Кто | NC-строки |
 |---|----------|------|-----|-----------|
-| 1a | Успех (applied) | 200 | сервер | user·info `connection.schedule.batch_applied` + system·info `connection.schedule.batch` |
-| 1a | Успех (cleared) | 200 | сервер | user·info `connection.schedule.cleared` + system·info `batch` |
-| 1a | Успех (recreated) | 200 | сервер | user·info `connection.schedule.recreated` + system·info `batch` |
+| 1a | Успех (applied) | 200 | сервер | user·**info** `connection.schedule.batch_applied` + system·info `connection.schedule.batch` |
+| 1a | Успех (cleared) | 200 | сервер | user·**warning** `connection.schedule.cleared` + system·info `batch` (расписание стало пустым) |
+| 1a | Успех (recreated) | 200 | сервер | user·**ok** `connection.schedule.recreated` + system·info `batch` (расписание появилось из пустого) |
 | 1b | Валидация (напр. duration>24ч) | 400 | — | **нет NC** — инлайн-баннер в попапе |
 | 1c | Инфра/БД, откат | 5xx | сервер | user·error `connection.schedule.batch_failed` + system·error `connection.schedule.storage_error` |
 | 1d | Подключение не найдено | 404 | сервер | user·warning `connection.schedule.batch_failed` |
@@ -176,17 +180,21 @@ NotificationRow,NotificationDock}`.
 
 ## 7. План реализации (чеклист)
 
-- [ ] **Contracts**: `ScheduleBatchRequest` / `ScheduleBatchResultDto` (`Dtos.cs`).
-- [ ] **Store**: `IConnectionScheduleStore.ApplyBatchAsync(...)` + реализация (supersede+insert+cancel
-      в одной `tx`), возврат applied/superseded.
-- [ ] **Endpoints**: `POST …/schedule/batch` (валидация → 400 без NC; успех → user+system info;
-      инфра → rollback + user·error + system·error); удалить `compose`; настройки/пачку логировать в
-      scope `batchId`.
-- [ ] **Exception handler**: `IExceptionHandler` в `Program.cs` (`ohs.unhandled`, requestId).
-- [ ] **API-клиент**: `applyScheduleBatch` (один запрос) в `api.ts`.
-- [ ] **OhsStore**: упростить `applyConnectionScheduleBatch` под новый эндпоинт; на ошибке —
-      `notify.error`; убрать fail-fast/backfill-костыль.
-- [ ] **Попап**: `commit()` не закрывать на сбое (баннер + сохранённый черновик).
-- [ ] **Одиночные rule/cancel**: удалить или обернуть обработкой ошибок.
-- [ ] **Уборка**: удалить `ncFakeSchedule.ts` и его импорт из `notifications.ts`.
-- [ ] Lint/типы зелёные (`tsc --noEmit`, `eslint src`, `dotnet build …Host.csproj`).
+- [x] **Contracts**: `ScheduleBatchRequest` / `ScheduleBatchResultDto` (`Dtos.cs`); удалён `ScheduleComposeRequest`.
+- [x] **Store**: `IConnectionScheduleStore.ApplyBatchAsync(...)` + реализация (supersede+insert+cancel
+      в одной `tx`), возврат applied/superseded/canceled; `ApplyUpsertAsync` разделяется с `UpsertRuleAsync`.
+- [x] **Endpoints**: `POST …/schedule/batch` (валидация → 400 без NC; успех → user+system info;
+      инфра → rollback + user·error + system·error; 404 → user·warning); `compose` удалён; сбой пачки
+      логируется в Serilog с `batchId`. Настройки: 2a (`auto_enabled`/`auto_disabled`) + 2b (storage_error).
+- [x] **Exception handler**: `GlobalExceptionHandler : IExceptionHandler` + `UseExceptionHandler`/
+      `AddProblemDetails` в `Program.cs` (`ohs.unhandled`, `correlationId = requestId`).
+- [x] **API-клиент**: `applyScheduleBatch` (один запрос) в `api.ts`.
+- [x] **OhsStore**: `applyConnectionScheduleBatch` — один POST; `handlers.onSuccess/onError`; при обрыве
+      сети (`status 0`) клиентский `notify.error` (1e); убраны `forkJoin`/backfill-костыль.
+- [x] **Попап**: `commit()` не закрывает на сбое — баннер `commitError` в confirm, кнопка «Повторить»,
+      черновик сохранён; закрытие только при `onSuccess`.
+- [x] **Одиночные rule/cancel**: удалены (YAGNI) — эндпоинты `PUT …/rule` и `POST …/rules/{id}/cancel`,
+      `IOhsApi`/`OhsApiClient`-методы, `api.ts`/`OhsStore`-обёртки, мок в тесте, хелпер `ScopeLabel`.
+      Store-примитивы `UpsertRuleAsync`/`CancelRuleAsync` оставлены (SCD-2, покрыты integration-тестами).
+- [x] **Уборка**: `ncFakeSchedule.ts` и его импорт из `notifications.ts` удалены.
+- [x] Lint/типы зелёные (`tsc --noEmit`, `eslint src` — 0 ошибок, `dotnet build` solution — 0/0).

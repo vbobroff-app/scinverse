@@ -116,7 +116,71 @@ public sealed class ConnectionScheduleStore(NpgsqlDataSource dataSource) : IConn
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
 
         var now = DateTimeOffset.UtcNow;
+        var (rule, supersededIds) = await ApplyUpsertAsync(connection, tx, connectionId, draft, now, cancellationToken);
 
+        await tx.CommitAsync(cancellationToken);
+        return new UpsertRuleResult(rule, supersededIds);
+    }
+
+    public async Task<ScheduleBatchResult> ApplyBatchAsync(
+        long connectionId,
+        IReadOnlyList<ConnectionScheduleRuleDraft> upserts,
+        IReadOnlyList<long> cancels,
+        CancellationToken cancellationToken)
+    {
+        // Валидируем все черновики ДО открытия транзакции (ArgumentException → 400 без частичной работы).
+        foreach (var draft in upserts)
+        {
+            Validate(draft);
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+
+        var now = DateTimeOffset.UtcNow;
+        var applied = new List<ConnectionScheduleRule>(upserts.Count);
+        var supersededIds = new List<long>();
+        var canceledIds = new List<long>(cancels.Count);
+
+        foreach (var draft in upserts)
+        {
+            var (rule, superseded) = await ApplyUpsertAsync(connection, tx, connectionId, draft, now, cancellationToken);
+            applied.Add(rule);
+            supersededIds.AddRange(superseded);
+        }
+
+        foreach (var scheduleId in cancels)
+        {
+            var affected = await connection.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE connection_schedule
+                SET effective_to = @now, close_reason = 'canceled'
+                WHERE connection_id = @connectionId AND schedule_id = @scheduleId AND effective_to IS NULL;
+                """,
+                new { connectionId, scheduleId, now },
+                transaction: tx,
+                cancellationToken: cancellationToken));
+
+            // 0 строк — правило уже закрыто (например, перекрыто upsert'ом в этой же пачке) → no-op.
+            if (affected > 0)
+            {
+                canceledIds.Add(scheduleId);
+            }
+        }
+
+        await tx.CommitAsync(cancellationToken);
+        return new ScheduleBatchResult(applied, supersededIds, canceledIds);
+    }
+
+    /// <summary>SCD-2 supersede + insert новой версии в рамках переданной транзакции (без commit).</summary>
+    private static async Task<(ConnectionScheduleRule Rule, IReadOnlyList<long> SupersededIds)> ApplyUpsertAsync(
+        Npgsql.NpgsqlConnection connection,
+        System.Data.Common.DbTransaction tx,
+        long connectionId,
+        ConnectionScheduleRuleDraft draft,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
         // Закрываем как superseded все живые правила того же уровня, чей скоуп ⊆ нового.
         var supersededIds = (await connection.QueryAsync<long>(new CommandDefinition(
             SupersedeSql(draft.ScopeKind),
@@ -132,30 +196,7 @@ public sealed class ConnectionScheduleStore(NpgsqlDataSource dataSource) : IConn
             cancellationToken: cancellationToken))).ToList();
 
         var inserted = await connection.QuerySingleAsync<RuleRow>(new CommandDefinition(
-            """
-            INSERT INTO connection_schedule (
-                connection_id, scope_kind, dow_mask, date_from, date_to,
-                mode, open_time, duration_min,
-                effective_from, effective_to, close_reason, change_source, change_note)
-            VALUES (
-                @connectionId, @scopeKind, @mask, @dateFrom, @dateTo,
-                @mode, @openTime::time, @durationMin,
-                @now, NULL, NULL, @changeSource, @changeNote)
-            RETURNING schedule_id AS ScheduleId,
-                      connection_id AS ConnectionId,
-                      scope_kind AS ScopeKind,
-                      dow_mask AS DowMask,
-                      date_from AS DateFrom,
-                      date_to AS DateTo,
-                      mode AS Mode,
-                      open_time::text AS OpenTimeText,
-                      duration_min AS DurationMin,
-                      effective_from AS EffectiveFrom,
-                      effective_to AS EffectiveTo,
-                      close_reason AS CloseReason,
-                      change_source AS ChangeSource,
-                      change_note AS ChangeNote;
-            """,
+            InsertRuleSql,
             new
             {
                 connectionId,
@@ -173,12 +214,35 @@ public sealed class ConnectionScheduleStore(NpgsqlDataSource dataSource) : IConn
             transaction: tx,
             cancellationToken: cancellationToken));
 
-        await tx.CommitAsync(cancellationToken);
-
         // Инсертнутое правило не должно попадать в список superseded.
         supersededIds.Remove(inserted.ScheduleId);
-        return new UpsertRuleResult(MapRule(inserted), supersededIds);
+        return (MapRule(inserted), supersededIds);
     }
+
+    private const string InsertRuleSql = """
+        INSERT INTO connection_schedule (
+            connection_id, scope_kind, dow_mask, date_from, date_to,
+            mode, open_time, duration_min,
+            effective_from, effective_to, close_reason, change_source, change_note)
+        VALUES (
+            @connectionId, @scopeKind, @mask, @dateFrom, @dateTo,
+            @mode, @openTime::time, @durationMin,
+            @now, NULL, NULL, @changeSource, @changeNote)
+        RETURNING schedule_id AS ScheduleId,
+                  connection_id AS ConnectionId,
+                  scope_kind AS ScopeKind,
+                  dow_mask AS DowMask,
+                  date_from AS DateFrom,
+                  date_to AS DateTo,
+                  mode AS Mode,
+                  open_time::text AS OpenTimeText,
+                  duration_min AS DurationMin,
+                  effective_from AS EffectiveFrom,
+                  effective_to AS EffectiveTo,
+                  close_reason AS CloseReason,
+                  change_source AS ChangeSource,
+                  change_note AS ChangeNote;
+        """;
 
     public async Task<ConnectionScheduleRule?> CancelRuleAsync(
         long connectionId, long scheduleId, CancellationToken cancellationToken)

@@ -65,17 +65,9 @@ public interface IOhsApi
     Task<ConnectionScheduleStateDto> GetConnectionScheduleAsync(
         long id, CancellationToken cancellationToken = default);
 
-    /// <summary>PUT /api/connections/{id}/schedule/rule</summary>
-    Task<ConnectionScheduleRuleDto> PutConnectionScheduleRuleAsync(
-        long id, PutConnectionScheduleRuleRequest request, CancellationToken cancellationToken = default);
-
     /// <summary>PUT /api/connections/{id}/schedule/settings</summary>
     Task<ConnectionScheduleSettingsDto> PutConnectionScheduleSettingsAsync(
         long id, PutConnectionScheduleSettingsRequest request, CancellationToken cancellationToken = default);
-
-    /// <summary>POST /api/connections/{id}/schedule/rules/{scheduleId}/cancel</summary>
-    Task<ConnectionScheduleRuleDto> CancelConnectionScheduleRuleAsync(
-        long id, long scheduleId, CancellationToken cancellationToken = default);
 
     /// <summary>GET /api/connections/{id}/schedule/history</summary>
     Task<IReadOnlyList<ConnectionScheduleRuleDto>> GetConnectionScheduleHistoryAsync(

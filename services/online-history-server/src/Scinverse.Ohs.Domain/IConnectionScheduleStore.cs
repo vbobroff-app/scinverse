@@ -19,6 +19,15 @@ public sealed record UpsertRuleResult(
     ConnectionScheduleRule Rule,
     IReadOnlyList<long> SupersededIds);
 
+/// <summary>
+/// Итог атомарной пачки (Saga, всё-или-ничего): применённые правила (в порядке upsert'ов),
+/// перекрытые как <c>superseded</c> и снятые (<c>canceled</c>) id. Всё — в одной транзакции.
+/// </summary>
+public sealed record ScheduleBatchResult(
+    IReadOnlyList<ConnectionScheduleRule> Applied,
+    IReadOnlyList<long> SupersededIds,
+    IReadOnlyList<long> CanceledIds);
+
 /// <summary>Хранилище расписаний соединений (connection_schedule / _settings), phase 7j v2.</summary>
 public interface IConnectionScheduleStore
 {
@@ -49,6 +58,17 @@ public interface IConnectionScheduleStore
     /// <summary>Снять правило: закрыть живую версию как <c>canceled</c>. null — если не найдено/уже закрыто.</summary>
     Task<ConnectionScheduleRule?> CancelRuleAsync(
         long connectionId, long scheduleId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Атомарная пачка (Saga): в одной транзакции применяет все <paramref name="upserts"/> (SCD-2
+    /// supersede+insert) и снимает <paramref name="cancels"/> (уже закрытые — no-op). Любой сбой →
+    /// полный откат (частичной записи не бывает).
+    /// </summary>
+    Task<ScheduleBatchResult> ApplyBatchAsync(
+        long connectionId,
+        IReadOnlyList<ConnectionScheduleRuleDraft> upserts,
+        IReadOnlyList<long> cancels,
+        CancellationToken cancellationToken);
 
     /// <summary>Upsert настроек (заданные поля перезаписывают, null — оставляют прежнее/дефолт).</summary>
     Task<ConnectionScheduleSettings> SetSettingsAsync(
