@@ -22,6 +22,11 @@ public sealed class ConnectionSupervisor(
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly ConcurrentDictionary<long, int> _failCounts = new();
     private readonly ConcurrentDictionary<long, DateTimeOffset> _nextAttemptAt = new();
+    // correlationId авто-серии (7j.18): connecting×N → connected/connect_failed сворачиваются в один
+    // сеанс; создаётся на первой попытке, снимается при успехе/исчерпании/сбросе.
+    private readonly ConcurrentDictionary<long, string> _autoCorr = new();
+    // Дедуп сбоев тика по подключению (7j.18): сигнатура последней ошибки — чтобы не спамить NC.
+    private readonly ConcurrentDictionary<long, string> _tickError = new();
 
     // Кэш ShapeSessions по (engine, date).
     private readonly Dictionary<(string Engine, DateOnly Date), TradingSession?> _sessionCache = new();
@@ -71,18 +76,60 @@ public sealed class ConnectionSupervisor(
         var now = time.GetUtcNow();
         foreach (var state in states)
         {
+            var connectionId = state.Settings.ConnectionId;
             try
             {
                 await ReconcileOneAsync(state, now, cancellationToken).ConfigureAwait(false);
+                // Успешный тик снимает дедуп: следующий сбой снова уведомит.
+                _tickError.TryRemove(connectionId, out _);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogWarning(
                     ex,
                     "ConnectionSupervisor: не удалось согласовать Auto для connection {ConnectionId}",
-                    state.Settings.ConnectionId);
+                    connectionId);
+                await PublishTickFailureAsync(connectionId, ex, cancellationToken).ConfigureAwait(false);
             }
         }
+    }
+
+    /// <summary>Сбой авто-управления связью в тике (плановый disconnect, чтение расписания, резолвер и
+    /// т.п. — кроме connect-фейлов, у них своя серия) → NC (system·error) с именем. Дедуп по сигнатуре
+    /// исключения: одинаковая ошибка не спамит каждые 15 c, повторно уведомляет лишь при её смене.</summary>
+    private async Task PublishTickFailureAsync(long connectionId, Exception ex, CancellationToken cancellationToken)
+    {
+        var signature = $"{ex.GetType().FullName}: {ex.Message}";
+        if (_tickError.TryGetValue(connectionId, out var previous) && previous == signature)
+        {
+            return;
+        }
+
+        _tickError[connectionId] = signature;
+
+        string label;
+        try
+        {
+            label = await connections.ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            label = ConnectionManager.ConnLabel(connectionId, null);
+        }
+
+        notifications.Publish(
+            "connection.auto_error",
+            $"{label}: сбой авто-управления связью — {SummarizeException(ex)}",
+            severity: "error",
+            sourceType: "system",
+            data: new { connectionId, lines = new[] { SummarizeException(ex) } });
+    }
+
+    /// <summary>Краткая суть исключения (тип + message, усечение ≤300). Полный стек — в логе.</summary>
+    private static string SummarizeException(Exception ex)
+    {
+        var summary = $"{ex.GetType().Name}: {ex.Message}";
+        return summary.Length > 300 ? summary[..300] + "…" : summary;
     }
 
     private async Task ReconcileOneAsync(
@@ -115,13 +162,16 @@ public sealed class ConnectionSupervisor(
         {
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
+            _autoCorr.TryRemove(connectionId, out _);
             if (isConnected)
             {
                 await connections.DisconnectAsync(connectionId, cancellationToken)
                     .ConfigureAwait(false);
+                var label = await connections.ResolveLabelAsync(connectionId, cancellationToken)
+                    .ConfigureAwait(false);
                 notifications.Publish(
                     "connection.schedule_disconnect",
-                    $"Расписание: отключение {connectionId} (вне окна / non-trading)",
+                    $"{label}: плановое отключение (вне окна / non-trading)",
                     "info",
                     data: new { connectionId });
                 logger.LogInformation(
@@ -136,6 +186,7 @@ public sealed class ConnectionSupervisor(
         {
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
+            _autoCorr.TryRemove(connectionId, out _);
             return;
         }
 
@@ -150,10 +201,18 @@ public sealed class ConnectionSupervisor(
             return;
         }
 
+        var scheduleLabel = await connections.ResolveLabelAsync(connectionId, cancellationToken)
+            .ConfigureAwait(false);
+        // correlationId авто-серии: один сеанс connecting×N → connected/failed сворачивается в ленте.
+        var corr = _autoCorr.GetOrAdd(
+            connectionId, id => $"connection:{id}:auto:{Guid.NewGuid().ToString("N")[..8]}");
+
         notifications.Publish(
             "connection.connecting",
-            $"Расписание: подключение {connectionId}, попытка {fails + 1}/{MaxConnectAttempts}",
-            "info",
+            $"{scheduleLabel}: подключаю по расписанию, попытка {fails + 1}/{MaxConnectAttempts}",
+            severity: "warning",
+            status: "underway",
+            correlationId: corr,
             data: new { connectionId, attempt = fails + 1 });
 
         // Если по этому подключению открыт инцидент связи (lost, active) — переводим его в underway.
@@ -161,7 +220,7 @@ public sealed class ConnectionSupervisor(
         notifications.Progress(
             ConnectionManager.LinkIncidentSubject(connectionId),
             "connection.reconnecting",
-            $"Восстановление связи {connectionId}: попытка {fails + 1}/{MaxConnectAttempts}",
+            $"{scheduleLabel}: восстановление связи, попытка {fails + 1}/{MaxConnectAttempts}",
             severity: "warning",
             data: new { connectionId, attempt = fails + 1 });
 
@@ -170,10 +229,13 @@ public sealed class ConnectionSupervisor(
             await connections.ConnectAsync(connectionId, cancellationToken).ConfigureAwait(false);
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
+            _autoCorr.TryRemove(connectionId, out _);
             notifications.Publish(
                 "connection.connected",
-                $"Расписание: соединение {connectionId} установлено",
-                "info",
+                $"{scheduleLabel}: связь установлена",
+                severity: "ok",
+                status: "resolved",
+                correlationId: corr,
                 data: new { connectionId });
             logger.LogInformation(
                 "ConnectionSupervisor: connect OK {ConnectionId}", connectionId);
@@ -189,10 +251,12 @@ public sealed class ConnectionSupervisor(
 
             if (nextFails >= MaxConnectAttempts)
             {
+                _autoCorr.TryRemove(connectionId, out _);
                 notifications.Publish(
                     "connection.connect_failed",
-                    $"Расписание: не удалось подключить {connectionId} за {MaxConnectAttempts} попыток",
-                    "error",
+                    $"{scheduleLabel}: не удалось подключить за {MaxConnectAttempts} попыток",
+                    severity: "error",
+                    correlationId: corr,
                     data: new { connectionId, attempts = nextFails });
             }
         }

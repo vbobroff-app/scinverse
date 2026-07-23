@@ -1,6 +1,6 @@
 # Phase 7j.18 — Auto-connect NC & incident hardening
 
-Статус: **ПЛАН** (аудит рантайм-NC выполнен; форматы под согласование по образцу [error-handling.md](error-handling.md)).
+Статус: **КОД ГОТОВ** (реализовано; `dotnet build` solution 0/0; живая приёмка по §7 — за пользователем).
 
 Связано: [report.md](report.md), [error-handling.md](error-handling.md), [notify-composer.md](notify-composer.md), [v2-exceptions.md](v2-exceptions.md).
 
@@ -95,6 +95,11 @@
 | Попытка N/max | `connection.connecting` | warning (`underway`) | `Подключение {id} («{name}»): подключаю по расписанию, попытка {n}/{max}` | `connection:{id}:auto:{uid}` |
 | Успех | `connection.connected` | **ok** (`resolved`) | `Подключение {id} («{name}»): связь установлена` | тот же |
 | Исчерпаны попытки | `connection.connect_failed` | error | `Подключение {id} («{name}»): не удалось подключить за {max} попыток` | тот же |
+| **Сбой тика** (плановый disconnect, чтение расписания, резолвер и т.п.) | `connection.auto_error` | error | `Подключение {id} («{name}»): сбой авто-управления связью — {суть}` | — (дедуп по сигнатуре) |
+
+Прим.: `connection.auto_error` закрывает «молчаливые» фоновые падения тика супервизора (кроме
+connect-фейлов — у них своя серия). Дедуп по сигнатуре исключения: одинаковая ошибка не спамит NC
+каждые 15 c, повторно уведомляет лишь при её смене; успешный тик снимает дедуп.
 
 ### 5.2. Инциденты связи (system, ось Open/Progress/Resolve)
 
@@ -136,3 +141,17 @@
 
 Критерий готовности: во всех строках рантайма — `Подключение {id} («{name}»)`; позитивные переходы —
 `ok`; авто-серия и инцидент сворачиваются по одному `correlationId`; ручной путь не задет.
+
+| Сбой тика по подключению (напр. падение планового disconnect) | `connection.auto_error`(system·error) с именем; при повторе той же ошибки — без спама |
+
+---
+
+## 8. Перспектива (backlog)
+
+- **Общий мост Serilog → NC.** Точечный `connection.auto_error` (7j.18) закрывает per-connection сбои
+  тика супервизора, но остальные фоновые пути (`TradeBatcher`, `LivenessProbe`, `RecordingSupervisor`,
+  `ConnectorSession` pump, WS) при ошибке пишут **только в лог**. Общее решение — тонкий
+  `ILogEventSink`: «ERROR+ по модулю `ohs.*` → NC (system·error/critical)» как safety-net для всех
+  фоновых путей. Это относится к полному phase 11.2 (`ILogger`-sink), делается отдельно.
+- **Падение всего тика** (`ReconcileAsync`/`ListAutoEnabledAsync`, напр. недоступность БД) сейчас —
+  `LogError` в `RunAsync` без NC (не per-connection). Кандидат на тот же общий мост.

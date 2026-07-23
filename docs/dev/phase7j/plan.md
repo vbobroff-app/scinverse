@@ -64,7 +64,7 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 | 7j.13 | Notification Composer (одно user + одно system на пачку) | DONE | [notify-composer.md](notify-composer.md) |
 | 7j.14 | UI: двухшаговый diff-approve, guardrail main, live-push баннер | DONE | [ui-schedule.md](ui-schedule.md) |
 | 7j.17 | Обработка исключений **редактирования**: атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler` + severity-модель + попап без оптимизма | DONE | [error-handling.md](error-handling.md) |
-| **7j.18** | **Auto Connect: все исключения + инциденты** (см. ниже) | **PLANNED (активная)** | [auto-connect.md](auto-connect.md) |
+| **7j.18** | **Auto Connect: все исключения + инциденты** (см. ниже) | **КОД ГОТОВ · приёмка** | [auto-connect.md](auto-connect.md) |
 | 7j.15 | Рыночный/календарный профиль на settings; UI без хардкода MOEX | PLANNED | [market-profile.md](market-profile.md) |
 | 7j.16 | `date`-авторинг на фронте + пагинация графика по месяцам | PLANNED | [todo.md](todo.md) |
 

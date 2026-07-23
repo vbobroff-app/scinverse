@@ -50,6 +50,8 @@ public sealed class ConnectionManager(
     private readonly ConcurrentDictionary<long, DateTimeOffset> _firstTradePending = new();
     private readonly ConcurrentDictionary<long, ConnectorLinkState> _linkStates = new();
     private readonly ConcurrentDictionary<long, DateTimeOffset> _linkSince = new();
+    // Кэш имени подключения для ярлыков NC (7j.18): избегаем DB-lookup на каждое событие связи.
+    private readonly ConcurrentDictionary<long, string> _nameCache = new();
     private Timer? _idleMonitor;
 
     public ConnectorLinkState? GetLinkState(long connectionId) =>
@@ -57,6 +59,29 @@ public sealed class ConnectionManager(
 
     public string GetStatus(long connectionId) =>
         _status.TryGetValue(connectionId, out var status) ? status : "disconnected";
+
+    /// <summary>Ярлык подключения для NC (7j.18): «Подключение {id} («{name}»)» — id первичен,
+    /// имя в кавычках если задано. Единый формат для supervisor/manager.</summary>
+    public static string ConnLabel(long connectionId, string? name) =>
+        string.IsNullOrWhiteSpace(name)
+            ? $"Подключение {connectionId}"
+            : $"Подключение {connectionId} («{name}»)";
+
+    /// <summary>Ярлык подключения с резолвом имени (кэш → БД). Fallback — только id.</summary>
+    public async ValueTask<string> ResolveLabelAsync(long connectionId, CancellationToken cancellationToken)
+    {
+        if (!_nameCache.TryGetValue(connectionId, out var name))
+        {
+            var connection = await connectionStore.GetAsync(connectionId, cancellationToken).ConfigureAwait(false);
+            name = connection?.Name ?? string.Empty;
+            if (!string.IsNullOrEmpty(name))
+            {
+                _nameCache[connectionId] = name;
+            }
+        }
+
+        return ConnLabel(connectionId, name);
+    }
 
     public IMarketConnector? GetConnector(long connectionId) =>
         _sessions.TryGetValue(connectionId, out var session) ? session.Connector : null;
@@ -400,10 +425,11 @@ public sealed class ConnectionManager(
                 if (recovering)
                 {
                     await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
+                    var label = await ResolveLabelAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
                     notifications.Resolve(
                         LinkIncidentSubject(connectionId),
                         "connection.recovered",
-                        $"Связь восстановлена: подключение {connectionId}",
+                        $"{label}: связь восстановлена",
                         severity: "ok",
                         data: new { connectionId, state = change.State.ToString() });
                 }
@@ -437,10 +463,11 @@ public sealed class ConnectionManager(
                     "Подключение {ConnectionId}: связь {State} ({Detail})",
                     connectionId, change.State, change.Detail);
 
+                var lostLabel = await ResolveLabelAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
                 notifications.Open(
                     LinkIncidentSubject(connectionId),
                     "connection.lost",
-                    $"Связь потеряна: подключение {connectionId} ({change.State})",
+                    $"{lostLabel}: связь потеряна ({change.State})",
                     severity: "error",
                     data: new { connectionId, state = change.State.ToString(), detail = change.Detail });
 
