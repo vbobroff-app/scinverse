@@ -64,6 +64,9 @@ public enum LinkCloseReason
 
     /// <summary>Краш хоста / пропуск keepalive — закрыто recovery на старте или split'ом (красный).</summary>
     Interrupted,
+
+    /// <summary>Плановое отключение по авто-расписанию (вне окна / non-trading) — НЕ разрыв, не ручное.</summary>
+    Scheduled,
 }
 
 /// <summary>Интервал живости связи: [From, To], <see cref="Open"/> = ещё продлевается keepalive.</summary>

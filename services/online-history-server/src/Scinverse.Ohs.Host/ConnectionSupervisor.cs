@@ -165,7 +165,7 @@ public sealed class ConnectionSupervisor(
             _autoCorr.TryRemove(connectionId, out _);
             if (isConnected)
             {
-                await connections.DisconnectAsync(connectionId, cancellationToken)
+                await connections.DisconnectAsync(connectionId, cancellationToken, LinkCloseReason.Scheduled)
                     .ConfigureAwait(false);
                 var label = await connections.ResolveLabelAsync(connectionId, cancellationToken)
                     .ConfigureAwait(false);
@@ -225,7 +225,7 @@ public sealed class ConnectionSupervisor(
             data: new { connectionId, attempt = fails + 1 });
 
         // «Предыдущее подключение» (QUIK-style) — до нового Heartbeat, иначе последним станет текущий сеанс.
-        var previousSuffix = await connections.DescribePreviousConnectionAsync(connectionId, cancellationToken)
+        var previousLines = await connections.DescribePreviousConnectionLinesAsync(connectionId, cancellationToken)
             .ConfigureAwait(false);
 
         try
@@ -236,11 +236,11 @@ public sealed class ConnectionSupervisor(
             _autoCorr.TryRemove(connectionId, out _);
             notifications.Publish(
                 "connection.connected",
-                $"{scheduleLabel}: связь установлена{previousSuffix}",
+                $"{scheduleLabel}: связь установлена.",
                 severity: "ok",
                 status: "resolved",
                 correlationId: corr,
-                data: new { connectionId });
+                data: new { connectionId, lines = previousLines });
             logger.LogInformation(
                 "ConnectionSupervisor: connect OK {ConnectionId}", connectionId);
         }

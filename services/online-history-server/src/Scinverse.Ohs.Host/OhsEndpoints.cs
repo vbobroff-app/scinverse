@@ -487,12 +487,13 @@ public static class OhsEndpoints
                 var status = await manager.ConnectAsync(id, ct);
                 notifications.Publish(
                     "connection.connected",
-                    $"{label}: связь установлена{ConnectionManager.PreviousConnectionSuffix(previous)}",
+                    $"{label}: связь установлена.",
                     severity: "ok", sourceType: "system", status: "resolved", correlationId: attempt,
                     data: new
                     {
                         connectionId = id,
                         status,
+                        lines = ConnectionManager.PreviousConnectionLines(previous),
                         lastConnectedAt = previous?.From,
                         lastConnectionClosed = previous?.To,
                         lastCloseReason = previous?.CloseReason?.ToString(),

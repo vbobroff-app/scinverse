@@ -23,6 +23,7 @@ const INCIDENT_CAUSES = new Set(['server_down', 'ping_failed', 'interrupted']);
 
 const CAUSE_LABEL: Record<string, string> = {
   disconnected: 'Отключено',
+  scheduled: 'Плановое отключение по расписанию',
   server_down: 'Обрыв связи (сервер не отвечает)',
   ping_failed: 'Связь потеряна (пинг)',
   interrupted: 'Прервано (краш/рестарт бэка)',
@@ -41,11 +42,11 @@ function hhmm(ms: number, offMin: number): string {
  * Класс периода «связь не жива» по причине:
  * - `interrupted` (краш/останов бэка) → красный: недоступен сам коннектор;
  * - `server_down`/`ping_failed` → жёлтый: коннектор жив, но сервер не отвечает (напр. Финам ночью рвёт);
- * - `disconnected` (отключил пользователь) → серый: не инцидент.
+ * - `disconnected` (отключил пользователь) / `scheduled` (плановое по расписанию) → серый: не инцидент.
  */
 function gapClass(cause: string): string {
   if (cause === 'interrupted') return styles.down;
-  if (cause === 'disconnected') return styles.idle;
+  if (cause === 'disconnected' || cause === 'scheduled') return styles.idle;
   return styles.lost;
 }
 

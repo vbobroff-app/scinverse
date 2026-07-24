@@ -50,6 +50,9 @@ public sealed class ConnectionManager(
     private readonly ConcurrentDictionary<long, DateTimeOffset> _firstTradePending = new();
     private readonly ConcurrentDictionary<long, ConnectorLinkState> _linkStates = new();
     private readonly ConcurrentDictionary<long, DateTimeOffset> _linkSince = new();
+    // Начало открытого инцидента связи (для длительности разрыва в recovered, 7j.19/I2+I3). ПЕРЕЖИВАЕТ
+    // передисконнект реконнекта (в отличие от _linkStates) — иначе recovered/длительность теряются.
+    private readonly ConcurrentDictionary<long, DateTimeOffset> _incidentSince = new();
     // Кэш имени подключения для ярлыков NC (7j.18): избегаем DB-lookup на каждое событие связи.
     private readonly ConcurrentDictionary<long, string> _nameCache = new();
     private Timer? _idleMonitor;
@@ -83,31 +86,39 @@ public sealed class ConnectionManager(
         return ConnLabel(connectionId, name);
     }
 
-    /// <summary>QUIK-style хвост к «связь установлена»: когда было предыдущее подключение (МСК) и как
-    /// закрылось. Вызывать ДО подключения — иначе «последним» станет текущий сеанс.</summary>
-    public async Task<string> DescribePreviousConnectionAsync(long connectionId, CancellationToken cancellationToken)
+    /// <summary>QUIK-style детали к «связь установлена» отдельными строками (для expanded в NC, 7j.19/I4):
+    /// когда было предыдущее подключение (МСК) и как закрылось. Вызывать ДО подключения — иначе «последним»
+    /// станет текущий сеанс.</summary>
+    public async Task<IReadOnlyList<string>> DescribePreviousConnectionLinesAsync(
+        long connectionId, CancellationToken cancellationToken)
     {
         var connection = await connectionStore.GetAsync(connectionId, cancellationToken).ConfigureAwait(false);
         if (connection is null)
         {
-            return string.Empty;
+            return [];
         }
 
         var previous = await linkLiveness.GetLastAsync(connection.SourceId, cancellationToken).ConfigureAwait(false);
-        return PreviousConnectionSuffix(previous);
+        return PreviousConnectionLines(previous);
     }
 
-    /// <summary>QUIK-style хвост к «связь установлена»: когда было предыдущее подключение (МСК) и как закрылось.</summary>
-    public static string PreviousConnectionSuffix(LinkInterval? previous)
+    /// <summary>QUIK-style детали предыдущего подключения строками: «Предыдущее подключение — … МСК» и
+    /// «Пред. сеанс — &lt;причина&gt;». Заголовок остаётся чистым, эти строки идут в expanded (data.lines).</summary>
+    public static IReadOnlyList<string> PreviousConnectionLines(LinkInterval? previous)
     {
         if (previous is null)
         {
-            return ". Первое подключение.";
+            return ["Первое подключение."];
         }
 
         var msk = previous.From.ToOffset(TimeSpan.FromHours(3));
-        var reason = previous.CloseReason is { } r ? $"; пред. сеанс — {LinkCloseReasonText(r)}" : string.Empty;
-        return $". Предыдущее подключение — {msk:dd.MM.yyyy HH:mm} МСК{reason}.";
+        var lines = new List<string>(2) { $"Предыдущее подключение — {msk:dd.MM.yyyy HH:mm} МСК" };
+        if (previous.CloseReason is { } r)
+        {
+            lines.Add($"Пред. сеанс — {LinkCloseReasonText(r)}");
+        }
+
+        return lines;
     }
 
     private static string LinkCloseReasonText(LinkCloseReason reason) => reason switch
@@ -116,6 +127,7 @@ public sealed class ConnectionManager(
         LinkCloseReason.ServerDown => "обрыв связи",
         LinkCloseReason.PingFailed => "нет ответа",
         LinkCloseReason.Interrupted => "перезапуск",
+        LinkCloseReason.Scheduled => "плановое отключение по расписанию",
         _ => "—",
     };
 
@@ -236,7 +248,10 @@ public sealed class ConnectionManager(
         _ = liveness.Value.OnDataAsync(connectionId, CancellationToken.None);
     }
 
-    public async Task<string> DisconnectAsync(long connectionId, CancellationToken cancellationToken)
+    public async Task<string> DisconnectAsync(
+        long connectionId,
+        CancellationToken cancellationToken,
+        LinkCloseReason reason = LinkCloseReason.Disconnected)
     {
         var hasSource = _sourceIds.TryGetValue(connectionId, out var sourceId);
 
@@ -251,11 +266,12 @@ public sealed class ConnectionManager(
         _linkStates.TryRemove(connectionId, out _);
         _linkSince.TryRemove(connectionId, out _);
         await liveness.Value.OnDisconnectedAsync(connectionId, cancellationToken).ConfigureAwait(false);
-        // Добровольный дисконнект: закрываем живость связи как 'disconnected' (серый на ленте, не разрыв).
+        // Закрываем живость связи с причиной: ручной дисконнект — 'disconnected' (серый, не разрыв);
+        // плановое гашение по авто-расписанию — 'scheduled' (не путать с «отключением оператором»).
         if (hasSource)
         {
             await linkLiveness
-                .CloseAsync(sourceId, LinkCloseReason.Disconnected, null, cancellationToken)
+                .CloseAsync(sourceId, reason, null, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -458,16 +474,35 @@ public sealed class ConnectionManager(
                 }
 
                 var recovering = hadState && previous is ConnectorLinkState.Down or ConnectorLinkState.Error;
-                if (recovering)
+
+                // Закрываем инцидент связи по факту «связь снова жива», опираясь на _incidentSince (не на
+                // in-memory previous): реконнект супервизора идёт через полный DisconnectAsync (стирает
+                // _linkStates), а стелс-разрыв (ping-fail) вообще без server_status Down — без этого
+                // recovered терялся (7j.19/I2). TryRemove делает Resolve однократным и даёт длительность (I3).
+                if (_incidentSince.TryRemove(connectionId, out var incidentStart))
                 {
-                    await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
                     var label = await ResolveLabelAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
+                    var gapMs = (long)(change.At - incidentStart).TotalMilliseconds;
                     notifications.Resolve(
                         LinkIncidentSubject(connectionId),
                         "connection.recovered",
                         $"{label}: связь восстановлена",
                         severity: "ok",
-                        data: new { connectionId, state = change.State.ToString() });
+                        data: new
+                        {
+                            connectionId,
+                            state = change.State.ToString(),
+                            gapStart = incidentStart,
+                            gapEnd = change.At,
+                            gapMs,
+                            lines = GapDurationLines(incidentStart, change.At),
+                        });
+                }
+
+                // Ре-подписка нужна только при реальном восстановлении после известного обрыва.
+                if (recovering)
+                {
+                    await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
                 }
 
                 if (change.State == ConnectorLinkState.Degraded)
@@ -500,29 +535,99 @@ public sealed class ConnectionManager(
                     connectionId, change.State, change.Detail);
 
                 var lostLabel = await ResolveLabelAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
-                notifications.Open(
-                    LinkIncidentSubject(connectionId),
-                    "connection.lost",
+                await OpenLinkLostAsync(
+                    connectionId,
+                    change.At,
                     $"{lostLabel}: связь потеряна ({change.State})",
-                    severity: "error",
-                    data: new { connectionId, state = change.State.ToString(), detail = change.Detail });
-
-                // Обрыв связи: закрываем живость связи как 'server_down' (красный на ленте; время события).
-                if (_sourceIds.TryGetValue(connectionId, out var downSourceId))
-                {
-                    await linkLiveness
-                        .CloseAsync(downSourceId, LinkCloseReason.ServerDown, change.At, CancellationToken.None)
-                        .ConfigureAwait(false);
-                }
-
-                await liveness.Value.OnServerDownAsync(connectionId, change.At, CancellationToken.None)
-                    .ConfigureAwait(false);
-                await recordings.Value.OnLinkDownAsync(connectionId, segmentStatus, change.At, CancellationToken.None)
-                    .ConfigureAwait(false);
-                SetStatus(connectionId, StatusForLinkState(change.State));
+                    LinkCloseReason.ServerDown,
+                    segmentStatus,
+                    change.State,
+                    change.Detail,
+                    CancellationToken.None).ConfigureAwait(false);
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// Открывает инцидент связи (`connection.lost`), закрывает живость связи причиной <paramref name="reason"/>
+    /// на момент <paramref name="atTs"/> (честная граница дыры), гасит захват и статус. Общий путь для
+    /// server_status Down и синтетического стелс-разрыва по пингу (7j.19/I3). Идемпотентен по инциденту:
+    /// повторный Open по тому же subject — no-op; _incidentSince фиксирует НАЧАЛО (earliest wins).
+    /// </summary>
+    private async Task OpenLinkLostAsync(
+        long connectionId,
+        DateTimeOffset atTs,
+        string message,
+        LinkCloseReason reason,
+        string segmentStatus,
+        ConnectorLinkState state,
+        string? detail,
+        CancellationToken cancellationToken)
+    {
+        _incidentSince.TryAdd(connectionId, atTs);
+        notifications.Open(
+            LinkIncidentSubject(connectionId),
+            "connection.lost",
+            message,
+            severity: "error",
+            data: new { connectionId, state = state.ToString(), detail });
+
+        if (_sourceIds.TryGetValue(connectionId, out var srcId))
+        {
+            await linkLiveness.CloseAsync(srcId, reason, atTs, cancellationToken).ConfigureAwait(false);
+        }
+
+        await liveness.Value.OnServerDownAsync(connectionId, atTs, cancellationToken).ConfigureAwait(false);
+        await recordings.Value.OnLinkDownAsync(connectionId, segmentStatus, atTs, cancellationToken).ConfigureAwait(false);
+        SetStatus(connectionId, StatusForLinkState(state));
+    }
+
+    /// <summary>
+    /// Стелс-разрыв данных (7j.19/I3): тишина сделок дольше порога + активный пинг НЕ прошёл ⇒ связь мертва,
+    /// хотя коннектор ещё считает себя connected (server_status Down не пришёл). Фиксируем инцидент с началом
+    /// = последняя сделка (<paramref name="lastActivityAt"/>) — честная левая граница дыры. Дедуп: если
+    /// инцидент уже открыт или статус уже «вниз» — тихо выходим (тик 15 c не должен спамить). Восстановление
+    /// придёт штатно через Live новой сессии (реконнект супервизора) → recovered с длительностью.
+    /// </summary>
+    public async Task ReportStallAsync(long connectionId, DateTimeOffset lastActivityAt, CancellationToken cancellationToken)
+    {
+        if (!_sessions.ContainsKey(connectionId))
+        {
+            return;
+        }
+
+        if (_incidentSince.ContainsKey(connectionId) || GetStatus(connectionId) is "disconnected" or "error")
+        {
+            return;
+        }
+
+        _linkStates[connectionId] = ConnectorLinkState.Down;
+        _linkSince[connectionId] = lastActivityAt;
+        var label = await ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        logger.LogWarning(
+            "Подключение {ConnectionId}: тишина сделок дольше порога + пинг не прошёл — фиксирую разрыв с {At:o}",
+            connectionId, lastActivityAt);
+
+        await OpenLinkLostAsync(
+            connectionId,
+            lastActivityAt,
+            $"{label}: связь потеряна (нет данных)",
+            LinkCloseReason.PingFailed,
+            "disconnected",
+            ConnectorLinkState.Down,
+            "нет данных: активный пинг не прошёл",
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Строка длительности разрыва для expanded recovered: «Перерыв HH:MM:SS (from → to МСК)».</summary>
+    private static IReadOnlyList<string> GapDurationLines(DateTimeOffset from, DateTimeOffset to)
+    {
+        var dur = to - from;
+        var fromMsk = from.ToOffset(TimeSpan.FromHours(3));
+        var toMsk = to.ToOffset(TimeSpan.FromHours(3));
+        var hhmmss = $"{(int)dur.TotalHours:00}:{dur.Minutes:00}:{dur.Seconds:00}";
+        return [$"Перерыв {hhmmss} ({fromMsk:dd.MM HH:mm:ss} → {toMsk:HH:mm:ss} МСК)"];
     }
 
     private void PublishLinkState(long connectionId, ConnectorLinkStateChange change)

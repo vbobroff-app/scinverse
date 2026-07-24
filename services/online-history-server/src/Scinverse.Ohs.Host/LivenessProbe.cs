@@ -133,6 +133,15 @@ public sealed class LivenessProbe(
                 await CloseIfOpenAsync(
                     session.ConnectionId, CaptureCloseReason.PingFailed, now, cancellationToken)
                     .ConfigureAwait(false);
+
+                // 7j.19/I3: тишина сделок > порога + пинг не прошёл = подтверждённый разрыв данных, хотя
+                // server_status Down мог не прийти. Фиксируем инцидент связи с началом = последняя сделка
+                // (честная граница дыры). Восстановление придёт через Live новой сессии (реконнект).
+                if (lastData is { } lastTradeAt)
+                {
+                    await connections.ReportStallAsync(session.ConnectionId, lastTradeAt, cancellationToken)
+                        .ConfigureAwait(false);
+                }
             }
         }
     }
