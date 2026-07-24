@@ -1,6 +1,6 @@
 # Phase 7j — Инциденты связи (connection): модель, владение, хранение, визуализация
 
-Статус: **КОД: J1–J6, J8 готовы · остаток J7 (ribbon) + H1/H2 (7h)** (модель зафиксирована 2026-07-24 по
+Статус: **КОД: J1–J8 готовы (весь scope 7j) · остаток H1/H2 (7h)** (модель зафиксирована 2026-07-24 по
 живому разбору Finam id=3, реализация connection-ядра — там же; см. §8 «Что дорабатываем»). Это спецификация
 **connection-уровня**. Уровень **данных/записи** (recording-лента оператора, `capture_liveness`,
 `md_trade`) — в 7h, см. [../phase7h/incident.md](../phase7h/incident.md).
@@ -257,9 +257,11 @@ Finam server ──①── TRANSAQ (коннектор/DLL) ──②── OH
 - [x] **J6. Хранение handover = склейка дырок.** Простой = ОДНА дырка `[start → восстановление]`; момент
   передачи — нулевой маркер `server_down` + склейка в `QueryGapsAsync` → `EscalatedAt`/`EscalatedCause`
   (только для раскраски). Подробно и с инвариантом «одна дырка» — см. §6.
-- [ ] **J7. Connection-лента.** Красный стартовый маркер (1px) + зелёный конечный (1px); тело по owner
-  (жёлтое `[From, EscalatedAt]` / красное `[EscalatedAt, To]`); нулевую ширину интервалов пропускаем; серое
-  без маркеров для `disconnected`/`scheduled`. Прокинуть `EscalatedAt` в DTO `/coverage/link`.
+- [x] **J7. Connection-лента.** Красный стартовый маркер (1px) + зелёный конечный (1px); тело по owner
+  (жёлтое `[From, EscalatedAt]` = TRANSAQ / красное `[EscalatedAt, To]` = супервизор; `server_down`/
+  `ping_failed` сплошной красный, `interrupted` красная штриховка); нулевую ширину интервалов пропускаем;
+  серое без маркеров для `disconnected`/`scheduled`. `EscalatedAt` прокинут в DTO `/coverage/link`
+  (`CaptureGapDto.escalatedAt`); лента `link$` берёт gaps прямо из API (не из клиентского деривата).
 - [x] **J8. Конфиг.** `LinkRecoverGraceSeconds` (дефолт 60 c) в `OhsOptions`/`appsettings`.
 
 ### Scope 7h — данные / запись (recording-лента, capture)

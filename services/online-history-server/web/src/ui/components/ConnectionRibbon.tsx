@@ -18,12 +18,17 @@ interface Props {
   tzOffsetMin?: number;
 }
 
-/** Инцидент (после него рисуем зелёный шов «связь восстановлена»); `disconnected` — не инцидент. */
-const INCIDENT_CAUSES = new Set(['server_down', 'ping_failed', 'interrupted']);
+/** Не-инцидент (серое, без маркеров): отключил оператор / плановое по расписанию. Всё прочее = инцидент. */
+const GREY_CAUSES = new Set(['disconnected', 'scheduled']);
+
+function isIncident(cause: string): boolean {
+  return !GREY_CAUSES.has(cause);
+}
 
 const CAUSE_LABEL: Record<string, string> = {
   disconnected: 'Отключено',
   scheduled: 'Плановое отключение по расписанию',
+  degraded: 'Восстановление связи (TRANSAQ)',
   server_down: 'Обрыв связи (сервер не отвечает)',
   ping_failed: 'Связь потеряна (пинг)',
   interrupted: 'Прервано (краш/рестарт бэка)',
@@ -39,15 +44,17 @@ function hhmm(ms: number, offMin: number): string {
 }
 
 /**
- * Класс периода «связь не жива» по причине:
- * - `interrupted` (краш/останов бэка) → красный: недоступен сам коннектор;
- * - `server_down`/`ping_failed` → жёлтый: коннектор жив, но сервер не отвечает (напр. Финам ночью рвёт);
- * - `disconnected` (отключил пользователь) / `scheduled` (плановое по расписанию) → серый: не инцидент.
+ * Класс тела периода «связь не жива» по owner (7j.20 §4):
+ * - `degraded` → жёлтый: линк дёрнулся, TRANSAQ сам чинит (плечо ①);
+ * - `server_down`/`ping_failed` → красный сплошной: перехватил супервизор (плечо ②);
+ * - `interrupted` (краш/останов бэка) → красная штриховка: недоступен сам процесс;
+ * - `disconnected`/`scheduled` → серый: не инцидент.
  */
 function gapClass(cause: string): string {
+  if (GREY_CAUSES.has(cause)) return styles.idle;
+  if (cause === 'degraded') return styles.lost;
   if (cause === 'interrupted') return styles.down;
-  if (cause === 'disconnected' || cause === 'scheduled') return styles.idle;
-  return styles.lost;
+  return styles.supervisor;
 }
 
 /**
@@ -74,6 +81,8 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
       {intervals?.map((liv, i) => {
         const from = Date.parse(liv.from);
         const to = livenessEndMs(liv, liveEdgeMs, windowToMs);
+        // 7j.20/J6: нулевой маркер границы владельца (from==to, закрытый) — не «живой» интервал, не рисуем.
+        if (!liv.open && to <= from) return null;
         const left = pct(from);
         return (
           <div
@@ -85,24 +94,61 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
         );
       })}
 
-      {gaps?.map((gap, i) => {
+      {/* Тело инцидента. При передаче владения (escalatedAt) дырка ОДНА, но красится в две фазы:
+          жёлтая [from, escalatedAt] (TRANSAQ) + красная [escalatedAt, to] (супервизор). */}
+      {gaps?.flatMap((gap, i) => {
         const from = Date.parse(gap.from);
         const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
-        const left = pct(from);
         const label = CAUSE_LABEL[gap.cause] ?? gap.cause;
-        return (
+        const escMs = gap.escalatedAt ? Date.parse(gap.escalatedAt) : null;
+        const hasHandover =
+          escMs !== null && isIncident(gap.cause) && escMs > from && escMs < to;
+
+        if (!hasHandover) {
+          const left = pct(from);
+          return [
+            <div
+              key={`g${i}`}
+              className={[styles.bar, gapClass(gap.cause)].join(' ')}
+              style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
+              title={`${label} · ${hhmm(from, tzOffsetMin)}–${gap.to ? hhmm(to, tzOffsetMin) : 'сейчас'}`}
+            />,
+          ];
+        }
+
+        const leftA = pct(from);
+        const leftB = pct(escMs);
+        return [
           <div
-            key={`g${i}`}
+            key={`g${i}a`}
             className={[styles.bar, gapClass(gap.cause)].join(' ')}
-            style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
-            title={`${label} · ${hhmm(from, tzOffsetMin)}–${gap.to ? hhmm(to, tzOffsetMin) : 'сейчас'}`}
-          />
-        );
+            style={{ left: `${leftA}%`, width: `${Math.max(0.3, leftB - leftA)}%` }}
+            title={`${label} · ${hhmm(from, tzOffsetMin)}–${hhmm(escMs, tzOffsetMin)}`}
+          />,
+          <div
+            key={`g${i}b`}
+            className={[styles.bar, styles.supervisor].join(' ')}
+            style={{ left: `${leftB}%`, width: `${Math.max(0.3, pct(to) - leftB)}%` }}
+            title={`Восстановление связи (супервизор) · ${hhmm(escMs, tzOffsetMin)}–${gap.to ? hhmm(to, tzOffsetMin) : 'сейчас'}`}
+          />,
+        ];
       })}
 
-      {/* Восстановление связи после инцидента — зелёный шов на конце разрыва (момент возврата). */}
+      {/* Красный стартовый маркер (1px) — момент открытия инцидента (потеря связи). */}
       {gaps?.map((gap, i) =>
-        gap.to && INCIDENT_CAUSES.has(gap.cause) ? (
+        isIncident(gap.cause) ? (
+          <span
+            key={`s${i}`}
+            className={styles.startMarker}
+            style={{ left: `${pct(Date.parse(gap.from))}%` }}
+            title={`Потеря связи · ${hhmm(Date.parse(gap.from), tzOffsetMin)}`}
+          />
+        ) : null,
+      )}
+
+      {/* Зелёный конечный маркер (1px) — инцидент восстановлен (возврат в Live). */}
+      {gaps?.map((gap, i) =>
+        gap.to && isIncident(gap.cause) ? (
           <span
             key={`r${i}`}
             className={styles.recover}

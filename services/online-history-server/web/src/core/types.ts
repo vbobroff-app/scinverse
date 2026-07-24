@@ -194,6 +194,12 @@ export interface CaptureGapDto {
   from: string;
   to: string | null;
   cause: string;
+  /**
+   * Лента Connection (7j.20/J6): момент передачи владения инцидентом TRANSAQ→супервизор ВНУТРИ этой же
+   * дырки — тело до него жёлтое (TRANSAQ), после красное (супервизор). Дырка одна (простой = [from, to]).
+   * null/отсутствует — передачи не было.
+   */
+  escalatedAt?: string | null;
 }
 
 export interface LivenessQueryRequest {

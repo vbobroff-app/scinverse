@@ -43,13 +43,19 @@
   z-index: 2;
 }
 
-/* Потеря связи (server_down/ping_failed) — коннектор жив, сервер не отвечает: жёлтая. */
+/* Восстановление средствами TRANSAQ (degraded) — линк дёрнулся, коннектор сам чинит: жёлтая. */
 .lost {
   z-index: 3;
   background: #e0a92e;
 }
 
-/* Недоступность коннектора/бэка (interrupted) — красная штриховка. */
+/* Перехват супервизором (server_down/ping_failed) — сплошная красная. */
+.supervisor {
+  z-index: 3;
+  background: #dc3545;
+}
+
+/* Недоступность процесса/бэка (interrupted, краш/рестарт) — красная штриховка (отличаем от супервизора). */
 .down {
   z-index: 3;
   background: repeating-linear-gradient(
@@ -62,17 +68,30 @@
   background-color: rgba(220, 53, 69, 0.55);
 }
 
-/* Связь восстановлена — зелёный вертикальный шов на конце инцидента. */
+/* Потеря связи — красный вертикальный маркер (1px) в начале инцидента. */
+.startMarker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -1px;
+  background: #dc3545;
+  box-shadow: 0 0 3px rgba(220, 53, 69, 0.9);
+  pointer-events: auto;
+  z-index: 6;
+}
+
+/* Связь восстановлена — зелёный вертикальный маркер (1px) на конце инцидента. */
 .recover {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 2px;
-  margin-left: -1px;
+  width: 1px;
+  margin-left: 0;
   background: #2e9e6b;
   box-shadow: 0 0 3px rgba(46, 158, 107, 0.9);
   pointer-events: auto;
-  z-index: 5;
+  z-index: 6;
 }
 
 @keyframes connPulse {
