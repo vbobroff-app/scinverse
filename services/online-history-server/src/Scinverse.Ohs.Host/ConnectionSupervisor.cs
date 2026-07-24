@@ -171,7 +171,7 @@ public sealed class ConnectionSupervisor(
                     .ConfigureAwait(false);
                 notifications.Publish(
                     "connection.schedule_disconnect",
-                    $"{label}: плановое отключение (вне окна / non-trading)",
+                    $"{label}: плановое отключение по расписанию",
                     "info",
                     data: new { connectionId });
                 logger.LogInformation(
@@ -209,7 +209,7 @@ public sealed class ConnectionSupervisor(
 
         notifications.Publish(
             "connection.connecting",
-            $"{scheduleLabel}: подключаю по расписанию, попытка {fails + 1}/{MaxConnectAttempts}",
+            $"{scheduleLabel}: подключаю по расписанию, попытка {fails + 1}/{MaxConnectAttempts}…",
             severity: "warning",
             status: "underway",
             correlationId: corr,
@@ -224,6 +224,10 @@ public sealed class ConnectionSupervisor(
             severity: "warning",
             data: new { connectionId, attempt = fails + 1 });
 
+        // «Предыдущее подключение» (QUIK-style) — до нового Heartbeat, иначе последним станет текущий сеанс.
+        var previousSuffix = await connections.DescribePreviousConnectionAsync(connectionId, cancellationToken)
+            .ConfigureAwait(false);
+
         try
         {
             await connections.ConnectAsync(connectionId, cancellationToken).ConfigureAwait(false);
@@ -232,7 +236,7 @@ public sealed class ConnectionSupervisor(
             _autoCorr.TryRemove(connectionId, out _);
             notifications.Publish(
                 "connection.connected",
-                $"{scheduleLabel}: связь установлена",
+                $"{scheduleLabel}: связь установлена{previousSuffix}",
                 severity: "ok",
                 status: "resolved",
                 correlationId: corr,

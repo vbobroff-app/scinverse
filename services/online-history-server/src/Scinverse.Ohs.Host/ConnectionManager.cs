@@ -83,6 +83,42 @@ public sealed class ConnectionManager(
         return ConnLabel(connectionId, name);
     }
 
+    /// <summary>QUIK-style хвост к «связь установлена»: когда было предыдущее подключение (МСК) и как
+    /// закрылось. Вызывать ДО подключения — иначе «последним» станет текущий сеанс.</summary>
+    public async Task<string> DescribePreviousConnectionAsync(long connectionId, CancellationToken cancellationToken)
+    {
+        var connection = await connectionStore.GetAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        if (connection is null)
+        {
+            return string.Empty;
+        }
+
+        var previous = await linkLiveness.GetLastAsync(connection.SourceId, cancellationToken).ConfigureAwait(false);
+        return PreviousConnectionSuffix(previous);
+    }
+
+    /// <summary>QUIK-style хвост к «связь установлена»: когда было предыдущее подключение (МСК) и как закрылось.</summary>
+    public static string PreviousConnectionSuffix(LinkInterval? previous)
+    {
+        if (previous is null)
+        {
+            return ". Первое подключение.";
+        }
+
+        var msk = previous.From.ToOffset(TimeSpan.FromHours(3));
+        var reason = previous.CloseReason is { } r ? $"; пред. сеанс — {LinkCloseReasonText(r)}" : string.Empty;
+        return $". Предыдущее подключение — {msk:dd.MM.yyyy HH:mm} МСК{reason}.";
+    }
+
+    private static string LinkCloseReasonText(LinkCloseReason reason) => reason switch
+    {
+        LinkCloseReason.Disconnected => "отключение оператором",
+        LinkCloseReason.ServerDown => "обрыв связи",
+        LinkCloseReason.PingFailed => "нет ответа",
+        LinkCloseReason.Interrupted => "перезапуск",
+        _ => "—",
+    };
+
     public IMarketConnector? GetConnector(long connectionId) =>
         _sessions.TryGetValue(connectionId, out var session) ? session.Connector : null;
 

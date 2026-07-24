@@ -15,13 +15,14 @@
 
 Эталон уже есть — **ручной connect** (`OhsEndpoints`, `POST …/connect`):
 
-- `connection.connect` — user·info, намерение оператора, `Подключение «{name}»: …`;
+- `connection.connect` — user·info, намерение оператора, `Подключение {id} («{name}»): …`;
 - `connection.connecting` — system·warning, `status=underway`, `correlationId = connection:{id}:connect:{uid}`;
-- `connection.connected` — system·**ok**, `status=resolved`, тот же corr;
+- `connection.connected` — system·**ok**, `status=resolved`, тот же corr (+ QUIK-хвост «Предыдущее подключение …»);
 - `connection.connect_failed` — system·error, тот же corr.
 
 То есть: имя в user-ленте, `ok` на позитивном переходе, один user-intent + сгруппированная system-серия
-на общем `correlationId`. **Задача 7j.18 — подтянуть автопуть и инциденты к этому эталону.**
+на общем `correlationId`. **Задача 7j.18 — подтянуть автопуть и инциденты к этому эталону.** Ручной путь
+(connect/disconnect/closed) также приведён к id-first `Подключение {id} («{name}»)` (единый `ConnLabel`).
 
 ---
 
@@ -91,9 +92,9 @@
 
 | Ситуация | Код | Severity | Текст (цель) | corr |
 |----------|-----|----------|--------------|------|
-| Плановое отключение (вне окна) | `connection.schedule_disconnect` | info | `Подключение {id} («{name}»): плановое отключение (вне окна)` | — |
-| Попытка N/max | `connection.connecting` | warning (`underway`) | `Подключение {id} («{name}»): подключаю по расписанию, попытка {n}/{max}` | `connection:{id}:auto:{uid}` |
-| Успех | `connection.connected` | **ok** (`resolved`) | `Подключение {id} («{name}»): связь установлена` | тот же |
+| Плановое отключение (вне окна) | `connection.schedule_disconnect` | info | `Подключение {id} («{name}»): плановое отключение по расписанию` | — |
+| Попытка N/max | `connection.connecting` | warning (`underway`) | `Подключение {id} («{name}»): подключаю по расписанию, попытка {n}/{max}…` | `connection:{id}:auto:{uid}` |
+| Успех | `connection.connected` | **ok** (`resolved`) | `Подключение {id} («{name}»): связь установлена{. Предыдущее подключение …}` (QUIK-хвост, как в ручном) | тот же |
 | Исчерпаны попытки | `connection.connect_failed` | error | `Подключение {id} («{name}»): не удалось подключить за {max} попыток` | тот же |
 | **Сбой тика** (плановый disconnect, чтение расписания, резолвер и т.п.) | `connection.auto_error` | error | `Подключение {id} («{name}»): сбой авто-управления связью — {суть}` | — (дедуп по сигнатуре) |
 
