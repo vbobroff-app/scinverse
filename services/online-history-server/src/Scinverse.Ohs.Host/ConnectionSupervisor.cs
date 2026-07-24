@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Scinverse.Ohs.Connectors.Transaq;
 using Scinverse.Ohs.Domain;
 
 namespace Scinverse.Ohs.Host;
@@ -187,6 +188,7 @@ public sealed class ConnectionSupervisor(
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
             _autoCorr.TryRemove(connectionId, out _);
+            await TickRecoveringAsync(connectionId, nowUtc, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -264,6 +266,29 @@ public sealed class ConnectionSupervisor(
                     data: new { connectionId, attempts = nextFails });
             }
         }
+    }
+
+    /// <summary>Прогресс-тик восстановления средствами TRANSAQ (7j.20 J5). Пока связь в <c>Degraded</c>
+    /// (owner=TRANSAQ сам чинит линк ①) и инцидент открыт — наш таймер (тик 15 c) шлёт underway-строку
+    /// «восстановление связи (TRANSAQ) · Nс» в нить инцидента (тот же correlationId, схлопывается фронтом).
+    /// Attempt-детализация самого TRANSAQ недоступна (чёрный ящик DLL) — фиксируем лишь длительность окна.
+    /// Передача владения супервизору по grace-таймауту <c>t</c> — J3/J6.</summary>
+    private async Task TickRecoveringAsync(long connectionId, DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        if (connections.GetLinkState(connectionId) != ConnectorLinkState.Degraded
+            || connections.GetIncidentSince(connectionId) is not { } since)
+        {
+            return;
+        }
+
+        var elapsed = (int)Math.Max(0, (nowUtc - since).TotalSeconds);
+        var label = await connections.ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        notifications.Progress(
+            ConnectionManager.LinkIncidentSubject(connectionId),
+            "connection.recovering",
+            $"{label}: восстановление связи (TRANSAQ) · {elapsed} c",
+            severity: "warning",
+            data: new { connectionId, owner = "transaq", elapsedSeconds = elapsed });
     }
 
     private bool IsConnected(long connectionId)

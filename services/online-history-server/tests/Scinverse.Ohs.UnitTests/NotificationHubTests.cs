@@ -18,13 +18,13 @@ public sealed class NotificationHubTests
         hub.Open(subject, "connection.lost", "down").Should().BeFalse("повторный open активного — no-op (I2)");
 
         hub.Progress(subject, "connection.reconnecting", "retry").Should().BeTrue();
-        hub.Progress(subject, "connection.reconnecting", "retry").Should().BeFalse("underway→underway — no-op");
+        hub.Progress(subject, "connection.reconnecting", "retry 2").Should().BeTrue("прогресс-тик повторяем (7j.20 J5): underway→underway пишет новую строку");
 
         hub.Resolve(subject, "connection.recovered", "up").Should().BeTrue();
         hub.Resolve(subject, "connection.recovered", "up").Should().BeFalse("инцидент уже закрыт — no-op");
 
         var list = hub.List();
-        list.Select(e => e.Status).Should().Equal("active", "underway", "resolved");
+        list.Select(e => e.Status).Should().Equal("active", "underway", "underway", "resolved");
 
         // Все три события одного инцидента делят один per-occurrence correlationId = subject:uid.
         var ids = list.Select(e => e.CorrelationId).Distinct().ToList();

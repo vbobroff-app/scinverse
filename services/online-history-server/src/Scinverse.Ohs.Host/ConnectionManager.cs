@@ -60,6 +60,11 @@ public sealed class ConnectionManager(
     public ConnectorLinkState? GetLinkState(long connectionId) =>
         _linkStates.TryGetValue(connectionId, out var state) ? state : null;
 
+    /// <summary>Момент открытия текущего инцидента связи (левая граница дыры) или null, если связь в порядке.
+    /// Питает прогресс-тик восстановления (7j.20 J5): elapsed = now − since.</summary>
+    public DateTimeOffset? GetIncidentSince(long connectionId) =>
+        _incidentSince.TryGetValue(connectionId, out var since) ? since : null;
+
     public string GetStatus(long connectionId) =>
         _status.TryGetValue(connectionId, out var status) ? status : "disconnected";
 

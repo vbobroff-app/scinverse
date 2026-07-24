@@ -63,7 +63,10 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         => Transition(subject, "active", code, message, severity, sourceType, module, data, actor,
             canTransition: current => current != "active");
 
-    /// <summary>Пометить восстановление (status=underway). Только для открытого инцидента (active).</summary>
+    /// <summary>Прогресс восстановления (status=underway) открытого инцидента. Повторяемо (7j.20 J5):
+    /// active→underway и underway→underway — каждый прогресс-тик (elapsed / попытка k/N) пишет строку под
+    /// тем же correlationId; фронт схлопывает нить по correlationId (показывает последнюю). Не открывает и
+    /// не закрывает инцидент: без открытого (active/underway) — no-op.</summary>
     public bool Progress(
         string subject,
         string code,
@@ -74,7 +77,7 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         object? data = null,
         NotificationActor? actor = null)
         => Transition(subject, "underway", code, message, severity, sourceType, module, data, actor,
-            canTransition: current => current == "active");
+            canTransition: current => current is "active" or "underway");
 
     /// <summary>Закрыть инцидент (status=resolved, терминальный). Идемпотентно: повторный resolve — no-op.</summary>
     public bool Resolve(
