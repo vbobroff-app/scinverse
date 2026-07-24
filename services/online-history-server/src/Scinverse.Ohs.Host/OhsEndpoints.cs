@@ -1134,6 +1134,8 @@ public static class OhsEndpoints
         LinkCloseReason.ServerDown => "server_down",
         LinkCloseReason.PingFailed => "ping_failed",
         LinkCloseReason.Interrupted => "interrupted",
+        LinkCloseReason.Scheduled => "scheduled",
+        LinkCloseReason.Degraded => "degraded",
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
 }

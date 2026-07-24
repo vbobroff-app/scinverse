@@ -197,6 +197,7 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
         LinkCloseReason.PingFailed => "ping_failed",
         LinkCloseReason.Interrupted => "interrupted",
         LinkCloseReason.Scheduled => "scheduled",
+        LinkCloseReason.Degraded => "degraded",
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
 
@@ -207,6 +208,7 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
         "ping_failed" => LinkCloseReason.PingFailed,
         "interrupted" => LinkCloseReason.Interrupted,
         "scheduled" => LinkCloseReason.Scheduled,
+        "degraded" => LinkCloseReason.Degraded,
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
 }

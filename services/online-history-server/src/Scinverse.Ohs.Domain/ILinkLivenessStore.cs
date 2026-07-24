@@ -67,6 +67,12 @@ public enum LinkCloseReason
 
     /// <summary>Плановое отключение по авто-расписанию (вне окна / non-trading) — НЕ разрыв, не ручное.</summary>
     Scheduled,
+
+    /// <summary>
+    /// Phase 7j.20: линк к серверу дёрнулся, TRANSAQ сам восстанавливает (server_status recover="true"):
+    /// данных нет — ИНЦИДЕНТ, владелец восстановления = TRANSAQ (жёлтый период на ленте Connection).
+    /// </summary>
+    Degraded,
 }
 
 /// <summary>Интервал живости связи: [From, To], <see cref="Open"/> = ещё продлевается keepalive.</summary>

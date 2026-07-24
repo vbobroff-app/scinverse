@@ -68,9 +68,12 @@ public sealed class LivenessProbe(
         var now = time.GetUtcNow();
         foreach (var session in connections.ListSessions())
         {
-            // Keepalive живости СВЯЗИ (лента Connection, 7h.8): пока подключение connected — двигаем to_ts
-            // БЕЗ пинга и БЕЗ гейта записи/сессии. Реальный обрыв ловится мгновенно через server_status.
-            if (session.Connector.IsConnected)
+            // Keepalive живости СВЯЗИ (лента Connection, 7h.8): двигаем to_ts БЕЗ пинга и БЕЗ гейта записи/
+            // сессии, пока связь ЖИВА. Гейтим по Live (7j.20): в Degraded интервал уже закрыт причиной
+            // 'degraded' в HandleLinkStateAsync (жёлтая дырка) — keepalive НЕ должен его переоткрывать.
+            // null (первый connect до первого server_status) считаем живым: интервал уже открыт ConnectAsync.
+            var linkState = connections.GetLinkState(session.ConnectionId);
+            if (session.Connector.IsConnected && linkState is null or ConnectorLinkState.Live)
             {
                 await linkLiveness.HeartbeatAsync(session.SourceId, now, MaxGap, cancellationToken)
                     .ConfigureAwait(false);

@@ -128,6 +128,7 @@ public sealed class ConnectionManager(
         LinkCloseReason.PingFailed => "нет ответа",
         LinkCloseReason.Interrupted => "перезапуск",
         LinkCloseReason.Scheduled => "плановое отключение по расписанию",
+        LinkCloseReason.Degraded => "восстановление связи (TRANSAQ)",
         _ => "—",
     };
 
@@ -463,9 +464,9 @@ public sealed class ConnectionManager(
         switch (change.State)
         {
             case ConnectorLinkState.Live:
-            case ConnectorLinkState.Degraded:
             {
-                // Связь жива: продлеваем/открываем интервал живости связи (лента Connection, 7h.8).
+                // Связь ЖИВА (server_status connected=true, recover=false): открываем/продлеваем интервал
+                // живости связи (лента Connection, 7h.8). Единственное «здоровое» состояние (7j.20).
                 if (_sourceIds.TryGetValue(connectionId, out var liveSourceId))
                 {
                     await linkLiveness
@@ -473,7 +474,7 @@ public sealed class ConnectionManager(
                         .ConfigureAwait(false);
                 }
 
-                var recovering = hadState && previous is ConnectorLinkState.Down or ConnectorLinkState.Error;
+                var recovering = hadState && previous is ConnectorLinkState.Down or ConnectorLinkState.Error or ConnectorLinkState.Degraded;
 
                 // Закрываем инцидент связи по факту «связь снова жива», опираясь на _incidentSince (не на
                 // in-memory previous): реконнект супервизора идёт через полный DisconnectAsync (стирает
@@ -507,18 +508,47 @@ public sealed class ConnectionManager(
                 // (пропускает записи с активным покрытием), поэтому безопасно звать на любом Live/Degraded.
                 await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
 
-                if (change.State == ConnectorLinkState.Degraded)
-                {
-                    SetStatus(connectionId, StatusForLinkState(change.State));
-                }
-                else if (recovering || GetStatus(connectionId) is "disconnected" or "error" or "degraded")
+                if (recovering || GetStatus(connectionId) is "disconnected" or "error" or "degraded")
                 {
                     SetStatus(connectionId, StatusForLinkState(ConnectorLinkState.Live));
                 }
 
                 logger.LogInformation(
-                    "Подключение {ConnectionId}: связь {State}{Recovering}",
-                    connectionId, change.State, recovering ? " (ре-подписка)" : "");
+                    "Подключение {ConnectionId}: связь Live{Recovering}",
+                    connectionId, recovering ? " (ре-подписка)" : "");
+                break;
+            }
+
+            case ConnectorLinkState.Degraded:
+            {
+                // Phase 7j.20: Degraded (server_status connected=true, recover=true) — ИНЦИДЕНТ, а не «живое»
+                // состояние: линк к серверу дёрнулся, данных нет, но TRANSAQ сам восстанавливает (владелец
+                // восстановления = TRANSAQ). Закрываем интервал живости причиной Degraded → жёлтая дырка на
+                // ленте Connection; открываем инцидент связи (error). Сегменты/подписки НЕ рвём (сессия жива,
+                // восстановление идёт внутри TRANSAQ) — только идемпотентная ре-подписка. Передача владельца
+                // супервизору по grace-таймауту — J3/J6.
+                var degradedLabel = await ResolveLabelAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
+                _incidentSince.TryAdd(connectionId, change.At);
+                notifications.Open(
+                    LinkIncidentSubject(connectionId),
+                    "connection.lost",
+                    $"{degradedLabel}: связь потеряна (Degraded)",
+                    severity: "error",
+                    data: new { connectionId, state = change.State.ToString(), detail = change.Detail });
+
+                if (_sourceIds.TryGetValue(connectionId, out var degradedSourceId))
+                {
+                    await linkLiveness
+                        .CloseAsync(degradedSourceId, LinkCloseReason.Degraded, change.At, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+
+                await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
+                SetStatus(connectionId, StatusForLinkState(ConnectorLinkState.Degraded));
+
+                logger.LogWarning(
+                    "Подключение {ConnectionId}: связь Degraded ({Detail}) — инцидент (владелец TRANSAQ), сегменты сохранены",
+                    connectionId, change.Detail);
                 break;
             }
 
