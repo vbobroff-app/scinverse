@@ -23,6 +23,14 @@ public sealed class CaptureLivenessStore(Npgsql.NpgsqlDataSource dataSource) : I
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
 
+        // 7j.19/I7: сериализуем конкурентные хартбиты одного источника. Тик LivenessProbe (15 c) и
+        // ReportActivity (на каждой сделке) пишут параллельно; без открытого интервала FOR UPDATE не на
+        // чем висеть → оба видят null → два INSERT → нарушение uq_capture_liveness_open. Advisory-xact-lock
+        // держится до commit/rollback и снимается автоматически (namespace 910010 = capture_liveness).
+        await connection.ExecuteAsync(new CommandDefinition(
+            "SELECT pg_advisory_xact_lock(910010, @sourceId);",
+            new { sourceId = (int)sourceId }, transaction: tx, cancellationToken: cancellationToken));
+
         var open = await connection.QuerySingleOrDefaultAsync<OpenRow?>(new CommandDefinition(
             "SELECT liveness_id AS LivenessId, to_ts AS ToTs FROM capture_liveness " +
             "WHERE source_id = @sourceId AND open FOR UPDATE;",

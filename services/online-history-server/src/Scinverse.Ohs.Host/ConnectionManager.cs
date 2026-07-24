@@ -499,11 +499,13 @@ public sealed class ConnectionManager(
                         });
                 }
 
-                // Ре-подписка нужна только при реальном восстановлении после известного обрыва.
-                if (recovering)
-                {
-                    await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
-                }
+                // Ре-подписку НЕЛЬЗЯ гейтить in-memory `recovering` (7j.19/I6): реконнект супервизора идёт
+                // через полный DisconnectAsync (стирает _linkStates) → на первом Live новой сессии
+                // hadState=false ⇒ recovering=false ⇒ ре-подписка терялась: связь «зелёная» (waiting), но
+                // подписок TRANSAQ на новой сессии нет → сделок нет. Для TRANSAQ это ВСЕГДА (восстановление
+                // только через новую сессию, server_status Down не приходит). OnLinkLiveAsync идемпотентен
+                // (пропускает записи с активным покрытием), поэтому безопасно звать на любом Live/Degraded.
+                await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
 
                 if (change.State == ConnectorLinkState.Degraded)
                 {

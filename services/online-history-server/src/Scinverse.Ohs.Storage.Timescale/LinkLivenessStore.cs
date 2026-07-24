@@ -22,6 +22,14 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var tx = await connection.BeginTransactionAsync(cancellationToken);
 
+        // 7j.19/I7: сериализуем конкурентные keepalive-хартбиты одного источника (тик LivenessProbe +
+        // ConnectionManager на смене link-state). Без открытого интервала FOR UPDATE не на чем висеть →
+        // два INSERT → нарушение uq_link_liveness_open. Advisory-xact-lock снимается на commit/rollback
+        // (namespace 910020 = link_liveness).
+        await connection.ExecuteAsync(new CommandDefinition(
+            "SELECT pg_advisory_xact_lock(910020, @sourceId);",
+            new { sourceId = (int)sourceId }, transaction: tx, cancellationToken: cancellationToken));
+
         var open = await connection.QuerySingleOrDefaultAsync<OpenRow?>(new CommandDefinition(
             "SELECT liveness_id AS LivenessId, to_ts AS ToTs FROM link_liveness " +
             "WHERE source_id = @sourceId AND open FOR UPDATE;",
