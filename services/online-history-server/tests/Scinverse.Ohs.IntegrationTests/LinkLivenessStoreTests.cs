@@ -146,6 +146,44 @@ public sealed class LinkLivenessStoreTests : IClassFixture<TimescaleFixture>, IA
     }
 
     [Fact]
+    public async Task Handover_MarkerSplitsColorButKeepsOneGap_AndIsHiddenFromIntervals()
+    {
+        var t0 = new DateTimeOffset(2026, 7, 8, 10, 0, 0, TimeSpan.Zero);
+
+        // Live → keepalive; вход в Degraded в t0+30s (жёлтая дырка, владелец TRANSAQ).
+        await _store.HeartbeatAsync(TransaqSource, t0, MaxGap, CancellationToken.None);
+        await _store.HeartbeatAsync(TransaqSource, t0.AddSeconds(15), MaxGap, CancellationToken.None);
+        await _store.CloseAsync(TransaqSource, LinkCloseReason.Degraded, t0.AddSeconds(30), CancellationToken.None);
+        // Передача владения супервизору в t0+90s (grace 60c): нулевой маркер server_down.
+        await _store.InsertBoundaryMarkerAsync(TransaqSource, LinkCloseReason.ServerDown, t0.AddSeconds(90), CancellationToken.None);
+        // Восстановление в t0+120s: новый живой интервал.
+        await _store.HeartbeatAsync(TransaqSource, t0.AddSeconds(120), MaxGap, CancellationToken.None);
+
+        var gaps = await _store.QueryGapsAsync(
+            new[] { TransaqSource }, t0.AddMinutes(-1), t0.AddMinutes(20), CancellationToken.None);
+
+        // Простой = ОДНА дырка [start Degraded → восстановление] (для сверки с записанными данными).
+        gaps.Should().ContainSingle("маркер владельца склеивается — инцидент = одна дырка");
+        gaps[0].From.Should().Be(t0.AddSeconds(30));
+        gaps[0].To.Should().Be(t0.AddSeconds(120), "конец = восстановление, весь простой целиком");
+        gaps[0].Cause.Should().Be(LinkCloseReason.Degraded, "начальный владелец = TRANSAQ (жёлтый)");
+        // Момент передачи — только для раскраски ленты (жёлтое→красное), не рвёт дырку.
+        gaps[0].EscalatedAt.Should().Be(t0.AddSeconds(90));
+        gaps[0].EscalatedCause.Should().Be(LinkCloseReason.ServerDown, "после передачи — супервизор (красный)");
+
+        // Маркер владельца — нулевой интервал (from==to, server_down); реальные интервалы целы. Рендер
+        // нулевой ширины отсекает фронт (J7), контракт QueryAsync не меняем (легитимные single-tick тоже
+        // нулевые — их нельзя отличить по геометрии).
+        var intervals = await _store.QueryAsync(
+            new[] { TransaqSource }, t0.AddMinutes(-1), t0.AddMinutes(20), CancellationToken.None);
+        intervals.Should().HaveCount(3);
+        intervals.Should().Contain(i => i.CloseReason == LinkCloseReason.Degraded && i.From == t0);
+        intervals.Should().Contain(i => i.Open && i.From == t0.AddSeconds(120));
+        intervals.Should().Contain(
+            i => !i.Open && i.From == i.To && i.From == t0.AddSeconds(90) && i.CloseReason == LinkCloseReason.ServerDown);
+    }
+
+    [Fact]
     public async Task QueryAsync_ReturnsEmpty_ForNoSources()
     {
         var result = await _store.QueryAsync(

@@ -91,6 +91,7 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
             SELECT source_id AS SourceId, from_ts AS "From", to_ts AS "To", open AS Open, close_reason AS CloseReason
             FROM link_liveness
             WHERE source_id = @sourceId
+              AND (open OR to_ts > from_ts) -- 7j.20/J6: «предыдущее подключение» = реальный интервал, не нулевой маркер
             ORDER BY from_ts DESC
             LIMIT 1;
             """,
@@ -169,13 +170,48 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
             new { ids, from = from.ToUniversalTime(), to = to.ToUniversalTime() },
             cancellationToken: cancellationToken));
 
-        return rows.Select(r => new LinkGap
+        var raw = rows.Select(r => new LinkGap
         {
             SourceId = r.SourceId,
             From = ToUtcOffset(r.From),
             To = r.To is { } dt ? ToUtcOffset(dt) : null,
             Cause = FromDb(r.Cause),
         }).ToList();
+
+        return CoalesceOwnerPhases(raw);
+    }
+
+    /// <summary>
+    /// 7j.20/J6: склеивает соседние сырые дырки, стыкующиеся ВПЛОТНУЮ (<c>prev.To == next.From</c> —
+    /// признак нулевого маркера границы владельца, вставленного <see cref="InsertBoundaryMarkerAsync"/>), в
+    /// ОДНУ дырку инцидента. Простой = [From, To] целиком (для сверки с записанными данными); момент первой
+    /// смены владельца выносим в <c>EscalatedAt</c>/<c>EscalatedCause</c> (только для раскраски ленты).
+    /// Дырки, разделённые РЕАЛЬНЫМ живым интервалом (ненулевым), — разные инциденты, не склеиваются.
+    /// </summary>
+    private static List<LinkGap> CoalesceOwnerPhases(List<LinkGap> gaps)
+    {
+        var result = new List<LinkGap>(gaps.Count);
+        foreach (var gap in gaps)
+        {
+            if (result.Count > 0
+                && result[^1] is { SourceId: var prevSource, To: { } prevTo } prev
+                && prevSource == gap.SourceId
+                && prevTo == gap.From)
+            {
+                result[^1] = prev with
+                {
+                    To = gap.To,
+                    // Первая граница = переход жёлтое→красное; последующие маркеры (если есть) не сдвигают.
+                    EscalatedAt = prev.EscalatedAt ?? gap.From,
+                    EscalatedCause = prev.EscalatedCause ?? gap.Cause,
+                };
+                continue;
+            }
+
+            result.Add(gap);
+        }
+
+        return result;
     }
 
     public async Task<int> RecoverOpenIntervalsAsync(CancellationToken cancellationToken)
@@ -184,6 +220,20 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
         return await connection.ExecuteAsync(new CommandDefinition(
             "UPDATE link_liveness SET open = false, close_reason = @reason WHERE open;",
             new { reason = ToDb(LinkCloseReason.Interrupted) },
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task InsertBoundaryMarkerAsync(
+        short sourceId, LinkCloseReason reason, DateTimeOffset atTs, CancellationToken cancellationToken)
+    {
+        // Нулевой закрытый интервал [atTs, atTs]: не «живой» (open=false, from==to), но даёт lead()-гэпам
+        // точку раздела владельца. Открытого интервала во время Degraded нет — конфликта с uq_open нет.
+        var tsUtc = atTs.ToUniversalTime();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO link_liveness (source_id, from_ts, to_ts, open, close_reason) " +
+            "VALUES (@sourceId, @ts, @ts, false, @reason);",
+            new { sourceId, ts = tsUtc, reason = ToDb(reason) },
             cancellationToken: cancellationToken));
     }
 

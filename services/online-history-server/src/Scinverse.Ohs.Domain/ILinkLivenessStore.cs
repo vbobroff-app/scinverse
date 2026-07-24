@@ -48,6 +48,15 @@ public interface ILinkLivenessStore
     /// число закрытых интервалов.
     /// </summary>
     Task<int> RecoverOpenIntervalsAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Phase 7j.20 (J6): ставит границу смены владельца ВНУТРИ идущей дырки — нулевой закрытый маркер
+    /// <c>[atTs, atTs]</c> с причиной <paramref name="reason"/>. Во время <c>Degraded</c> открытого интервала
+    /// нет (закрыт как <c>degraded</c>), поэтому обычный <see cref="CloseAsync"/> — no-op; маркер даёт
+    /// <c>lead()</c>-гэпам точку раздела «жёлтое→красное». В рендер интервалов НЕ попадает (нулевая ширина),
+    /// а <see cref="QueryGapsAsync"/> склеивает соседние дырки через него в ОДНУ (с <c>EscalatedAt</c>).
+    /// </summary>
+    Task InsertBoundaryMarkerAsync(short sourceId, LinkCloseReason reason, DateTimeOffset atTs, CancellationToken cancellationToken);
 }
 
 /// <summary>Причина закрытия интервала связи (link_liveness). Драйвит цвет периода «связь не жива» на ленте.</summary>
@@ -97,4 +106,16 @@ public sealed record LinkGap
     public required DateTimeOffset From { get; init; }
     public DateTimeOffset? To { get; init; }
     public required LinkCloseReason Cause { get; init; }
+
+    /// <summary>
+    /// Phase 7j.20 (J6): момент передачи владения инцидентом (TRANSAQ→супервизор) ВНУТРИ этой же дырки.
+    /// Дырка остаётся ОДНОЙ (простой = [From, To] целиком — для сверки с записанными данными); это поле —
+    /// только для раскраски ленты (жёлтое [From, EscalatedAt] · красное [EscalatedAt, To]). null — передачи
+    /// не было (вся дырка одного владельца по <see cref="Cause"/>).
+    /// </summary>
+    public DateTimeOffset? EscalatedAt { get; init; }
+
+    /// <summary>Причина после передачи владения (обычно <see cref="LinkCloseReason.ServerDown"/> — красный);
+    /// null, если <see cref="EscalatedAt"/> == null.</summary>
+    public LinkCloseReason? EscalatedCause { get; init; }
 }

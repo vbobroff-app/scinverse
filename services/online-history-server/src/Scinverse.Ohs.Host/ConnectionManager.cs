@@ -285,6 +285,34 @@ public sealed class ConnectionManager(
         return "disconnected";
     }
 
+    /// <summary>
+    /// Phase 7j.20 (J3): передача владения инцидентом TRANSAQ→супервизор. TRANSAQ держал <c>Degraded</c>
+    /// дольше grace-порога и сам не восстановил линк ① — форс-гасим залипшую сессию и отдаём восстановление
+    /// супервизору (плечо ②, connect ×5). Инцидент НЕ закрывается: <c>_incidentSince</c> переживает
+    /// передисконнект (I2). В <c>link_liveness</c> ставим границу владельца (<c>server_down</c>) на
+    /// <paramref name="atTs"/> — идущая жёлтая (Degraded) дырка с этого момента красная; дырка остаётся ОДНОЙ
+    /// (склейка через маркер, J6). Вызывается супервизором по grace-таймауту.
+    /// </summary>
+    public async Task HandoverToSupervisorAsync(long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
+    {
+        if (_sourceIds.TryGetValue(connectionId, out var sourceId))
+        {
+            await linkLiveness
+                .InsertBoundaryMarkerAsync(sourceId, LinkCloseReason.ServerDown, atTs, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        logger.LogWarning(
+            "Подключение {ConnectionId}: TRANSAQ не восстановил связь за grace — передаю владение супервизору (форс-дисконнект)",
+            connectionId);
+
+        // Форс-гасим залипшую сессию: DisconnectAsync снимает сессию/подписки и ставит status=disconnected,
+        // НЕ трогая _incidentSince → инцидент продолжается. Открытого link-интервала в Degraded нет, поэтому
+        // внутренний CloseAsync(ServerDown) — no-op (границу уже поставил маркер выше). Дальше связь поднимет
+        // супервизор (connect ×5, ветка «не connected» в ReconcileOneAsync).
+        await DisconnectAsync(connectionId, cancellationToken, LinkCloseReason.ServerDown).ConfigureAwait(false);
+    }
+
     public async Task<string> TestAsync(long connectionId, CancellationToken cancellationToken)
     {
         var connection = await connectionStore.GetAsync(connectionId, cancellationToken).ConfigureAwait(false)

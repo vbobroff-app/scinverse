@@ -16,6 +16,14 @@ public sealed class OhsOptions
     /// </summary>
     public double LivenessProbeSeconds { get; set; } = 15;
 
+    /// <summary>
+    /// Дедлайн передачи владения инцидентом связи от TRANSAQ к супервизору (сек), phase 7j.20 (J3/J8).
+    /// Пока связь в <c>Degraded</c> (TRANSAQ сам чинит линк ①) дольше этого порога — супервизор форс-гасит
+    /// залипшую сессию и берёт восстановление на себя (connect ×5, плечо ②). Инцидент НЕ закрывается.
+    /// Это НЕ порог детекции (инцидент уже открыт с 0 c) — только момент смены владельца.
+    /// </summary>
+    public double LinkRecoverGraceSeconds { get; set; } = 60;
+
     /// <summary>Origin dev-фронта (Vite) для CORS-политики админки.</summary>
     public string? AdminOrigin { get; set; }
 

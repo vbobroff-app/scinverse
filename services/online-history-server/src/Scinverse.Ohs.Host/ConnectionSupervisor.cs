@@ -20,6 +20,10 @@ public sealed class ConnectionSupervisor(
     private static readonly TimeSpan RetryPause = TimeSpan.FromSeconds(8);
     private const int MaxConnectAttempts = 5;
 
+    /// <summary>Дедлайн передачи владения TRANSAQ→супервизор (7j.20 J3/J8), дефолт 60 c.</summary>
+    private TimeSpan RecoverGrace => TimeSpan.FromSeconds(
+        options.LinkRecoverGraceSeconds > 0 ? options.LinkRecoverGraceSeconds : 60);
+
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly ConcurrentDictionary<long, int> _failCounts = new();
     private readonly ConcurrentDictionary<long, DateTimeOffset> _nextAttemptAt = new();
@@ -218,13 +222,14 @@ public sealed class ConnectionSupervisor(
             data: new { connectionId, attempt = fails + 1 });
 
         // Если по этому подключению открыт инцидент связи (lost, active) — переводим его в underway.
-        // severity=warning: underway остаётся «жёлтым, ещё не решено» (маска фона в ленте).
+        // severity=warning: underway остаётся «жёлтым, ещё не решено» (маска фона в ленте). owner=supervisor
+        // (плечо ②, 7j.20): восстановление ведёт супервизор.
         notifications.Progress(
             ConnectionManager.LinkIncidentSubject(connectionId),
             "connection.reconnecting",
             $"{scheduleLabel}: восстановление связи, попытка {fails + 1}/{MaxConnectAttempts}",
             severity: "warning",
-            data: new { connectionId, attempt = fails + 1 });
+            data: new { connectionId, owner = "supervisor", attempt = fails + 1 });
 
         // «Предыдущее подключение» (QUIK-style) — до нового Heartbeat, иначе последним станет текущий сеанс.
         var previousLines = await connections.DescribePreviousConnectionLinesAsync(connectionId, cancellationToken)
@@ -281,14 +286,31 @@ public sealed class ConnectionSupervisor(
             return;
         }
 
-        var elapsed = (int)Math.Max(0, (nowUtc - since).TotalSeconds);
+        var elapsed = nowUtc - since;
         var label = await connections.ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
+
+        if (elapsed >= RecoverGrace)
+        {
+            // Передача владения TRANSAQ→супервизор (J3): TRANSAQ держит Degraded дольше t и не восстановил.
+            // Строка идёт в ту же нить инцидента (underway); дальше супервизор поднимет связь (connect ×5).
+            var graceSec = (int)RecoverGrace.TotalSeconds;
+            notifications.Progress(
+                ConnectionManager.LinkIncidentSubject(connectionId),
+                "connection.reconnecting",
+                $"{label}: TRANSAQ не восстановил связь за {graceSec} c — переподключаю",
+                severity: "warning",
+                data: new { connectionId, owner = "supervisor", handoverAfterSeconds = graceSec });
+            await connections.HandoverToSupervisorAsync(connectionId, nowUtc, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var elapsedSec = (int)Math.Max(0, elapsed.TotalSeconds);
         notifications.Progress(
             ConnectionManager.LinkIncidentSubject(connectionId),
             "connection.recovering",
-            $"{label}: восстановление связи (TRANSAQ) · {elapsed} c",
+            $"{label}: восстановление связи (TRANSAQ) · {elapsedSec} c",
             severity: "warning",
-            data: new { connectionId, owner = "transaq", elapsedSeconds = elapsed });
+            data: new { connectionId, owner = "transaq", elapsedSeconds = elapsedSec });
     }
 
     private bool IsConnected(long connectionId)
