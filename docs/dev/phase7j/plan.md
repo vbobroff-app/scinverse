@@ -4,13 +4,15 @@
 > слоистые правила `main/dow/date`, SCD-2 — [v2-exceptions.md](v2-exceptions.md)) → Notification
 > Composer + UI diff-approve (7j.13/14) → **обработка исключений редактирования** (7j.17: атомарный
 > `batch`/Saga + глобальный exception-handler — [error-handling.md](error-handling.md)) → **Auto Connect:
-> исключения и инциденты** (7j.18 — [auto-connect.md](auto-connect.md)). Живой статус — [report.md](report.md).
+> исключения и инциденты** (7j.18 — [auto-connect.md](auto-connect.md)) → **инциденты связи и точность
+> разрыва** (7j.19 — [issue.md](issue.md)). Живой статус — [report.md](report.md).
 
-**Статус:** ядро `DONE`; **активная задача — 7j.18 Auto Connect (все исключения + инциденты)**;
-в очереди — 7j.15 (рыночный профиль) / 7j.16 (`date`-авторинг). Зависимости: **7h / 7h.8**
-(автомат связи, `link_liveness`, лента Connection), **7c** (`IMarketCalendar`), **7e** (тумблер связи).
+**Статус:** ядро `DONE`; 7j.18 Auto Connect — `КОД ГОТОВ · приёмка`; **активная задача — 7j.19
+Инциденты связи и точность разрыва** (выявлено на приёмке 7j.18 — [issue.md](issue.md)); в очереди —
+7j.15 (рыночный профиль) / 7j.16 (`date`-авторинг). Зависимости: **7h / 7h.8** (автомат связи,
+`link_liveness`, лента Connection), **7c** (`IMarketCalendar`), **7e** (тумблер связи).
 Соседняя **7i** (Auto записи) — проекция живой связи. Детали реализации — [apply.md](apply.md);
-статус/лог — [report.md](report.md). **Обновлено:** 2026-07-23.
+статус/лог — [report.md](report.md). **Обновлено:** 2026-07-24.
 
 ## Проблема
 
@@ -64,7 +66,8 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 | 7j.13 | Notification Composer (одно user + одно system на пачку) | DONE | [notify-composer.md](notify-composer.md) |
 | 7j.14 | UI: двухшаговый diff-approve, guardrail main, live-push баннер | DONE | [ui-schedule.md](ui-schedule.md) |
 | 7j.17 | Обработка исключений **редактирования**: атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler` + severity-модель + попап без оптимизма | DONE | [error-handling.md](error-handling.md) |
-| **7j.18** | **Auto Connect: все исключения + инциденты** (см. ниже) | **КОД ГОТОВ · приёмка** | [auto-connect.md](auto-connect.md) |
+| 7j.18 | **Auto Connect: все исключения + инциденты** | КОД ГОТОВ · приёмка | [auto-connect.md](auto-connect.md) |
+| **7j.19** | **Инциденты связи + точность разрыва** (I1–I4: причина Scheduled, идемпотентный recovered, watchdog по сделкам, чистый connected) | **PLANNED · согласовано** | [issue.md](issue.md) |
 | 7j.15 | Рыночный/календарный профиль на settings; UI без хардкода MOEX | PLANNED | [market-profile.md](market-profile.md) |
 | 7j.16 | `date`-авторинг на фронте + пагинация графика по месяцам | PLANNED | [todo.md](todo.md) |
 
@@ -122,6 +125,65 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 | 6 | Ручной connect (регресс) | без изменений (эталон не задет) |
 | 7 | Сборка/тесты | `dotnet build` solution + тесты зелёные |
 
+## Активная задача — 7j.19: Инциденты связи и точность разрыва
+
+Диагностика и решения — [issue.md](issue.md) (выявлено на живой приёмке 7j.18, Finam id=3, 23.07.2026).
+
+### Цель
+
+Довести инцидентную ось связи до продакшн-уровня для **потоковой записи**: любой разрыв данных
+фиксируется точно (границы по меткам сделок), инцидент корректно закрывается, длительность перерыва
+видна, а плановое отключение не путается с ручным.
+
+### Область (I1–I4)
+
+1. **I1 — причина закрытия `Scheduled`** *(миграция)*. Добавить `LinkCloseReason.Scheduled`; прокинуть
+   `DisconnectAsync(reason)`; авто-путь супервизора при плановом гашении передаёт `Scheduled`. Фронт-легенда
+   ленты Connection + `LinkCloseReasonText` — новая подпись «плановое отключение по расписанию».
+2. **I2 — идемпотентный `recovered`**. В `HandleLinkStateAsync` на `Live` закрывать инцидент связи
+   `Resolve`-ом **без завязки на in-memory `recovering`** (no-op, если инцидента нет). Ре-подписку
+   (`OnLinkLiveAsync`) оставить под `recovering`. Устраняет зависший инцидент после реконнекта супервизора
+   (тот стирает `_linkStates` в `DisconnectAsync`).
+3. **I3 — watchdog по непрерывности сделок** *(ядро задачи)*.
+   - «Активность» = входящие сделки (`_lastData`); keepalive и `server_status` таймер тишины не сбрасывают.
+   - Порог `T = 15 c` (агрегация сделок 30 c ⇒ 30/2). Тик — существующий probe 15 c.
+   - Тишина `> T` в торговом окне → активный `ProbeAsync`: пинг не прошёл ⇒ `lost`(error) с
+     `gapStart = lastTradeAt`; пинг прошёл ⇒ тихий рынок (без инцидента).
+   - Интервал `link_liveness` закрывать по `lastTradeAt` (честная дырка = data-gap).
+   - Восстановление (первая сделка) ⇒ `recovered` с длительностью: заголовок «связь восстановлена»,
+     expanded «Перерыв 00:00:43 (… → … МСК)», `data.gapStart/gapEnd/gapMs`.
+4. **I4 — `connected`: чистый заголовок + детали в expanded** (оба пути: ручной `OhsEndpoints /connect`
+   и авто `ConnectionSupervisor`). Заголовок «связь установлена.»; «Предыдущее подключение…»,
+   «Пред. сеанс — <причина>…» — в `data.lines`.
+
+### Порядок работ
+
+1. **I1 (миграция первой):** `LinkCloseReason.Scheduled` + DbUp-скрипт + `LinkLivenessStore` + сигнатура
+   `DisconnectAsync(reason)` + вызовы (супервизор Scheduled, ручной Disconnected) + фронт-легенда.
+2. **I2:** идемпотентный `Resolve` на `Live` — маленький локальный фикс, разблокирует корректный `recovered`.
+3. **I4:** presentation `connected` (оба пути) — переиспуёт `DescribePreviousConnectionAsync` (строки вместо суффикса).
+4. **I3:** watchdog в `LivenessProbe.TickAsync` + границы по `lastTradeAt`/`firstTradeAt` + длительность на `recovered`.
+5. `dotnet build` solution + тесты; живой прогон на Finam id=3.
+
+### Вне области (7j.19)
+
+- Инжест котировок как «активности» (пока только сделки; появятся котировки — расширим).
+- Настройка `T`/порогов через UI (значение фиксировано в коде/конфиге).
+- Market/calendar profile (7j.15), `date`-авторинг (7j.16).
+
+### Критерии приёмки (7j.19)
+
+| # | Сценарий | Ожидаемая лента NC / журнал |
+|---|----------|------------------------------|
+| 1 | Плановое отключение по авто-окну | `schedule_disconnect`(info); `link_liveness` закрыт причиной `Scheduled`, «пред. сеанс — плановое отключение по расписанию» |
+| 2 | Обрыв + реконнект супервизора | `lost`(error, Open) → `reconnecting`(warning) → **`recovered`(ok, Resolve)** — инцидент закрыт, не висит |
+| 3 | Короткий разрыв данных (~30–40 c), пинг не прошёл | `lost`(error) с `gapStart = lastTradeAt`; на первой сделке — `recovered` с длительностью перерыва |
+| 4 | Тихий рынок (сделок нет, пинг ок) | инцидента НЕТ; журнал `link_liveness` не рвётся |
+| 5 | `recovered` в expanded | «Перерыв HH:MM:SS (from → to МСК)», `data.gapMs` заполнен |
+| 6 | `connected` (ручной и авто) | заголовок «связь установлена.»; детали пред. подключения/сеанса — в expanded |
+| 7 | Регресс ленты Connection (7h.8) | честные дырки совпадают с data-gap; цвет/подпись `Scheduled` корректны |
+| 8 | Сборка/тесты | `dotnet build` solution + тесты зелёные |
+
 ## Критерии приёмки фазы
 
 1. Auto + утверждённое расписание → connect в окне / disconnect вне; в non-trading днях ведущего
@@ -150,3 +212,9 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 10. **Атомарность правок:** редактирование расписания — атомарный `batch` (Saga), без частичной записи.
 11. **Safety-net:** глобальный `IExceptionHandler` → `ohs.unhandled` (system·critical).
 12. **Оптимизм в UI:** попап расписания не закрывается на сбое (баннер + «Повторить»).
+13. **Плановое отключение ≠ ручное:** отдельная причина `LinkCloseReason.Scheduled` (7j.19/I1).
+14. **Закрытие инцидента связи — идемпотентно:** `recovered` на `Live` не завязан на in-memory
+    `recovering` (7j.19/I2).
+15. **Непрерывность = сделки:** «активность» = входящие сделки; `T = 15 c` (агрегация 30 c / 2);
+    границы разрыва по `lastTradeAt`/`firstTradeAt`; тихий рынок отсекается активным пингом; разрыв
+    подтверждается провалом пинга → `lost`(error) (7j.19/I3).

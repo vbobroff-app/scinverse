@@ -10,6 +10,29 @@ import type { ConnectionScheduleRuleDto } from './types';
 
 const DAY_MIN = 24 * 60;
 
+/**
+ * Смещение TZ расписания от UTC в минутах. Расписание хранится в `Europe/Moscow`
+ * (settings.tz), у Москвы нет перехода на летнее время с 2014 ⇒ фиксированные +180.
+ */
+export const SCHEDULE_TZ_OFFSET_MIN = 180;
+
+/**
+ * Date, чьи ЛОКАЛЬНЫЕ поля (`getHours`/`getDay`/`getFullYear`…) равны стенным часам в TZ с
+ * офсетом `offsetMin`. Нужно, чтобы `isConnectedNow` считал в TZ расписания (МSK), а не в TZ
+ * браузера — иначе на не-московской машине фаза Auto врёт (сдвиг часов и дня недели).
+ */
+function wallClockInTz(now: Date, offsetMin: number): Date {
+  const s = new Date(now.getTime() + offsetMin * 60_000);
+  return new Date(
+    s.getUTCFullYear(),
+    s.getUTCMonth(),
+    s.getUTCDate(),
+    s.getUTCHours(),
+    s.getUTCMinutes(),
+    s.getUTCSeconds(),
+  );
+}
+
 /** Бит дня недели для маски (Пн=1…Вс=64). js day: 0=Вс..6=Сб. */
 export function dowBit(jsDay: number): number {
   return jsDay === 0 ? 64 : 1 << (jsDay - 1);
@@ -87,16 +110,23 @@ function ymd(date: Date): string {
 
 /**
  * Подключены ли «сейчас» по эффективному расписанию (union по дням открытия вчера/сегодня).
- * Приблизительно (без торгового календаря) — для индикатора фазы Auto.
+ * Приблизительно (без торгового календаря) — для индикатора фазы Auto. Время считается в TZ
+ * расписания (`offsetMin`, по умолчанию МSK): времена правил (`open`/`end`) — по МSK, поэтому
+ * `now` приводится к стенным часам МSK, иначе на не-московской машине окно «уезжает».
  */
-export function isConnectedNow(rules: readonly ConnectionScheduleRuleDto[], now: Date): boolean {
-  const nowMinToday = now.getHours() * 60 + now.getMinutes();
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
+export function isConnectedNow(
+  rules: readonly ConnectionScheduleRuleDto[],
+  now: Date,
+  offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
+): boolean {
+  const local = wallClockInTz(now, offsetMin);
+  const nowMinToday = local.getHours() * 60 + local.getMinutes();
+  const yesterday = new Date(local);
+  yesterday.setDate(local.getDate() - 1);
 
   for (const [openDay, offsetDays] of [
     [yesterday, 1],
-    [now, 0],
+    [local, 0],
   ] as const) {
     const winner = resolveWinnerForDate(rules, openDay);
     if (!winner || winner.mode !== 'window' || winner.open == null || winner.durationMin == null) {
