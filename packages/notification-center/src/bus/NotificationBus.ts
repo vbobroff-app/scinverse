@@ -71,8 +71,10 @@ export class NotificationBus {
 
   /**
    * Пакетная подача (бэклог / другой контур). Новые сверху; дедуп по `id`.
-   * I2 (lifecycle): для события с `correlationId` строка добавляется только на смену статуса —
-   * подряд идущее с тем же `(status, code)` в рамках инцидента пропускается (без спама ленты).
+   * I2 (lifecycle): для события с `correlationId` новая строка добавляется только на смену
+   * `(status, code)`. Подряд идущее с тем же `(status, code)` в рамках инцидента НЕ плодит строку, но
+   * **обновляет существующую на месте** (прогресс-тик: «4 c» → «19 c»): меняются `message`/`data`/`ts`,
+   * а `id`/позиция/состояние прочитанности сохраняются. Так одна строка «живёт» и обновляется без спама.
    */
   publishMany(incoming: readonly NotificationEvent[]): void {
     if (incoming.length === 0) {
@@ -88,6 +90,8 @@ export class NotificationBus {
       }
     }
     const additions: NotificationEvent[] = [];
+    // Прогресс-обновления «на месте»: correlationId → последнее событие того же (status, code).
+    const updates = new Map<string, NotificationEvent>();
     for (const evt of incoming) {
       if (!evt?.id || seen.has(evt.id)) {
         continue;
@@ -96,7 +100,8 @@ export class NotificationBus {
         const status = resolveStatus(evt);
         const prev = lastByCorr.get(evt.correlationId);
         if (prev && prev.status === status && prev.code === evt.code) {
-          // I2: тот же статус того же инцидента — не плодим строку (но id считаем виденным).
+          // I2: тот же (status, code) инцидента — не плодим строку, а обновляем существующую (last wins).
+          updates.set(evt.correlationId, evt);
           seen.add(evt.id);
           continue;
         }
@@ -105,11 +110,27 @@ export class NotificationBus {
       seen.add(evt.id);
       additions.push(evt);
     }
-    if (additions.length === 0) {
+    if (additions.length === 0 && updates.size === 0) {
       return;
     }
     // publishMany: сохраняем относительный порядок входящего массива (первое = новее).
-    const next = [...additions, ...current].slice(0, this.limit);
+    let combined = additions.length > 0 ? [...additions, ...current] : current;
+    if (updates.size > 0) {
+      // Обновляем первую (newest-first) строку с совпадающими correlationId + code + status.
+      const applied = new Set<string>();
+      combined = combined.map((e) => {
+        if (!e.correlationId || applied.has(e.correlationId)) {
+          return e;
+        }
+        const u = updates.get(e.correlationId);
+        if (u && e.code === u.code && resolveStatus(e) === resolveStatus(u)) {
+          applied.add(e.correlationId);
+          return { ...e, message: u.message, data: u.data, ts: u.ts };
+        }
+        return e;
+      });
+    }
+    const next = combined.slice(0, this.limit);
     this.pruneReadIds(next);
     this.eventsSubject.next(next);
   }

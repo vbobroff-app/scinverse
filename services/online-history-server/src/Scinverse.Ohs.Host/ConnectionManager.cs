@@ -53,6 +53,10 @@ public sealed class ConnectionManager(
     // Начало открытого инцидента связи (для длительности разрыва в recovered, 7j.19/I2+I3). ПЕРЕЖИВАЕТ
     // передисконнект реконнекта (в отличие от _linkStates) — иначе recovered/длительность теряются.
     private readonly ConcurrentDictionary<long, DateTimeOffset> _incidentSince = new();
+    // Владелец восстановления открытого инцидента (7j.20): "transaq" (сам поднял в Degraded до handover)
+    // либо "supervisor" (Down/Error/ping-fail сразу, либо передача владения по grace). Нужен для expanded
+    // recovered («кем восстановлена связь»). Живёт вместе с _incidentSince (ставится на open, снимается на recovered).
+    private readonly ConcurrentDictionary<long, string> _incidentOwner = new();
     // Кэш имени подключения для ярлыков NC (7j.18): избегаем DB-lookup на каждое событие связи.
     private readonly ConcurrentDictionary<long, string> _nameCache = new();
     private Timer? _idleMonitor;
@@ -302,6 +306,7 @@ public sealed class ConnectionManager(
                 .ConfigureAwait(false);
         }
 
+        _incidentOwner[connectionId] = "supervisor";
         logger.LogWarning(
             "Подключение {ConnectionId}: TRANSAQ не восстановил связь за grace — передаю владение супервизору (форс-дисконнект)",
             connectionId);
@@ -517,6 +522,12 @@ public sealed class ConnectionManager(
                 {
                     var label = await ResolveLabelAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
                     var gapMs = (long)(change.At - incidentStart).TotalMilliseconds;
+                    // Кем восстановлена связь (7j.20): владелец на момент закрытия инцидента. TRANSAQ сам поднял
+                    // (Degraded до handover) → "средствами TRANSAQ"; иначе (Down/ping-fail/после handover) → супервизор.
+                    var owner = _incidentOwner.TryRemove(connectionId, out var incidentOwner) ? incidentOwner : "transaq";
+                    var ownerLine = owner == "supervisor"
+                        ? "Восстановлено супервизором (переподключение)"
+                        : "Восстановлено TRANSAQ";
                     notifications.Resolve(
                         LinkIncidentSubject(connectionId),
                         "connection.recovered",
@@ -526,10 +537,11 @@ public sealed class ConnectionManager(
                         {
                             connectionId,
                             state = change.State.ToString(),
+                            owner,
                             gapStart = incidentStart,
                             gapEnd = change.At,
                             gapMs,
-                            lines = GapDurationLines(incidentStart, change.At),
+                            lines = new[] { ownerLine, FormatGapLine(incidentStart, change.At) },
                         });
                 }
 
@@ -562,6 +574,7 @@ public sealed class ConnectionManager(
                 // супервизору по grace-таймауту — J3/J6.
                 var degradedLabel = await ResolveLabelAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
                 _incidentSince.TryAdd(connectionId, change.At);
+                _incidentOwner.TryAdd(connectionId, "transaq");
                 notifications.Open(
                     LinkIncidentSubject(connectionId),
                     "connection.lost",
@@ -631,6 +644,8 @@ public sealed class ConnectionManager(
         CancellationToken cancellationToken)
     {
         _incidentSince.TryAdd(connectionId, atTs);
+        // Down/Error/ping-fail — зона супервизора (overwrite: Degraded→Down эскалирует владельца transaq→supervisor).
+        _incidentOwner[connectionId] = "supervisor";
         notifications.Open(
             LinkIncidentSubject(connectionId),
             "connection.lost",
@@ -685,14 +700,18 @@ public sealed class ConnectionManager(
             cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Строка длительности разрыва для expanded recovered: «Перерыв HH:MM:SS (from → to МСК)».</summary>
-    private static IReadOnlyList<string> GapDurationLines(DateTimeOffset from, DateTimeOffset to)
+    /// <summary>Строка разрыва для expanded recovered: «Разрыв HH:mm:ss → HH:mm:ss (МСК), длительность HH:MM:SS».
+    /// Если разрыв пересекает сутки — к границам добавляется дата.</summary>
+    private static string FormatGapLine(DateTimeOffset from, DateTimeOffset to)
     {
         var dur = to - from;
         var fromMsk = from.ToOffset(TimeSpan.FromHours(3));
         var toMsk = to.ToOffset(TimeSpan.FromHours(3));
         var hhmmss = $"{(int)dur.TotalHours:00}:{dur.Minutes:00}:{dur.Seconds:00}";
-        return [$"Перерыв {hhmmss} ({fromMsk:dd.MM HH:mm:ss} → {toMsk:HH:mm:ss} МСК)"];
+        var sameDay = fromMsk.Date == toMsk.Date;
+        var fromText = sameDay ? $"{fromMsk:HH:mm:ss}" : $"{fromMsk:dd.MM HH:mm:ss}";
+        var toText = sameDay ? $"{toMsk:HH:mm:ss}" : $"{toMsk:dd.MM HH:mm:ss}";
+        return $"Разрыв {fromText} → {toText} (МСК), длительность {hhmmss}";
     }
 
     private void PublishLinkState(long connectionId, ConnectorLinkStateChange change)

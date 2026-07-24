@@ -86,6 +86,26 @@ describe('NotificationBus', () => {
       expect(bus.events.map((e) => e.id)).toEqual(['a3', 'a1']);
     });
 
+    it('I2: repeated same (status, code) updates the row in place (progress tick)', () => {
+      const bus = createNotificationBus();
+      bus.publish(evt({ id: 'p1', correlationId: 'c', code: 'connection.recovering', status: 'underway', message: '4 c' }));
+      bus.publish(evt({ id: 'p2', correlationId: 'c', code: 'connection.recovering', status: 'underway', message: '19 c' }));
+      // Строка одна (id первого тика сохранён), но текст обновлён до последнего тика.
+      expect(bus.events.map((e) => e.id)).toEqual(['p1']);
+      expect(bus.events[0]?.message).toBe('19 c');
+    });
+
+    it('I2: in-place update keeps read state (no re-alert on progress)', () => {
+      const bus = createNotificationBus();
+      notify.warn(bus, { module: 'm', code: 'connection.recovering', message: '4 c', id: 'p1', correlationId: 'c', status: 'underway' });
+      bus.markAllRead();
+      expect(bus.unreadWarningCount).toBe(0);
+      notify.warn(bus, { module: 'm', code: 'connection.recovering', message: '19 c', id: 'p2', correlationId: 'c', status: 'underway' });
+      // Обновление текста не «зажигает» строку заново.
+      expect(bus.unreadWarningCount).toBe(0);
+      expect(bus.events[0]?.message).toBe('19 c');
+    });
+
     it('badge follows last status: resolved alert does not burn', () => {
       const bus = createNotificationBus();
       notify.error(bus, { module: 'm', code: 'connection.lost', message: 'down', id: 'e1', correlationId: 'conn:1:link', status: 'active' });

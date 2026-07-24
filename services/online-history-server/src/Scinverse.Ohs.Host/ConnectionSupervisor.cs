@@ -305,12 +305,13 @@ public sealed class ConnectionSupervisor(
         }
 
         var elapsedSec = (int)Math.Max(0, elapsed.TotalSeconds);
+        var remainingSec = Math.Max(0, (int)RecoverGrace.TotalSeconds - elapsedSec);
         notifications.Progress(
             ConnectionManager.LinkIncidentSubject(connectionId),
             "connection.recovering",
-            $"{label}: восстановление связи (TRANSAQ) · {elapsedSec} c",
+            $"{label}: восстановление связи (TRANSAQ) · {elapsedSec} c, передача супервизору через {remainingSec} c",
             severity: "warning",
-            data: new { connectionId, owner = "transaq", elapsedSeconds = elapsedSec });
+            data: new { connectionId, owner = "transaq", elapsedSeconds = elapsedSec, handoverInSeconds = remainingSec });
     }
 
     private bool IsConnected(long connectionId)
