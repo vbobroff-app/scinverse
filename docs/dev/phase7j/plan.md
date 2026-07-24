@@ -7,8 +7,9 @@
 > исключения и инциденты** (7j.18 — [auto-connect.md](auto-connect.md)) → **инциденты связи и точность
 > разрыва** (7j.19 — [issue.md](issue.md)). Живой статус — [report.md](report.md).
 
-**Статус:** ядро `DONE`; 7j.18 Auto Connect — `КОД ГОТОВ · приёмка`; **активная задача — 7j.19
-Инциденты связи и точность разрыва** (выявлено на приёмке 7j.18 — [issue.md](issue.md)); в очереди —
+**Статус:** ядро `DONE`; 7j.18 Auto Connect и **7j.19 Инциденты связи и точность разрыва** (I1–I5) —
+`КОД ГОТОВ · приёмка` (сборка + 131 unit ✓, живой прогон на Finam id=3 за пользователем; нужен рестарт
+Host для миграции V026); в очереди —
 7j.15 (рыночный профиль) / 7j.16 (`date`-авторинг). Зависимости: **7h / 7h.8** (автомат связи,
 `link_liveness`, лента Connection), **7c** (`IMarketCalendar`), **7e** (тумблер связи).
 Соседняя **7i** (Auto записи) — проекция живой связи. Детали реализации — [apply.md](apply.md);
@@ -67,7 +68,7 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 | 7j.14 | UI: двухшаговый diff-approve, guardrail main, live-push баннер | DONE | [ui-schedule.md](ui-schedule.md) |
 | 7j.17 | Обработка исключений **редактирования**: атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler` + severity-модель + попап без оптимизма | DONE | [error-handling.md](error-handling.md) |
 | 7j.18 | **Auto Connect: все исключения + инциденты** | КОД ГОТОВ · приёмка | [auto-connect.md](auto-connect.md) |
-| **7j.19** | **Инциденты связи + точность разрыва** (I1–I4: причина Scheduled, идемпотентный recovered, watchdog по сделкам, чистый connected) | **PLANNED · согласовано** | [issue.md](issue.md) |
+| **7j.19** | **Инциденты связи + точность разрыва** (I1: причина Scheduled + V026; I2: идемпотентный recovered; I3: watchdog стелс-разрыва + длительность; I4: чистый connected; I5: TZ-фикс AUTO-тумблера) | **КОД ГОТОВ · приёмка** | [issue.md](issue.md) |
 | 7j.15 | Рыночный/календарный профиль на settings; UI без хардкода MOEX | PLANNED | [market-profile.md](market-profile.md) |
 | 7j.16 | `date`-авторинг на фронте + пагинация графика по месяцам | PLANNED | [todo.md](todo.md) |
 
@@ -128,6 +129,13 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 ## Активная задача — 7j.19: Инциденты связи и точность разрыва
 
 Диагностика и решения — [issue.md](issue.md) (выявлено на живой приёмке 7j.18, Finam id=3, 23.07.2026).
+
+> **Статус реализации (2026-07-24):** I1–I5 в коде, `dotnet build` + 131 unit зелёные, коммиты
+> `22cd62d` (I1–I4) и `68151e0` (I5). Осталась живая приёмка на Finam id=3 (нужен рестарт Host для V026).
+> **Отступление по I3:** `gapEnd` привязан к моменту `Live` новой сессии (реконнект), а НЕ к первой сделке —
+> при стелс-разрыве коннектор не шлёт `Down`, старая сессия мертва, данные пойдут только на новой сессии;
+> `Live` наступает за секунды до первой сделки. Точность до первой сделки при желании — переносом resolve
+> в `ReportActivity` (см. [issue.md](issue.md) §I3).
 
 ### Цель
 

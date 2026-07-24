@@ -2,7 +2,13 @@
 
 Статус: **КОД ГОТОВ** (реализовано; `dotnet build` solution 0/0; живая приёмка по §7 — за пользователем).
 
-Связано: [report.md](report.md), [error-handling.md](error-handling.md), [notify-composer.md](notify-composer.md), [v2-exceptions.md](v2-exceptions.md).
+> **Поправка 7j.19/I4:** `connected` больше НЕ несёт QUIK-хвост в заголовке — заголовок чистый
+> («связь установлена.»), а детали пред. подключения/сеанса ушли в expanded `data.lines`
+> (`PreviousConnectionLines`). Плановое отключение теперь закрывает `link_liveness` причиной
+> `Scheduled` (I1), инцидент связи закрывается идемпотентно с длительностью перерыва (I2+I3).
+> Диагностика и решения — [issue.md](issue.md).
+
+Связано: [report.md](report.md), [issue.md](issue.md), [error-handling.md](error-handling.md), [notify-composer.md](notify-composer.md), [v2-exceptions.md](v2-exceptions.md).
 
 ---
 

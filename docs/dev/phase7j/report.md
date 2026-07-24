@@ -1,8 +1,9 @@
 # Phase 7j — report: расписание соединения
 
 **Статус:** `DONE` по ядру (v1 MVP + v2 якорная модель / dow-исключения + двухшаговый diff-approve +
-Notification Composer + **атомарный batch (Saga) и обработка исключений**). Остаток: 7j.15/7j.16
-(профиль/`date`-авторинг) и 7j.18 (Auto-connect NC & incident hardening). **Обновлено:** 2026-07-23.
+Notification Composer + **атомарный batch (Saga) и обработка исключений**). 7j.18 (Auto-connect NC) и
+**7j.19 (инциденты связи + точность разрыва)** — `КОД ГОТОВ · приёмка`. Остаток: 7j.15/7j.16
+(профиль/`date`-авторинг). **Обновлено:** 2026-07-24.
 
 Актуальный статус фазы. Обновляется по мере выполнения задач из [plan.md](plan.md) /
 [apply.md](apply.md). Якорная модель + слоистые исключения — [v2-exceptions.md](v2-exceptions.md).
@@ -30,11 +31,13 @@ Notification Composer + **атомарный batch (Saga) и обработка 
 | 7j.16 | **`date`-авторинг на фронте** (static-исключения) + пагинация графика по месяцам | PLANNED | см. [todo.md](todo.md) |
 | 7j.17 | **Обработка исключений расписания:** атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler` + severity-модель (applied=info / cleared=warning / recreated=ok, 2a/2b) + попап без оптимизма (баннер + Retry); удалены одиночные rule/cancel/compose | DONE | см. [error-handling.md](error-handling.md); коммиты `86bd497`, `e1ed5b7` |
 | 7j.18 | **Auto-connect NC & incident hardening:** имя `Подключение {id} («{name}»)` в supervisor/manager (кэш-helper `ResolveLabelAsync`/`ConnLabel`), `connected=ok`, `connecting=warning+underway`, общий `correlationId` авто-серии, имя в `lost`/`recovered`/`reconnecting`/`schedule_disconnect`; **`connection.auto_error`** (system·error + дедуп) на сбой тика супервизора | КОД ГОТОВ · приёмка | см. [auto-connect.md](auto-connect.md); dotnet build solution 0 |
+| 7j.19 | **Инциденты связи + точность разрыва (I1–I5):** причина `LinkCloseReason.Scheduled` (миграция V026) + `DisconnectAsync(reason)` + фронт-легенда (I1); идемпотентный `recovered` через `_incidentSince`, переживающий передисконнект реконнекта (I2); watchdog стелс-разрыва (`ReportStallAsync`: тишина сделок + провал пинга → `lost` на `lastTradeAt`, дедуп) + длительность перерыва в `recovered` (I3); чистый заголовок `connected` + детали в `data.lines`, оба пути (I4); TZ-фикс AUTO-тумблера `isConnectedNow` в МСК (I5) | КОД ГОТОВ · приёмка | см. [issue.md](issue.md); dotnet build 0 + 131 unit ✓; коммиты `22cd62d`, `68151e0` |
 
 ## Лог выполнения
 
 | Дата | Действие | Результат |
 |------|----------|-----------|
+| 2026-07-24 | **7j.19 — инциденты связи и точность разрыва (I1–I5).** По живой приёмке 7j.18 ([issue.md](issue.md)): **I1** — `LinkCloseReason.Scheduled` + миграция `V026` + `DisconnectAsync(reason)` (супервизор шлёт `Scheduled`, ручной — `Disconnected`) + легенда ленты Connection (серый «плановое отключение по расписанию»); **I2** — `recovered` больше не завязан на in-memory `recovering`: начало инцидента хранится в `_incidentSince` (переживает `DisconnectAsync` реконнекта) → закрытие идемпотентно, инцидент не виснет; **I3** — watchdog стелс-разрыва: при тишине сделок > 15 c + провале активного пинга `ConnectionManager.ReportStallAsync` открывает `connection.lost`(error) на `lastTradeAt` (честная граница дыры, причина `PingFailed`) c дедупом, общий путь `OpenLinkLostAsync` с `server_status` Down; `recovered` несёт длительность (expanded «Перерыв HH:MM:SS (… МСК)» + `gapStart/gapEnd/gapMs`); **I4** — чистый заголовок `connected` + `PreviousConnectionLines` в `data.lines` (ручной и авто); **I5** — TZ-фикс `isConnectedNow` (окно AUTO считается в МСК). Отступление I3: `gapEnd` = момент `Live` реконнекта, не первой сделки (задокументировано). Живая приёмка на Finam id=3 — за пользователем (нужен рестарт бэка для V026) | dotnet build solution 0 warn / 0 err; unit 131 ✓; коммиты `22cd62d` (I1–I4), `68151e0` (I5) |
 | 2026-07-17 | Заведена фаза 7j: plan/apply/report | документы |
 | 2026-07-17 | V021 + `ConnectionScheduleStore` + API + Supervisor + NotificationHub + UI Auto/popover | код; unit окна зелёные |
 | 2026-07-18 | 7j.5: интеграционные store-тесты (`ConnectionScheduleStoreTests`) 3/3 на Testcontainers (SCD-2 версия окна, SetMode без версии, ListCurrentScheduled только Auto on) | зелёные |
@@ -48,11 +51,17 @@ Notification Composer + **атомарный batch (Saga) и обработка 
 
 ### Backend
 
-- `db/migrations/V021__connection_schedule.sql` (v1, заменено), **`V024__connection_schedule_rebuild.sql`** (v2)
+- `db/migrations/V021__connection_schedule.sql` (v1, заменено), **`V024__connection_schedule_rebuild.sql`** (v2),
+  **`V026__link_liveness_scheduled_reason.sql`** (7j.19/I1 — `close_reason` включает `scheduled`)
 - Домен: **`ConnectionScheduleRule` / `ConnectionScheduleSettings` / `ConnectionScheduleState`**,
-  **`ConnectionScheduleResolver`** (+ константы `…Scopes/RuleModes/CloseReasons/Dow`)
+  **`ConnectionScheduleResolver`** (+ константы `…Scopes/RuleModes/CloseReasons/Dow`);
+  `ILinkLivenessStore.LinkCloseReason` + **`Scheduled`** (7j.19/I1)
 - `IConnectionScheduleStore` / `ConnectionScheduleStore` (UpsertRule + авто-ретайр, CancelRule, settings)
-- `ConnectionSupervisor` (тик = `LivenessProbeSeconds`; резолвер по живым правилам)
+- `ConnectionSupervisor` (тик = `LivenessProbeSeconds`; резолвер по живым правилам; плановое гашение → `DisconnectAsync(Scheduled)`)
+- **`ConnectionManager`** (7j.18/7j.19): `ResolveLabelAsync`/`ConnLabel` (кэш имени), `DisconnectAsync(reason)`,
+  `_incidentSince` + `OpenLinkLostAsync` (общий путь Down/стелс-разрыв) + **`ReportStallAsync`** (watchdog),
+  `recovered` с длительностью (`GapDurationLines`), `PreviousConnectionLines`/`DescribePreviousConnectionLinesAsync`
+- **`LivenessProbe`** — при провале пинга (тишина сделок > 15 c) зовёт `ReportStallAsync(lastTradeAt)`
 - `NotificationHub` / `INotificationPublisher`; **`GlobalExceptionHandler : IExceptionHandler`** (safety-net → `ohs.unhandled`)
 - REST: `GET /schedule` (state), **`POST …/schedule/batch`** (атомарная пачка, Saga — заменил
   одиночные `rule`/`cancel` и `compose`), `PUT …/schedule/settings`, `GET …/schedule/history`,
@@ -65,7 +74,8 @@ Notification Composer + **атомарный batch (Saga) и обработка 
 
 - `ConnectionAutoToggle`, `ConnectionSchedulePopover` (авторинг скоупа + **двухшаговый approve с diff-превью**, guardrail на правку main, live-push баннер)
 - `WeeklyDayColumns` (столбчатый недельный график, режим diff: kept/added/removed), `ConfirmDialog` (in-modal msgbox: severity, чекбокс, onCancel)
-- `core/connectionSchedule.ts` — клиентский резолвер; `core/scheduleLayerDict.ts` — `ScheduleLayerDict` (base/changes)
+- `core/connectionSchedule.ts` — клиентский резолвер (7j.19/I5: `isConnectedNow` считает окно в TZ расписания, `SCHEDULE_TZ_OFFSET_MIN=180`); `core/scheduleLayerDict.ts` — `ScheduleLayerDict` (base/changes)
+- `ui/components/ConnectionRibbon.tsx` — легенда/цвет разрыва: `scheduled` → серый «плановое отключение по расписанию» (7j.19/I1)
 - Полоса Связь в `InstrumentPicker`/`ConnectionLane`: Auto + Расписание
 - `OhsStore.connectionSchedule$: Map<id, ConnectionScheduleStateDto>`; `applyConnectionScheduleBatch` (**один** `POST …/schedule/batch` + `handlers.onSuccess/onError`; при обрыве сети — клиентский `notify.error`); WS `notification` → `publishServerNotification`
 - Попап `commit()` — без оптимистичного закрытия: на сбое остаётся с баннером `commitError` + кнопкой «Повторить», закрывается только при успехе
@@ -85,7 +95,13 @@ approve** (diff-превью kept/added/removed), guardrail на правку о
 
 ## Что проверить локально
 
-1. Остановить Host, применить миграции (до **V024** включительно), перезапустить Host.
+> **7j.19 приёмка (Finam id=3, требует рестарта Host для миграции V026):** авто-connect → `connected`
+> с чистым заголовком + детали в expanded (I4); VPN off ~30–60 c → `lost`(error), после реконнекта →
+> `recovered` со строкой «Перерыв HH:MM:SS (… МСК)» (I2+I3); конец окна → `schedule_disconnect`(info),
+> на ленте Connection серый разрыв «Плановое отключение по расписанию» (I1); AUTO-тумблер зелёный
+> вне окна при поднятом Auto (I5). Матрица — [plan.md](plan.md) §критерии 7j.19, диагностика — [issue.md](issue.md).
+
+1. Остановить Host, применить миграции (до **V026** включительно), перезапустить Host.
 2. Открыть «Расписание»: скоуп `Все` (основное) → окно на ленте → Утвердить; затем `Сб, Вс` →
    своё окно → Утвердить. В недельном обзоре Пн–Пт = основное, Сб/Вс = исключение.
 3. Включить Auto → в окне connect, вне окна disconnect (synthetic/Finam).

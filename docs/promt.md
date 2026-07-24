@@ -89,7 +89,7 @@ scinverse/
 | 7g | Слой сделок на Ганте: присутствие торгов по бакетам (лесенка), app-кэш `V008`, `/coverage/activity` | DONE | [phase7g](./dev/phase7g/plan.md) |
 | **7h** | **Честная подложка: recovery (`V009`), живость (`V010`/`V011`), автомат связи + пинг, красная разметка разрывов** | **DONE** | [phase7h/report](./dev/phase7h/report.md), [incident](./dev/phase7h/incident.md) |
 | 7i | «Управление записью»: полуавтомат Auto + Supervisor (MOEX) | IN PROGRESS | [phase7i/apply](./dev/phase7i/apply.md) |
-| **7j** | **Расписание соединения:** якорная модель (open+duration) + слоистые исключения (main/dow/date, SCD-2) + Composer/diff-approve; **7j.17** атомарный batch (Saga) + глобальный exception-handler (DONE); **7j.18** Auto Connect: исключения + инциденты (активно) | **ядро DONE · 7j.18 активна** | [plan](./dev/phase7j/plan.md) · [report](./dev/phase7j/report.md) · [v2-exceptions](./dev/phase7j/v2-exceptions.md) · [error-handling](./dev/phase7j/error-handling.md) · [auto-connect](./dev/phase7j/auto-connect.md) |
+| **7j** | **Расписание соединения:** якорная модель (open+duration) + слоистые исключения (main/dow/date, SCD-2) + Composer/diff-approve; **7j.17** атомарный batch (Saga) + глобальный exception-handler (DONE); **7j.18** Auto Connect NC (КОД ГОТОВ); **7j.19** инциденты связи + точность разрыва I1–I5 (КОД ГОТОВ · приёмка) | **ядро DONE · 7j.18/7j.19 приёмка** | [plan](./dev/phase7j/plan.md) · [report](./dev/phase7j/report.md) · [issue](./dev/phase7j/issue.md) · [auto-connect](./dev/phase7j/auto-connect.md) · [error-handling](./dev/phase7j/error-handling.md) |
 | 8 | CI/CD (GitHub Actions + compose `migrator`) | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` | TODO | — |
 | 10 | Multi-user & auth (Keycloak + `user_settings` + роли) | PLANNED | [phase10](./dev/phase10/plan.md) |
@@ -168,89 +168,97 @@ scinverse/
 
 Карта фазы 7 — [phase7/roadmap.md](./dev/phase7/roadmap.md).
 
-**Текущий фокус — phase 7j, активная задача 7j.18** (Auto Connect по расписанию с обработкой всех
-исключений и инцидентов, единый NC-стандарт). Ядро 7j (v2-модель, Composer, diff-approve) и 7j.17
-(атомарный batch + глобальный exception-handler) — DONE. 7i (Auto записи) ждёт живую связь от 7j.
+**Текущий фокус — phase 7j.** Ядро (v2-модель, Composer, diff-approve), 7j.17 (атомарный batch +
+глобальный exception-handler), 7j.18 (Auto-connect NC) и **7j.19 (инциденты связи + точность разрыва,
+I1–I5)** — код готов; осталась **живая приёмка на Finam id=3** (нужен рестарт Host для миграции V026).
+7i (Auto записи) ждёт живую связь от 7j.
 
 ---
 
-## 8. ➡️ НОВЫЙ ЧАТ: phase 7j — активная задача 7j.18 «Auto Connect: исключения + инциденты»
+## 8. ➡️ НОВЫЙ ЧАТ: phase 7j — 7j.18/7j.19 КОД ГОТОВ, идёт живая приёмка
 
-**Прочитай первым:** [plan.md](./dev/phase7j/plan.md) · [apply.md](./dev/phase7j/apply.md) ·
-[report.md](./dev/phase7j/report.md). Фиче-доки: [v2-exceptions.md](./dev/phase7j/v2-exceptions.md)
-(модель) · [error-handling.md](./dev/phase7j/error-handling.md) (7j.17) ·
-[auto-connect.md](./dev/phase7j/auto-connect.md) (7j.18) · [notify-composer.md](./dev/phase7j/notify-composer.md).
+**Прочитай первым:** [plan.md](./dev/phase7j/plan.md) · [report.md](./dev/phase7j/report.md) ·
+[issue.md](./dev/phase7j/issue.md) (диагностика + решения 7j.19, I1–I5). Фиче-доки:
+[v2-exceptions.md](./dev/phase7j/v2-exceptions.md) (модель) · [error-handling.md](./dev/phase7j/error-handling.md)
+(7j.17) · [auto-connect.md](./dev/phase7j/auto-connect.md) (7j.18) ·
+[notify-composer.md](./dev/phase7j/notify-composer.md).
 
 ### Где фаза сейчас
 
 - **Ядро DONE:** v2 якорная модель (`open+duration`) + слоистые правила `main/dow/date` (SCD-2),
-  `ConnectionScheduleResolver`, `ConnectionSupervisor`, API, фронт (двухшаговый diff-approve),
-  Notification Composer (одно user + одно system на пачку).
+  `ConnectionScheduleResolver`, `ConnectionSupervisor`, API, фронт (двухшаговый diff-approve), Composer.
 - **7j.17 DONE:** атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler`
-  (`ohs.unhandled`) + severity-модель (applied=info/cleared=warning/recreated=ok) + попап без
-  оптимизма (баннер + Retry). Удалены одиночные `rule`/`cancel`/`compose`.
-- **Активная задача — 7j.18:** довести авто-connect по расписанию (`ConnectionSupervisor`) и инциденты
-  связи (`ConnectionManager`) до единого NC-стандарта 7j.17.
+  (`ohs.unhandled`) + severity-модель (applied=info/cleared=warning/recreated=ok) + попап без оптимизма.
+- **7j.18 КОД ГОТОВ:** рантайм-NC авто-connect подтянут к эталону ручного (`connecting`→`connected`/`failed`,
+  общий corr, имя `Подключение {id} («{name}»)`); `connection.auto_error` (system·error+дедуп) на сбой тика.
+- **7j.19 КОД ГОТОВ (I1–I5):** инциденты связи + точность разрыва (см. ниже). Коммиты `22cd62d` (I1–I4),
+  `68151e0` (I5); `dotnet build` solution + 131 unit ✓.
+- **Осталось:** живая приёмка 7j.18/7j.19 на Finam id=3 — **нужен рестарт Host** (DbUp применит **V026**).
+
+### 7j.19 — что сделано (I1–I5)
+
+- **I1 — плановое отключение ≠ ручное:** `LinkCloseReason.Scheduled` (миграция **V026**);
+  `DisconnectAsync(reason)` — супервизор при плановом гашении шлёт `Scheduled`, ручной off — `Disconnected`;
+  лента Connection: серый разрыв «Плановое отключение по расписанию».
+- **I2 — `recovered` не виснет:** начало инцидента в `_incidentSince` (переживает `DisconnectAsync`
+  реконнекта, в отличие от `_linkStates`); закрытие на `Live` идемпотентно (`TryRemove`), не завязано на
+  in-memory `recovering`.
+- **I3 — watchdog стелс-разрыва:** тишина сделок > 15 c + провал активного пинга ⇒
+  `ConnectionManager.ReportStallAsync` открывает `connection.lost`(error) на `lastTradeAt` (честная левая
+  граница дыры, `link_liveness` reason `PingFailed`), дедуп; общий путь `OpenLinkLostAsync` с `server_status`
+  Down. `recovered` несёт длительность: expanded «Перерыв HH:MM:SS (… МСК)» + `gapStart/gapEnd/gapMs`.
+  **Отступление:** `gapEnd` = момент `Live` реконнекта, не первой сделки (коннектор не шлёт `Down`,
+  восстановление — только через новую сессию; см. issue.md §I3).
+- **I4 — чистый `connected`:** заголовок «связь установлена.»; детали пред. подключения/сеанса — в
+  `data.lines` (expanded). Оба пути: ручной `OhsEndpoints /connect` и авто `ConnectionSupervisor`.
+- **I5 — AUTO-тумблер:** `isConnectedNow` считает окно в TZ расписания (МСК, `SCHEDULE_TZ_OFFSET_MIN=180`) —
+  был TZ-баг (локальные часы vs МСК-правила), тумблер вечно янтарный. Только индикатор, на бэк не влияет.
 
 ### Модель данных (v2, актуально)
 
 - **V024 rebuild:** `connection_schedule_settings` (`auto/engine/tz`) + `connection_schedule`
-  (правила `main/dow/date`, `open+duration`, SCD-2, `close_reason`). V021 (одно окно) — **заменено**.
-- Ведущий `engine` для дней (без join рынков); типично FORTS/`futures`.
-- Журнал связи — `link_liveness`; lifecycle/инциденты → NC (тонкий срез 11.2: `Publish` + инцидентная
-  ось `Open`/`Progress`/`Resolve`).
-
-### 7j.18 — что делаем
-
-Эталон уже есть — **ручной** `POST …/connect`: user-intent + system-серия
-`connecting(warning)→connected(ok)/failed(error)` на общем `correlationId`, имя `«{name}»`. Подтягиваем
-к нему авто-путь и инциденты:
-
-- **Единый стандарт рантайм-NC:** имя `Подключение {id} («{name}»)` (id первичен; в system — только id);
-  severity `connecting/reconnecting=warning`, `connected/recovered=ok`, `lost/connect_failed=error`,
-  `schedule_disconnect=info`; source `user` (намерение) / `system` (исполнение, инциденты);
-  `correlationId` сворачивает авто-серию попыток и инцидент связи (каждый — свой corr).
-- **Резолв имени:** кэш-helper в `ConnectionManager` (`ResolveLabelAsync`/`ConnLabel`); супервизор — через него.
-- **`ConnectionSupervisor`:** имя во всех строках; `connected → ok`; `connecting → warning + underway`;
-  общий `correlationId` на авто-серию; `schedule_disconnect` с именем.
-- **`ConnectionManager`:** имя в `lost`/`recovered`/`reconnecting` (ось Open/Progress/Resolve уже корректна).
+  (правила `main/dow/date`, `open+duration`, SCD-2, `close_reason`). V021 — заменено.
+- **V026:** `link_liveness.close_reason` включает `scheduled` (7j.19/I1).
+- Журнал связи — `link_liveness`; lifecycle/инциденты → NC (тонкий срез 11.2: `Publish` + ось
+  `Open`/`Progress`/`Resolve`; инцидент связи = `LinkIncidentSubject(connectionId)`).
 
 ### Ключевые файлы
 
-**Backend:** `Scinverse.Ohs.Host/ConnectionSupervisor.cs`, `ConnectionManager.cs`, `OhsEndpoints.cs`
-(`POST …/schedule/batch` + `PublishBatchSuccess`; `POST …/connect` — эталон), `GlobalExceptionHandler.cs`,
-`INotificationPublisher.cs`/`NotificationHub.cs`; `Storage.Timescale/ConnectionScheduleStore.cs`
-(`ApplyBatchAsync`); `Contracts/Dtos.cs` (`ScheduleBatchRequest`/`ScheduleBatchResultDto`).
+**Backend:** `Scinverse.Ohs.Host/ConnectionManager.cs` (`ResolveLabelAsync`/`ConnLabel`,
+`DisconnectAsync(reason)`, `_incidentSince`+`OpenLinkLostAsync`+`ReportStallAsync`, `GapDurationLines`,
+`PreviousConnectionLines`), `ConnectionSupervisor.cs`, `LivenessProbe.cs` (хук `ReportStallAsync`),
+`OhsEndpoints.cs` (`/connect` эталон, `POST …/schedule/batch`), `GlobalExceptionHandler.cs`,
+`NotificationHub.cs`/`INotificationPublisher.cs`; `Domain/ILinkLivenessStore.cs` (`LinkCloseReason.Scheduled`),
+`Storage.Timescale/LinkLivenessStore.cs`, `ConnectionScheduleStore.cs` (`ApplyBatchAsync`).
 
-**Frontend:** `web/src/core/api.ts` (`applyScheduleBatch`), `OhsStore.ts`
-(`applyConnectionScheduleBatch` + `onSuccess/onError`), `ui/components/ConnectionSchedulePopover.tsx`,
-`ConnectionLane.tsx`; `packages/notification-center` (`NotificationRow`/`NotificationDock`).
+**Frontend:** `web/src/core/connectionSchedule.ts` (`isConnectedNow` в МСК),
+`ui/components/ConnectionRibbon.tsx` (легенда `scheduled`), `core/api.ts` (`applyScheduleBatch`),
+`OhsStore.ts`, `ConnectionSchedulePopover.tsx`; `packages/notification-center` (`NotificationRow` рендерит `data.lines`).
 
-### Критерии приёмки 7j.18 (кратко; полная матрица — plan.md)
+### Живая приёмка 7j.19 (Finam id=3; полная матрица — plan.md §критерии 7j.19)
 
-1. Окно → `connecting`(warning)→`connected`(ok), один corr, имя во всех.
-2. Фейлы + успех → `connecting`×N(warning)→`connected`(ok), один corr.
-3. Исчерпание попыток → `connecting`×max→`connect_failed`(error), один corr.
-4. Вне окна / non-trading → `schedule_disconnect`(info) с именем.
-5. Обрыв → `lost`(error,Open)→`reconnecting`(warning,Progress)→`recovered`(ok,Resolve), один инцидент-corr.
-6. Ручной connect не задет (регресс).
-7. `dotnet build` solution + тесты зелёные.
+1. Авто-connect в окне → `connected` чистый заголовок + детали в expanded (I4).
+2. VPN off ~30–60 c → `lost`(error), после реконнекта → `recovered` со строкой «Перерыв …» (I2+I3).
+3. Тихий рынок (сделок нет, пинг ок) → инцидента НЕТ, журнал не рвётся (I3).
+4. Конец окна → `schedule_disconnect`(info), на ленте серый «Плановое отключение по расписанию» (I1).
+5. AUTO-тумблер зелёный вне окна при поднятом Auto (I5).
+6. `dotnet build` solution + тесты зелёные.
 
 ### Запуск
 
 ```text
-БД: docker-compose + DbUp (миграции до V024 включительно)
+БД: docker-compose + DbUp (миграции до V026 включительно) — рестарт Host применяет V026
 Host: Scinverse.Ohs.Host (:5080), appsettings.Local.json для Transaq
 Web:  services/online-history-server/web → pnpm dev
 Тесты: dotnet test; pnpm exec vitest run; pnpm exec tsc --noEmit
 ```
 
-### Соседние фазы
+### Соседние фазы / очередь
 
+- **7j.15/7j.16** — рыночный профиль / `date`-авторинг (следующее после приёмки 7j.18/7j.19).
 - **7i** — Auto записи (IN PROGRESS); не смешивать connect в RecordingSupervisor.
 - **7h.8d** — проекция красного на инструмент — после 7j.
 - **11** — полный notify hub beyond connection-кодов; NC-пакет — `packages/notification-center`.
-- **7j.15/7j.16** — рыночный профиль / `date`-авторинг (в очереди после 7j.18).
 
 ---
 
