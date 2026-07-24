@@ -5,11 +5,14 @@
 > Composer + UI diff-approve (7j.13/14) → **обработка исключений редактирования** (7j.17: атомарный
 > `batch`/Saga + глобальный exception-handler — [error-handling.md](error-handling.md)) → **Auto Connect:
 > исключения и инциденты** (7j.18 — [auto-connect.md](auto-connect.md)) → **инциденты связи и точность
-> разрыва** (7j.19 — [issue.md](issue.md)). Живой статус — [report.md](report.md).
+> разрыва** (7j.19 — [issue.md](issue.md)) → **инциденты связи v2: один бит здоровья + владение
+> (TRANSAQ→supervisor) + severity=error + ribbon v2** (7j.20 — [incident.md](incident.md)). Живой статус —
+> [report.md](report.md).
 
 **Статус:** ядро `DONE`; 7j.18 Auto Connect и **7j.19 Инциденты связи и точность разрыва** (I1–I5) —
 `КОД ГОТОВ · приёмка` (сборка + 131 unit ✓, живой прогон на Finam id=3 за пользователем; нужен рестарт
-Host для миграции V026); в очереди —
+Host для миграции V026); **7j.20 Инциденты связи v2** — `DESIGN · СОГЛАСОВАНО`, старт реализации
+(модель — [incident.md](incident.md)); в очереди —
 7j.15 (рыночный профиль) / 7j.16 (`date`-авторинг). Зависимости: **7h / 7h.8** (автомат связи,
 `link_liveness`, лента Connection), **7c** (`IMarketCalendar`), **7e** (тумблер связи).
 Соседняя **7i** (Auto записи) — проекция живой связи. Детали реализации — [apply.md](apply.md);
@@ -69,6 +72,7 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 | 7j.17 | Обработка исключений **редактирования**: атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler` + severity-модель + попап без оптимизма | DONE | [error-handling.md](error-handling.md) |
 | 7j.18 | **Auto Connect: все исключения + инциденты** | КОД ГОТОВ · приёмка | [auto-connect.md](auto-connect.md) |
 | **7j.19** | **Инциденты связи + точность разрыва** (I1: причина Scheduled + V026; I2: идемпотентный recovered; I3: watchdog стелс-разрыва + длительность; I4: чистый connected; I5: TZ-фикс AUTO-тумблера) | **КОД ГОТОВ · приёмка** | [issue.md](issue.md) |
+| **7j.20** | **Инциденты связи v2:** один бит здоровья (любой уход из `Live` = инцидент, вкл. `Degraded`), severity=**error** (удар по данным), ось владельца (TRANSAQ→supervisor через `t`), connection-ribbon v2 (маркеры 1px + тело по owner) | **DESIGN · СОГЛАСОВАНО → реализация** | [incident.md](incident.md) |
 | 7j.15 | Рыночный/календарный профиль на settings; UI без хардкода MOEX | PLANNED | [market-profile.md](market-profile.md) |
 | 7j.16 | `date`-авторинг на фронте + пагинация графика по месяцам | PLANNED | [todo.md](todo.md) |
 
@@ -192,6 +196,86 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 | 7 | Регресс ленты Connection (7h.8) | честные дырки совпадают с data-gap; цвет/подпись `Scheduled` корректны |
 | 8 | Сборка/тесты | `dotnet build` solution + тесты зелёные |
 
+## Активная задача — 7j.20: Инциденты связи v2 (модель здоровья + владение + severity + ribbon)
+
+Полная спецификация фичи — [incident.md](incident.md). Здесь — план реализации.
+
+### Зачем (что не так в 7j.19)
+
+Инцидент открывается только на `server_status` `Down`/`Error` или стелс-разрыве. **`Degraded`**
+(`recover="true"` — TRANSAQ сам чинит линк) трактуется как «живой» → короткий обрыв `Live→Degraded→Live`
+проходит **мимо журнала** (ни NC, ни дырки), хотя данных в этот период нет. Плюс severity инцидента путала
+«жив ли процесс» с «потеряны ли данные».
+
+### Идея (модель)
+
+- **Один бит здоровья:** `Live` = ок, любой уход (`Degraded`/`Down`/`Error`/стелс) = инцидент (0 c, без
+  порогов). Возврат в `Live` = закрытие.
+- **Две оси:** **severity = удар по данным** (любой обрыв в окне = `error`); **owner = кто чинит**
+  (`TRANSAQ` сам через `recover` → или `supervisor` перехватывает через `t`).
+- **Владение и передача:** `Degraded` → owner=TRANSAQ (сессию не рвём); если не вернулись в `Live` за
+  `t` (`LinkRecoverGraceSeconds`, дефолт 60 c) → супервизор форс-гасит и берёт владение (`connect ×5`);
+  один инцидент на всё событие.
+- **Хранение:** журнал уже есть (`link_liveness` + NC); новую таблицу не заводим.
+- **Визуализация:** connection-ribbon — красный маркер-старт (1px) + жёлтое тело TRANSAQ / красное тело
+  supervisor + зелёный маркер-конец (1px). Recording-ribbon (7h) — сплошной красный, бинарно.
+
+### Область — scope 7j (connection: инциденты, NC, ribbon)
+
+- **J1. `Degraded` = инцидент.** `HandleLinkStateAsync`: `Degraded` из ветки «живой» → путь открытия
+  инцидента (severity **error**, owner=TRANSAQ). Сегменты/подписки **не** рвём, keepalive живёт;
+  `recovered` — только на настоящем `Live`.
+- **J2. Один бит здоровья.** Открытие на любом уходе из `Live`, закрытие на возврате; свести
+  server_status / стелс / supervisor к единому open/close по `_incidentSince`.
+- **J3. Owner + handover.** Поле `owner` (`transaq`|`supervisor`); таймер `t`; по истечении в `Degraded` —
+  супервизор форс-гасит сессию **особой причиной** (инцидент не закрывать) и берёт владение.
+- **J4. NC-коды.** `connection.lost`(error/active) → `connection.recovering`(TRANSAQ, underway) /
+  `connection.reconnecting`(supervisor, underway) → `connection.recovered`(ok/resolved, expanded: кем +
+  границы + длительность). Дедуп только по одному открытому инциденту, порогов нет.
+- **J5. Прогресс-тик.** Наш таймер (супервизор) шлёт `recovering`/`reconnecting` с elapsed/попыткой, пока
+  инцидент открыт (TRANSAQ повторные `recover` схлопывает — прогресс гоним сами).
+- **J6. Хранение handover.** Персистить момент/владельца передачи (два gap-сегмента vs timestamp owner —
+  решить) для рендера тела ленты и expanded.
+- **J7. Connection-ribbon v2.** Красный маркер-старт (1px) + зелёный маркер-конец (**1px**, было 2px);
+  тело по owner (жёлтое TRANSAQ / красное supervisor); серое без маркеров для `disconnected`/`scheduled`.
+- **J8. Конфиг.** `LinkRecoverGraceSeconds` (дефолт 60) в `OhsOptions`/`appsettings`.
+
+### Смежная область — scope 7h (данные / запись)
+
+- **H1.** `Degraded` = дыра в записи: recording-путь (`capture_liveness`/`CoverageTrack`) даёт **красное** и
+  на `Degraded` (сейчас «живой»).
+- **H2.** Recording-ribbon — бинарный сплошной красный (`[blue][red][blue]`), без причин/владельцев.
+- **H3.** (DEFERRED) 3-мин старт данных — [../phase7h/startup-latency.md](../phase7h/startup-latency.md).
+
+### Порядок работ
+
+1. **J1 + J2 (ядро):** `Degraded` → инцидент (error), единый один-бит open/close. Даёт «любой обрыв
+   ловится» сразу, без владения. Разблокирует живую проверку «Degraded → красный след в NC».
+2. **J4 + J5:** NC-коды `recovering`/эскалация + прогресс-тик (severity/owner в данных сообщения).
+3. **J3 + J6 + J8:** owner + handover через `t` + персист перехода + конфиг.
+4. **J7:** connection-ribbon v2 (маркеры 1px, тело по owner).
+5. **H1 + H2:** recording-путь (Degraded=красное, бинарная лента).
+6. `dotnet build` solution + unit/vitest; живой прогон на Finam id=3 (выдёргивание VPN).
+
+### Вне области (7j.20)
+
+- Attempt-level детализация ретраев самого TRANSAQ (чёрный ящик DLL — недоступно).
+- Настройка `t`/severity через UI (значения в коде/конфиге).
+- 3-мин старт данных (7h, deferred), market/`date`-авторинг (7j.15/16).
+
+### Критерии приёмки (7j.20)
+
+| # | Сценарий | Ожидаемо |
+|---|----------|----------|
+| 1 | `Live→Degraded→Live` (TRANSAQ сам, ≤ `t`) | инцидент открыт (`lost` error) + `recovered`(ok) «средствами TRANSAQ»; на ленте красный маркер + жёлтое тело + зелёный маркер |
+| 2 | `Degraded` дольше `t` (60 c) | передача владения: force-disconnect (инцидент **не** закрыт) → `reconnecting` supervisor → `recovered` «супервизором»; тело жёлтое→красное |
+| 3 | Сразу `Down` (без Degraded) | owner=supervisor с 0 c; красное тело, красный/зелёный маркеры |
+| 4 | Суперкороткий обрыв (1–5 c) | **есть** пара open→recovered в NC и дырка в `link_liveness` (не теряется) |
+| 5 | `connect ×5` не удались | инцидент **остаётся открыт** (`connect_failed`), owner=supervisor, до окна/оператора |
+| 6 | NC-скан оператором | у каждого инцидента красная строка открытия = «здесь теряли данные» |
+| 7 | Recording-ribbon (7h) | сплошной красный на всём инциденте (вкл. Degraded), без причин |
+| 8 | Сборка/тесты | `dotnet build` solution + unit/vitest зелёные |
+
 ## Критерии приёмки фазы
 
 1. Auto + утверждённое расписание → connect в окне / disconnect вне; в non-trading днях ведущего
@@ -226,3 +310,12 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 15. **Непрерывность = сделки:** «активность» = входящие сделки; `T = 15 c` (агрегация 30 c / 2);
     границы разрыва по `lastTradeAt`/`firstTradeAt`; тихий рынок отсекается активным пингом; разрыв
     подтверждается провалом пинга → `lost`(error) (7j.19/I3).
+16. **Один бит здоровья (7j.20):** здоровье = `Live`; любой уход (`Degraded`/`Down`/`Error`/стелс) =
+    инцидент с 0 c, без порогов детекции; возврат в `Live` = закрытие. `Degraded` — тоже инцидент.
+17. **Severity ≠ owner (7j.20):** severity = удар по данным (любой обрыв в окне = **error**); owner = кто
+    восстанавливает (`TRANSAQ` через `recover` → или `supervisor` через `t`). Это разные оси.
+18. **Передача владения (7j.20):** TRANSAQ владеет `Degraded` `t` = `LinkRecoverGraceSeconds` (дефолт
+    60 c); дальше супервизор форс-гасит сессию особой причиной (инцидент **не** закрывается) и берёт
+    владение. Один инцидент на всё событие.
+19. **Лента vs NC (7j.20):** connection-ribbon кодирует причину/владельца (маркеры 1px + тело жёлтое
+    TRANSAQ / красное supervisor); recording-ribbon (7h) — бинарный сплошной красный «данные есть/нет».
