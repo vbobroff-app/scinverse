@@ -17,6 +17,7 @@ describe('notificationDockStore', () => {
       severities: [],
       interactions: [],
       localizations: [],
+      statuses: [],
       range: { preset: 'all' },
       query: '',
     });
@@ -42,6 +43,7 @@ describe('notificationDockStore', () => {
         severities: ['info', 'error'],
         interactions: [],
         localizations: ['internal'],
+        statuses: [],
         range: { preset: 'all' },
         query: 'hello',
       },
@@ -67,6 +69,7 @@ describe('notificationDockStore', () => {
       severities: [],
       interactions: ['system'],
       localizations: [],
+      statuses: [],
       range: { preset: 'all' },
       query: '',
     });
@@ -86,6 +89,7 @@ describe('notificationDockStore', () => {
         severities: ['warning'],
         interactions: [],
         localizations: [],
+        statuses: [],
         range: { preset: 'all' },
         query: 'x',
       },
@@ -107,6 +111,7 @@ describe('notificationDockStore', () => {
         severities: ['error'],
         interactions: [],
         localizations: [],
+        statuses: [],
         range: { preset: 'week' },
         query: 'reload',
       },
@@ -163,6 +168,7 @@ describe('notificationDockStore', () => {
         severities: [],
         interactions: [],
         localizations: [],
+        statuses: [],
         range: { preset: 'week' },
         query: '',
       },
@@ -171,5 +177,37 @@ describe('notificationDockStore', () => {
     expect(raw.activeFilters).toEqual(['range']);
     expect(raw.filter.range).toEqual({ preset: 'week' });
     expect(loadNotificationDock().filter.range).toEqual({ preset: 'week' });
+  });
+
+  it('persist сохраняет время суток в range', () => {
+    notificationDockStore.applyFiltersSnapshot({
+      activeFilters: ['range'],
+      filter: {
+        severities: [],
+        interactions: [],
+        localizations: [],
+        statuses: [],
+        range: {
+          preset: 'today',
+          timeEnabled: true,
+          timeFrom: '15:00',
+          timeTo: '24:00',
+        },
+        query: '',
+      },
+    });
+    const raw = JSON.parse(localStorage.getItem(NOTIFICATION_DOCK_STORAGE_KEY)!);
+    expect(raw.filter.range).toEqual({
+      preset: 'today',
+      timeEnabled: true,
+      timeFrom: '15:00',
+      timeTo: '24:00',
+    });
+    expect(loadNotificationDock().filter.range).toEqual({
+      preset: 'today',
+      timeEnabled: true,
+      timeFrom: '15:00',
+      timeTo: '24:00',
+    });
   });
 });

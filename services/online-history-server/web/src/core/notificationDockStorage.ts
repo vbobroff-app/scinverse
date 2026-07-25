@@ -77,14 +77,25 @@ function parseRange(raw: unknown): DockRangeFilter {
   if (!isDockRangePreset(r.preset)) {
     return { ...EMPTY_DOCK_RANGE };
   }
+  const time: Pick<DockRangeFilter, 'timeEnabled' | 'timeFrom' | 'timeTo'> = {};
+  if (r.timeEnabled === true) {
+    time.timeEnabled = true;
+  }
+  if (typeof r.timeFrom === 'string' && r.timeFrom.trim()) {
+    time.timeFrom = r.timeFrom.trim();
+  }
+  if (typeof r.timeTo === 'string' && r.timeTo.trim()) {
+    time.timeTo = r.timeTo.trim();
+  }
   if (r.preset === 'custom') {
     return {
       preset: 'custom',
       from: parseYmd(r.from),
       to: parseYmd(r.to),
+      ...time,
     };
   }
-  return { preset: r.preset };
+  return { preset: r.preset, ...time };
 }
 
 function parseFilter(raw: unknown): DockFilterState {
@@ -118,16 +129,30 @@ function parseActive(raw: unknown): DockFilterKey[] {
 
 function cloneFilter(filter: DockFilterState): DockFilterState {
   const range = filter.range ?? { ...EMPTY_DOCK_RANGE };
+  const nextRange: DockRangeFilter = {
+    preset: range.preset ?? 'all',
+  };
+  if (range.from) {
+    nextRange.from = range.from;
+  }
+  if (range.to) {
+    nextRange.to = range.to;
+  }
+  if (range.timeEnabled) {
+    nextRange.timeEnabled = true;
+  }
+  if (range.timeFrom) {
+    nextRange.timeFrom = range.timeFrom;
+  }
+  if (range.timeTo) {
+    nextRange.timeTo = range.timeTo;
+  }
   return {
     severities: [...(filter.severities ?? [])],
     interactions: [...(filter.interactions ?? [])],
     localizations: [...(filter.localizations ?? [])],
     statuses: [...(filter.statuses ?? [])],
-    range: {
-      preset: range.preset ?? 'all',
-      ...(range.from ? { from: range.from } : {}),
-      ...(range.to ? { to: range.to } : {}),
-    },
+    range: nextRange,
     query: filter.query ?? '',
   };
 }
@@ -326,7 +351,7 @@ class NotificationDockStore {
  * Иначе после hot-reload появляются два store и toggle open со старого
  * затирает фильтры в localStorage пустым снимком.
  */
-const globalStoreKey = '__scinverseOhsNotificationDockStore_v6';
+const globalStoreKey = '__scinverseOhsNotificationDockStore_v7';
 
 function getOrCreateStore(): NotificationDockStore {
   const g = globalThis as unknown as Record<string, NotificationDockStore | undefined>;

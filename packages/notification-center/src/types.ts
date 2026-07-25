@@ -92,6 +92,11 @@ export interface NotificationFilter {
   query?: string;
   /** Диапазон по `ts`: пресет DockRangeFilter или готовые границы RangeBounds. */
   range?: DockRangeFilter | RangeBounds;
+  /**
+   * Смещение TZ для range (минуты от UTC), как `createOffsetFormatTs`.
+   * Должно совпадать с форматтером времени ленты (displayTz хоста).
+   */
+  tzOffsetMin?: number;
 }
 
 export interface NotificationBusOptions {

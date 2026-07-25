@@ -209,10 +209,13 @@
 .popover {
   position: absolute;
   z-index: 40;
+  /* По умолчанию — ниже чипа; .popoverUp — выше, если снизу не влезает. */
   top: calc(100% + 4px);
+  bottom: auto;
   left: 0;
   min-width: 200px;
-  max-height: 60vh;
+  max-height: min(60vh, 420px);
+  overflow-x: visible;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -221,7 +224,11 @@
   border-radius: var(--radius-md, 8px);
   background: var(--color-bg-panel, #25262b);
   box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.25));
-  pointer-events: auto;
+}
+
+.popoverUp {
+  bottom: calc(100% + 4px);
+  top: auto;
 }
 
 .popoverFooter {
@@ -263,7 +270,6 @@
   background: transparent;
   border: none;
   cursor: pointer;
-  pointer-events: auto;
 }
 
 .option:hover {
@@ -331,11 +337,12 @@
   position: relative;
 }
 
-/* Календарь всплывает НАД пунктом «ввести даты», не меняя высоту поповера. */
+/* Календарь над пунктом «ввести даты» (пункт у низа меню при открытии вверх). */
 .customOverlay {
   position: absolute;
   z-index: 41;
   bottom: calc(100% + 4px);
+  top: auto;
   left: 0;
   min-width: 260px;
   padding: var(--spacing-xs, 4px);
@@ -390,4 +397,46 @@
 .dateField input:focus {
   outline: none;
   border-color: var(--color-border-focus, #4dabf7);
+}
+
+.timeRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 8px;
+}
+
+.timeRowDisabled {
+  opacity: 0.45;
+}
+
+.timeSep {
+  color: var(--color-text-muted, #6c757d);
+  flex: none;
+}
+
+.timeInput {
+  flex: 0 0 auto;
+  width: 70px;
+  max-width: 70px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--color-border, #373a40);
+  background: var(--color-bg-input, #2c2e33);
+  color: var(--color-text, #e9ecef);
+  font-size: var(--font-size-sm, 0.875rem);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color-scheme: dark;
+}
+
+.timeInput:focus {
+  outline: none;
+  border-color: var(--color-border-focus, #4dabf7);
+}
+
+.timeInput:disabled {
+  cursor: not-allowed;
 }

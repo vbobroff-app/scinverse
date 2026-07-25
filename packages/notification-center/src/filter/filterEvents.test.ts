@@ -76,6 +76,71 @@ describe('filterEvents', () => {
     ).toEqual(['b']);
   });
 
+  it('filters today ∩ time window (15:00–24:00 continuous)', () => {
+    const now = new Date(2026, 6, 16, 20, 0, 0);
+    const events: NotificationEvent[] = [
+      { ...sample[0], id: 'morning', ts: new Date(2026, 6, 16, 10, 0, 0).toISOString() },
+      { ...sample[0], id: 'evening', ts: new Date(2026, 6, 16, 16, 30, 0).toISOString() },
+      { ...sample[0], id: 'yesterdayEve', ts: new Date(2026, 6, 15, 16, 30, 0).toISOString() },
+    ];
+    expect(
+      filterEvents(
+        events,
+        {
+          range: {
+            preset: 'today',
+            timeEnabled: true,
+            timeFrom: '15:00',
+            timeTo: '24:00',
+          },
+        },
+        now,
+      ).map((e) => e.id),
+    ).toEqual(['evening']);
+  });
+
+  it('time-only on all filters by clock time', () => {
+    const events: NotificationEvent[] = [
+      { ...sample[0], id: 'a', ts: new Date(2026, 6, 10, 10, 0, 0).toISOString() },
+      { ...sample[0], id: 'b', ts: new Date(2026, 6, 12, 16, 0, 0).toISOString() },
+    ];
+    expect(
+      filterEvents(events, {
+        range: {
+          preset: 'all',
+          timeEnabled: true,
+          timeFrom: '15:00',
+          timeTo: '18:00',
+        },
+      }).map((e) => e.id),
+    ).toEqual(['b']);
+  });
+
+  it('filters by range in display TZ (MSK), matching formatTs', () => {
+    // 12:30 UTC = 15:30 МСК — попадает в 15:00–16:00 МСК
+    // 11:30 UTC = 14:30 МСК — не попадает
+    const events: NotificationEvent[] = [
+      { ...sample[0], id: 'in', ts: '2026-07-16T12:30:00.000Z' },
+      { ...sample[0], id: 'out', ts: '2026-07-16T11:30:00.000Z' },
+    ];
+    const now = new Date('2026-07-16T14:00:00.000Z'); // 17:00 МСК
+    expect(
+      filterEvents(
+        events,
+        {
+          tzOffsetMin: 180,
+          range: {
+            preset: 'today',
+            timeEnabled: true,
+            timeFrom: '15:00',
+            timeTo: '16:00',
+          },
+        },
+        now,
+      ).map((e) => e.id),
+    ).toEqual(['in']);
+  });
+
   it('filters by ready RangeBounds', () => {
     const bounds = resolveRangeBounds({ preset: 'custom', from: '2026-07-14', to: '2026-07-14' });
     expect(filterEvents(sample, { range: bounds }).map((e) => e.id)).toEqual(['1', '2']);

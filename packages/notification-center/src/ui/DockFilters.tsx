@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type {
   NotificationInteraction,
   NotificationLocalization,
@@ -6,8 +6,12 @@ import type {
   NotificationStatus,
 } from '../types';
 import {
+  DEFAULT_TIME_FROM,
+  DEFAULT_TIME_TO,
   DOCK_RANGE_PRESETS,
   EMPTY_DOCK_RANGE,
+  normalizeLocalHm,
+  pickRangeTime,
   rangeSummary,
   type DockRangeFilter,
   type DockRangePreset,
@@ -121,7 +125,7 @@ function isFilterAtDefault(key: DockFilterKey, value: DockFilterState): boolean 
   if (key === 'status') {
     return value.statuses.length === 0;
   }
-  return value.range.preset === 'all' || !value.range.preset;
+  return (value.range.preset === 'all' || !value.range.preset) && !value.range.timeEnabled;
 }
 
 function resetFilterValue(key: DockFilterKey, value: DockFilterState): DockFilterState {
@@ -143,6 +147,8 @@ function resetFilterValue(key: DockFilterKey, value: DockFilterState): DockFilte
 /**
  * Плашки фильтров дока в стиле provider workspace:
  * слева [+] · плашки · [×], справа «Найдено» + поиск с иконкой.
+ *
+ * Поповеры якорятся к чипу: по умолчанию вниз; если снизу не хватает места — вверх.
  */
 export function DockFilters({
   value: valueProp,
@@ -159,6 +165,8 @@ export function DockFilters({
   const [open, setOpen] = useState<OpenKey>(null);
   // Календарь «ввести даты» показываем только по явному клику, не автоматически при custom.
   const [calendarOpen, setCalendarOpen] = useState(false);
+  /** down = ниже чипа (дефолт), up = выше, если снизу не влезает. */
+  const [popoverPlacement, setPopoverPlacement] = useState<'down' | 'up'>('down');
   const rootRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -177,7 +185,47 @@ export function DockFilters({
     if (open !== 'range') {
       setCalendarOpen(false);
     }
+    if (open === null) {
+      setPopoverPlacement('down');
+    }
   }, [open, onMenuOpenChange]);
+
+  // Flip: вниз по умолчанию; вверх, только если снизу не хватает высоты меню.
+  useLayoutEffect(() => {
+    if (open === null) {
+      return;
+    }
+    const trigger = rootRef.current?.querySelector(`[data-filter-trigger="${open}"]`);
+    const pop = popoverRef.current;
+    if (!(trigger instanceof HTMLElement) || !pop) {
+      return;
+    }
+
+    const GAP = 4;
+    const PAD = 8;
+    const MAX = 420;
+
+    const place = () => {
+      const t = trigger.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - t.bottom - GAP - PAD;
+      const spaceAbove = t.top - GAP - PAD;
+      // Снимаем жёсткий лимит, чтобы измерить естественную высоту содержимого.
+      pop.style.maxHeight = `${MAX}px`;
+      const needed = Math.min(pop.scrollHeight, MAX);
+      // Вниз по умолчанию; вверх — только если снизу не влезает.
+      const placement: 'down' | 'up' = spaceBelow >= needed ? 'down' : 'up';
+      setPopoverPlacement(placement);
+      const avail = placement === 'down' ? spaceBelow : Math.max(spaceAbove, 120);
+      pop.style.maxHeight = `${Math.max(120, Math.min(MAX, avail))}px`;
+    };
+
+    place();
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('resize', place);
+      pop.style.maxHeight = '';
+    };
+  }, [open, calendarOpen, value.range]);
 
   useEffect(() => {
     if (open === null) {
@@ -301,41 +349,70 @@ export function DockFilters({
     setOpen(null);
   };
 
-  const setRangePreset = (preset: DockRangePreset) => {
-    const range: DockRangeFilter =
-      preset === 'custom'
-        ? { preset: 'custom', from: value.range.from, to: value.range.to }
-        : { preset };
+  const withRangeActive = (range: DockRangeFilter) => {
     const nextActive: DockFilterKey[] = activeFilters.includes('range')
       ? activeFilters
       : [...activeFilters, 'range'];
     commit({ ...value, range }, nextActive);
   };
 
+  const setRangePreset = (preset: DockRangePreset) => {
+    const time = pickRangeTime(value.range);
+    const range: DockRangeFilter =
+      preset === 'custom'
+        ? { preset: 'custom', from: value.range.from, to: value.range.to, ...time }
+        : { preset, ...time };
+    withRangeActive(range);
+  };
+
   const setCustomDate = (field: 'from' | 'to', ymd: string) => {
-    const nextActive: DockFilterKey[] = activeFilters.includes('range')
-      ? activeFilters
-      : [...activeFilters, 'range'];
-    commit(
-      {
-        ...value,
-        range: {
-          preset: 'custom',
-          from: field === 'from' ? ymd : value.range.from,
-          to: field === 'to' ? ymd : value.range.to,
-        },
-      },
-      nextActive,
-    );
+    withRangeActive({
+      preset: 'custom',
+      from: field === 'from' ? ymd : value.range.from,
+      to: field === 'to' ? ymd : value.range.to,
+      ...pickRangeTime(value.range),
+    });
   };
 
   const setCustomRange = (from: string, to: string) => {
-    const nextActive: DockFilterKey[] = activeFilters.includes('range')
-      ? activeFilters
-      : [...activeFilters, 'range'];
-    commit({ ...value, range: { preset: 'custom', from, to } }, nextActive);
+    withRangeActive({
+      preset: 'custom',
+      from,
+      to,
+      ...pickRangeTime(value.range),
+    });
     setOpen(null);
   };
+
+  const setTimeEnabled = (enabled: boolean) => {
+    withRangeActive({
+      ...value.range,
+      timeEnabled: enabled,
+      timeFrom: value.range.timeFrom ?? DEFAULT_TIME_FROM,
+      timeTo: value.range.timeTo ?? DEFAULT_TIME_TO,
+    });
+  };
+
+  const setTimeField = (field: 'timeFrom' | 'timeTo', raw: string) => {
+    withRangeActive({
+      ...value.range,
+      timeEnabled: true,
+      timeFrom: value.range.timeFrom ?? DEFAULT_TIME_FROM,
+      timeTo: value.range.timeTo ?? DEFAULT_TIME_TO,
+      [field]: raw,
+    });
+  };
+
+  const commitTimeField = (field: 'timeFrom' | 'timeTo', raw: string) => {
+    const allow24 = field === 'timeTo';
+    const fallback = field === 'timeFrom' ? DEFAULT_TIME_FROM : DEFAULT_TIME_TO;
+    setTimeField(field, normalizeLocalHm(raw, fallback, allow24));
+  };
+
+  const popoverClass = (...extra: Array<string | false | undefined>) =>
+    [styles.popover, popoverPlacement === 'up' ? styles.popoverUp : '', ...extra]
+      .filter(Boolean)
+      .join(' ');
 
   return (
     <div className={styles.root} ref={rootRef}>
@@ -355,7 +432,7 @@ export function DockFilters({
             </button>
           </Tip>
           {open === 'add' && (
-            <div className={styles.popover} role="menu" ref={popoverRef}>
+            <div className={popoverClass()} role="menu" ref={popoverRef}>
               {AVAILABLE.map((f) => {
                 const on = activeFilters.includes(f.key);
                 return (
@@ -391,7 +468,10 @@ export function DockFilters({
               value.range.preset !== 'all' ||
               Boolean(value.range.from) ||
               Boolean(value.range.to) ||
+              Boolean(value.range.timeEnabled) ||
               isOpen;
+            const timeFrom = value.range.timeFrom ?? DEFAULT_TIME_FROM;
+            const timeTo = value.range.timeTo ?? DEFAULT_TIME_TO;
             return (
               <div className={styles.chipWrap} key={key}>
                 <div
@@ -426,8 +506,8 @@ export function DockFilters({
                 {isOpen && (
                   <div
                     ref={popoverRef}
-                    className={[styles.popover, styles.rangePopover].join(' ')}
-                    role="listbox"
+                    className={popoverClass(styles.rangePopover)}
+                    role="group"
                     aria-label="Период"
                   >
                     {DOCK_RANGE_PRESETS.map((p) => {
@@ -487,8 +567,6 @@ export function DockFilters({
                           )}
                           <button
                             type="button"
-                            role="option"
-                            aria-selected={selected}
                             className={[styles.option, selected ? styles.optionActive : '']
                               .filter(Boolean)
                               .join(' ')}
@@ -503,6 +581,57 @@ export function DockFilters({
                         </div>
                       );
                     })}
+                    <div className={styles.checkDivider} aria-hidden="true" />
+                    <label className={styles.check}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(value.range.timeEnabled)}
+                        onChange={(e) => setTimeEnabled(e.target.checked)}
+                      />
+                      ввести время
+                    </label>
+                    <div
+                      className={[
+                        styles.timeRow,
+                        value.range.timeEnabled ? '' : styles.timeRowDisabled,
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        className={styles.timeInput}
+                        value={timeFrom}
+                        disabled={!value.range.timeEnabled}
+                        placeholder={DEFAULT_TIME_FROM}
+                        aria-label="Время с"
+                        onChange={(e) => setTimeField('timeFrom', e.target.value)}
+                        onBlur={(e) => commitTimeField('timeFrom', e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            (e.target as HTMLInputElement).blur();
+                          }
+                        }}
+                      />
+                      <span className={styles.timeSep}>–</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        className={styles.timeInput}
+                        value={timeTo}
+                        disabled={!value.range.timeEnabled}
+                        placeholder={DEFAULT_TIME_TO}
+                        aria-label="Время по"
+                        onChange={(e) => setTimeField('timeTo', e.target.value)}
+                        onBlur={(e) => commitTimeField('timeTo', e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            (e.target as HTMLInputElement).blur();
+                          }
+                        }}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -550,7 +679,7 @@ export function DockFilters({
                 </Tip>
               </div>
               {isOpen && (
-                <div className={styles.popover} ref={popoverRef}>
+                <div className={popoverClass()} ref={popoverRef}>
                   <label className={[styles.check, styles.checkAll].join(' ')}>
                     <input
                       type="checkbox"

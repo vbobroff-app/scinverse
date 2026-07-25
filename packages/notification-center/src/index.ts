@@ -27,11 +27,17 @@ export { notify, type NotifyInput } from './bus/notify';
 export { filterEvents } from './filter/filterEvents';
 export type { DockRangeFilter, DockRangePreset, RangeBounds } from './filter/dateRange';
 export {
+  DEFAULT_TIME_FROM,
+  DEFAULT_TIME_TO,
   DOCK_RANGE_PRESETS,
   EMPTY_DOCK_RANGE,
   formatLocalYmd,
   isDockRangePreset,
+  localTimeOfDayMs,
+  normalizeLocalHm,
+  parseLocalHm,
   parseLocalYmd,
+  pickRangeTime,
   rangeSummary,
   resolveRangeBounds,
 } from './filter/dateRange';

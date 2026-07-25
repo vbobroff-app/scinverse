@@ -9,7 +9,7 @@ import type {
 } from '../types';
 import { resolveInteraction, resolveLocalization, resolveStatus } from '../types';
 import type { DockRangeFilter, RangeBounds } from './dateRange';
-import { resolveRangeBounds } from './dateRange';
+import { localTimeOfDayMs, resolveRangeBounds } from './dateRange';
 
 function toSet<T extends string>(value: ReadonlySet<T> | readonly T[] | undefined): Set<T> | null {
   if (!value) {
@@ -26,21 +26,26 @@ function isRangeBounds(range: DockRangeFilter | RangeBounds): range is RangeBoun
   return 'fromMs' in range;
 }
 
+function hasTod(bounds: RangeBounds): boolean {
+  return bounds.todFromMs != null || bounds.todToMs != null;
+}
+
 function resolveFilterBounds(
   range: DockRangeFilter | RangeBounds | undefined,
   now?: Date,
+  tzOffsetMin?: number,
 ): RangeBounds | null {
   if (!range) {
     return null;
   }
-  const bounds = isRangeBounds(range) ? range : resolveRangeBounds(range, now);
-  if (bounds.fromMs == null && bounds.toMs == null) {
+  const bounds = isRangeBounds(range) ? range : resolveRangeBounds(range, now, tzOffsetMin);
+  if (bounds.fromMs == null && bounds.toMs == null && !hasTod(bounds)) {
     return null;
   }
   return bounds;
 }
 
-function inRange(ts: string, bounds: RangeBounds): boolean {
+function inRange(ts: string, bounds: RangeBounds, tzOffsetMin?: number): boolean {
   const ms = Date.parse(ts);
   if (Number.isNaN(ms)) {
     return false;
@@ -50,6 +55,14 @@ function inRange(ts: string, bounds: RangeBounds): boolean {
   }
   if (bounds.toMs != null && ms > bounds.toMs) {
     return false;
+  }
+  if (hasTod(bounds)) {
+    const tod = localTimeOfDayMs(ms, tzOffsetMin);
+    const from = bounds.todFromMs ?? 0;
+    const to = bounds.todToMs ?? 86_400_000;
+    if (tod < from || tod >= to) {
+      return false;
+    }
   }
   return true;
 }
@@ -67,7 +80,8 @@ export function filterEvents(
   const statuses = toSet<NotificationStatus>(filter.statuses);
   const modules = toSet<string>(filter.modules);
   const query = filter.query?.trim().toLowerCase() ?? '';
-  const bounds = resolveFilterBounds(filter.range, now);
+  const tzOffsetMin = filter.tzOffsetMin;
+  const bounds = resolveFilterBounds(filter.range, now, tzOffsetMin);
 
   if (
     !severities &&
@@ -102,13 +116,12 @@ export function filterEvents(
       return false;
     }
     if (query) {
-      // correlationId — в поиск: пользователь вводит/кликает Id инцидента → вся его лента.
       const hay = `${evt.message} ${evt.code} ${evt.module} ${evt.correlationId ?? ''}`.toLowerCase();
       if (!hay.includes(query)) {
         return false;
       }
     }
-    if (bounds && !inRange(evt.ts, bounds)) {
+    if (bounds && !inRange(evt.ts, bounds, tzOffsetMin)) {
       return false;
     }
     return true;

@@ -76,6 +76,7 @@ export function NotificationCenterHost() {
       <NotificationDock
         bus={notificationBus}
         formatTs={formatTs}
+        tzOffsetMin={tz.offsetMin}
         expanded={expanded}
         onExpandedChange={onExpandedChange}
         filters={{ filter, activeFilters }}

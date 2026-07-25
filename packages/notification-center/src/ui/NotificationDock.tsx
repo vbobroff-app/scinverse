@@ -36,6 +36,11 @@ export interface NotificationDockProps {
    * По умолчанию — UTC.
    */
   formatTs?: FormatTs;
+  /**
+   * Смещение TZ для фильтра «Период» (минуты от UTC).
+   * Должно совпадать с `formatTs` / displayTz хоста (МСК = 180).
+   */
+  tzOffsetMin?: number;
   title?: string;
   defaultExpanded?: boolean;
   /**
@@ -90,6 +95,7 @@ const ACTION_TOGGLES: { key: SettingsToggleKey; label: string }[] = [
 export function NotificationDock({
   bus,
   formatTs = formatTsUtc,
+  tzOffsetMin,
   title = 'Центр уведомлений',
   defaultExpanded = false,
   expanded: expandedProp,
@@ -293,8 +299,9 @@ export function NotificationDock({
         statuses: filter.statuses,
         query: filter.query,
         range: activeFilters.includes('range') ? filter.range : undefined,
+        tzOffsetMin,
       }),
-    [events, filter, activeFilters],
+    [events, filter, activeFilters, tzOffsetMin],
   );
 
   // Live-tail: новые события → скролл вверх списка (новые сверху), пауза при ручном уходе.
