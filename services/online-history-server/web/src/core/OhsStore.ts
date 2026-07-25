@@ -105,6 +105,10 @@ const SERIES_STRIKES_LIMIT = 500;
 const COVERAGE_POLL_MS = 12_000;
 /** Grace до объявления недоступности бэка (7j.20): глушим тривиальные блипы WS (HMR/быстрый рестарт). */
 const BACKEND_OUTAGE_GRACE_MS = 6_000;
+/** Каденция живых тиков длительности простоя (error-фаза). */
+const BACKEND_OUTAGE_TICK_MS = 5_000;
+/** Settle после re-open: столько связь должна продержаться (без нового дропа) → warning→ok. */
+const BACKEND_OUTAGE_SETTLE_MS = 5_000;
 /** Как часто пересчитывать окно (ловим смену суток/рост экстента; для range — no-op). */
 const WINDOW_REFRESH_MS = 60_000;
 /** Сколько сессий в неделе при выключенных/включённых выходных. */
@@ -288,11 +292,16 @@ export class OhsStore {
   private windowTimer?: ReturnType<typeof setInterval>;
   private coveragePollTimer?: ReturnType<typeof setInterval>;
 
-  // Недоступность бэка (7j.20 mock optimistic): момент дропа WS (по часам клиента), grace-таймер до
-  // объявления, флаг «уже показали fatal». null ⇒ простоя нет.
-  private backendOutageStart: number | null = null;
+  // Инцидент недоступности бэка (7j.20 mock optimistic). Клиент ведёт его сам (бэк лежит). Фазы:
+  //   'grace'   — дроп зафиксирован, ждём grace (fatal ещё не показан);
+  //   'open'    — fatal показан, идут error-тики длительности;
+  //   'warning' — бэк снова на связи, идёт settle до ok.
+  // outageStart (по часам клиента) = момент дропа = backdated начало. null ⇒ инцидента нет.
+  private outageStart: number | null = null;
+  private outagePhase: 'none' | 'grace' | 'open' | 'warning' = 'none';
   private outageGraceTimer?: ReturnType<typeof setTimeout>;
-  private outageNotified = false;
+  private outageTickTimer?: ReturnType<typeof setInterval>;
+  private outageSettleTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private readonly api: OhsApiClient = OhsApi,
@@ -425,7 +434,7 @@ export class OhsStore {
           this.refreshRecordings();
           this.refreshCoverage();
           this.refreshLiveness();
-          this.finalizeBackendOutage();
+          this.onBackendReachable();
         },
         () => this.onBackendDrop(),
       );
@@ -454,53 +463,131 @@ export class OhsStore {
       clearInterval(this.coveragePollTimer);
       this.coveragePollTimer = undefined;
     }
+    this.clearOutageTimers();
+  }
+
+  private clearOutageTimers(): void {
     if (this.outageGraceTimer !== undefined) {
       clearTimeout(this.outageGraceTimer);
       this.outageGraceTimer = undefined;
     }
+    if (this.outageTickTimer !== undefined) {
+      clearInterval(this.outageTickTimer);
+      this.outageTickTimer = undefined;
+    }
+    if (this.outageSettleTimer !== undefined) {
+      clearTimeout(this.outageSettleTimer);
+      this.outageSettleTimer = undefined;
+    }
   }
 
   /**
-   * Дроп WS после живой связи = потеря бэка (7j.20). Фиксируем начало простоя (первый дроп; повторные
-   * от WS-retry игнорируем) и через grace, если связь не вернулась, оптимистично показываем fatal.
+   * Дроп WS после живой связи = потеря бэка (7j.20). Первый дроп фиксирует начало (backdated). Повторный
+   * дроп во время warning/settle = бэк снова упал (напр. crash-loop) → тот же инцидент возвращается в
+   * error/progress (без нового fatal). Прочие повторы (WS-retry) игнорируем.
    */
   private onBackendDrop(): void {
-    if (this.backendOutageStart !== null) {
-      return; // Уже отслеживаем этот простой.
+    if (this.outageStart !== null) {
+      if (this.outagePhase === 'warning') {
+        if (this.outageSettleTimer !== undefined) {
+          clearTimeout(this.outageSettleTimer);
+          this.outageSettleTimer = undefined;
+        }
+        this.startOutageProgress(true);
+      }
+      return;
     }
-    this.backendOutageStart = Date.now();
-    this.outageNotified = false;
+    this.outageStart = Date.now();
+    this.outagePhase = 'grace';
     this.outageGraceTimer = setTimeout(() => {
       this.outageGraceTimer = undefined;
-      if (this.backendOutageStart === null) {
+      if (this.outageStart === null) {
         return;
       }
-      this.outageNotified = true;
-      void import('./notifications').then((m) => m.openBackendOutage(this.backendOutageStart!));
+      void import('./notifications').then((m) => m.openBackendOutage(this.outageStart!));
+      this.startOutageProgress(false);
     }, BACKEND_OUTAGE_GRACE_MS);
   }
 
-  /**
-   * Реконнект: закрываем окно простоя. Блип в пределах grace (fatal не показывали) — тихо сбрасываем.
-   * Иначе финализируем строку (in-place) и POST'им её в NC с backdated ts (mock-behaviour optimistic).
-   */
-  private finalizeBackendOutage(): void {
-    if (this.outageGraceTimer !== undefined) {
-      clearTimeout(this.outageGraceTimer);
-      this.outageGraceTimer = undefined;
+  /** Фаза error: включаем интервал живых тиков длительности. immediate — тик сразу (при возврате из
+   * warning), иначе первый тик придёт через каденцию (fatal-строка держится «чистой» первые секунды). */
+  private startOutageProgress(immediate: boolean): void {
+    this.outagePhase = 'open';
+    if (this.outageTickTimer === undefined) {
+      this.outageTickTimer = setInterval(() => {
+        if (this.outageStart === null) {
+          return;
+        }
+        void import('./notifications').then((m) => m.tickBackendOutage(this.outageStart!, Date.now()));
+      }, BACKEND_OUTAGE_TICK_MS);
     }
-    const start = this.backendOutageStart;
-    this.backendOutageStart = null;
-    if (start === null || !this.outageNotified) {
+    if (immediate && this.outageStart !== null) {
+      void import('./notifications').then((m) => m.tickBackendOutage(this.outageStart!, Date.now()));
+    }
+  }
+
+  /**
+   * Бэк снова отвечает (re-open WS + refresh-батч). Блип в пределах grace (fatal не показывали) — тихо
+   * сбрасываем. Иначе → warning; settle-таймер закрывает инцидент (ok), если связь продержится без
+   * нового дропа. Граница инцидента — client↔backend; «штатно» = бэк отвечает и состояние ре-синхр.
+   */
+  private onBackendReachable(): void {
+    if (this.outageStart === null) {
       return;
     }
-    this.outageNotified = false;
+    if (this.outagePhase === 'grace') {
+      this.clearOutageTimers();
+      this.outageStart = null;
+      this.outagePhase = 'none';
+      return;
+    }
+
+    if (this.outageTickTimer !== undefined) {
+      clearInterval(this.outageTickTimer);
+      this.outageTickTimer = undefined;
+    }
+    this.outagePhase = 'warning';
+    const start = this.outageStart;
+    void import('./notifications').then((m) => m.warnBackendOutage(start));
+    this.armOutageSettle();
+  }
+
+  /** Взводим settle: бэк ответил на readiness-пробу (тот же Kestrel, что и WS) → ждём стабильности; если
+   * за settle нового дропа не было — ok. Пробу не ждём жёстко (не должна подвешивать): settle в любом
+   * исходе, повторный дроп во время settle перехватит onBackendDrop и вернёт в error. */
+  private armOutageSettle(): void {
+    if (this.outageSettleTimer !== undefined) {
+      clearTimeout(this.outageSettleTimer);
+      this.outageSettleTimer = undefined;
+    }
+    const startSettle = (): void => {
+      this.outageSettleTimer = setTimeout(() => {
+        this.outageSettleTimer = undefined;
+        if (this.outageStart === null || this.outagePhase !== 'warning') {
+          return;
+        }
+        this.resolveOutage();
+      }, BACKEND_OUTAGE_SETTLE_MS);
+    };
+    this.api.getConnections().subscribe({ next: startSettle, error: startSettle });
+  }
+
+  /** Закрытие инцидента: локальный ok + mock-POST (open + resolve) задним числом. */
+  private resolveOutage(): void {
+    const start = this.outageStart;
+    this.clearOutageTimers();
+    this.outageStart = null;
+    this.outagePhase = 'none';
+    if (start === null) {
+      return;
+    }
     const end = Date.now();
     void import('./notifications').then((m) => {
-      const dto = m.resolveBackendOutage(start, end);
-      this.api.postNotification(dto).subscribe({
-        error: (err) => console.error('postNotification', err),
-      });
+      for (const dto of m.resolveBackendOutage(start, end)) {
+        this.api.postNotification(dto).subscribe({
+          error: (err) => console.error('postNotification', err),
+        });
+      }
     });
   }
 
