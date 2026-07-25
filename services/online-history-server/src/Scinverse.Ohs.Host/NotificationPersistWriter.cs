@@ -25,10 +25,14 @@ public sealed class NotificationPersistWriter(
         {
             await foreach (var evt in queue.Reader.ReadAllAsync(stoppingToken))
             {
-                batch.Add(NotificationMapping.ToRecord(evt));
+                TryMap(evt, batch);
                 while (batch.Count < MaxBatch && queue.Reader.TryRead(out var more))
                 {
-                    batch.Add(NotificationMapping.ToRecord(more));
+                    TryMap(more, batch);
+                }
+                if (batch.Count == 0)
+                {
+                    continue;
                 }
 
                 try
@@ -48,6 +52,21 @@ public sealed class NotificationPersistWriter(
         catch (OperationCanceledException)
         {
             // Штатная остановка Host.
+        }
+    }
+
+    /// <summary>Маппинг одного события в строку лога с защитой: битое событие (напр. не-Guid id из
+    /// внешнего mock-POST) НЕ должно ронять весь Host (аудит-лог — не критичный путь). Пропускаем+логируем.</summary>
+    private void TryMap(NotificationDto evt, List<NotificationRecord> batch)
+    {
+        try
+        {
+            batch.Add(NotificationMapping.ToRecord(evt));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex, "Уведомление пропущено при записи в лог (некорректное поле): id={Id}, code={Code}", evt.Id, evt.Code);
         }
     }
 

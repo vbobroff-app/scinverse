@@ -295,6 +295,20 @@ function outageCorrelationId(startMs: number): string {
   return `ohs.backend.outage:${startMs}`;
 }
 
+/**
+ * Guid без дефисов (формат «N», 32 hex) — системное соглашение для id уведомлений: бэк персистит
+ * `EventId` как uuid (`Guid.ParseExact(id,"N")`), поэтому НЕ-Guid id роняет аудит-запись. correlationId
+ * при этом остаётся свободной строкой (persist как text), группировка/upsert по нему.
+ */
+function guidN(): string {
+  const uuid =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : // Фолбэк без secure-context: 32 hex из Math.random.
+        Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+  return uuid.replace(/-/g, '');
+}
+
 function formatOutageDuration(totalSec: number): string {
   if (totalSec < 60) {
     return `${totalSec} с`;
@@ -317,7 +331,7 @@ function formatOutageDuration(totalSec: number): string {
 export function openBackendOutage(startMs: number): void {
   const startIso = new Date(startMs).toISOString();
   notify.critical(notificationBus, {
-    id: `${outageCorrelationId(startMs)}:open`,
+    id: guidN(),
     ts: startIso,
     module: BACKEND_OUTAGE_MODULE,
     code: BACKEND_OUTAGE_CODE,
@@ -340,7 +354,7 @@ export function resolveBackendOutage(startMs: number, endMs: number): Notificati
   const startIso = new Date(startMs).toISOString();
   const endIso = new Date(endMs).toISOString();
   const correlationId = outageCorrelationId(startMs);
-  const id = `${correlationId}:done`;
+  const id = guidN();
   const message = `Сервер OHS был недоступен · ${formatOutageDuration(durationSec)}`;
   const data = { since: startIso, until: endIso, durationSec, backdated: true };
   notify.critical(notificationBus, {

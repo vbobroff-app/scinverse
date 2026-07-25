@@ -398,6 +398,13 @@ public static class OhsEndpoints
                 return Results.BadRequest(new { error = "id, code, message обязательны" });
             }
 
+            // id — системный Guid-формат «N» (аудит-лог персистит EventId как uuid). Не-Guid id иначе уронил
+            // бы запись в лог, поэтому отвергаем на границе явным 400 (контракт mock внешнего NC).
+            if (!Guid.TryParseExact(req.Id, "N", out _))
+            {
+                return Results.BadRequest(new { error = "id должен быть Guid в формате N (32 hex без дефисов)" });
+            }
+
             hub.Ingest(
                 req.Id,
                 req.Ts,
