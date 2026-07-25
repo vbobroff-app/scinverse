@@ -32,6 +32,14 @@ public sealed class ConnectionSupervisor(
     private readonly ConcurrentDictionary<long, string> _autoCorr = new();
     // Дедуп сбоев тика по подключению (7j.18): сигнатура последней ошибки — чтобы не спамить NC.
     private readonly ConcurrentDictionary<long, string> _tickError = new();
+    // 7j.20: детект «плановый старт окна» (kickoff). _prevDesired — предыдущее IsConnectDesired на тике;
+    // переход false→true ⇒ расписание только что открыло окно ⇒ _kickoffPending=true (держим до успешного
+    // коннекта, чтобы вся серия попыток на открытии считалась плановой). Отличает «Auto подключение по
+    // расписанию» от «Auto подключение внутри интервала расписания» (реконнект внутри уже открытого окна:
+    // дроп/ручное/рестарт бэка). Состояние in-memory: рестарт внутри открытого окна перехода не видел →
+    // такой подъём честно классифицируется как «внутри интервала».
+    private readonly ConcurrentDictionary<long, bool> _prevDesired = new();
+    private readonly ConcurrentDictionary<long, bool> _kickoffPending = new();
 
     // Кэш ShapeSessions по (engine, date).
     private readonly Dictionary<(string Engine, DateOnly Date), TradingSession?> _sessionCache = new();
@@ -163,6 +171,20 @@ public sealed class ConnectionSupervisor(
             (_, day) => tradingByDay.GetValueOrDefault(day));
         var isConnected = IsConnected(connectionId);
 
+        // Kickoff-детект: расписание открыло окно (desired false→true) ⇒ ближайший подъём — плановый старт.
+        // Первый тик после старта процесса перехода не видит (prev отсутствует) ⇒ kickoff не выставляется.
+        var hadPrev = _prevDesired.TryGetValue(connectionId, out var prevDesired);
+        if (desiredConnected && hadPrev && !prevDesired)
+        {
+            _kickoffPending[connectionId] = true;
+        }
+        else if (!desiredConnected)
+        {
+            _kickoffPending.TryRemove(connectionId, out _);
+        }
+
+        _prevDesired[connectionId] = desiredConnected;
+
         if (!desiredConnected)
         {
             _failCounts.TryRemove(connectionId, out _);
@@ -258,9 +280,14 @@ public sealed class ConnectionSupervisor(
             // как connection.recovered (испущен из ConnectAsync при закрытии инцидента) — второй раз не шумим.
             if (!incidentOpen)
             {
-                // Пометка «(Auto)» + первая строка expanded: это авто-подключение супервизора внутри окна
-                // расписания (не ручная команда оператора и не восстановление инцидента).
-                var lines = new List<string>(previousLines.Count + 1) { "Auto подключение внутри интервала расписания" };
+                // Пометка «(Auto)» + первая строка expanded: это авто-подключение супервизора (не ручная
+                // команда оператора и не восстановление инцидента). kickoff=true ⇒ расписание открыло окно
+                // (плановый старт по start date-time); иначе — подъём внутри уже открытого окна.
+                var kickoff = _kickoffPending.TryRemove(connectionId, out _);
+                var autoLine = kickoff
+                    ? "Auto подключение по расписанию"
+                    : "Auto подключение внутри интервала расписания";
+                var lines = new List<string>(previousLines.Count + 1) { autoLine };
                 lines.AddRange(previousLines);
                 notifications.Publish(
                     "connection.connected",
