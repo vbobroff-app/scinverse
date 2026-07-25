@@ -386,10 +386,18 @@ public static class OhsEndpoints
         api.MapGet("/notifications", (NotificationHub hub, int? limit) =>
             hub.List(limit is > 0 and <= 500 ? limit : 100));
 
+        // Heads-up барьеру старта супервизора (7j.20): клиент на реконнекте WS сообщает «у меня открыт
+        // инцидент простоя — держи Auto, пока не пришлю backend.recovered». Ничего не персистит.
+        api.MapPost("/recovery/hold", (ClientRecoveryGate recoveryGate) =>
+        {
+            recoveryGate.Hold();
+            return Results.Accepted();
+        });
+
         // Mock-POST внешнего NC (7j.20): клиент публикует уже сформированное событие с собственным id и,
         // возможно, ПРОШЛЫМ ts (backdated) — напр. недоступность бэка детектит клиент, а POST уходит по
         // реконнекту. Сейчас пишем в тот же хаб/аудит-лог; позже тот же контракт уйдёт во внешний сервис.
-        api.MapPost("/notifications", (IngestNotificationRequest req, NotificationHub hub) =>
+        api.MapPost("/notifications", (IngestNotificationRequest req, NotificationHub hub, ClientRecoveryGate recoveryGate) =>
         {
             if (string.IsNullOrWhiteSpace(req.Id)
                 || string.IsNullOrWhiteSpace(req.Code)
@@ -416,6 +424,14 @@ public static class OhsEndpoints
                 data: req.Data,
                 status: req.Status,
                 correlationId: req.CorrelationId);
+
+            // 7j.20: recover клиента снимает стартовый барьер супервизора — Auto-реконнект пойдёт только
+            // теперь, когда «Система восстановлена» уже в NC (порядок в ленте: recover → connecting).
+            if (string.Equals(req.Code, "backend.recovered", StringComparison.Ordinal))
+            {
+                recoveryGate.Release();
+            }
+
             return Results.Accepted();
         });
 
@@ -471,6 +487,20 @@ public static class OhsEndpoints
 
             var creds = DevLocalTransaqCredentials.TryCreate(options);
             return Results.Ok(new TransaqLocalDefaultsDto(creds?.Login, creds?.Password));
+        });
+
+        // DEV-only: тест exception-middleware (7j.20 §6.1). Бросает ОБЫЧНОЕ исключение (не
+        // BadHttpRequestException) → GlobalExceptionHandler публикует `ohs.unhandled` (critical). Дёрнуть в
+        // окне recovery инцидента простоя (убить бэк → он откроется на фронте → рестарт → в первые секунды
+        // подъёма GET /api/test-exception) — фронт должен втянуть этот FATAL в стек инцидента и НЕ закрыть
+        // его, пока не стабилизируется. В проде — 404.
+        api.MapGet("/test-exception", (IWebHostEnvironment env) =>
+        {
+            if (!env.IsDevelopment())
+            {
+                return Results.NotFound();
+            }
+            throw new InvalidOperationException("Is the test exception-middleware");
         });
 
         api.MapPost("/connections/validate", async (ValidateConnectionRequest request, ConnectionManager manager, CancellationToken ct) =>

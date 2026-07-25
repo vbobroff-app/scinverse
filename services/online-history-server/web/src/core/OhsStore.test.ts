@@ -46,7 +46,10 @@ function segment(overrides: Partial<CoverageSegmentDto> = {}): CoverageSegmentDt
 
 function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
   const emptyPage: InstrumentPage = { items: [], total: 0, limit: 100, offset: 0 };
-  const base: OhsApiClient = {
+  // Мок покрывает методы, которые дёргает стор; прочие (биржи/интеграции) в этих тестах не нужны —
+  // Partial + cast, чтобы рост OhsApiClient не заставлял стабить неиспользуемое (сигнатуры покрытых
+  // методов при этом остаются строго типизированными).
+  const base: Partial<OhsApiClient> = {
     getInstruments: () => of(emptyPage),
     getInstrumentSeries: () => of([]),
     getSources: () => of([]),
@@ -67,7 +70,8 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
         settings: { connectionId: 0, autoEnabled: false, engine: 'futures', tz: 'Europe/Moscow' },
         rules: [],
       }),
-    putConnectionScheduleSettings: () => of({} as never),
+    putConnectionScheduleSettings: () =>
+      of({ connectionId: 0, autoEnabled: false, engine: 'futures', tz: 'Europe/Moscow' }),
     applyScheduleBatch: () => of({ ok: true, applied: [], superseded: [] }),
     getConnectionScheduleHistory: () => of([]),
     getNotifications: () => of([]),
@@ -81,7 +85,7 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
     validateConnection: () => of<ValidateConnectionResult>({ ok: true }),
     setCredentials: () => of(undefined),
   };
-  return { ...base, ...overrides };
+  return { ...base, ...overrides } as OhsApiClient;
 }
 
 function futures(overrides: Partial<InstrumentDto> = {}): InstrumentDto {

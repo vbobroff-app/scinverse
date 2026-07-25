@@ -24,6 +24,27 @@ public sealed class OhsOptions
     /// </summary>
     public double LinkRecoverGraceSeconds { get; set; } = 60;
 
+    /// <summary>
+    /// Connect-grace барьера восстановления клиента на старте процесса (сек), phase 7j.20; ≤0 — барьер
+    /// выключен. Столько ждём подключения хоть одного WS-клиента (WS доступен лишь через несколько секунд
+    /// после старта Kestrel — с запасом на это). Никто не подключился ⇒ наблюдателя нет ⇒ Auto стартует.
+    /// </summary>
+    public double ClientRecoveryGraceSeconds { get; set; } = 25;
+
+    /// <summary>
+    /// Heads-up-grace барьера (сек), phase 7j.20. После подключения WS-клиента столько ждём heads-up
+    /// (<c>POST /api/recovery/hold</c>) — признак открытого инцидента простоя. Нет heads-up ⇒ инцидента
+    /// нет ⇒ Auto стартует. Покрывает задержку POST после open WS.
+    /// </summary>
+    public double ClientRecoveryHeadsUpSeconds { get; set; } = 8;
+
+    /// <summary>
+    /// Hold-grace барьера (сек), phase 7j.20. После heads-up ждём <c>backend.recovered</c> столько —
+    /// инцидент, затянутый нестабильностью (втянутые 500), удерживает первый Auto до реального закрытия,
+    /// а не до фикс-таймаута. Верхняя страховка, если recover так и не пришёл.
+    /// </summary>
+    public double ClientRecoveryHoldMaxSeconds { get; set; } = 90;
+
     /// <summary>Origin dev-фронта (Vite) для CORS-политики админки.</summary>
     public string? AdminOrigin { get; set; }
 

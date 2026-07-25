@@ -10,7 +10,7 @@ namespace Scinverse.Ohs.Host;
 /// Fan-out live-событий по всем подключённым WebSocket-клиентам. На каждого клиента —
 /// свой ограниченный канал с отбрасыванием старых сообщений (медленный клиент не блокирует остальных).
 /// </summary>
-public sealed class WebSocketBroadcaster
+public sealed class WebSocketBroadcaster(ClientRecoveryGate? recoveryGate = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -42,6 +42,10 @@ public sealed class WebSocketBroadcaster
             SingleWriter = false
         });
         _clients[id] = channel;
+
+        // 7j.20: сигнал барьеру восстановления — WS-клиент реально подключился (отсчёт heads-up идёт
+        // отсюда, а не от старта процесса; иначе барьер проигрывает гонку реконнекту после рестарта).
+        recoveryGate?.NotifyClientConnected();
 
         try
         {

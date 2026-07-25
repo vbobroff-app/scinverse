@@ -32,6 +32,7 @@ import type {
   InstrumentQueryParams,
   LivenessIntervalDto,
   LiveEvent,
+  NotificationDto,
   ConnectionScheduleStateDto,
   PutConnectionScheduleRuleRequest,
   ScheduleComposeItemDto,
@@ -109,6 +110,9 @@ const BACKEND_OUTAGE_GRACE_MS = 6_000;
 const BACKEND_OUTAGE_TICK_MS = 5_000;
 /** Settle после re-open: столько связь должна продержаться (без нового дропа) → warning→ok. */
 const BACKEND_OUTAGE_SETTLE_MS = 5_000;
+/** Кулдаун нестабильности: после втянутого в стек `ohs.unhandled` (500) ждём столько без нового 500 →
+ * повторная попытка восстановления (warning→settle→ok). Каждый новый 500 сбрасывает кулдаун. */
+const BACKEND_OUTAGE_UNSTABLE_COOLDOWN_MS = 5_000;
 /** Как часто пересчитывать окно (ловим смену суток/рост экстента; для range — no-op). */
 const WINDOW_REFRESH_MS = 60_000;
 /** Сколько сессий в неделе при выключенных/включённых выходных. */
@@ -302,6 +306,10 @@ export class OhsStore {
   private outageGraceTimer?: ReturnType<typeof setTimeout>;
   private outageTickTimer?: ReturnType<typeof setInterval>;
   private outageSettleTimer?: ReturnType<typeof setTimeout>;
+  // Кулдаун после втянутого 500 (нестабильность): по истечении без нового 500 → повтор восстановления.
+  private outageRecoverTimer?: ReturnType<typeof setTimeout>;
+  // Heads-up барьеру бэка отправлен для текущего инцидента (шлём один раз, на первом реконнекте).
+  private outageHeldSignaled = false;
 
   constructor(
     private readonly api: OhsApiClient = OhsApi,
@@ -479,6 +487,10 @@ export class OhsStore {
       clearTimeout(this.outageSettleTimer);
       this.outageSettleTimer = undefined;
     }
+    if (this.outageRecoverTimer !== undefined) {
+      clearTimeout(this.outageRecoverTimer);
+      this.outageRecoverTimer = undefined;
+    }
   }
 
   /**
@@ -546,6 +558,18 @@ export class OhsStore {
       clearInterval(this.outageTickTimer);
       this.outageTickTimer = undefined;
     }
+    if (this.outageRecoverTimer !== undefined) {
+      clearTimeout(this.outageRecoverTimer);
+      this.outageRecoverTimer = undefined;
+    }
+
+    // Heads-up барьеру старта супервизора: «инцидент открыт, держи Auto до backend.recovered». Один раз
+    // на инцидент, на первом реконнекте — чтобы бэк расширил окно ожидания вместо фикс-таймаута.
+    if (!this.outageHeldSignaled) {
+      this.outageHeldSignaled = true;
+      this.api.holdRecovery().subscribe({ error: (err) => console.error('holdRecovery', err) });
+    }
+
     this.outagePhase = 'warning';
     const start = this.outageStart;
     void import('./notifications').then((m) => m.warnBackendOutage(start));
@@ -572,12 +596,58 @@ export class OhsStore {
     this.api.getConnections().subscribe({ next: startSettle, error: startSettle });
   }
 
+  /** После втянутого 500 (нестабильность) ждём кулдаун без нового 500, затем сами пробуем восстановиться
+   * (open→warning→settle→ok). Без этого таймера инцидент завис бы в error навсегда — WS не падал, а
+   * значит onBackendReachable больше не сработает (bug A). Каждый новый 500 сбрасывает кулдаун. */
+  private armOutageRecoveryAfterUnstable(): void {
+    if (this.outageRecoverTimer !== undefined) {
+      clearTimeout(this.outageRecoverTimer);
+      this.outageRecoverTimer = undefined;
+    }
+    this.outageRecoverTimer = setTimeout(() => {
+      this.outageRecoverTimer = undefined;
+      if (this.outageStart === null || this.outagePhase !== 'open') {
+        return;
+      }
+      this.onBackendReachable();
+    }, BACKEND_OUTAGE_UNSTABLE_COOLDOWN_MS);
+  }
+
+  /**
+   * Входящее серверное уведомление (WS). Обычно просто публикуем. Но настоящий `ohs.unhandled` (FATAL,
+   * nc-availability.md §6.1) во время УЖЕ ПОКАЗАННОГО инцидента простоя (open/warning) — признак, что бэк жив, но
+   * нестабилен (сыпет 500): втягиваем его в СТЕК инцидента (под его corr, остаётся critical) и НЕ считаем
+   * восстановленным — если мы в warning/settle, гасим settle и возвращаемся в error-прогресс (ждём полного
+   * восстановления). Транспортный шум (`ohs.request_error`, severity error) сюда не попадает — обычная
+   * ошибка. В grace (fatal ещё не показан) не фолдим — grace-таймер откроет инцидент штатно.
+   */
+  private onServerNotification(dto: NotificationDto): void {
+    const isBackendFatal = dto.code === 'ohs.unhandled' && (dto.severity ?? '') === 'critical';
+    const incidentShown = this.outagePhase === 'open' || this.outagePhase === 'warning';
+    if (isBackendFatal && this.outageStart !== null && incidentShown) {
+      const start = this.outageStart;
+      void import('./notifications').then((m) => m.foldUnhandledIntoOutage(dto, start));
+      // Бэк жив, но кинул 500 → нестабилен. Гасим settle, возвращаемся в error-прогресс и НЕ ждём нового
+      // реконнекта WS (его не будет — 500 не роняет сокет): по кулдауну без нового 500 сами пробуем
+      // восстановиться (warning→settle→ok). Каждый новый 500 сбрасывает кулдаун (bug A: инцидент завис).
+      if (this.outageSettleTimer !== undefined) {
+        clearTimeout(this.outageSettleTimer);
+        this.outageSettleTimer = undefined;
+      }
+      this.startOutageProgress(true);
+      this.armOutageRecoveryAfterUnstable();
+      return;
+    }
+    void import('./notifications').then((m) => m.publishServerNotification(dto));
+  }
+
   /** Закрытие инцидента: локальный ok + mock-POST (open + resolve) задним числом. */
   private resolveOutage(): void {
     const start = this.outageStart;
     this.clearOutageTimers();
     this.outageStart = null;
     this.outagePhase = 'none';
+    this.outageHeldSignaled = false;
     if (start === null) {
       return;
     }
@@ -1698,7 +1768,7 @@ export class OhsStore {
         break;
 
       case 'notification':
-        void import('./notifications').then((m) => m.publishServerNotification(event.notification));
+        this.onServerNotification(event.notification);
         break;
     }
   }

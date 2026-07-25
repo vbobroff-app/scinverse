@@ -304,6 +304,18 @@ function outageCorrelationId(startMs: number): string {
   return `ohs.backend.outage:${startMs}`;
 }
 
+/**
+ * Настоящий `ohs.unhandled` (FATAL/critical) во время активного инцидента простоя → втягиваем в СТЕК
+ * инцидента (nc-availability.md §6.1): публикуем под corr инцидента, оставляя `critical` (уровень = «FATAL:»,
+ * отдельного типа нет) и исходный id (persist/echo). Так 500 живого-но-нестабильного бэка видны как часть
+ * той же нити (кликом по corr — весь стек), а не сиротой-FATAL. Голова группы — по новейшему событию,
+ * поэтому этот critical в середине не мешает зелёному закрытию (resolved эмитится последним). Персист
+ * остаётся под серверным corr → после reload вернётся отдельной строкой (фолд пока для живого показа, §8).
+ */
+export function foldUnhandledIntoOutage(dto: NotificationDto, startMs: number): void {
+  publishServerNotification({ ...dto, correlationId: outageCorrelationId(startMs) });
+}
+
 // Живущие поля инцидента (ключ — startMs): open эмитится по grace, resolve — по settle; между ними
 // нужно помнить id/ts open, чтобы переиспользовать их в mock-POST (дедуп echo по id).
 interface OutageThread {

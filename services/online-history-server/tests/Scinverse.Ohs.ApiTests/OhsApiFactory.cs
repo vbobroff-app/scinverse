@@ -98,7 +98,9 @@ public sealed class OhsApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:Timescale"] = _connectionString
+                ["ConnectionStrings:Timescale"] = _connectionString,
+                // 7j.20: барьер восстановления клиента выключен в тестах (детерминизм, без 12 c ожидания старта).
+                ["Ohs:ClientRecoveryGraceSeconds"] = "0"
             });
         });
 

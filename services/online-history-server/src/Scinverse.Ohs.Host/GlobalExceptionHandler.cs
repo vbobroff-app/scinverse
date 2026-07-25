@@ -6,8 +6,15 @@ namespace Scinverse.Ohs.Host;
 
 /// <summary>
 /// Safety-net (phase 7j §3.B): любое НЕперехваченное исключение → лог Serilog с requestId +
-/// ProblemDetails 500 (без стека наружу) + <c>ohs.unhandled</c> в NC (system·critical). Якорь
-/// поиска — <c>requestId</c> (виден как <c>corr:</c> в ленте и в логе → полный стек по нему).
+/// ProblemDetails (без стека наружу) + событие в NC. Якорь поиска — <c>requestId</c> (виден как
+/// <c>corr:</c> в ленте и в логе → полный стек по нему). Две природы (nc-availability.md §6.1):
+/// <list type="bullet">
+/// <item><b>Транспортный шум</b> (<see cref="BadHttpRequestException"/>: оборванное/некорректное тело,
+/// частая гонка при рестарте) — 400-класс, НЕ краш → <c>ohs.request_error</c> (system·<b>error</b>),
+/// статус из исключения. Не FATAL, инцидент простоя не трогает.</item>
+/// <item><b>Настоящее необработанное</b> — 500 → <c>ohs.unhandled</c> (system·<b>critical/fatal</b>).
+/// Клиент во время активного инцидента простоя втягивает его в стек (см. web/OhsStore).</item>
+/// </list>
 /// </summary>
 public sealed class GlobalExceptionHandler(
     INotificationPublisher notifications,
@@ -25,6 +32,43 @@ public sealed class GlobalExceptionHandler(
         var requestId = Activity.Current?.Id ?? httpContext.TraceIdentifier;
         var method = httpContext.Request.Method;
         var path = httpContext.Request.Path.Value ?? string.Empty;
+
+        // Транспортный шум: тело запроса не прочитано (обрыв на середине / рестарт-гонка / кривой JSON).
+        // Это 400-класс, а не краш сервера → обычная Error (браузерный стандарт для сбоя запроса — ERROR,
+        // не FATAL и не warning), статус из исключения. Инцидент простоя (клиентский) не затрагивает.
+        if (exception is BadHttpRequestException bad)
+        {
+            logger.LogWarning(
+                exception,
+                "Некорректный/оборванный запрос {Method} {Path} (requestId={RequestId})",
+                method, path, requestId);
+
+            notifications.Publish(
+                code: "ohs.request_error",
+                message: "Ошибка обработки запроса (обрыв соединения или некорректное тело)",
+                severity: "error",
+                sourceType: "system",
+                module: "ohs.host",
+                data: new
+                {
+                    requestId,
+                    lines = new[] { $"{method} {path}", Summarize(exception) },
+                },
+                correlationId: requestId);
+
+            httpContext.Response.StatusCode = bad.StatusCode;
+            await httpContext.Response.WriteAsJsonAsync(
+                new ProblemDetails
+                {
+                    Status = bad.StatusCode,
+                    Title = "Некорректный запрос",
+                    Detail = "Не удалось прочитать запрос. Возможен обрыв соединения.",
+                    Extensions = { ["requestId"] = requestId },
+                },
+                cancellationToken);
+
+            return true;
+        }
 
         // Полный стек — только в серверный лог (безопасность + размер), поиск по requestId.
         logger.LogError(

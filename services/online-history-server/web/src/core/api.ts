@@ -149,6 +149,10 @@ export const OhsApi = {
   // Mock-POST внешнего NC (7j.20): публикуем уже сформированное уведомление (возможно с backdated ts).
   postNotification: (dto: NotificationDto) => post<void>('/notifications', dto),
 
+  // Heads-up барьеру старта супервизора (7j.20): «у клиента открыт инцидент простоя — держи Auto, пока
+  // не пришлю backend.recovered». Шлём на реконнекте WS, если инцидент показан.
+  holdRecovery: () => post<void>('/recovery/hold', {}),
+
   connect: (connectionId: number) => post<ConnectionDto>(`/connections/${connectionId}/connect`),
   disconnect: (connectionId: number) =>
     post<ConnectionDto>(`/connections/${connectionId}/disconnect`),

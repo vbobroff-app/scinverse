@@ -15,6 +15,7 @@ public sealed class ConnectionSupervisor(
     OhsOptions options,
     TimeProvider time,
     INotificationPublisher notifications,
+    ClientRecoveryGate recoveryGate,
     ILogger<ConnectionSupervisor> logger)
 {
     private static readonly TimeSpan RetryPause = TimeSpan.FromSeconds(8);
@@ -23,6 +24,17 @@ public sealed class ConnectionSupervisor(
     /// <summary>Дедлайн передачи владения TRANSAQ→супервизор (7j.20 J3/J8), дефолт 60 c.</summary>
     private TimeSpan RecoverGrace => TimeSpan.FromSeconds(
         options.LinkRecoverGraceSeconds > 0 ? options.LinkRecoverGraceSeconds : 60);
+
+    /// <summary>Connect-grace барьера восстановления клиента (7j.20); ≤0 — барьер выключен.</summary>
+    private TimeSpan ClientRecoveryGrace => TimeSpan.FromSeconds(options.ClientRecoveryGraceSeconds);
+
+    /// <summary>Heads-up-grace барьера: ждать hold после подключения клиента (7j.20), дефолт 8 c.</summary>
+    private TimeSpan ClientRecoveryHeadsUp => TimeSpan.FromSeconds(
+        options.ClientRecoveryHeadsUpSeconds > 0 ? options.ClientRecoveryHeadsUpSeconds : 8);
+
+    /// <summary>Hold-grace барьера: ждать recover после heads-up (7j.20), дефолт 90 c.</summary>
+    private TimeSpan ClientRecoveryHoldMax => TimeSpan.FromSeconds(
+        options.ClientRecoveryHoldMaxSeconds > 0 ? options.ClientRecoveryHoldMaxSeconds : 90);
 
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly ConcurrentDictionary<long, int> _failCounts = new();
@@ -60,6 +72,26 @@ public sealed class ConnectionSupervisor(
     {
         var tick = TimeSpan.FromSeconds(
             options.LivenessProbeSeconds > 0 ? options.LivenessProbeSeconds : 15);
+
+        // 7j.20: барьер восстановления клиента. Перед ПЕРВЫМ Auto-реконнектом ждём: клиент, ведущий инцидент
+        // простоя, шлёт heads-up (hold) на реконнекте и backend.recovered при закрытии — тогда «Система
+        // восстановлена» встаёт в NC ДО connection.connecting/connected, и Auto не идёт, пока инцидент
+        // открыт. Нет heads-up за initial ⇒ клиента/инцидента нет ⇒ стартуем. Один раз, на старте процесса.
+        var recoveryGrace = ClientRecoveryGrace;
+        if (recoveryGrace > TimeSpan.Zero)
+        {
+            try
+            {
+                var reason = await recoveryGate
+                    .WaitAsync(recoveryGrace, ClientRecoveryHeadsUp, ClientRecoveryHoldMax, cancellationToken)
+                    .ConfigureAwait(false);
+                logger.LogInformation("ConnectionSupervisor: барьер восстановления клиента снят ({Reason})", reason);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
 
         while (!cancellationToken.IsCancellationRequested)
         {
