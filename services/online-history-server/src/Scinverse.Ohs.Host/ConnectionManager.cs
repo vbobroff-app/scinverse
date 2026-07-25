@@ -217,6 +217,10 @@ public sealed class ConnectionManager(
                 .HeartbeatAsync(sourceId, DateTimeOffset.UtcNow, LinkMaxGap, cancellationToken)
                 .ConfigureAwait(false);
             EnsureIdleMonitor();
+            // 7j.20 J3/J6: успешный (ре)коннект = связь снова жива (server_status connected=true пришёл внутри
+            // ConnectAsync). Свежая сессия НЕ даёт отдельного перехода в Live (рождается подключённой), поэтому
+            // закрываем открытый инцидент здесь — иначе после handover он висел бы открытым (recovered терялся).
+            await CloseIncidentAsync(connectionId, DateTimeOffset.UtcNow, "Live", cancellationToken).ConfigureAwait(false);
             _firstTradePending[connectionId] = DateTimeOffset.UtcNow;
             var connectElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(connectStartedAt);
             logger.LogInformation(
@@ -514,36 +518,12 @@ public sealed class ConnectionManager(
 
                 var recovering = hadState && previous is ConnectorLinkState.Down or ConnectorLinkState.Error or ConnectorLinkState.Degraded;
 
-                // Закрываем инцидент связи по факту «связь снова жива», опираясь на _incidentSince (не на
-                // in-memory previous): реконнект супервизора идёт через полный DisconnectAsync (стирает
-                // _linkStates), а стелс-разрыв (ping-fail) вообще без server_status Down — без этого
-                // recovered терялся (7j.19/I2). TryRemove делает Resolve однократным и даёт длительность (I3).
-                if (_incidentSince.TryRemove(connectionId, out var incidentStart))
-                {
-                    var label = await ResolveLabelAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
-                    var gapMs = (long)(change.At - incidentStart).TotalMilliseconds;
-                    // Кем восстановлена связь (7j.20): владелец на момент закрытия инцидента. TRANSAQ сам поднял
-                    // (Degraded до handover) → "средствами TRANSAQ"; иначе (Down/ping-fail/после handover) → супервизор.
-                    var owner = _incidentOwner.TryRemove(connectionId, out var incidentOwner) ? incidentOwner : "transaq";
-                    var ownerLine = owner == "supervisor"
-                        ? "Восстановлено супервизором (переподключение)"
-                        : "Восстановлено TRANSAQ";
-                    notifications.Resolve(
-                        LinkIncidentSubject(connectionId),
-                        "connection.recovered",
-                        $"{label}: связь восстановлена",
-                        severity: "ok",
-                        data: new
-                        {
-                            connectionId,
-                            state = change.State.ToString(),
-                            owner,
-                            gapStart = incidentStart,
-                            gapEnd = change.At,
-                            gapMs,
-                            lines = new[] { ownerLine, FormatGapLine(incidentStart, change.At) },
-                        });
-                }
+                // Закрываем инцидент связи по факту «связь снова жива» (7j.19/I2, 7j.20 J3): опираемся на
+                // _incidentSince, не на in-memory previous (реконнект супервизора идёт через полный
+                // DisconnectAsync, стелс-разрыв — без server_status Down). Общий путь с успешным реконнектом
+                // супервизора — см. CloseIncidentAsync.
+                await CloseIncidentAsync(connectionId, change.At, change.State.ToString(), CancellationToken.None)
+                    .ConfigureAwait(false);
 
                 // Ре-подписку НЕЛЬЗЯ гейтить in-memory `recovering` (7j.19/I6): реконнект супервизора идёт
                 // через полный DisconnectAsync (стирает _linkStates) → на первом Live новой сессии
@@ -625,6 +605,47 @@ public sealed class ConnectionManager(
                 break;
             }
         }
+    }
+
+    /// <summary>Закрывает открытый инцидент связи (<c>connection.recovered</c>, resolved) на момент
+    /// <paramref name="atTs"/>, если он открыт (<c>_incidentSince</c>); иначе no-op. Общий путь для двух
+    /// сценариев возврата в Live: тот же сеанс Degraded/Down→Live (self-recovery, из HandleLinkStateAsync) и
+    /// успешный реконнект супервизора через НОВУЮ сессию (7j.20 J3/J6) — свежий ConnectAsync не даёт отдельного
+    /// перехода в Live (сессия рождается подключённой, server_status connected=true приходит внутри connect),
+    /// поэтому без вызова из ConnectAsync инцидент после handover висел бы открытым (recovered терялся). Owner
+    /// фиксируем на момент закрытия: "supervisor" (после handover/Down) → «Восстановлено супервизором», иначе TRANSAQ.</summary>
+    private async Task CloseIncidentAsync(
+        long connectionId, DateTimeOffset atTs, string stateLabel, CancellationToken cancellationToken)
+    {
+        // TryRemove делает Resolve однократным (idempotent) и даёт длительность разрыва (I3).
+        if (!_incidentSince.TryRemove(connectionId, out var incidentStart))
+        {
+            return;
+        }
+
+        var label = await ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        var gapMs = (long)(atTs - incidentStart).TotalMilliseconds;
+        // Кем восстановлена связь (7j.20): владелец на момент закрытия. TRANSAQ сам поднял (Degraded до
+        // handover) → «Восстановлено TRANSAQ»; иначе (Down/ping-fail/после handover) → супервизор.
+        var owner = _incidentOwner.TryRemove(connectionId, out var incidentOwner) ? incidentOwner : "transaq";
+        var ownerLine = owner == "supervisor"
+            ? "Восстановлено супервизором (переподключение)"
+            : "Восстановлено TRANSAQ";
+        notifications.Resolve(
+            LinkIncidentSubject(connectionId),
+            "connection.recovered",
+            $"{label}: связь восстановлена",
+            severity: "ok",
+            data: new
+            {
+                connectionId,
+                state = stateLabel,
+                owner,
+                gapStart = incidentStart,
+                gapEnd = atTs,
+                gapMs,
+                lines = new[] { ownerLine, FormatGapLine(incidentStart, atTs) },
+            });
     }
 
     /// <summary>

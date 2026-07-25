@@ -213,27 +213,40 @@ public sealed class ConnectionSupervisor(
         var corr = _autoCorr.GetOrAdd(
             connectionId, id => $"connection:{id}:auto:{Guid.NewGuid().ToString("N")[..8]}");
 
-        notifications.Publish(
-            "connection.connecting",
-            $"{scheduleLabel}: подключаю по расписанию, попытка {fails + 1}/{MaxConnectAttempts}…",
-            severity: "warning",
-            status: "underway",
-            correlationId: corr,
-            data: new { connectionId, attempt = fails + 1 });
+        // 7j.20 J3/J6: если по подключению ОТКРЫТ инцидент связи — реконнект ведём ПОД ФЛАГОМ восстановления
+        // (единая нить инцидента: reconnecting×N → recovered), БЕЗ штатной auto-серии «подключаю по расписанию»/
+        // «связь установлена», иначе двойной нарратив (auto:connected vs link:incident). recovered испустит
+        // ConnectAsync при успехе (связь снова жива). Штатная серия — только для планового подключения (нет инцидента).
+        var incidentOpen = connections.GetIncidentSince(connectionId) is not null;
 
-        // Если по этому подключению открыт инцидент связи (lost, active) — переводим его в underway.
-        // severity=warning: underway остаётся «жёлтым, ещё не решено» (маска фона в ленте). owner=supervisor
-        // (плечо ②, 7j.20): восстановление ведёт супервизор.
-        notifications.Progress(
-            ConnectionManager.LinkIncidentSubject(connectionId),
-            "connection.reconnecting",
-            $"{scheduleLabel}: восстановление связи, попытка {fails + 1}/{MaxConnectAttempts}",
-            severity: "warning",
-            data: new { connectionId, owner = "supervisor", attempt = fails + 1 });
+        if (incidentOpen)
+        {
+            // Нить инцидента: прогресс восстановления супервизором (плечо ②). owner=supervisor, severity=warning
+            // (underway остаётся «жёлтым, ещё не решено» — маска фона в ленте).
+            notifications.Progress(
+                ConnectionManager.LinkIncidentSubject(connectionId),
+                "connection.reconnecting",
+                $"{scheduleLabel}: восстановление связи, попытка {fails + 1}/{MaxConnectAttempts}",
+                severity: "warning",
+                data: new { connectionId, owner = "supervisor", attempt = fails + 1 });
+        }
+        else
+        {
+            notifications.Publish(
+                "connection.connecting",
+                $"{scheduleLabel}: подключаю по расписанию, попытка {fails + 1}/{MaxConnectAttempts}…",
+                severity: "warning",
+                status: "underway",
+                correlationId: corr,
+                data: new { connectionId, attempt = fails + 1 });
+        }
 
         // «Предыдущее подключение» (QUIK-style) — до нового Heartbeat, иначе последним станет текущий сеанс.
-        var previousLines = await connections.DescribePreviousConnectionLinesAsync(connectionId, cancellationToken)
-            .ConfigureAwait(false);
+        // Нужно только для планового «связь установлена»; при инциденте детали (разрыв/владелец) идут в recovered.
+        var previousLines = incidentOpen
+            ? Array.Empty<string>()
+            : await connections.DescribePreviousConnectionLinesAsync(connectionId, cancellationToken)
+                .ConfigureAwait(false);
 
         try
         {
@@ -241,13 +254,19 @@ public sealed class ConnectionSupervisor(
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
             _autoCorr.TryRemove(connectionId, out _);
-            notifications.Publish(
-                "connection.connected",
-                $"{scheduleLabel}: связь установлена.",
-                severity: "ok",
-                status: "resolved",
-                correlationId: corr,
-                data: new { connectionId, lines = previousLines });
+            // Плановое подключение → «связь установлена» (штатная auto-серия). При инциденте успех уже отражён
+            // как connection.recovered (испущен из ConnectAsync при закрытии инцидента) — второй раз не шумим.
+            if (!incidentOpen)
+            {
+                notifications.Publish(
+                    "connection.connected",
+                    $"{scheduleLabel}: связь установлена.",
+                    severity: "ok",
+                    status: "resolved",
+                    correlationId: corr,
+                    data: new { connectionId, lines = previousLines });
+            }
+
             logger.LogInformation(
                 "ConnectionSupervisor: connect OK {ConnectionId}", connectionId);
         }
