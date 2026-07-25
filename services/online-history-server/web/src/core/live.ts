@@ -25,10 +25,16 @@ export function linkStateToConnectionStatus(state: string): string {
 /**
  * Поток live-событий OHS по WebSocket `/ws` с авто-переподключением.
  * `share()` — единый сокет на всех подписчиков.
+ *
+ * `onDrop` вызывается при закрытии сокета ПОСЛЕ того, как связь однажды была установлена (потеря
+ * связи с бэком — детект «краша/недоступности»), `onReconnect` — при повторном открытии. Первичный
+ * неуспех коннекта (бэка никогда не было) drop'ом не считаем. `retry` пере-подписывается каждые 2 c,
+ * поэтому `onDrop` может прийти многократно — дедуп на стороне подписчика.
  */
 export function createLiveStream(
   url?: string,
   onReconnect?: () => void,
+  onDrop?: () => void,
 ): Observable<LiveEvent> {
   const wsUrl = url ?? defaultWsUrl();
   let hadConnection = false;
@@ -40,6 +46,13 @@ export function createLiveStream(
           onReconnect?.();
         }
         hadConnection = true;
+      },
+    },
+    closeObserver: {
+      next: () => {
+        if (hadConnection) {
+          onDrop?.();
+        }
       },
     },
   }).pipe(

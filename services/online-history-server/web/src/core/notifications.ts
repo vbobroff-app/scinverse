@@ -281,3 +281,92 @@ export function publishServerNotification(dto: NotificationDto): void {
       notify.info(notificationBus, input);
   }
 }
+
+// ── Недоступность бэка (7j.20): mock-behaviour optimistic pattern ────────────────────────────────
+// Бэк не может сообщить о СОБСТВЕННОМ простое, пока лежит. Детектит клиент (дроп WS). Оптимистично
+// показываем ОДИНОЧНОЕ fatal-уведомление сразу, а по реконнекту POST'им его в NC с backdated ts
+// (простой начался раньше доставки). Позже тот же контракт уйдёт во внешний сервис NC (см. §8 доки).
+// Точность начала простоя — по часам клиента (± один цикл WS-retry ~2 c). Более точный источник
+// (link_liveness.to_ts осиротевшего интервала) — будущий backend-side путь.
+const BACKEND_OUTAGE_MODULE = 'ohs.host';
+const BACKEND_OUTAGE_CODE = 'backend.unavailable';
+
+function outageCorrelationId(startMs: number): string {
+  return `ohs.backend.outage:${startMs}`;
+}
+
+function formatOutageDuration(totalSec: number): string {
+  if (totalSec < 60) {
+    return `${totalSec} с`;
+  }
+  const minutes = Math.floor(totalSec / 60);
+  const seconds = totalSec % 60;
+  if (minutes < 60) {
+    return seconds > 0 ? `${minutes} мин ${seconds} с` : `${minutes} мин`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const restMin = minutes % 60;
+  return restMin > 0 ? `${hours} ч ${restMin} мин` : `${hours} ч`;
+}
+
+/**
+ * Оптимистичный «одиночный fatal» о потере связи с бэком (момент дропа, по часам клиента).
+ * correlationId — per-outage, чтобы на реконнекте та же строка обновилась НА МЕСТЕ (I2 upsert),
+ * а не плодилась новая; новый простой позже получит свой correlationId → отдельную строку.
+ */
+export function openBackendOutage(startMs: number): void {
+  const startIso = new Date(startMs).toISOString();
+  notify.critical(notificationBus, {
+    id: `${outageCorrelationId(startMs)}:open`,
+    ts: startIso,
+    module: BACKEND_OUTAGE_MODULE,
+    code: BACKEND_OUTAGE_CODE,
+    message: 'Потеряна связь с сервером OHS — переподключение…',
+    sourceType: 'system',
+    interaction: 'system',
+    localization: 'internal',
+    correlationId: outageCorrelationId(startMs),
+    data: { since: startIso, backdated: true },
+  });
+}
+
+/**
+ * Финализация простоя на реконнекте: обновляет ту же строку (тот же correlationId + code + status →
+ * upsert на месте) на итоговую с длительностью и возвращает DTO для mock-POST (backdated ts = начало
+ * простоя). Echo POST'а по WS придёт с тем же id → дедуп на шине (без дубля).
+ */
+export function resolveBackendOutage(startMs: number, endMs: number): NotificationDto {
+  const durationSec = Math.max(1, Math.round((endMs - startMs) / 1000));
+  const startIso = new Date(startMs).toISOString();
+  const endIso = new Date(endMs).toISOString();
+  const correlationId = outageCorrelationId(startMs);
+  const id = `${correlationId}:done`;
+  const message = `Сервер OHS был недоступен · ${formatOutageDuration(durationSec)}`;
+  const data = { since: startIso, until: endIso, durationSec, backdated: true };
+  notify.critical(notificationBus, {
+    id,
+    ts: startIso,
+    module: BACKEND_OUTAGE_MODULE,
+    code: BACKEND_OUTAGE_CODE,
+    message,
+    sourceType: 'system',
+    interaction: 'system',
+    localization: 'internal',
+    correlationId,
+    data,
+  });
+  return {
+    id,
+    ts: startIso,
+    severity: 'critical',
+    sourceType: 'system',
+    module: BACKEND_OUTAGE_MODULE,
+    code: BACKEND_OUTAGE_CODE,
+    message,
+    status: null,
+    correlationId,
+    data,
+    interaction: 'system',
+    localization: 'internal',
+  };
+}

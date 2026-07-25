@@ -103,6 +103,8 @@ const SERIES_STRIKES_LIMIT = 500;
 
 /** Как часто перезапрашивать покрытие (живые гэпы внутри активной сессии). */
 const COVERAGE_POLL_MS = 12_000;
+/** Grace до объявления недоступности бэка (7j.20): глушим тривиальные блипы WS (HMR/быстрый рестарт). */
+const BACKEND_OUTAGE_GRACE_MS = 6_000;
 /** Как часто пересчитывать окно (ловим смену суток/рост экстента; для range — no-op). */
 const WINDOW_REFRESH_MS = 60_000;
 /** Сколько сессий в неделе при выключенных/включённых выходных. */
@@ -286,6 +288,12 @@ export class OhsStore {
   private windowTimer?: ReturnType<typeof setInterval>;
   private coveragePollTimer?: ReturnType<typeof setInterval>;
 
+  // Недоступность бэка (7j.20 mock optimistic): момент дропа WS (по часам клиента), grace-таймер до
+  // объявления, флаг «уже показали fatal». null ⇒ простоя нет.
+  private backendOutageStart: number | null = null;
+  private outageGraceTimer?: ReturnType<typeof setTimeout>;
+  private outageNotified = false;
+
   constructor(
     private readonly api: OhsApiClient = OhsApi,
     private readonly live?: Observable<LiveEvent>,
@@ -410,12 +418,17 @@ export class OhsStore {
     this.applyTimeframe(this.timeframe$.value);
     const stream =
       this.live ??
-      createLiveStream(undefined, () => {
-        this.refreshConnections();
-        this.refreshRecordings();
-        this.refreshCoverage();
-        this.refreshLiveness();
-      });
+      createLiveStream(
+        undefined,
+        () => {
+          this.refreshConnections();
+          this.refreshRecordings();
+          this.refreshCoverage();
+          this.refreshLiveness();
+          this.finalizeBackendOutage();
+        },
+        () => this.onBackendDrop(),
+      );
     this.liveSub = stream.subscribe({
       next: (event) => this.onLive(event),
       error: (err) => console.error('live stream error', err),
@@ -441,6 +454,54 @@ export class OhsStore {
       clearInterval(this.coveragePollTimer);
       this.coveragePollTimer = undefined;
     }
+    if (this.outageGraceTimer !== undefined) {
+      clearTimeout(this.outageGraceTimer);
+      this.outageGraceTimer = undefined;
+    }
+  }
+
+  /**
+   * Дроп WS после живой связи = потеря бэка (7j.20). Фиксируем начало простоя (первый дроп; повторные
+   * от WS-retry игнорируем) и через grace, если связь не вернулась, оптимистично показываем fatal.
+   */
+  private onBackendDrop(): void {
+    if (this.backendOutageStart !== null) {
+      return; // Уже отслеживаем этот простой.
+    }
+    this.backendOutageStart = Date.now();
+    this.outageNotified = false;
+    this.outageGraceTimer = setTimeout(() => {
+      this.outageGraceTimer = undefined;
+      if (this.backendOutageStart === null) {
+        return;
+      }
+      this.outageNotified = true;
+      void import('./notifications').then((m) => m.openBackendOutage(this.backendOutageStart!));
+    }, BACKEND_OUTAGE_GRACE_MS);
+  }
+
+  /**
+   * Реконнект: закрываем окно простоя. Блип в пределах grace (fatal не показывали) — тихо сбрасываем.
+   * Иначе финализируем строку (in-place) и POST'им её в NC с backdated ts (mock-behaviour optimistic).
+   */
+  private finalizeBackendOutage(): void {
+    if (this.outageGraceTimer !== undefined) {
+      clearTimeout(this.outageGraceTimer);
+      this.outageGraceTimer = undefined;
+    }
+    const start = this.backendOutageStart;
+    this.backendOutageStart = null;
+    if (start === null || !this.outageNotified) {
+      return;
+    }
+    this.outageNotified = false;
+    const end = Date.now();
+    void import('./notifications').then((m) => {
+      const dto = m.resolveBackendOutage(start, end);
+      this.api.postNotification(dto).subscribe({
+        error: (err) => console.error('postNotification', err),
+      });
+    });
   }
 
   /** Переключает активный раздел верхнего уровня (левый рейл). */

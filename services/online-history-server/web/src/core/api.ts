@@ -146,6 +146,9 @@ export const OhsApi = {
 
   getNotifications: (limit = 100) => getJSON<NotificationDto[]>(`/notifications?limit=${limit}`),
 
+  // Mock-POST внешнего NC (7j.20): публикуем уже сформированное уведомление (возможно с backdated ts).
+  postNotification: (dto: NotificationDto) => post<void>('/notifications', dto),
+
   connect: (connectionId: number) => post<ConnectionDto>(`/connections/${connectionId}/connect`),
   disconnect: (connectionId: number) =>
     post<ConnectionDto>(`/connections/${connectionId}/disconnect`),

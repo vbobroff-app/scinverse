@@ -71,6 +71,7 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
     applyScheduleBatch: () => of({ ok: true, applied: [], superseded: [] }),
     getConnectionScheduleHistory: () => of([]),
     getNotifications: () => of([]),
+    postNotification: () => of(undefined as unknown as void),
     connect: () => of(connection({ status: 'connected' })),
     disconnect: () => of(connection({ status: 'disconnected' })),
     test: () => of(connection()),

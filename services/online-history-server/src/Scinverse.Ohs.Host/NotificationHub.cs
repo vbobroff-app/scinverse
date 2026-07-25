@@ -49,6 +49,56 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         Dispatch(evt);
     }
 
+    /// <summary>Приём внешне-авторского уведомления (7j.20 — mock будущего внешнего NC). Клиент шлёт уже
+    /// сформированное событие с СОБСТВЕННЫМ <paramref name="id"/> и, возможно, ПРОШЛЫМ <paramref name="ts"/>
+    /// (backdated: событие произошло раньше доставки — напр. недоступность бэка детектит клиент, а POST
+    /// уходит только по реконнекту). Пишем в буфер/аудит-лог и broadcast'им ВЕРБАТИМ (id/ts клиента);
+    /// дедуп по id — на приёмнике (шина фронта). Это mock: позже тот же контракт уйдёт во внешний сервис.</summary>
+    public void Ingest(
+        string id,
+        DateTimeOffset ts,
+        string code,
+        string message,
+        string severity = "info",
+        string sourceType = "system",
+        string module = "ohs.connection",
+        JsonElement? data = null,
+        string? status = null,
+        string? correlationId = null)
+    {
+        NotificationDto evt;
+        lock (_gate)
+        {
+            var resolvedActor = ResolveActor(null, sourceType, module);
+            evt = new NotificationDto(
+                Id: id,
+                Ts: ts,
+                Severity: severity,
+                SourceType: sourceType,
+                Module: module,
+                Code: code,
+                Message: message,
+                Status: status,
+                CorrelationId: correlationId,
+                Data: data,
+                Interaction: ResolveInteraction(sourceType),
+                Localization: ResolveLocalization(sourceType),
+                ActorKind: resolvedActor.Kind,
+                ActorId: resolvedActor.Id,
+                ActorLabel: resolvedActor.Label,
+                Subject: null);
+
+            _buffer.Enqueue(evt);
+            _count++;
+            while (_count > DefaultCapacity && _buffer.TryDequeue(out _))
+            {
+                _count--;
+            }
+        }
+
+        Dispatch(evt);
+    }
+
     /// <summary>Открыть/подтвердить инцидент (status=active). Идемпотентно: повторный open активного — no-op.
     /// Новый инцидент по subject получает свежий <c>correlationId = subject:uid</c>.</summary>
     public bool Open(
@@ -244,3 +294,17 @@ public sealed record NotificationDto(
     string? Subject);
 
 public sealed record NotificationLiveEvent(NotificationDto Notification) : LiveEvent("notification");
+
+/// <summary>Тело mock-POST внешне-авторского уведомления (<c>POST /api/notifications</c>, 7j.20).
+/// <c>Ts</c> может быть в прошлом (backdated). <c>Id</c> — клиентский (дедуп по нему на шине).</summary>
+public sealed record IngestNotificationRequest(
+    string Id,
+    DateTimeOffset Ts,
+    string Code,
+    string Message,
+    string? Severity,
+    string? SourceType,
+    string? Module,
+    JsonElement? Data,
+    string? Status,
+    string? CorrelationId);

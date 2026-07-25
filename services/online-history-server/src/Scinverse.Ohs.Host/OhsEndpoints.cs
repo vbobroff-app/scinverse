@@ -386,6 +386,32 @@ public static class OhsEndpoints
         api.MapGet("/notifications", (NotificationHub hub, int? limit) =>
             hub.List(limit is > 0 and <= 500 ? limit : 100));
 
+        // Mock-POST внешнего NC (7j.20): клиент публикует уже сформированное событие с собственным id и,
+        // возможно, ПРОШЛЫМ ts (backdated) — напр. недоступность бэка детектит клиент, а POST уходит по
+        // реконнекту. Сейчас пишем в тот же хаб/аудит-лог; позже тот же контракт уйдёт во внешний сервис.
+        api.MapPost("/notifications", (IngestNotificationRequest req, NotificationHub hub) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Id)
+                || string.IsNullOrWhiteSpace(req.Code)
+                || string.IsNullOrWhiteSpace(req.Message))
+            {
+                return Results.BadRequest(new { error = "id, code, message обязательны" });
+            }
+
+            hub.Ingest(
+                req.Id,
+                req.Ts,
+                req.Code,
+                req.Message,
+                severity: string.IsNullOrWhiteSpace(req.Severity) ? "info" : req.Severity!,
+                sourceType: string.IsNullOrWhiteSpace(req.SourceType) ? "system" : req.SourceType!,
+                module: string.IsNullOrWhiteSpace(req.Module) ? "ohs.connection" : req.Module!,
+                data: req.Data,
+                status: req.Status,
+                correlationId: req.CorrelationId);
+            return Results.Accepted();
+        });
+
         api.MapGet("/connections", async (IConnectionStore store, ConnectionManager manager, CancellationToken ct) =>
         {
             var connections = await store.ListAsync(ct);
