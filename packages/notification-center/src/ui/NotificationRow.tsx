@@ -142,6 +142,7 @@ export function NotificationRow({
           <div className={styles.meta}>
             <span>code: {event.code}</span>
             <span>status: {status}</span>
+            {typeof event.data?.sender === 'string' && <span>sender: {event.data.sender}</span>}
             {event.correlationId &&
               (onFilterIncident ? (
                 <Tip content="Показать всю ленту этого инцидента">

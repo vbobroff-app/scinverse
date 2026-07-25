@@ -380,7 +380,7 @@ export function openBackendOutage(startMs: number): void {
     localization: 'internal',
     status: 'active',
     correlationId,
-    data: { since: startIso, backdated: true },
+    data: { since: startIso, backdated: true, sender: 'client', lines: ['Отправитель: фронт (нет связи с бэком)'] },
   });
 }
 
@@ -399,7 +399,7 @@ export function tickBackendOutage(startMs: number, nowMs: number): void {
     localization: 'internal',
     status: 'underway',
     correlationId: outageCorrelationId(startMs),
-    data: { since: new Date(startMs).toISOString(), durationSec },
+    data: { since: new Date(startMs).toISOString(), durationSec, sender: 'client' },
   });
 }
 
@@ -416,7 +416,7 @@ export function warnBackendOutage(startMs: number): void {
     localization: 'internal',
     status: 'underway',
     correlationId: outageCorrelationId(startMs),
-    data: { since: new Date(startMs).toISOString() },
+    data: { since: new Date(startMs).toISOString(), sender: 'client' },
   });
 }
 
@@ -438,7 +438,7 @@ export function resolveBackendOutage(startMs: number, endMs: number): Notificati
   const resolveId = guidN();
   const okMessage = 'Система восстановлена, сервер OHS функционирует штатно';
   const spanLine = `Недоступен ${mskHms(startMs)} → ${mskHms(endMs)} (МСК) · ${formatOutageDuration(durationSec)}`;
-  const resolveData = { since: thread.openTs, until: endIso, durationSec, backdated: true, lines: [spanLine] };
+  const resolveData = { since: thread.openTs, until: endIso, durationSec, backdated: true, sender: 'client', lines: [spanLine] };
 
   notify.ok(notificationBus, {
     id: resolveId,
@@ -464,7 +464,7 @@ export function resolveBackendOutage(startMs: number, endMs: number): Notificati
     message: 'Сервер OHS недоступен, жду восстановления',
     status: 'active',
     correlationId: thread.correlationId,
-    data: { since: thread.openTs, backdated: true },
+    data: { since: thread.openTs, backdated: true, sender: 'client', lines: ['Отправитель: фронт (нет связи с бэком)'] },
     interaction: 'system',
     localization: 'internal',
   };
