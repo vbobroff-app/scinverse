@@ -258,13 +258,17 @@ public sealed class ConnectionSupervisor(
             // как connection.recovered (испущен из ConnectAsync при закрытии инцидента) — второй раз не шумим.
             if (!incidentOpen)
             {
+                // Пометка «(Auto)» + первая строка expanded: это авто-подключение супервизора внутри окна
+                // расписания (не ручная команда оператора и не восстановление инцидента).
+                var lines = new List<string>(previousLines.Count + 1) { "Auto подключение внутри интервала расписания" };
+                lines.AddRange(previousLines);
                 notifications.Publish(
                     "connection.connected",
-                    $"{scheduleLabel}: связь установлена.",
+                    $"{scheduleLabel}: связь установлена (Auto)",
                     severity: "ok",
                     status: "resolved",
                     correlationId: corr,
-                    data: new { connectionId, lines = previousLines });
+                    data: new { connectionId, lines });
             }
 
             logger.LogInformation(

@@ -465,14 +465,17 @@ public static class OhsEndpoints
 
             var label = ConnectionManager.ConnLabel(id, connection.Name);
 
+            // Один топик на всю ручную попытку: команда оператора (user) + исполнение системой
+            // (connecting→connected/failed) под общим correlationId — единая нить в ленте.
+            var attempt = $"connection:{id}:connect:{Guid.NewGuid().ToString("N")[..8]}";
+
             // Команда оператора (user) — дискретное намерение, отдельной строкой (симметрично disconnect).
             notifications.Publish(
                 "connection.connect",
                 $"{label}: подключение по команде оператора",
-                severity: "info", sourceType: "user", data: new { connectionId = id });
+                severity: "info", sourceType: "user", correlationId: attempt, data: new { connectionId = id });
 
             // Далее — исполнение системой (system) как группа: connecting(жёлтый)→connected(зелёный)/failed(красный).
-            var attempt = $"connection:{id}:connect:{Guid.NewGuid().ToString("N")[..8]}";
             // «Предыдущее подключение» (QUIK-style) — до нового Heartbeat, иначе последним станет текущий сеанс.
             var previous = await linkLiveness.GetLastAsync(connection.SourceId, ct);
 
