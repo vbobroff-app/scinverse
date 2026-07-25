@@ -96,7 +96,10 @@ export class NotificationBus {
       if (!evt?.id || seen.has(evt.id)) {
         continue;
       }
-      if (evt.correlationId) {
+      // `critical` (FATAL) — всегда отдельное событие, не фаза-прогресс: несколько разных 500 в одной нити
+      // инцидента (один corr, code, status) должны остаться N строками, а не схлопнуться в одну (иначе
+      // live ≠ reload, см. nc-availability.md §9.4). Схлопываем/обновляем на месте только НЕ-critical.
+      if (evt.correlationId && evt.severity !== 'critical') {
         const status = resolveStatus(evt);
         const prev = lastByCorr.get(evt.correlationId);
         if (prev && prev.status === status && prev.code === evt.code) {
@@ -141,12 +144,16 @@ export class NotificationBus {
     this.eventsSubject.next(next);
   }
 
-  /** Оставляет по одной (новейшей) строке на `(correlationId, code, status)`; одиночные (без corr) — как есть. */
+  /**
+   * Оставляет по одной (новейшей) строке на `(correlationId, code, status)`; одиночные (без corr) — как есть.
+   * `critical` (FATAL) исключён: каждый — отдельное событие (напр. несколько разных 500 в одной нити), не
+   * фаза-прогресс, дедупится только по `id` (nc-availability.md §9.4).
+   */
   private dedupIncidentPhases(events: readonly NotificationEvent[]): NotificationEvent[] {
     const seenPhase = new Set<string>();
     const result: NotificationEvent[] = [];
     for (const e of events) {
-      if (!e.correlationId) {
+      if (!e.correlationId || e.severity === 'critical') {
         result.push(e);
         continue;
       }

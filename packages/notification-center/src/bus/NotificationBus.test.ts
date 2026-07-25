@@ -132,6 +132,18 @@ describe('NotificationBus', () => {
       ]);
     });
 
+    it('§9.4: multiple distinct FATALs in one incident stay N rows (not collapsed)', () => {
+      const bus = createNotificationBus();
+      bus.publish(evt({ id: 'o1', correlationId: 'c', code: 'backend.unavailable', severity: 'critical', status: 'active', message: 'down' }));
+      bus.publish(evt({ id: 'u1', correlationId: 'c', code: 'ohs.unhandled', severity: 'critical', status: 'active', message: '500 #1' }));
+      bus.publish(evt({ id: 'u2', correlationId: 'c', code: 'ohs.unhandled', severity: 'critical', status: 'active', message: '500 #2' }));
+      bus.publish(evt({ id: 'u3', correlationId: 'c', code: 'ohs.unhandled', severity: 'critical', status: 'active', message: '500 #3' }));
+      // Три разных 500 (один corr/code/status) — три отдельные строки, а не одна схлопнутая (live = reload).
+      const unhandled = bus.events.filter((e) => e.code === 'ohs.unhandled');
+      expect(unhandled.map((e) => e.id)).toEqual(['u3', 'u2', 'u1']);
+      expect(bus.events.map((e) => e.id)).toEqual(['u3', 'u2', 'u1', 'o1']);
+    });
+
     it('re-open (→ active) re-alerts via a fresh unread row', () => {
       const bus = createNotificationBus();
       notify.error(bus, { module: 'm', code: 'connection.lost', message: 'down', id: 'e1', correlationId: 'c', status: 'active' });
