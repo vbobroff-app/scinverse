@@ -306,6 +306,64 @@ Npgsql.PostgresException: 23505: duplicate key value violates unique constraint 
 
 ---
 
+## I8. Инцидент недоступности бэка: стек рассыпается после reload (v1 → v2)
+
+**Контекст.** Отдельная от I1–I7 нить: инцидент **доступности бэка** (`backend.*`, client-driven, бэк во
+время простоя мёртв), не инцидент связи с биржей. Полная модель, разбор и целевая спека — в
+[nc-availability.md](nc-availability.md) (детект §3, персист §4, два слоя исключений §6.1, спека v2 §9).
+Здесь — фиксация самих сложностей.
+
+**Симптом (живой тест 25.07.2026).**
+- После F5 стек инцидента **рассыпается**: втянутые `ohs.unhandled` (500) отвязываются от нити и всплывают
+  отдельными строками, часть — «раньше» открытия простоя (порядок групп плывёт).
+- Трижды дёрнул `GET /api/test-exception` — в live прилетел **один** FATAL; после reload — **все три**,
+  отдельными строками. Итог: **live ≠ reload**, история нечитаема.
+
+**Причины (три, тянут врозь).**
+1. Бэк вешает на **каждый** `ohs.unhandled` уникальный `correlationId = requestId` → в БД N разных 500 =
+   N нитей, ни одна не привязана к простою:
+
+```79:90:services/online-history-server/src/Scinverse.Ohs.Host/GlobalExceptionHandler.cs
+        notifications.Publish(
+            code: "ohs.unhandled",
+            message: "Внутренняя ошибка сервера: необработанное исключение (500)",
+            severity: "critical",
+            ...
+            correlationId: requestId);
+```
+
+2. Фолд `foldUnhandledIntoOutage` (см. [nc-availability.md](nc-availability.md) §6.1) живёт **только в
+   сессии** — в БД лежит оригинал с `requestId`, гидрация возвращает его мимо инцидента.
+3. `NotificationBus.dedupIncidentPhases` схлопывает по `(corr, code, status)` → N фолднутых 500 (один corr,
+   один code, один status) → в live остаётся **один**; в БД их N (разные corr). Плюс NC сортирует группы по
+   новейшему событию → после reload разные группы разъезжаются по времени.
+
+**Почему сложно (корень).** Правило «corr чеканит владелец БД». Сейчас БД = бэк = NC на одной машине; при
+простое бэк (= NC) мёртв → минтить corr некому → клиент минтит провизорный (`ohs.backend.outage:<startMs>`).
+Раскол авторства (500 = бэк-минт `requestId`, простой = клиент-минт `startMs`) и делал нить разорванной.
+Кросс-акторная координация (бэк дозакрывает нить, начатую клиентом) — территория внешнего NC
+([nc-availability.md](nc-availability.md) §8).
+
+**Решение (v2, согласовано — [nc-availability.md](nc-availability.md) §9).**
+- Ось **Sender** (`client`/`backend`/`supervisor`/`transaq`/`nc`), пока в `data.sender` + expanded, без
+  миграции (§9.1).
+- **Единый corr на инцидент + правило adopt**: автор первого персистимого события чеканит corr, остальные
+  adopt-ят; при эскалации 500→простой клиент берёт бэк-минтованный `requestId` (§9.2).
+- **Одиночный 500 → health-probe**: «Проверка работоспособности: OHS штатно» либо эскалация с adopt
+  `requestId`; висящих FATAL нет (§9.3).
+- **Дедуп только фаз-прогресса** (`*.progress`/`recovering`); отдельные fatal не схлопываем → видно все N,
+  как в БД (§9.4).
+- **Персист всего стека** (open + каждый fatal + warning + resolve), тики — нет (§9.5). Итог: **reload = live**.
+
+**Затрагивает.** `GlobalExceptionHandler` (corr активного инцидента вместо `requestId`, когда «held`),
+`ClientRecoveryGate`/`holdRecovery` (передача активного corr), `OhsStore` (health-probe + adopt, фолд не как
+механизм персиста), `NotificationBus.dedupIncidentPhases` (whitelist фаза-кодов), `notifications.ts` + бэк
+`Publish` (`data.sender`), NC-компонент (рендер sender в expanded). Миграций пока нет (`sender` в `data`).
+
+**Статус:** СПЕКА готова ([nc-availability.md](nc-availability.md) §9), код не начат.
+
+---
+
 ## Сводка решений
 
 | # | Проблема | Решение | Статус |
@@ -317,6 +375,7 @@ Npgsql.PostgresException: 23505: duplicate key value violates unique constraint 
 | I5 | AUTO-тумблер всегда янтарный (TZ-баг `isConnectedNow`) | считать `now` в TZ расписания (МSK-офсет) | ИСПРАВЛЕНО (ждёт проверки) |
 | I6 | После авто-реконнекта connected, но сделок нет (потеряна ре-подписка) | звать `OnLinkLiveAsync` на любом `Live` (идемпотентно), не гейтить `recovering` | ИСПРАВЛЕНО (ждёт приёмки) |
 | I7 | Гонка хартбитов → `duplicate key uq_*_liveness_open` при флапах | `pg_advisory_xact_lock(ns, sourceId)` в `HeartbeatAsync` (capture+link) | ИСПРАВЛЕНО (ждёт приёмки) |
+| I8 | Инцидент простоя бэка рассыпается после reload (live ≠ reload) | Sender + единый corr (adopt) + дедуп только фаз + персист всего стека ([nc-availability.md](nc-availability.md) §9) | СПЕКА (§9), код не начат |
 
 Следующий шаг — по этому issue составить план (последовательность, миграция, критерии приёмки).
 
