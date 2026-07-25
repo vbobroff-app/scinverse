@@ -114,6 +114,24 @@ describe('NotificationBus', () => {
       expect(bus.unreadAlertCount).toBe(0);
     });
 
+    it('re-entering a phase after another evicts the stale duplicate (no two ERRORs)', () => {
+      const bus = createNotificationBus();
+      // error-тик → warning → фолд 500 → error-тик снова (сценарий инцидента простоя с втянутым 500).
+      bus.publish(evt({ id: 'e1', correlationId: 'c', code: 'backend.unavailable.progress', status: 'underway', message: '46 c' }));
+      bus.publish(evt({ id: 'w1', correlationId: 'c', code: 'backend.recovering', status: 'underway', message: 'recovering' }));
+      bus.publish(evt({ id: 'f1', correlationId: 'c', code: 'ohs.unhandled', severity: 'critical', status: 'active', message: '500' }));
+      bus.publish(evt({ id: 'e2', correlationId: 'c', code: 'backend.unavailable.progress', status: 'underway', message: '57 c' }));
+      // Одна error-строка (новейшая), прежняя (замершая) вытеснена; прочие фазы сохранены.
+      const errors = bus.events.filter((e) => e.code === 'backend.unavailable.progress');
+      expect(errors.map((e) => e.id)).toEqual(['e2']);
+      expect(errors[0]?.message).toBe('57 c');
+      expect(bus.events.map((e) => e.code)).toEqual([
+        'backend.unavailable.progress',
+        'ohs.unhandled',
+        'backend.recovering',
+      ]);
+    });
+
     it('re-open (→ active) re-alerts via a fresh unread row', () => {
       const bus = createNotificationBus();
       notify.error(bus, { module: 'm', code: 'connection.lost', message: 'down', id: 'e1', correlationId: 'c', status: 'active' });

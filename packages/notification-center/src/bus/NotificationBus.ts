@@ -130,9 +130,34 @@ export class NotificationBus {
         return e;
       });
     }
+    // Инвариант фазы инцидента: в рамках correlationId — одна строка на (code, status). Возврат в фазу
+    // (напр. error→warning→фолд 500→error) добавляется новой строкой сверху, но прежняя (замершая) того же
+    // (code, status) не должна оставаться в стеке — иначе два ERROR с разным временем. Лента newest-first,
+    // поэтому оставляем первое (новейшее) вхождение фазы, прежние вытесняем. События без correlationId
+    // (одиночные) не трогаем.
+    combined = this.dedupIncidentPhases(combined);
     const next = combined.slice(0, this.limit);
     this.pruneReadIds(next);
     this.eventsSubject.next(next);
+  }
+
+  /** Оставляет по одной (новейшей) строке на `(correlationId, code, status)`; одиночные (без corr) — как есть. */
+  private dedupIncidentPhases(events: readonly NotificationEvent[]): NotificationEvent[] {
+    const seenPhase = new Set<string>();
+    const result: NotificationEvent[] = [];
+    for (const e of events) {
+      if (!e.correlationId) {
+        result.push(e);
+        continue;
+      }
+      const key = `${e.correlationId}\u0000${e.code}\u0000${resolveStatus(e)}`;
+      if (seenPhase.has(key)) {
+        continue;
+      }
+      seenPhase.add(key);
+      result.push(e);
+    }
+    return result;
   }
 
   clear(): void {
