@@ -1,12 +1,11 @@
 # Phase 7j — Issues: инциденты связи и точность разрыва
 
-Статус: **КОД ГОТОВ** (I1–I7 реализованы; ждёт живой приёмки на Finam id=3 после рестарта бэка и
-применения миграции V026). Диагностика I1–I5 — по живому тесту 23.07.2026; **I6, I7** — по живому тесту
-24.07.2026 (I6: после авто-реконнекта связь зелёная, но сделок нет — потеряна ре-подписка; I7: гонка
-хартбитов живости → `duplicate key uq_*_liveness_open` при флапах связи).
+Статус: **I1–I8 РЕАЛИЗОВАНО** (связь + backend-outage v2; миграции **V026/V027**). Диагностика I1–I5 —
+живой тест 23.07.2026; I6/I7 — 24.07.2026; I8 — 25–26.07.2026 ([nc-availability.md](nc-availability.md)).
+Часть сценариев принята на Finam id=3. Остаток фазы 7j — **7j.15/7j.16** + UI NC ([todo.md](todo.md)).
 
 Связано: [auto-connect.md](auto-connect.md), [error-handling.md](error-handling.md), [report.md](report.md),
-7h (лента Connection / `link_liveness`).
+[incident.md](incident.md), 7h (лента Connection / `link_liveness`).
 
 ---
 
@@ -360,7 +359,7 @@ Npgsql.PostgresException: 23505: duplicate key value violates unique constraint 
 механизм персиста), `NotificationBus.dedupIncidentPhases` (whitelist фаза-кодов), `notifications.ts` + бэк
 `Publish` (`data.sender`), NC-компонент (рендер sender в expanded). Миграций пока нет (`sender` в `data`).
 
-**Статус:** СПЕКА готова ([nc-availability.md](nc-availability.md) §9), код не начат.
+**Статус:** РЕАЛИЗОВАНО ([nc-availability.md](nc-availability.md) §9; коммиты `8bdfc6c`, `f9595d2`, `735690a`).
 
 ---
 
@@ -368,16 +367,16 @@ Npgsql.PostgresException: 23505: duplicate key value violates unique constraint 
 
 | # | Проблема | Решение | Статус |
 |---|---|---|---|
-| I1 | Плановый disconnect = «оператором» | `LinkCloseReason.Scheduled` + миграция | РЕАЛИЗОВАНО (V026, ждёт рестарта/приёмки) |
-| I2 | `recovered` не приходит после реконнекта | идемпотентный `Resolve` на `Live` | РЕАЛИЗОВАНО (ждёт приёмки) |
-| I3 | Короткий разрыв данных невидим | watchdog по сделкам (T=15 c) + ping-подтверждение → `lost`(error) + честный интервал + длительность | РЕАЛИЗОВАНО (ждёт приёмки) |
-| I4 | `connected` перегруженный заголовок | чистый заголовок + expanded, оба пути | РЕАЛИЗОВАНО (ждёт приёмки) |
-| I5 | AUTO-тумблер всегда янтарный (TZ-баг `isConnectedNow`) | считать `now` в TZ расписания (МSK-офсет) | ИСПРАВЛЕНО (ждёт проверки) |
-| I6 | После авто-реконнекта connected, но сделок нет (потеряна ре-подписка) | звать `OnLinkLiveAsync` на любом `Live` (идемпотентно), не гейтить `recovering` | ИСПРАВЛЕНО (ждёт приёмки) |
-| I7 | Гонка хартбитов → `duplicate key uq_*_liveness_open` при флапах | `pg_advisory_xact_lock(ns, sourceId)` в `HeartbeatAsync` (capture+link) | ИСПРАВЛЕНО (ждёт приёмки) |
-| I8 | Инцидент простоя бэка рассыпается после reload (live ≠ reload) | Sender + единый corr (adopt) + дедуп только фаз + персист всего стека ([nc-availability.md](nc-availability.md) §9) | СПЕКА (§9), код не начат |
+| I1 | Плановый disconnect = «оператором» | `LinkCloseReason.Scheduled` + миграция | РЕАЛИЗОВАНО |
+| I2 | `recovered` не приходит после реконнекта | идемпотентный `Resolve` / `CloseIncidentAsync` | РЕАЛИЗОВАНО |
+| I3 | Короткий разрыв данных невидим | watchdog + `lost` + длительность в `recovered` | РЕАЛИЗОВАНО |
+| I4 | `connected` перегруженный заголовок | чистый заголовок; expanded → JSON `result`+`sender` (не `lines`) | РЕАЛИЗОВАНО |
+| I5 | AUTO-тумблер всегда янтарный | `isConnectedNow` в TZ расписания | РЕАЛИЗОВАНО |
+| I6 | После авто-реконнекта нет сделок | `OnLinkLiveAsync` на любом `Live` | РЕАЛИЗОВАНО |
+| I7 | Гонка хартбитов / duplicate key | `pg_advisory_xact_lock` в Heartbeat | РЕАЛИЗОВАНО |
+| I8 | Простой бэка: live ≠ reload | Sender + единый corr + персист стека + warn-before-ok | РЕАЛИЗОВАНО |
 
-Следующий шаг — по этому issue составить план (последовательность, миграция, критерии приёмки).
+Остаток 7j: 7j.15/7j.16 + UI NC ([todo.md](todo.md)). Вынос Admin Front + NC — gate 11→12 ([../plan.md](../plan.md)).
 
 **Вне scope 7j (уровень данных).** Задержка ~3 мин до «первых данных» после connect (зелёный `waiting`
 не сменяется голубым `active`) — это **data-path**: блокирующая регистрация справочника инструментов в

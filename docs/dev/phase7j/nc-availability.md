@@ -1,7 +1,8 @@
 # Phase 7j — Недоступность бэка и контекст удалённого хоста NC
 
-Статус: **КОД: инцидент недоступности бэка (client-driven) готов · крэш-регрессия закрыта · внешний NC —
-mock optimistic, реализуем позже**. Реализовано 2026-07-25.
+Статус: **КОД ГОТОВ · приёмка на живом (два стека + reload=live)**. §9 (единый corr, health-probe,
+warn-before-ok, persist стека, sort by `ts`) + system expanded JSON (`fd3e93e`). Коммит стека —
+`8bdfc6c`. Внешний NC-server — gate 11→12 / to-be C4. **Обновлено:** 2026-07-26.
 
 Связано: [error-handling.md](error-handling.md) (§8/§8.1 — краткая выжимка ссылается сюда),
 [incident.md](incident.md) (инциденты **связи** — отдельная нить), [report.md](report.md).

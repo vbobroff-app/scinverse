@@ -131,10 +131,9 @@ Single-flight connect только через `ConnectionManager` (не дубл
   глобальный `IExceptionHandler`; severity по смыслу перехода (applied=info/cleared=warning/recreated=ok),
   user/system-дисциплина, `correlationId=batchId`, попап без оптимизма. Каталог и детали —
   [error-handling.md](error-handling.md), сводки — [notify-composer.md](notify-composer.md).
-- **7j.18 — авто-connect и инциденты** (код готов, приёмка): подтянуть `ConnectionSupervisor`/`ConnectionManager`
-  к эталону ручного connect — имя `Подключение {id} («{name}»)` (id первичен), `connected/recovered=ok`,
-  `connecting/reconnecting=warning`, общий `correlationId` на авто-серию/инцидент, `sourceType=system`.
-  Аудит текущего состояния, целевой каталог и приёмочная матрица — [auto-connect.md](auto-connect.md).
+- **7j.18–7j.20 — КОД ГОТОВ:** auto-connect NC ([auto-connect.md](auto-connect.md)), I1–I8
+  ([issue.md](issue.md)), связь v2 ([incident.md](incident.md)), backend-outage v2
+  ([nc-availability.md](nc-availability.md)), system expanded = JSON.
 
 ### Креды
 

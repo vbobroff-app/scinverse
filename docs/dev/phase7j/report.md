@@ -1,9 +1,7 @@
 # Phase 7j — report: расписание соединения
 
-**Статус:** `DONE` по ядру (v1 MVP + v2 якорная модель / dow-исключения + двухшаговый diff-approve +
-Notification Composer + **атомарный batch (Saga) и обработка исключений**). 7j.18 (Auto-connect NC) и
-**7j.19 (инциденты связи + точность разрыва)** — `КОД ГОТОВ · приёмка`. Остаток: 7j.15/7j.16
-(профиль/`date`-авторинг). **Обновлено:** 2026-07-24.
+**Статус:** ядро + 7j.17–7j.20 **КОД ГОТОВ** (связь v2, backend-outage v2, system-NC JSON). Остаток фазы:
+7j.15/7j.16 (профиль / `date`-авторинг) + UI-мелочи NC ([todo.md](todo.md)). **Обновлено:** 2026-07-26.
 
 Актуальный статус фазы. Обновляется по мере выполнения задач из [plan.md](plan.md) /
 [apply.md](apply.md). Якорная модель + слоистые исключения — [v2-exceptions.md](v2-exceptions.md).
@@ -30,15 +28,18 @@ Notification Composer + **атомарный batch (Saga) и обработка 
 | 7j.15 | **Market / calendar profile** на schedule settings (не на rule); UI без хардкода MOEX | PLANNED | см. [market-profile.md](market-profile.md) |
 | 7j.16 | **`date`-авторинг на фронте** (static-исключения) + пагинация графика по месяцам | PLANNED | см. [todo.md](todo.md) |
 | 7j.17 | **Обработка исключений расписания:** атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler` + severity-модель (applied=info / cleared=warning / recreated=ok, 2a/2b) + попап без оптимизма (баннер + Retry); удалены одиночные rule/cancel/compose | DONE | см. [error-handling.md](error-handling.md); коммиты `86bd497`, `e1ed5b7` |
-| 7j.18 | **Auto-connect NC & incident hardening:** имя `Подключение {id} («{name}»)` в supervisor/manager (кэш-helper `ResolveLabelAsync`/`ConnLabel`), `connected=ok`, `connecting=warning+underway`, общий `correlationId` авто-серии, имя в `lost`/`recovered`/`reconnecting`/`schedule_disconnect`; **`connection.auto_error`** (system·error + дедуп) на сбой тика супервизора | КОД ГОТОВ · приёмка | см. [auto-connect.md](auto-connect.md); dotnet build solution 0 |
-| 7j.19 | **Инциденты связи + точность разрыва (I1–I5):** причина `LinkCloseReason.Scheduled` (миграция V026) + `DisconnectAsync(reason)` + фронт-легенда (I1); идемпотентный `recovered` через `_incidentSince`, переживающий передисконнект реконнекта (I2); watchdog стелс-разрыва (`ReportStallAsync`: тишина сделок + провал пинга → `lost` на `lastTradeAt`, дедуп) + длительность перерыва в `recovered` (I3); чистый заголовок `connected` + детали в `data.lines`, оба пути (I4); TZ-фикс AUTO-тумблера `isConnectedNow` в МСК (I5) | КОД ГОТОВ · приёмка | см. [issue.md](issue.md); dotnet build 0 + 131 unit ✓; коммиты `22cd62d`, `68151e0` |
-| 7j.20 | **Инциденты связи v2:** один бит здоровья (любой уход из `Live` = инцидент, вкл. `Degraded`); severity=**error** (удар по данным) отдельно от **owner** (TRANSAQ→supervisor через `t`=`LinkRecoverGraceSeconds`); NC `lost`/`recovering`/`reconnecting`/`recovered`; **хранение handover = склейка дырок** (простой = ОДНА дырка, `EscalatedAt` только для раскраски); connection-ribbon v2 (маркеры 1px + тело по owner); recording-ribbon бинарный (7h, H1–H2) | **КОД: J1–J8 готовы (весь 7j)** · остаток H1/H2 (7h) | спека [incident.md](incident.md); коммиты `5ffc58c`, `05524f1`, `482f678`, `3c1c267` |
+| 7j.18 | **Auto-connect NC & incident hardening:** имя `Подключение {id} («{name}»)` в supervisor/manager, `connected=ok`, `connecting=warning+underway`, общий corr авто-серии, `connection.auto_error` | **КОД ГОТОВ** | [auto-connect.md](auto-connect.md) |
+| 7j.19 | **Инциденты связи + точность разрыва (I1–I5)** | **КОД ГОТОВ** | [issue.md](issue.md); `22cd62d`, `68151e0` |
+| 7j.20 | **Инциденты связи v2 (J1–J8)** + **backend-outage v2 (§9)** + **system NC → JSON** | **КОД ГОТОВ** · H1/H2 → 7h | [incident.md](incident.md) · [nc-availability.md](nc-availability.md); `5ffc58c`…`3c1c267`, `8bdfc6c`, `fd3e93e` |
 
 ## Лог выполнения
 
 | Дата | Действие | Результат |
 |------|----------|-----------|
-| 2026-07-26 | **7j.20 — стек простоя: к OK только через WARNING + ось temporary (§9.2 / §9.8).** Инвариант: не `FATAL→OK`; перед resolve всегда recovering. Пачка mid-stack 500 → один warn после кулдауна (не warn на каждый 500); пример стека в §9.2. `backend.recovering` discrete; `since` из warning убран. Temporary = «хранить или нет» (тики) — на вынос NC (§8 п.7, §9.8). | NC-bus + web ✓; doc nc-availability §9.2/9.4/9.8 |
+| 2026-07-26 | **Docs handoff:** актуализация `phase7j/*` + [`docs/promt.md`](../../promt.md) §7–8 для нового чата (очередь 7j.15/16, gate 11→12, инварианты NC). | документы |
+| 2026-07-26 | **7j.20 — system NC expanded = JSON.** Заголовки короткие; детали в `data.result` / `error_message` + `sender` (`connect_failed`, `connected`, `recovered`, `auto_error`, `storage_error`, `ohs.unhandled`, backend-outage). User-уведомления расписания — по-прежнему `lines[]`. Коммит `fd3e93e`. | Host + unit ConnectFailedNotify ✓ |
+| 2026-07-26 | **Архитектура to-be + gate перед WebGL.** C4: NC, dual front (Admin/Product) + MFE, Keycloak. В `docs/dev/plan.md` — **gate 11→12** (вынос Admin Front + NC до phase 12). Коммит `8b6825e`. | [arch.md](../../architecture/c4/arch.md) |
+| 2026-07-26 | **7j.20 — стек простоя: warn-before-ok + temporary (§9.2/§9.8) + приёмка.** Не `FATAL→OK`; пачка 500 → один warn; live=reload без progress ERROR. Коммит `8bdfc6c`. | NC-bus + web ✓ |
 | 2026-07-25 | **7j.20 — порядок стека после reload: newest-first по `ts` на шине (§9.5.1).** Симптом: live `ok→warning→fatal`, после reload `ok→fatal→warning` (warning «внизу»). Причина: insert-порядок mock-POST ≠ event-time (`warning` раньше, backdated `open` вместе с resolve). Фикс: `NotificationBus.sortNewestFirstByTs` — контракт ленты = время события. Временно на клиенте, пока NC на Host; при выносе NC-server — `List` по `ts` (§8 п.6). Doc: [nc-availability.md](nc-availability.md) §9.5.1 / §8.6 / §9.7.5 | NC-bus 41 ✓ |
 | 2026-07-25 | **7j.20 — недоступность бэка v2: единый corr, health-probe, персист всего стека (§9, reload=live).** Закрыт разрыв «live ≠ reload» инцидента простоя. **§9.2 единый corr (бэк):** `ClientRecoveryGate` держит `ActiveCorrelationId` (независимо от одноразового стартового барьера); `POST /api/recovery/hold` теперь несёт `{correlationId}` → `Hold()`+`SetActiveIncident`, `backend.recovered` → `Release()`+`ClearActiveIncident`; `GlobalExceptionHandler` штампует `ohs.unhandled` corr'ом активного инцидента (пока клиент held), иначе `requestId` — так каждый 500 во время recovery персистится в ТУ ЖЕ нить самим бэком (фолд на клиенте убран). **§9.3 одиночный 500:** нет активного инцидента → `OhsStore.probeHealthAfterFatal` пробит `getConnections`; жив → `healthCheckOk` (ok под тем же `requestId`, инцидент НЕ заводим); упал → `onBackendDrop` наследует corr 500 (**adopt**, окно 15 c) → весь стек одной нитью. **§9.5 персист стека:** mock-POST open + warning (стабильный `warnId`, одна строка) + resolve + health-ok; тики (progress) НЕ POST-им; каждый 500 — на бэке. **§9.1 Sender:** `data.sender` = `client`/`backend`, рендер в expanded (коммиты `f9595d2`/`735690a`). **§9.4:** `critical` не схлопывается — N разных 500 = N строк. Doc: [nc-availability.md](nc-availability.md) §9 (реализовано), [issue.md](../phase7h/issue.md) I8 | Host build 0/0 · API 10 ✓; web tsc 0 / eslint 0 err / vitest 104 ✓; NC-bus 40 ✓; приёмка на живом — за пользователем |
 | 2026-07-25 | **7j.20 — недоступность бэка как ИНЦИДЕНТ + контекст внешнего NC (спека + код).** Отдельный от линка к бирже сигнал доступности **client↔backend**: клиент детектит дроп WS (`live.ts` `closeObserver→onDrop`) и **сам ведёт инцидент** (бэк во время простоя мёртв — оркестратор-хаб недоступен). Стек 4 фаз под единым `correlationId` per-outage: **fatal** (open) → **error** (progress, живые тики 5 c, I2 upsert) → **warning** (бэк на связи, идёт восстановление) → **ok** (resolve). Стейт-машина `OhsStore`: grace 6 c (глушит блипы HMR) → open+тики → re-open+refresh → warning → settle 5 c без нового дропа → resolve; повторный дроп в warning/settle (crash-loop) → тот же инцидент назад в error. Граница «штатно» = бэк отвечает + ре-синхр, НЕ «коннектор подключён». **mock-POST** `POST /api/notifications`→`NotificationHub.Ingest` пишет `open+resolve` задним числом (id=Guid-N, backdated ts, echo дедупится); длительность в expanded resolve. **Крэш-регрессия закрыта:** первый вариант слал не-Guid id → `NotificationPersistWriter.ToRecord`(`Guid.ParseExact`) кидал `FormatException` вне try/catch → `StopHost` ронял весь Host (и терял fatal). Фикс: per-item guard `TryMap` (битое событие не роняет процесс) + Guid-N id + валидация 400. **Контекст выноса NC во внешний сервис** (mock optimistic, backdated-контракт, боли дедупа/авторитетности/durability) — задокументирован. Спека → [nc-availability.md](nc-availability.md); [error-handling.md](error-handling.md) §8 — краткий указатель. Приёмка на живом: все 4 фазы одной нитью, длительность бьётся, переживает reload | tsc 0 · web vitest 103 ✓; Host compile 0/0; коммиты `046ce1a`, `8f85968`, `9cf2fdb` |
@@ -91,7 +92,8 @@ Notification Composer + **атомарный batch (Saga) и обработка 
 - Полоса Связь в `InstrumentPicker`/`ConnectionLane`: Auto + Расписание
 - `OhsStore.connectionSchedule$: Map<id, ConnectionScheduleStateDto>`; `applyConnectionScheduleBatch` (**один** `POST …/schedule/batch` + `handlers.onSuccess/onError`; при обрыве сети — клиентский `notify.error`); WS `notification` → `publishServerNotification`
 - Попап `commit()` — без оптимистичного закрытия: на сбое остаётся с баннером `commitError` + кнопкой «Повторить», закрывается только при успехе
-- `NotificationRow` рендерит `data.lines` столбиком; демо-лента под `VITE_NC_DEMO=1`; `window.__ohsStore` (dev) для симуляции live-push
+- System-уведомления: expanded = JSON (`result` / `error_message` + `sender`); user schedule — `data.lines[]`
+- Демо-лента под `VITE_NC_DEMO=1`; `window.__ohsStore` (dev)
 
 ## Итог
 
@@ -105,17 +107,14 @@ approve** (diff-превью kept/added/removed), guardrail на правку о
 рыночный профиль — перспектива (7j.15–7j.16). Детали — [v2-exceptions.md](v2-exceptions.md),
 [notify-composer.md](notify-composer.md).
 
-## Что проверить локально
+## Что проверить локально / регресс
 
-> **7j.19 приёмка (Finam id=3, требует рестарта Host для миграции V026):** авто-connect → `connected`
-> с чистым заголовком + детали в expanded (I4); VPN off ~30–60 c → `lost`(error), после реконнекта →
-> `recovered` со строкой «Перерыв HH:MM:SS (… МСК)» (I2+I3); конец окна → `schedule_disconnect`(info),
-> на ленте Connection серый разрыв «Плановое отключение по расписанию» (I1); AUTO-тумблер зелёный
-> вне окна при поднятом Auto (I5). Матрица — [plan.md](plan.md) §критерии 7j.19, диагностика — [issue.md](issue.md).
+Миграции до **V027**. Host + web (`pnpm dev`). Матрицы — [plan.md](plan.md) §7j.19/§7j.20;
+backend-outage — [nc-availability.md](nc-availability.md) §9.
 
-1. Остановить Host, применить миграции (до **V026** включительно), перезапустить Host.
-2. Открыть «Расписание»: скоуп `Все` (основное) → окно на ленте → Утвердить; затем `Сб, Вс` →
-   своё окно → Утвердить. В недельном обзоре Пн–Пт = основное, Сб/Вс = исключение.
-3. Включить Auto → в окне connect, вне окна disconnect (synthetic/Finam).
-4. «Снять» правило в обзоре → fallback на нижний уровень; ручной disconnect тумблера → Auto off.
-5. Уведомления `connection.*` и `connection.schedule.*` в доке.
+1. Расписание: скоуп `Все` → Утвердить; `Сб, Вс` → своё окно → Утвердить; Auto on/off.
+2. Связь: VPN/кабель → одна нить `lost`→`recovering`/`reconnecting`→`recovered`; Degraded ≤ grace = owner TRANSAQ.
+3. Конец окна → `schedule_disconnect` + серый `scheduled` на ленте Connection.
+4. System expanded = JSON (`result`/`error_message`/`sender`); user schedule — `lines[]`.
+5. Backend-outage: не FATAL→OK; пачка 500 → один warn; reload = live (без progress ERROR ticks).
+6. `dotnet build` / `dotnet test`; web `tsc` + vitest; NC-bus vitest.

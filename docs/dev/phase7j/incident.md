@@ -1,12 +1,11 @@
 # Phase 7j — Инциденты связи (connection): модель, владение, хранение, визуализация
 
-Статус: **КОД: J1–J8 готовы (весь scope 7j) · остаток H1/H2 (7h)** (модель зафиксирована 2026-07-24 по
-живому разбору Finam id=3, реализация connection-ядра — там же; см. §8 «Что дорабатываем»). Это спецификация
-**connection-уровня**. Уровень **данных/записи** (recording-лента оператора, `capture_liveness`,
-`md_trade`) — в 7h, см. [../phase7h/incident.md](../phase7h/incident.md).
+Статус: **J1–J8 КОД ГОТОВ** · остаток **H1/H2** (recording-ribbon) → 7h. Модель 2026-07-24; живая
+приёмка части сценариев на Finam id=3. Спека **connection-уровня**. Данные/запись — 7h
+([../phase7h/incident.md](../phase7h/incident.md)). Обновлено: 2026-07-26.
 
-Связано: [auto-connect.md](auto-connect.md) (супервизор), [issue.md](issue.md) (I1–I7),
-[../phase7h/incident.md](../phase7h/incident.md) (модель данных/записи).
+Связано: [auto-connect.md](auto-connect.md), [issue.md](issue.md) (I1–I8),
+[nc-availability.md](nc-availability.md) (простой бэка — другая нить).
 
 ---
 

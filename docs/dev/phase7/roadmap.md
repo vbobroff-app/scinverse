@@ -41,14 +41,15 @@
 | 7g | Слой сделок: присутствие торгов по бакетам (лесенка), app-кэш, `/coverage/activity` | 2 | DONE | [7g](../phase7g/plan.md) |
 | **7h** | **Честная подложка: recovery, живость захвата, автомат связи, красная разметка разрывов** | **2** | **DONE** | [7h](../phase7h/report.md) |
 | 7i | «Управление записью»: полуавтомат Auto + Supervisor (MOEX) | 3 | IN PROGRESS | [7i](../phase7i/apply.md) |
-| **7j** | **Расписание соединения: Auto Connection + Supervisor + якорная модель + слоистые исключения (main/dow/date, SCD-2) + notify** | **3** | **DONE** | [7j report](../phase7j/report.md) · [v2-exceptions](../phase7j/v2-exceptions.md) |
+| **7j** | **Расписание соединения + инциденты v2 + backend-outage; остаток 7j.15/7j.16** | **3** | **7j.17–7j.20 ГОТОВ** | [7j report](../phase7j/report.md) · [promt §8](../../promt.md) |
 
 ## Текущий фокус (цель 2 → цель 3)
 
 **Разрывы (7h) — DONE.** Гант честно показывает обрыв связи (красным) vs тихий рынок.
 
-**Текущий фокус — [7j](../phase7j/apply.md):** расписание Connection (Auto в полосе Связь, окно суток,
-Supervisor connect/disconnect). Запись (7i) остаётся проекцией живой связи и **не** поднимает линк.
+**7j ядро + инциденты (7j.17–7j.20) — КОД ГОТОВ.** Очередь в 7j: market profile / `date`-авторинг
+([todo.md](../phase7j/todo.md)). Запись (**7i**) — проекция живой связи, **не** поднимает линк.
+Handoff нового чата — [`docs/promt.md`](../../promt.md) §8. Gate перед WebGL — 11→12 в [`dev/plan.md`](../plan.md).
 
 Справка: модель трёх слоёв (реализована в 7h):
 

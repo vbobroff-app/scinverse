@@ -26,19 +26,22 @@ REST/WebSocket наружу + админ-фронт для управления 
 ```
 scinverse/
 ├─ README.md                     # обзор монорепо (+ mermaid)
-├─ docs/                         # вся документация (docs-as-code) — см. §3
-├─ db/Scinverse.Db.Migrator/     # DbUp-мигратор (SQL-first, V001…V00N)
+├─ docs/                         # docs-as-code — см. §3; вход нового чата = docs/promt.md §8
+├─ docs/architecture/c4/         # C4 PlantUML to-be (NC, dual front, Keycloak)
+├─ tools/plantuml/               # Local plantuml.jar (gitignore) + README
+├─ packages/notification-center/ # NC UI-пакет (шина, dock) — to-be → отдельный сервис/MFE
+├─ db/Scinverse.Db.Migrator/     # DbUp (SQL-first, V001…V027+)
 └─ services/online-history-server/
    ├─ src/                       # backend (.NET 8)
-   │  ├─ Scinverse.Ohs.Domain            # доменные модели/интерфейсы (InstrumentKey, MoexSchedule, …)
-   │  ├─ Scinverse.Ohs.Contracts         # DTO + IOhsApi (контракт REST)
+   │  ├─ Scinverse.Ohs.Domain            # домен (InstrumentKey, schedule, link_liveness, …)
+   │  ├─ Scinverse.Ohs.Contracts         # DTO + IOhsApi
    │  ├─ Scinverse.Ohs.Ingestion         # нормализация/батчинг
-   │  ├─ Scinverse.Ohs.Storage.Timescale # Npgsql COPY / Dapper (writers, stores)
-   │  ├─ Scinverse.Ohs.Connectors.Transaq# коннекторы (TRANSAQ, SyntheticLive), фабрика, креды
-   │  └─ Scinverse.Ohs.Host              # ASP.NET Core (Minimal API + /ws), композиционный корень
-   ├─ tests/                     # UnitTests, IntegrationTests (Testcontainers), ApiTests
-   └─ web/                       # admin frontend (React + TS + Vite + RxJS + Vitest)
-      └─ src/{core,ui}           # core = framework-agnostic (RxJS), ui = React
+   │  ├─ Scinverse.Ohs.Storage.Timescale # Npgsql COPY / Dapper
+   │  ├─ Scinverse.Ohs.Connectors.Transaq# TRANSAQ, SyntheticLive
+   │  └─ Scinverse.Ohs.Host              # Minimal API + /ws + NotificationHub (mock NC)
+   ├─ tests/
+   └─ web/                       # admin frontend (монолит; to-be — Admin Front)
+      └─ src/{core,ui}
 ```
 
 ## 3. Индекс документации
@@ -50,11 +53,11 @@ scinverse/
   CA); почему не DOM/canvas, выбор фреймворка, подводный камень zoom ⟂ проекция (реализация — phase 12).
 - [`README.md`](../README.md) — обзор монорепо.
 
-**Архитектура**
-- [`docs/architecture/db-design.md`](./architecture/db-design.md) — решения по модели данных (Р1–Р5:
-  нормализация, `derivative`, мультиисточник, OrderLog/Plaza2 и т.д.).
-- [`docs/architecture/c4/arch.md`](./architecture/c4/arch.md) — C4-диаграммы (PlantUML), контекст/контейнеры.
-- [`docs/architecture/ui-charting.md`](./architecture/ui-charting.md) — идеи по чартингу/UI.
+**Архитектура (to-be)**
+- [`docs/architecture/c4/arch.md`](./architecture/c4/arch.md) — **читать:** C4 to-be (NC, dual front MFE,
+  Keycloak, OHS control-plane). Превью PlantUML: Local jar `tools/plantuml` (см. README там).
+- [`docs/architecture/db-design.md`](./architecture/db-design.md) — модель данных (Р1–Р5).
+- [`docs/architecture/ui-charting.md`](./architecture/ui-charting.md) — product-чартинг (не админка).
 
 **Код (обзор реализованного)**
 - [`docs/solution/code.md`](./solution/code.md) — что реализовано по проектам (backend + frontend),
@@ -89,12 +92,13 @@ scinverse/
 | 7g | Слой сделок на Ганте: присутствие торгов по бакетам (лесенка), app-кэш `V008`, `/coverage/activity` | DONE | [phase7g](./dev/phase7g/plan.md) |
 | **7h** | **Честная подложка: recovery (`V009`), живость (`V010`/`V011`), автомат связи + пинг, красная разметка разрывов** | **DONE** | [phase7h/report](./dev/phase7h/report.md), [incident](./dev/phase7h/incident.md) |
 | 7i | «Управление записью»: полуавтомат Auto + Supervisor (MOEX) | IN PROGRESS | [phase7i/apply](./dev/phase7i/apply.md) |
-| **7j** | **Расписание соединения:** якорная модель (open+duration) + слоистые исключения (main/dow/date, SCD-2) + Composer/diff-approve; **7j.17** атомарный batch (Saga) + глобальный exception-handler (DONE); **7j.18** Auto Connect NC (КОД ГОТОВ); **7j.19** инциденты связи + точность разрыва I1–I5 (КОД ГОТОВ · приёмка) | **ядро DONE · 7j.18/7j.19 приёмка** | [plan](./dev/phase7j/plan.md) · [report](./dev/phase7j/report.md) · [issue](./dev/phase7j/issue.md) · [auto-connect](./dev/phase7j/auto-connect.md) · [error-handling](./dev/phase7j/error-handling.md) |
-| 8 | CI/CD (GitHub Actions + compose `migrator`) | TODO | — |
-| 9 | Импорт истории QScalp `.qsh` | TODO | — |
-| 10 | Multi-user & auth (Keycloak + `user_settings` + роли) | PLANNED | [phase10](./dev/phase10/plan.md) |
-| 11 | Центр уведомлений (сквозная лента событий, нижний док, пакет → MFE позже) | IN PROGRESS | [phase11](./dev/phase11/plan.md) · [pkg](../packages/notification-center) |
-| 12 | Гант-рендер: MVP → графический движок (WebGL2 + LOD/Timescale CA, real-time zoom/pan) | FUTURE | [phase12](./dev/phase12/plan.md) |
+| **7j** | Расписание соединения + инциденты связи v2 + **backend-outage v2** + system-NC JSON | **7j.17–7j.20 КОД ГОТОВ**; остаток 7j.15/7j.16 | [plan](./dev/phase7j/plan.md) · [report](./dev/phase7j/report.md) · [nc-availability](./dev/phase7j/nc-availability.md) · [incident](./dev/phase7j/incident.md) |
+| 8 | CI/CD | TODO | — |
+| 9 | Импорт QScalp `.qsh` | TODO | — |
+| 10 | Keycloak + `user_settings` | PLANNED · **обязателен на gate 11→12** | [phase10](./dev/phase10/plan.md) |
+| 11 | NC (пакет в монолите; путь к отдельному сервису) | IN PROGRESS | [phase11](./dev/phase11/plan.md) |
+| **11→12** | **Gate:** вынос Admin Front + NC (MFE, Keycloak) по to-be C4 | FUTURE | [dev/plan.md](./dev/plan.md) §gate · [arch](./architecture/c4/arch.md) |
+| 12 | Гант WebGL2 + LOD — **только после gate** | FUTURE | [phase12](./dev/phase12/plan.md) |
 
 ## 4. Ключевые доменные факты (быстрый ввод)
 
@@ -134,12 +138,13 @@ scinverse/
 
 ## 5. Как запустить (локально)
 
-- **БД:** TimescaleDB из `docker-compose` (образ запинен), миграции — DbUp (`db/Scinverse.Db.Migrator`).
-- **Backend (OHS host):** запускается из Visual Studio или `dotnet run` (`Scinverse.Ohs.Host`);
-  секреты/DLL-путь — в неверсионируемом `appsettings.Local.json`.
-- **Frontend:** `services/online-history-server/web` → `pnpm install`, `pnpm dev` (Vite,
-  проксирует `/api` и `/ws` на хост). Тесты — `pnpm exec vitest run`, типы — `pnpm exec tsc --noEmit`.
-- **Backend-тесты:** `dotnet test` (integration/api требуют Docker — Testcontainers).
+- **БД:** TimescaleDB из `docker-compose`, миграции DbUp (**до V027**).
+- **Backend:** VS или `dotnet run` (`Scinverse.Ohs.Host`); секреты — `appsettings.Local.json`.
+- **Frontend:** `services/online-history-server/web` → `pnpm install`, `pnpm dev --port 5174`
+  (прокси `/api` + `/ws`). Тесты: `pnpm exec vitest run`, `pnpm exec tsc --noEmit`.
+- **NC package:** `packages/notification-center` → `pnpm exec vitest run` (шина).
+- **Backend-тесты:** `dotnet test` (integration/api — Docker/Testcontainers).
+- **PlantUML:** `tools/plantuml/README.md` (Local jar) + Reload Window в VS Code.
 
 ## 6. Конвенции
 
@@ -161,104 +166,80 @@ scinverse/
 - Пользователь сам финализирует часть фронтового UI и сам решает, когда пушить.
 
 
-## 7. Текущий момент и следующие шаги
+## 7. Текущий момент
 
-**Область Ганта собрана.** Завершены: посессионная ось (7b), фильтры каталога (7d), провайдеры (7e),
-тайм-лайн-фильтр + TZ (7f), слой сделок (7g), **честная подложка и разрывы (7h)** — валидировано на Finam.
+**OHS MVP (монолит Host + admin web + локальная шина NC)** в этом репо — активная разработка.
+Гант/связь/расписание/инциденты 7j.17–7j.20 — **код готов**, часть сценариев принята на Finam id=3.
 
-Карта фазы 7 — [phase7/roadmap.md](./dev/phase7/roadmap.md).
+**To-be архитектура** зафиксирована в C4: отдельный **NC**, **Admin Front** и **Product Front** (MFE),
+**Keycloak** везде. До WebGL (phase 12) — **gate 11→12**: вынос Admin Front + NC.
 
-**Текущий фокус — phase 7j.** Ядро (v2-модель, Composer, diff-approve), 7j.17 (атомарный batch +
-глобальный exception-handler), 7j.18 (Auto-connect NC) и **7j.19 (инциденты связи + точность разрыва,
-I1–I5)** — код готов; осталась **живая приёмка на Finam id=3** (нужен рестарт Host для миграции V026).
-7i (Auto записи) ждёт живую связь от 7j.
+Карта фазы 7 — [phase7/roadmap.md](./dev/phase7/roadmap.md). Дорожная карта — [dev/plan.md](./dev/plan.md).
 
 ---
 
-## 8. ➡️ НОВЫЙ ЧАТ: phase 7j — 7j.18/7j.19 КОД ГОТОВ, идёт живая приёмка
+## 8. ➡️ НОВЫЙ ЧАТ — точка входа (2026-07-26)
 
-**Прочитай первым:** [plan.md](./dev/phase7j/plan.md) · [report.md](./dev/phase7j/report.md) ·
-[issue.md](./dev/phase7j/issue.md) (диагностика + решения 7j.19, I1–I5). Фиче-доки:
-[v2-exceptions.md](./dev/phase7j/v2-exceptions.md) (модель) · [error-handling.md](./dev/phase7j/error-handling.md)
-(7j.17) · [auto-connect.md](./dev/phase7j/auto-connect.md) (7j.18) ·
-[notify-composer.md](./dev/phase7j/notify-composer.md).
+### Прочитай первым (порядок)
 
-### Где фаза сейчас
+1. Этот файл (§1–§6, §8).
+2. [architecture/c4/arch.md](./architecture/c4/arch.md) — to-be (NC, dual front, Keycloak, gate).
+3. [dev/plan.md](./dev/plan.md) — таблица фаз + **gate 11→12**.
+4. [phase7j/report.md](./dev/phase7j/report.md) — живой статус 7j.
+5. По задаче: [nc-availability.md](./dev/phase7j/nc-availability.md) (простой бэка) ·
+   [incident.md](./dev/phase7j/incident.md) (связь) · [todo.md](./dev/phase7j/todo.md) (UI backlog).
 
-- **Ядро DONE:** v2 якорная модель (`open+duration`) + слоистые правила `main/dow/date` (SCD-2),
-  `ConnectionScheduleResolver`, `ConnectionSupervisor`, API, фронт (двухшаговый diff-approve), Composer.
-- **7j.17 DONE:** атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler`
-  (`ohs.unhandled`) + severity-модель (applied=info/cleared=warning/recreated=ok) + попап без оптимизма.
-- **7j.18 КОД ГОТОВ:** рантайм-NC авто-connect подтянут к эталону ручного (`connecting`→`connected`/`failed`,
-  общий corr, имя `Подключение {id} («{name}»)`); `connection.auto_error` (system·error+дедуп) на сбой тика.
-- **7j.19 КОД ГОТОВ (I1–I5):** инциденты связи + точность разрыва (см. ниже). Коммиты `22cd62d` (I1–I4),
-  `68151e0` (I5); `dotnet build` solution + 131 unit ✓.
-- **Осталось:** живая приёмка 7j.18/7j.19 на Finam id=3 — **нужен рестарт Host** (DbUp применит **V026**).
+### Где мы сейчас
 
-### 7j.19 — что сделано (I1–I5)
+| Контур | Состояние |
+|--------|-----------|
+| **OHS Host** | Write + control-plane + NotificationHub (mock NC). Миграции до **V027**. |
+| **Admin web** | В монолите (`services/online-history-server/web`). |
+| **NC** | Пакет `packages/notification-center` + события с Host; отдельный сервис — to-be. |
+| **7j.20** | Связь v2 (J1–J8), backend-outage v2 (§9), system expanded = JSON. Коммиты `8bdfc6c`, `fd3e93e`. |
+| **Архитектура** | C4 to-be зарисована; коммит `8b6825e`. |
 
-- **I1 — плановое отключение ≠ ручное:** `LinkCloseReason.Scheduled` (миграция **V026**);
-  `DisconnectAsync(reason)` — супервизор при плановом гашении шлёт `Scheduled`, ручной off — `Disconnected`;
-  лента Connection: серый разрыв «Плановое отключение по расписанию».
-- **I2 — `recovered` не виснет:** начало инцидента в `_incidentSince` (переживает `DisconnectAsync`
-  реконнекта, в отличие от `_linkStates`); закрытие на `Live` идемпотентно (`TryRemove`), не завязано на
-  in-memory `recovering`.
-- **I3 — watchdog стелс-разрыва:** тишина сделок > 15 c + провал активного пинга ⇒
-  `ConnectionManager.ReportStallAsync` открывает `connection.lost`(error) на `lastTradeAt` (честная левая
-  граница дыры, `link_liveness` reason `PingFailed`), дедуп; общий путь `OpenLinkLostAsync` с `server_status`
-  Down. `recovered` несёт длительность: expanded «Перерыв HH:MM:SS (… МСК)» + `gapStart/gapEnd/gapMs`.
-  **Отступление:** `gapEnd` = момент `Live` реконнекта, не первой сделки (коннектор не шлёт `Down`,
-  восстановление — только через новую сессию; см. issue.md §I3).
-- **I4 — чистый `connected`:** заголовок «связь установлена.»; детали пред. подключения/сеанса — в
-  `data.lines` (expanded). Оба пути: ручной `OhsEndpoints /connect` и авто `ConnectionSupervisor`.
-- **I5 — AUTO-тумблер:** `isConnectedNow` считает окно в TZ расписания (МСК, `SCHEDULE_TZ_OFFSET_MIN=180`) —
-  был TZ-баг (локальные часы vs МСК-правила), тумблер вечно янтарный. Только индикатор, на бэк не влияет.
+### Инварианты NC (не ломать)
 
-### Модель данных (v2, актуально)
+- **System** → короткий message + JSON (`result` / `error_message` + `sender`).
+- **User** (расписание) → `data.lines[]` оставляем.
+- Backend-outage: **не FATAL→OK**; всегда через WARNING; один corr на инцидент; progress-тики не персистить;
+  лента newest-first по `ts`.
+- `connect_failed` — ERROR в журнале, **не** hub-инцидент (констатация внешнего TRANSAQ).
+- Фильтр «Активные» = поле `status` строки, не «инцидент ещё открыт».
 
-- **V024 rebuild:** `connection_schedule_settings` (`auto/engine/tz`) + `connection_schedule`
-  (правила `main/dow/date`, `open+duration`, SCD-2, `close_reason`). V021 — заменено.
-- **V026:** `link_liveness.close_reason` включает `scheduled` (7j.19/I1).
-- Журнал связи — `link_liveness`; lifecycle/инциденты → NC (тонкий срез 11.2: `Publish` + ось
-  `Open`/`Progress`/`Resolve`; инцидент связи = `LinkIncidentSubject(connectionId)`).
+### Ключевые файлы (код)
 
-### Ключевые файлы
+**Backend:** `ConnectionManager.cs`, `ConnectionSupervisor.cs`, `ClientRecoveryGate.cs`,
+`GlobalExceptionHandler.cs`, `NotificationHub.cs`, `OhsEndpoints.cs`.
 
-**Backend:** `Scinverse.Ohs.Host/ConnectionManager.cs` (`ResolveLabelAsync`/`ConnLabel`,
-`DisconnectAsync(reason)`, `_incidentSince`+`OpenLinkLostAsync`+`ReportStallAsync`, `GapDurationLines`,
-`PreviousConnectionLines`), `ConnectionSupervisor.cs`, `LivenessProbe.cs` (хук `ReportStallAsync`),
-`OhsEndpoints.cs` (`/connect` эталон, `POST …/schedule/batch`), `GlobalExceptionHandler.cs`,
-`NotificationHub.cs`/`INotificationPublisher.cs`; `Domain/ILinkLivenessStore.cs` (`LinkCloseReason.Scheduled`),
-`Storage.Timescale/LinkLivenessStore.cs`, `ConnectionScheduleStore.cs` (`ApplyBatchAsync`).
+**Frontend:** `web/src/core/OhsStore.ts`, `notifications.ts`, `api.ts`, `live.ts`.
 
-**Frontend:** `web/src/core/connectionSchedule.ts` (`isConnectedNow` в МСК),
-`ui/components/ConnectionRibbon.tsx` (легенда `scheduled`), `core/api.ts` (`applyScheduleBatch`),
-`OhsStore.ts`, `ConnectionSchedulePopover.tsx`; `packages/notification-center` (`NotificationRow` рендерит `data.lines`).
+**NC package:** `packages/notification-center` (шина, dock, `detailText`: lines → иначе JSON).
 
-### Живая приёмка 7j.19 (Finam id=3; полная матрица — plan.md §критерии 7j.19)
+### Очередь (что можно делать дальше)
 
-1. Авто-connect в окне → `connected` чистый заголовок + детали в expanded (I4).
-2. VPN off ~30–60 c → `lost`(error), после реконнекта → `recovered` со строкой «Перерыв …» (I2+I3).
-3. Тихий рынок (сделок нет, пинг ок) → инцидента НЕТ, журнал не рвётся (I3).
-4. Конец окна → `schedule_disconnect`(info), на ленте серый «Плановое отключение по расписанию» (I1).
-5. AUTO-тумблер зелёный вне окна при поднятом Auto (I5).
-6. `dotnet build` solution + тесты зелёные.
+1. **7j.15 / 7j.16** — market profile / `date`-авторинг ([todo.md](./dev/phase7j/todo.md)).
+2. **UI NC** — счётчик, full-area, corr-фильтр не сбрасывает остальные фильтры.
+3. **7i** — Auto записи (не смешивать connect в RecordingSupervisor).
+4. **H1/H2 (7h)** — recording-ribbon бинарный под Degraded.
+5. **Не начинать phase 12 WebGL** до gate 11→12 (вынос Admin Front + NC + Keycloak).
 
 ### Запуск
 
 ```text
-БД: docker-compose + DbUp (миграции до V026 включительно) — рестарт Host применяет V026
-Host: Scinverse.Ohs.Host (:5080), appsettings.Local.json для Transaq
-Web:  services/online-history-server/web → pnpm dev
+БД:   docker-compose + DbUp (до V027)
+Host: Scinverse.Ohs.Host (VS / dotnet run), appsettings.Local.json
+Web:  services/online-history-server/web → pnpm dev --port 5174
+PlantUML: tools/plantuml/plantuml.jar (см. tools/plantuml/README.md) + Reload Window
 Тесты: dotnet test; pnpm exec vitest run; pnpm exec tsc --noEmit
 ```
 
-### Соседние фазы / очередь
+### Соглашения (повтор)
 
-- **7j.15/7j.16** — рыночный профиль / `date`-авторинг (следующее после приёмки 7j.18/7j.19).
-- **7i** — Auto записи (IN PROGRESS); не смешивать connect в RecordingSupervisor.
-- **7h.8d** — проекция красного на инструмент — после 7j.
-- **11** — полный notify hub beyond connection-кодов; NC-пакет — `packages/notification-center`.
+- PowerShell: `;` не `&&`; коммит только по просьбе пользователя.
+- Lint: tsc 0, eslint 0 errors; `dotnet build` Host.
+- Commit style: `feat(7j.20): …` / `docs(arch): …`.
 
 ---
 

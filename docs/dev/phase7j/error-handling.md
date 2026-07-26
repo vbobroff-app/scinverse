@@ -44,7 +44,8 @@ persist, WS, гидрация бэклога) — не хватало дисци
 **Формат сообщений:**
 - **user**-строки: `Расписание {id} («{имя}»): …` (id основной — имя может меняться; имя для читаемости).
 - **system**-строки: `Расписание {id}: …` (только id — техаудит, лаконично).
-- Заголовок короткий; детали — `data.lines[]` (столбик в раскрытии, `<pre>` со скроллом).
+- Заголовок короткий. **User (расписание)** — детали в `data.lines[]`. **System** (связь, outage,
+  `ohs.unhandled`, …) — JSON в `data.result` / `error_message` + `sender` (7j.20, коммит `fd3e93e`).
 - Тавтологию «Расписание {id}:» в каждой строке `lines` НЕ повторяем (id уже в заголовке).
 - `items` в `data` — camelCase (`kind/label/scheduleId`).
 
@@ -207,17 +208,7 @@ NotificationRow,NotificationDock}`.
 
 ## 8. Недоступность бэка и внешний хост NC
 
-Детект недоступности **самого OHS-бэка** (client↔backend, отдельно от здоровья линка к бирже), инцидент из
-4 фаз (fatal→error→warning→ok), mock-POST задним числом и контекст выноса NC во внешний сервис — вынесены в
-отдельную спецификацию: **[nc-availability.md](nc-availability.md)**.
-
-Кратко: клиент детектит дроп WS и **сам ведёт инцидент** (бэк во время простоя мёртв); на реконнекте
-POST'ит `open + resolve` в NC задним числом (`POST /api/notifications` → `NotificationHub.Ingest`, id = Guid-N).
-Это mock будущего внешнего NC (optimistic pattern). Полная модель, стейт-машина, крэш-регрессия и открытые
-вопросы выноса — в [nc-availability.md](nc-availability.md).
-
-**Необработанные исключения во время инцидента** (`GlobalExceptionHandler`, два слоя — [nc-availability.md §6.1](nc-availability.md)):
-транспортный шум (`BadHttpRequestException` — оборванное тело / рестарт-гонка) → `ohs.request_error`
-(**error**, 400), не FATAL и не блокирует; настоящее 500 → `ohs.unhandled` (**critical/FATAL**), которое
-клиент во время активного инцидента простоя втягивает в его стек (под corr) и держит инцидент открытым до
-полного восстановления.
+Полная спека (v2, **КОД ГОТОВ**): **[nc-availability.md](nc-availability.md)** §9.
+Кратко: клиент ведёт инцидент простоя (бэк мёртв); единый corr + health-probe/adopt; **не FATAL→OK**
+(всегда через WARNING); персист open/warn/resolve (+ каждый 500), progress-тики не POST; лента по `ts`.
+Вынос NC-server — gate 11→12 / to-be C4.

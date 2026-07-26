@@ -9,14 +9,10 @@
 > (TRANSAQ→supervisor) + severity=error + ribbon v2** (7j.20 — [incident.md](incident.md)). Живой статус —
 > [report.md](report.md).
 
-**Статус:** ядро `DONE`; 7j.18 Auto Connect и **7j.19 Инциденты связи и точность разрыва** (I1–I5) —
-`КОД ГОТОВ · приёмка` (сборка + 131 unit ✓, живой прогон на Finam id=3 за пользователем; нужен рестарт
-Host для миграции V026); **7j.20 Инциденты связи v2** — `DESIGN · СОГЛАСОВАНО`, старт реализации
-(модель — [incident.md](incident.md)); в очереди —
-7j.15 (рыночный профиль) / 7j.16 (`date`-авторинг). Зависимости: **7h / 7h.8** (автомат связи,
-`link_liveness`, лента Connection), **7c** (`IMarketCalendar`), **7e** (тумблер связи).
-Соседняя **7i** (Auto записи) — проекция живой связи. Детали реализации — [apply.md](apply.md);
-статус/лог — [report.md](report.md). **Обновлено:** 2026-07-24.
+**Статус:** 7j.17–7j.20 **КОД ГОТОВ** (связь v2 J1–J8, backend-outage §9, system-NC JSON). В очереди
+фазы: **7j.15** / **7j.16**. Зависимости: **7h / 7h.8**, **7c**, **7e**. Соседняя **7i** — Auto записи.
+To-be вынос Admin Front + NC — **gate 11→12** в [`docs/dev/plan.md`](../plan.md) (до WebGL).
+Детали — [apply.md](apply.md); статус/лог — [report.md](report.md). **Обновлено:** 2026-07-26.
 
 ## Проблема
 
@@ -70,13 +66,24 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 | 7j.13 | Notification Composer (одно user + одно system на пачку) | DONE | [notify-composer.md](notify-composer.md) |
 | 7j.14 | UI: двухшаговый diff-approve, guardrail main, live-push баннер | DONE | [ui-schedule.md](ui-schedule.md) |
 | 7j.17 | Обработка исключений **редактирования**: атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler` + severity-модель + попап без оптимизма | DONE | [error-handling.md](error-handling.md) |
-| 7j.18 | **Auto Connect: все исключения + инциденты** | КОД ГОТОВ · приёмка | [auto-connect.md](auto-connect.md) |
-| **7j.19** | **Инциденты связи + точность разрыва** (I1: причина Scheduled + V026; I2: идемпотентный recovered; I3: watchdog стелс-разрыва + длительность; I4: чистый connected; I5: TZ-фикс AUTO-тумблера) | **КОД ГОТОВ · приёмка** | [issue.md](issue.md) |
-| **7j.20** | **Инциденты связи v2:** один бит здоровья (любой уход из `Live` = инцидент, вкл. `Degraded`), severity=**error** (удар по данным), ось владельца (TRANSAQ→supervisor через `t`), connection-ribbon v2 (маркеры 1px + тело по owner) | **DESIGN · СОГЛАСОВАНО → реализация** | [incident.md](incident.md) |
-| 7j.15 | Рыночный/календарный профиль на settings; UI без хардкода MOEX | PLANNED | [market-profile.md](market-profile.md) |
-| 7j.16 | `date`-авторинг на фронте + пагинация графика по месяцам | PLANNED | [todo.md](todo.md) |
+| 7j.18 | **Auto Connect: все исключения + инциденты** | **КОД ГОТОВ** | [auto-connect.md](auto-connect.md) |
+| 7j.19 | **Инциденты связи + точность разрыва** (I1–I5) | **КОД ГОТОВ** | [issue.md](issue.md) |
+| 7j.20 | **Инциденты связи v2** + **backend-outage v2** + system NC JSON | **КОД ГОТОВ** | [incident.md](incident.md) · [nc-availability.md](nc-availability.md) |
+| **7j.15** | Рыночный/календарный профиль на settings; UI без хардкода MOEX | **ОЧЕРЕДЬ** | [market-profile.md](market-profile.md) |
+| **7j.16** | `date`-авторинг на фронте + пагинация графика по месяцам | **ОЧЕРЕДЬ** | [todo.md](todo.md) |
 
-## Активная задача — 7j.18: Auto Connect по расписанию (исключения + инциденты)
+## Активная очередь — 7j.15 / 7j.16 + UI NC
+
+**7j.17–7j.20 закрыты по коду** (детали scope/критериев — секции ниже, исторические). Дальше в фазе 7j:
+
+1. **7j.15** — market/calendar profile на `ScheduleSettings` ([market-profile.md](market-profile.md)).
+2. **7j.16** — `date`-авторинг + пагинация графика по месяцам ([todo.md](todo.md)).
+3. **UI NC** — счётчик, full-area, corr-клик не сбрасывает фильтры ([todo.md](todo.md)).
+4. Смежно: **H1/H2** (recording-ribbon, 7h); **7i** Auto записи; **не** WebGL до gate 11→12.
+
+---
+
+## Завершено — 7j.18: Auto Connect по расписанию (исключения + инциденты)
 
 ### Цель
 
@@ -130,16 +137,13 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 | 6 | Ручной connect (регресс) | без изменений (эталон не задет) |
 | 7 | Сборка/тесты | `dotnet build` solution + тесты зелёные |
 
-## Активная задача — 7j.19: Инциденты связи и точность разрыва
+## Завершено — 7j.19: Инциденты связи и точность разрыва
 
 Диагностика и решения — [issue.md](issue.md) (выявлено на живой приёмке 7j.18, Finam id=3, 23.07.2026).
 
-> **Статус реализации (2026-07-24):** I1–I5 в коде, `dotnet build` + 131 unit зелёные, коммиты
-> `22cd62d` (I1–I4) и `68151e0` (I5). Осталась живая приёмка на Finam id=3 (нужен рестарт Host для V026).
-> **Отступление по I3:** `gapEnd` привязан к моменту `Live` новой сессии (реконнект), а НЕ к первой сделке —
-> при стелс-разрыве коннектор не шлёт `Down`, старая сессия мертва, данные пойдут только на новой сессии;
-> `Live` наступает за секунды до первой сделки. Точность до первой сделки при желании — переносом resolve
-> в `ReportActivity` (см. [issue.md](issue.md) §I3).
+> **Статус (2026-07-26):** I1–I5 в коде; коммиты `22cd62d` (I1–I4), `68151e0` (I5). Миграция **V026**
+> применена в рабочем контуре. **Отступление I3:** `gapEnd` = момент `Live` реконнекта, не первой сделки
+> (см. [issue.md](issue.md) §I3).
 
 ### Цель
 
@@ -196,9 +200,11 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 | 7 | Регресс ленты Connection (7h.8) | честные дырки совпадают с data-gap; цвет/подпись `Scheduled` корректны |
 | 8 | Сборка/тесты | `dotnet build` solution + тесты зелёные |
 
-## Активная задача — 7j.20: Инциденты связи v2 (модель здоровья + владение + severity + ribbon)
+## Завершено — 7j.20: Инциденты связи v2 + backend-outage + system NC JSON
 
-Полная спецификация фичи — [incident.md](incident.md). Здесь — план реализации.
+Полная спецификация — [incident.md](incident.md) · [nc-availability.md](nc-availability.md).
+Коммиты: `5ffc58c`…`3c1c267` (J1–J8), `8bdfc6c` (backend-outage v2), `fd3e93e` (system → JSON).
+Остаток вне connection-scope: **H1/H2** (recording-ribbon) → 7h.
 
 ### Зачем (что не так в 7j.19)
 
