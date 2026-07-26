@@ -83,9 +83,10 @@ Stage 1 (архитектура, модель данных, API/WS, границ
 | 7i | «Управление записью»: расписание автозаписи (Supervisor) — авто-connect → запись в сессию площадки → авто-stop; мультибиржа/US-tz | PLANNED | [phase7i](phase7i/plan.md) — заменяет ручные Старт/Стоп; решает «фон ночью» |
 | 8 | CI/CD: GitHub Actions (build + unit + integration) + compose-сервис `migrator` | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` (бэкфилл, `source=qscalp`) — поздний этап | TODO | — |
-| 10 | Multi-user & auth: Keycloak (OIDC/JWT для .NET+Python), таблица `user_settings`, примитивные роли | PLANNED | [phase10](phase10/plan.md) — единая identity, настройки в своём Postgres |
-| 11 | Центр уведомлений: сквозная лента событий (severity × sourceType), нижний док; пакет → MFE позже | IN PROGRESS | [phase11](phase11/plan.md) · [`packages/notification-center`](../../packages/notification-center) |
-| 12 | **Гант-рендер: MVP → настоящий графический движок** — WebGL2 (regl/Pixi) + LOD-агрегация (Timescale continuous aggregates), real-time zoom/pan | FUTURE | [phase12](phase12/plan.md) — крупная веха; стартует, когда «быстрая графика» станет узким местом (сотни инструментов на записи) |
+| 10 | Multi-user & auth: Keycloak (OIDC/JWT для .NET+Python), таблица `user_settings`, примитивные роли | PLANNED | [phase10](phase10/plan.md) — единая identity; **обязателен на gate перед phase 12** |
+| 11 | Центр уведомлений (MVP в монолите): пакет + док + события OHS; путь к отдельному NC / MFE — см. gate 11→12 | IN PROGRESS | [phase11](phase11/plan.md) · [`packages/notification-center`](../../packages/notification-center) |
+| **11→12** | **Gate: вынос Admin Front + NC по to-be архитектуре** — отдельные деплои/репо, Keycloak везде, NC↔Admin через MFE. **До** WebGL (phase 12) | FUTURE | см. ниже § «Gate перед phase 12»; C4 — [`../architecture/c4/arch.md`](../architecture/c4/arch.md) |
+| 12 | **Гант-рендер: MVP → WebGL2 + LOD** — на уже вынесенном Admin Front | FUTURE | [phase12](phase12/plan.md) — только после gate 11→12 |
 | 13 | **Кэширование (сквозное)** — единый слой кэша для всей системы (не только ISS): персистентный/распределённый бэкенд, stale-on-error + refresh-ahead, политики TTL/инвалидации по видам данных, метрики hit/miss | PLANNED | [phase13](phase13/plan.md) — обобщает in-memory ISS-кэш (7c) в сквозную инфраструктуру |
 
 Порядок и зависимости: 4 → 5 → 6a → 6b → 7 (фронт можно начинать параллельно на моках); 6c
@@ -102,18 +103,25 @@ descoped — навигация по структуре решается фил�
 независимо, когда потребуется многопользовательский режим. Фаза 11 (центр уведомлений — сквозная
 лента событий, нижний док, MFE) — тоже сквозная: singleton-шина (RxJS) поверх WS-транспорта
 (phase 6b), персистенция состояния — при наличии phase 10; стартует независимо.
-Фаза 12 (Гант-рендер: WebGL2 + LOD) — отдельная крупная веха перехода от MVP-отрисовки (DOM-колбаски)
-к настоящему графическому движку с real-time zoom/pan; приоритет низкий («быстрая графика — на потом»),
-стартует, когда DOM-рендер станет узким местом. LOD-агрегация (Timescale continuous aggregates) —
-фундамент, ортогональный выбору рендерера. Детали и открытые решения (режим оси при зуме) — в
-[phase12/plan.md](phase12/plan.md).
-Фаза 13 (кэширование — сквозное) — тоже независимая инфраструктурная веха: обобщает точечный
-in-memory-кэш ISS (phase 7c, `IssExchangeCatalog`/`IMemoryCache`) в единый слой для всей системы
-(ISS-структура/расписания, read-model'и каталога, тяжёлые агрегаты и т.п.). Ключевое —
-персистентность (переживает рестарт Host), опционально распределённость (общий кэш между инстансами),
-`stale-on-error` (отдаём последнюю валидную копию, когда апстрим недоступен) и `refresh-ahead`
-(фоновое обновление до истечения TTL). Стартует независимо, когда флаки-апстримы/рестарты/нагрузка
-станут ощутимы; частично снимает `TODO (7c.3)` о персистентном кэше. Детали — в [phase13/plan.md](phase13/plan.md).
+**Gate перед phase 12 (вынос Admin Front + NC).** Пока MVP живёт монолитом Host+web+локальная шина NC
+в этом репо. Перед переходом на WebGL-рендер Ганта фиксируем to-be из
+[`architecture/c4/arch.md`](../architecture/c4/arch.md): отдельный **OHS Admin Front**, отдельный
+**Notification Center**, связка **MFE**, **Keycloak** на API/UI. Product Front / ODS — следующий
+горизонт (не блокер этого gate).
+
+Состояние на вход в gate / готовность к phase 12:
+
+| Контур | К gate (вынос) | После выноса (фаза 12 и дальше) |
+| --- | --- | --- |
+| **OHS** | Готов полностью: весь функционал write/control, стабильный API/WS | Остаётся data-plane + control-plane; JWT Keycloak |
+| **Admin Front** | Рабочий MVP в монолите достаточен для выноса кодовой базы | Доработки UI + **WebGL (phase 12)** + **NC MFE integration** |
+| **NC** | Частично готов (пакет + события OHS / mock) | Доработки UI, взаимодействие, **MFE remote**, отдельный деплой |
+| **Keycloak (10)** | Включён в gate (auth сразу везде при выносе) | Штатный issuer |
+
+Фаза 12 (Гант-рендер: WebGL2 + LOD) — крупная веха **на вынесенном** Admin Front; не стартует из
+монолита. LOD (Timescale caggs) ортогонален рендереру. Детали — [phase12/plan.md](phase12/plan.md).
+Фаза 13 (кэширование — сквозное) — независимая инфраструктурная веха: обобщает in-memory ISS-кэш
+(phase 7c) в сквозной слой. Детали — [phase13/plan.md](phase13/plan.md).
 Каждая фаза документируется как `phaseN/{plan,apply,report}.md` по общему шаблону.
 
 ---

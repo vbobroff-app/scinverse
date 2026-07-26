@@ -1,26 +1,29 @@
 @startuml Scinverse_Context
-' C4 Level 1 — System Context
-' Рендер: PlantUML server (настроен в settings.json). C4-PlantUML — из встроенной stdlib.
+' C4 Level 1 — System Context (to-be)
+' C4 stdlib (нужен PlantUML ≥ 1.2023; jar: tools/plantuml — см. arch.md §5).
 !include <C4/C4_Context>
 
-title System Context — Scinverse
+title System Context — Scinverse (to-be)
 
 Person(quant,  "Исследователь (Quant)", "Разрабатывает стратегии на Python, анализирует данные")
-Person(trader, "Трейдер / Оператор",    "Деплоит агентов, смотрит графики и стакан")
+Person(trader, "Трейдер / Оператор",    "Смотрит графики; оператор управляет записью OHS и видит уведомления")
 
 Enterprise_Boundary(scinverse_b, "Scinverse") {
-    System(scinverse, "Scinverse", "Платформа анализа, хранения данных и автоматической торговли")
+    System(scinverse, "Scinverse", "Платформа анализа, хранения данных и автоматической торговли. Уведомления — через Notification Center.")
 }
 
 System_Ext(broker,   "Брокер", "Доступ к торгам через коннекторы (TRANSAQ, QUIK): маркет-дата и ордера")
 System_Ext(exchange, "Биржа",  "Прямой доступ (Plaza2 по VPN): маркет-дата и ордера (напр. MOEX / FORTS)")
+System_Ext(iam,      "Identity & Access", "Keycloak (OIDC / JWT) — единый issuer для UI и API")
 System_Ext(consumer, "Внешние потребители данных", "Сторонние системы-подписчики данных и аналитики")
 
 Rel(quant,  scinverse, "Пишет стратегии, читает аналитику", "read-only реплика")
-Rel(trader, scinverse, "Деплой агентов, просмотр данных", "HTTPS / WebSocket")
+Rel(trader, scinverse, "Просмотр данных, ops OHS, уведомления", "HTTPS / WebSocket")
+Rel(trader, iam, "Вход", "OIDC")
 
 Rel(scinverse, broker,   "Подписка на данные, отправка ордеров", "коннекторы TRANSAQ / QUIK")
 Rel(scinverse, exchange, "Подписка на данные, отправка ордеров", "прямой доступ Plaza2 (VPN)")
+Rel(scinverse, iam,      "Проверка JWT", "OIDC introspection / JWKS")
 Rel(consumer, scinverse, "Подписка на данные и аналитику", "Scinverse API (REST / WebSocket)")
 
 SHOW_LEGEND()

@@ -1,6 +1,6 @@
 @startuml Scinverse_ContextMap
 ' DDD Context Map — стратегический уровень (bounded contexts + типы интеграции).
-' Рендер: PlantUML server (настроен в settings.json). C4-PlantUML — из встроенной stdlib.
+' C4 stdlib (нужен PlantUML ≥ 1.2023; jar: tools/plantuml — см. arch.md §5).
 !include <C4/C4_Context>
 
 LAYOUT_LEFT_RIGHT()
@@ -9,15 +9,16 @@ skinparam nodesep 40
 skinparam ranksep 90
 skinparam wrapWidth 180
 
-title Context Map (DDD) — Scinverse
+title Context Map (DDD) — Scinverse (to-be)
 
 System_Ext(broker,   "Брокер", "TRANSAQ / QUIK")
 System_Ext(exchange, "Биржа",  "Plaza2 (VPN) / MOEX")
 
 Enterprise_Boundary(scinverse, "Scinverse") {
-    System(iam,     "Identity & Access", "Generic · adopt (Keycloak). OIDC/JWT, роли, права.")
+    System(iam,     "Identity & Access", "Generic · adopt (Keycloak). OIDC/JWT для всех клиентов и API.")
     System(data,    "Data Context", "OHS + ODS. ACL на входе. Канон рыночных данных.")
-    System(present, "Presentation", "Web: графики, футпринт, стакан.")
+    System(nc,      "Notification Center", "Единый центр уведомлений / инцидентов. Отдельный деплой и failure domain.")
+    System(present, "Presentation", "Product Web (графики, dashboard) + OHS Admin shell. Оба подключают NC через MFE.")
     System(rnd,     "R&D", "Research / Analytics на Python.")
 }
 
@@ -27,14 +28,19 @@ System_Ext(consumer, "Внешние потребители", "Подписчи�
 Rel(broker,   data, "Маркет-дата", "U->D | ACL")
 Rel(exchange, data, "Маркет-дата", "U->D | ACL")
 
-' --- Data — поставщик канона для остальных (OHS + Published Language) ---
-Rel(data, present,  "История + live", "OHS+PL -> CF")
+' --- Data — поставщик канона ---
+Rel(data, present,  "История + live + control", "OHS+PL -> CF")
 Rel(data, rnd,      "Реплика + канон", "OHS+PL -> CF")
 Rel(data, consumer, "Scinverse API", "OHS -> D")
+Rel(data, nc,       "События / инциденты", "OHS+PL -> CF")
 
-' --- IAM — идентичность/права (проверка на кромке API) ---
+' --- NC — наблюдатель и лента для UI-shell'ов ---
+Rel(present, nc, "Лента + MFE remote", "MFE / HTTPS+WS")
+
+' --- IAM — идентичность/права везде ---
 Rel(iam, present, "OIDC login", "PL -> CF")
-Rel(iam, data,    "Проверка прав", "PL -> CF")
+Rel(iam, data,    "JWT / права API", "PL -> CF")
+Rel(iam, nc,      "JWT / права API", "PL -> CF")
 
 legend right
   Паттерны интеграции (DDD)
@@ -43,6 +49,7 @@ legend right
   OHS — Open Host Service
   PL — Published Language
   CF — Conformist
+  MFE — Module Federation (NC remote в shell'ах)
 endlegend
 
 @enduml

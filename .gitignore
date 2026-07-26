@@ -44,3 +44,5 @@ appsettings.Local.json
 
 # ---- PlantUML локальные превью ----
 _preview_*.png
+# jar качается локально (см. tools/plantuml/README.md); в комплекте плагина — слишком старый 1.2021.00
+tools/plantuml/*.jar

@@ -1,6 +1,6 @@
 @startuml Scinverse_Component_ODS
 ' C4 Level 3 — Component. Зум в контейнер ODS (read-path Data Context).
-' Рендер: PlantUML server (настроен в settings.json). C4-PlantUML — из встроенной stdlib.
+' C4 stdlib (нужен PlantUML ≥ 1.2023; jar: tools/plantuml — см. arch.md §5).
 !include <C4/C4_Component>
 
 LAYOUT_LEFT_RIGHT()

@@ -1,15 +1,19 @@
 # Архитектура Scinverse — диаграммы и концепт-решения
 
-Документ описывает архитектурные диаграммы Scinverse и зафиксированные проектные решения.
-Связанные документы: [`../../concept.md`](../../concept.md) — концептуальные решения,
-[`../../ohs.md`](../../ohs.md) — модель данных и хранилище OHS.
+Документ описывает **целевую (to-be)** архитектуру Scinverse и зафиксированные проектные решения.
+Связанные документы: [`../../concept.md`](../../concept.md), [`../../ohs.md`](../../ohs.md),
+реализация сигналов NC в OHS MVP — [`../dev/phase7j/`](../dev/phase7j/).
 
 Используются **две дополняющие нотации**:
 
 - **DDD Context Map** — стратегический уровень: границы контекстов и типы интеграции.
-- **[C4](https://c4model.com/)** — уровни Context → Container → Component, разрабатываются **по каждому bounded context отдельно**.
+- **[C4](https://c4model.com/)** — Context → Container → Component, **по каждому bounded context**.
 
 Обе рисуются на [C4-PlantUML](https://github.com/plantuml-stdlib/C4-PlantUML).
+
+> **As-is MVP** (этот репозиторий, только dev): монолит `OHS Host` + встроенный ops-web + mock/локальная
+> шина NC. На C4 **не моделируем**. Переход к to-be — отдельный front-repo (product), отдельный NC,
+> Keycloak, MFE; ODS — когда дойдём до product UI / webGL.
 
 ---
 
@@ -17,54 +21,59 @@
 
 | Нотация / уровень | Файл | Что показывает | Статус |
 | :--- | :--- | :--- | :--- |
-| DDD · Context Map | `contextmap.puml` | Bounded contexts + паттерны интеграции | ✅ черновик |
-| C4 · 1. System Context | `context.puml` | Scinverse как «чёрный ящик» + внешние акторы/системы | ✅ черновик |
-| C4 · 2. Container | `container-data.puml` | Зум в **Data Context**: OHS \| ODS, БД, API Gateway | ✅ черновик |
-| C4 · 3. Component | `component-ohs.puml` | Зум в **OHS** (write-path): сервисы и потоки | ✅ черновик |
-| C4 · 3. Component | `component-ods.puml` | Зум в **ODS** (read-path): сервисы и потоки | ✅ черновик |
+| DDD · Context Map | `contextmap.puml` | BC + NC + IAM (Keycloak) + MFE | ✅ to-be |
+| C4 · 1. System Context | `context.puml` | Scinverse + Keycloak + акторы | ✅ to-be |
+| C4 · 2. Container | `container-data.puml` | Data (OHS\|ODS) + NC + Product/Admin Front + Gateway + IAM | ✅ to-be |
+| C4 · 3. Component | `component-ohs.puml` | OHS: write-path + control-plane + NC Publisher + JWT | ✅ to-be |
+| C4 · 3. Component | `component-ods.puml` | ODS read-path | ✅ черновик (код ещё не начат) |
 
-**Порядок разработки:** DDD Context Map фиксирует границы → по каждому контексту спускаемся в C4 (Container → Component). Первым проработан **Data Context** (OHS + ODS).
+**Порядок разработки диаграмм:** Context Map → Container (платформа) → Component OHS → (позже) Component NC / Presentation.
 
 ---
 
 ## 2. Описание диаграмм
 
-### 2.1. Context Map (DDD) — `contextmap.puml`
+### 2.1. Context Map — `contextmap.puml`
 
-Стратегическая карта: какие домены (bounded contexts) существуют и **как они договариваются**.
+- **Data Context** (OHS + ODS) — канон рыночных данных; ACL на входе от брокера/биржи.
+- **Notification Center (NC)** — единый центр уведомлений и инцидентов; **отдельный деплой и failure domain**
+  (не живёт на машине data-plane OHS).
+- **Presentation** — два shell’а: **Product Front** (графики / dashboard) и **OHS Admin Front** (ops
+  write-path). Оба подключают NC как **MFE remote**.
+- **Identity & Access (IAM)** — Keycloak (adopt): OIDC/JWT для всех UI и API (OHS, ODS, NC, Gateway).
+- **R&D**, внешние потребители — как раньше.
 
-- **Data Context** (OHS + ODS) — владелец канонической модели рыночных данных и справочника инструментов; на входе — **ACL**.
-- **Presentation Context** (Web) — визуализация и управление.
-- **R&D Context** (Research/Analytics, Python) — исследования, бэктест, пост-трейд аналитика.
-- **Identity & Access (IAM)** — Generic subdomain, **adopt** (Keycloak/IdentityServer): OIDC/JWT, роли, права.
-- Внешние: Брокер, Биржа, Внешние потребители данных.
+### 2.2. System Context — `context.puml`
 
-Паттерны интеграции: вход `Брокер/Биржа → Data` как `U→D | ACL`; `Data → Presentation/R&D/потребители` как `Open Host Service + Published Language → Conformist`; `IAM → …` как `Published Language → Conformist`.
+Scinverse как система; снаружи брокер, биржа, потребители и **Keycloak**. Оператор входит через OIDC и
+работает с данными / ops / уведомлениями внутри Scinverse.
 
-### 2.2. System Context (C4) — `context.puml`
+### 2.3. Container — `container-data.puml`
 
-Scinverse как единая система, вокруг — акторы (Quant, Трейдер/Оператор) и внешние системы (Брокер, Биржа, Внешние потребители). CI/CD и стек **намеренно не показаны** (не runtime-контекст). Брокер и Биржа — равноправные (Plaza2 — прямой доступ к бирже по VPN, минуя брокера).
+Внутри Data Context: **OHS** (write + control-plane), **PRIMARY / Replica**, **ODS** (read для product UI).
 
-### 2.3. Container — Data Context — `container-data.puml`
+Снаружи:
 
-Зум в bounded context **Data Context**. Внутри границы:
+| Контейнер | Роль |
+| :--- | :--- |
+| **Product Front** | React + BFE + self DB; читает **ODS**; NC через **MFE** |
+| **OHS Admin Front** | Отдельный ops-shell; control-plane **OHS**; NC через **тот же MFE** |
+| **Notification Center** | Отдельный сервис ленты/инцидентов |
+| **API Gateway** | JWT (JWKS Keycloak) + маршрутизация к OHS / ODS / NC |
+| **Keycloak** | Issuer; login shell’ов и проверка токенов на API |
 
-- **OHS** (C# / .NET 8, Worker) — write-path;
-- **TimescaleDB PRIMARY** (PostgreSQL 16 + TimescaleDB) — приёмник записи, continuous aggregates;
-- **TimescaleDB Replica** — read-only;
-- **ODS** (C# / .NET 8, ASP.NET Core) — read-path.
-
-Снаружи: Брокер/Биржа (ingestion), **API Gateway** (YARP/Nginx — кромка, JWT), **IAM** (Keycloak), Presentation, R&D, Внешние потребители.
+События: **OHS → NC**. Live данных: **OHS → ODS** (gRPC). Product не ходит в Timescale OHS напрямую.
 
 ### 2.4. Component — OHS — `component-ohs.puml`
 
-Внутреннее устройство write-path:
-`Market Connector (IMarketConnector)` → `Transaq Parser · ACL (ITransaqParser)` → `Normalizer` (+ `Instrument Registry`) → ветвление на `Order Book (IOrderBook)` и `Write Batcher` → `History Writer (IHistoryWriter)` → PRIMARY. Параллельно `Live Publisher` (gRPC) отдаёт нормализованный поток в ODS. `Session & Health` управляет коннектором и фиксирует сессии/гэпы.
+- **Control Plane API** (+ WS) — подключения, запись, расписание, покрытие; **только JWT Keycloak**.
+- Write-path: Connector → Parser/ACL → Normalizer → Batcher/Book → Writer → PRIMARY; Live Publisher → ODS.
+- **Session & Link Health** + **NC Publisher** — инциденты связи и системные события в NC.
+- Admin Front снаружи (свой репо/деплой); на этой диаграмме — потребитель control-plane.
 
 ### 2.5. Component — ODS — `component-ods.puml`
 
-Внутреннее устройство read-path:
-`Query/Replay API` → `Series Service (ITimeframeAggregator)` / `Footprint Builder` / `Order Book Reconstructor` → `Read Repository (Npgsql read-only)` → Replica. Live: `Live Ingest Client (gRPC)` ← OHS → `Live Gateway (SignalR/WebSocket)` → клиенты. `Instrument Registry (cache)` конвертирует `ticks ↔ price` на выдаче.
+Без изменений по смыслу: read-path для **Product Front** (не админка OHS). Код ODS ещё не начат.
 
 ---
 
@@ -72,65 +81,87 @@ Scinverse как единая система, вокруг — акторы (Qua
 
 ### 3.1. Два контура (hot / cold)
 
-- **🔵 Холодный контур** — сбор и хранение истории (Data Context, OHS/ODS). Оптимизирован под пропускную способность и надёжность, **не участвует в торговых решениях**.
-- **🔴 Горячий контур** — торговые агенты + OMS (Trading/Execution, вне Data Context). Берут данные из коннектора напрямую, минуя OHS/ODS.
+- **🔵 Холодный контур** — сбор и хранение истории (Data Context, OHS/ODS). Не участвует в торговых решениях.
+- **🔴 Горячий контур** — торговые агенты + OMS (вне Data Context).
 
-### 3.2. CQRS: разделение записи и чтения
+### 3.2. CQRS: запись и чтение
 
-- **OHS пишет только в PRIMARY** (батчами через `COPY`).
-- **ODS и читатели работают только с READ-ONLY репликой.**
-- Между ними — потоковая репликация (WAL streaming).
-- **Live-поток идёт `OHS → ODS`** (gRPC stream), чтобы клиент имел одну точку чтения и данные свежее лага реплики.
+- OHS пишет только в **PRIMARY**.
+- ODS и читатели — только **Replica** (+ live `OHS → ODS`, чтобы обойти лаг реплики).
+- **Product Front** читает ODS; **Admin Front** управляет OHS (control-plane).
 
 ### 3.3. Anti-Corruption Layer на входе
 
-Парсер/нормализатор OHS — это **ACL**: переводит чужую модель TRANSAQ/Plaza2 (нестабильный `secid`, XML) в каноническую (`instrument_id`, `price_ticks`). Инструмент идентифицируется парой `(ticker, board)` (где `ticker` — сокращённый код, TRANSAQ `seccode`), а не `secid`.
+Парсер/нормализатор OHS — ACL TRANSAQ/Plaza2 → канон `(ticker, board)`, `price_ticks`.
 
 ### 3.4. Цена в шагах (ticks)
 
-Везде цена хранится и передаётся как целое число шагов (`price_ticks`), человекочитаемое значение вычисляется через `min_step`. Принцип заимствован из QScalp (плотность и сжатие); подробности — в `ohs.md`.
+Хранение и передача цены — `price_ticks`; отображение через `min_step` (см. `ohs.md`).
 
 ### 3.5. Подготовка данных на стороне СУБД
 
-Свечи по таймфреймам и агрегаты строятся **continuous aggregates TimescaleDB на PRIMARY** (фоновая материализация), реплика отдаёт готовое на чтение. Футпринты и стакан ODS реконструирует из `md_trade` и `md_orderbook_diff` + `md_orderbook_snapshot`.
+Continuous aggregates на PRIMARY; футпринты/стакан ODS собирает из канонических потоков.
 
 ### 3.6. API Gateway ≠ IAM
 
-- **API Gateway** — enforcement point на кромке: валидирует JWT, маршрутизирует к ODS.
-- **IAM (Keycloak)** — issuer токенов (OIDC/JWT). Не является прокси трафика.
+- **Gateway** — enforcement / маршрутизация, валидация JWT.
+- **Keycloak** — issuer (OIDC/JWT). Не проксирует бизнес-трафик.
 
-### 3.7. Клиент — только web
+### 3.7. Два front-shell’а + один NC (MFE)
 
-Единый web-клиент (React + WebGL/WebGPU); десктоп — лишь возможный тонкий потребитель того же API. Обоснование и детали — в `concept.md`.
+| Shell | Данные | NC |
+| :--- | :--- | :--- |
+| **Product Front** | ODS (+ BFE/self DB: auth-сессия, user-settings) | MFE remote |
+| **OHS Admin Front** | OHS control-plane | тот же MFE remote |
 
-### 3.8. Control-plane и админка внутри OHS (write-path)
+Один NC на платформу; shell’ы не владеют лентой. **Keycloak** — login обоих shell’ов и JWT на OHS/ODS/NC.
 
-OHS — не только worker записи, но и **control-plane**: ASP.NET Core (`WebApplication`, Minimal API) + WebSocket `/ws`. Через него **админка** (React+Vite+TS, `services/online-history-server/web`) управляет write-path: старт/стоп записи, покрытие (Гант «колбасок»), CRUD и connect/disconnect/test подключений коннекторов. Это **внутренний ops-инструмент**, а не публичный потребитель данных (те читают через ODS/Gateway).
+### 3.8. OHS: write-path + control-plane (to-be)
 
-- **Подключения** живут в `connector_connection` (без секретов); **секреты** (login/password) — только в памяти сессии (`InMemoryCredentialStore`), не персистятся. Коннектор создаётся `IConnectorFactory` по `kind`.
-- **Динамическая запись:** `RecordingManager` подписывает/отписывает инструменты в рантайме; `CoverageTracker` ведёт сегменты `coverage_segment` и шлёт `coverageExtended` в `/ws`.
-- **Live-обновления** — сырой WebSocket (`WebSocketBroadcaster`, fan-out `LiveEvent`), без SignalR. Для демо без TRANSAQ есть `SyntheticLiveConnector`.
+OHS — не только worker записи, но и **control-plane** (Minimal API + WS) для админки: коннекторы,
+запись, покрытие, расписание. Это **ops-инструмент write-path**, не product UI графиков.
 
-### 3.9. Каталог инструментов: пагинация + иерархия деривативов (read-model)
+- Секреты коннекторов — не в БД (in-memory / secret store), метаданные — в `connector_connection`.
+- События и инциденты уходят в **NC** (не остаются единственным источником правды во вкладке).
+- Весь control API — **через Keycloak JWT** (напрямую и/или через Gateway).
 
-Справочник большой (десятки тысяч строк), поэтому `GET /api/instruments` — **пагинация + фильтры на сервере** (`q`/`board`/`secType`/`onlyRecording`/`underlyingCode`/`expiration`, `limit`/`offset`), а не выгрузка всего каталога.
+### 3.9. Notification Center — отдельный failure domain
 
-**Деривативы — плоская модель данных + иерархия на чтении.** Атрибуты контракта выводятся из кода инструмента (`IDerivativeSpecParser`/`MoexFortsSpecParser`) и пишутся в подтип `derivative` (см. `db-design.md`, Решение 2). Дерево «базовый актив → серия → страйки» собирается лениво через `GET /api/instruments/groups` (`level = underlying|series`) + лист цепочки обычным `instruments`-запросом. Так UI получает иерархию без денормализации хранения.
+NC переживает падение OHS data-plane (OOM/диск на машине записи). Не размещается на том же хосте, что
+TRANSAQ/Timescale PRIMARY. Product и Admin подключают NC через **Module Federation**.
+
+### 3.10. Каталог инструментов
+
+Пагинация + иерархия деривативов на чтении (см. прежние решения / `db-design.md`).
+
+### 3.11. Переход с MVP (вне C4)
+
+Дорожная карта в [`docs/dev/plan.md`](../../dev/plan.md): **gate 11→12** перед WebGL (phase 12).
+
+1. Допилить MVP OHS в **этом** репозитории (dev) — к gate OHS должен быть **полностью готов**.
+2. **Gate перед phase 12 (WebGL Ганта):** вынести **Admin Front** + **NC** (отдельные деплои/репо),
+   **Keycloak** везде, Admin↔NC через **MFE**. Admin Front после выноса ещё дорабатывается
+   (UI + WebGL + NC integration); NC — UI / взаимодействие / MFE features.
+3. **Phase 12** — WebGL/LOD уже на вынесенном Admin Front (не в монолите).
+4. Позже: Product Front (+ BFE + self DB) + **ODS**; тот же NC remote (MFE).
+5. Co-located nginx+OHS на проде — для локальной ops-консоли; объективный наблюдатель — NC вне
+   data-plane.
 
 ---
 
 ## 4. Конвенции
 
-- **Стек технологий — с уровня Container** (`$techn`). На System Context и Context Map стек не указываем.
-- **Bounded contexts** живут в `contextmap.puml`; их контейнеры/компоненты — в отдельных C4-файлах (`container-*.puml`, `component-*.puml`).
-- Для читаемости под публичным сервером: `LAYOUT_LEFT_RIGHT()`, короткие подписи, спейсинг (`nodesep`/`ranksep`), меньше стрелок на один узел.
+- Стек технологий — с уровня Container (`$techn`). На System Context и Context Map стек не указываем.
+- Bounded contexts — в `contextmap.puml`; контейнеры/компоненты — в `container-*.puml` / `component-*.puml`.
+- Диаграммы описывают **to-be**; отклонение MVP фиксируем текстом в этом файле, не отдельным C4 as-is.
 
 ---
 
 ## 5. Рендер
 
 - Расширение `jebbs.plantuml` в Cursor.
-- Режим — **PlantUML server** (в `settings.json`: `plantuml.render = PlantUMLServer`,
-  `plantuml.server = https://www.plantuml.com/plantuml`). Локальные Java/Graphviz не нужны, требуется интернет.
-- C4-PlantUML подключается через `!include <C4/C4_Context>` (и `C4_Container` / `C4_Component`) из встроенной stdlib.
-- Превью: открыть `.puml` → `Alt+D` (PlantUML: Preview Current Diagram).
+- **Local-рендер** с актуальным jar (не из комплекта плагина — там 1.2021.00, ломает C4-stdlib):
+  - workspace: `.vscode/settings.json` → `plantuml.render=Local`, `plantuml.jar=tools/plantuml/plantuml.jar`
+  - установка jar: [`tools/plantuml/README.md`](../../tools/plantuml/README.md)
+- C4: `!include <C4/C4_Context>` / `C4_Container` / `C4_Component` (stdlib, нужен PlantUML ≥ 1.2023).
+- Нужны Java 11+ и Graphviz (`dot`). Превью: `.puml` → `Alt+D`; после смены jar — Reload Window.

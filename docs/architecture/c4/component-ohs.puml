@@ -1,6 +1,6 @@
 @startuml Scinverse_Component_OHS
-' C4 Level 3 — Component. Зум в контейнер OHS (write-path Data Context).
-' Рендер: PlantUML server (настроен в settings.json). C4-PlantUML — из встроенной stdlib.
+' C4 Level 3 — Component. OHS to-be: write-path + control-plane + NC + Keycloak.
+' C4 stdlib (нужен PlantUML ≥ 1.2023; jar: tools/plantuml — см. arch.md §5).
 !include <C4/C4_Component>
 
 LAYOUT_LEFT_RIGHT()
@@ -8,47 +8,60 @@ skinparam nodesep 35
 skinparam ranksep 80
 skinparam wrapWidth 200
 
-title Component Diagram — OHS (Online History Server)
+title Component Diagram — OHS (to-be)
 
 System_Ext(broker,   "Брокер / Биржа", "TRANSAQ / Plaza2")
+System_Ext(iam,      "Identity & Access", "Keycloak — JWT для control API / WS")
+Container_Ext(gateway, "API Gateway", "YARP / Nginx", "JWT + маршрут к control-plane")
+Container_Ext(adminUi, "OHS Admin Front", "React shell", "Ops UI; NC подключает как MFE (вне этой диаграммы)")
+Container_Ext(nc, "Notification Center", "сервис NC", "Инциденты и системные уведомления")
 ContainerDb(dbPrimary, "TimescaleDB — PRIMARY", "PostgreSQL 16 + TimescaleDB", "Приёмник записи")
 Container_Ext(ods, "ODS", "C# / ASP.NET Core", "Потребитель live-потока")
 
-Container_Boundary(ohs, "OHS — C# / .NET 8 (Worker)") {
+Container_Boundary(ohs, "OHS — C# / .NET 8") {
 
-    Component(connector, "Market Connector", "IMarketConnector · txmlconnector.dll", "connect / subscribe, приём сырых XML-колбэков, статус соединения")
-    Component(parser,    "Transaq Parser · ACL", "ITransaqParser", "XML-фрагмент -> доменные события. Anti-Corruption Layer (гасит модель TRANSAQ)")
-    Component(registry,  "Instrument Registry", "IInstrumentRegistry", "(ticker,board) <-> instrument_id, min_step, price <-> ticks")
-    Component(normalizer,"Normalizer", "C#", "Доменные события -> каноническая модель, price -> ticks")
-    Component(book,      "Order Book", "IOrderBook", "In-memory книга по инструменту: применение diff'ов, периодические снимки")
-    Component(batcher,   "Write Batcher", "C#", "Буфер и backpressure, формирование батчей")
-    Component(writer,    "History Writer", "IHistoryWriter", "Bulk-запись потоков (Npgsql COPY)")
-    Component(publisher, "Live Publisher", "C# · gRPC", "Публикация нормализованных событий для ODS")
-    Component(session,   "Session & Health", "C#", "ingest_session, подписки, детекция гэпов (data_gap), метрики")
+    Component(control,   "Control Plane API", "ASP.NET Core Minimal API + WS", "Подключения, запись, расписание, покрытие. Только с JWT Keycloak.")
+    Component(connector, "Market Connector", "IMarketConnector", "connect / subscribe, сырые колбэки, статус линка")
+    Component(parser,    "Transaq Parser · ACL", "ITransaqParser", "XML → доменные события (ACL)")
+    Component(registry,  "Instrument Registry", "IInstrumentRegistry", "(ticker,board) ↔ instrument_id, ticks")
+    Component(normalizer,"Normalizer", "C#", "Канон, price → ticks")
+    Component(book,      "Order Book", "IOrderBook", "In-memory книга, diff/снимки")
+    Component(batcher,   "Write Batcher", "C#", "Буфер, backpressure, батчи")
+    Component(writer,    "History Writer", "IHistoryWriter", "Bulk-запись (Npgsql COPY)")
+    Component(publisher, "Live Publisher", "gRPC", "Нормализованный live → ODS")
+    Component(session,   "Session & Link Health", "C#", "Сессии, подписки, гэпы, инциденты связи")
+    Component(ncOut,     "NC Publisher", "C#", "Публикация событий/инцидентов в Notification Center")
 }
+
+' --- Auth ---
+Rel(adminUi, gateway, "Ops команды / WS", "HTTPS / WS + Bearer")
+Rel(gateway, control, "Control-plane", "HTTPS / WS")
+Rel(gateway, iam, "Валидация JWT", "JWKS")
+Rel(control, iam, "Проверка JWT (если без gateway)", "JWKS")
+
+' --- Управление write-path ---
+Rel(control, session, "Старт/стоп, connect, расписание")
+Rel(control, connector, "Команды коннектора")
+Rel(session, connector, "connect / subscribe")
+Rel(session, writer, "Сессии, гэпы, coverage")
 
 ' --- Приём и разбор ---
 Rel(broker, connector, "Сырые данные", "XML callback")
 Rel(connector, parser, "XML-фрагменты")
 Rel(parser, normalizer, "Доменные события")
-Rel(normalizer, registry, "Маппинг инструмента и цены", "lookup")
-
-' --- Ветвление потоков ---
+Rel(normalizer, registry, "Маппинг", "lookup")
 Rel(normalizer, book, "Diff'ы стакана")
 Rel(normalizer, batcher, "Сделки, котировки")
-Rel(book, batcher, "Валидированные diff'ы + снимки")
+Rel(book, batcher, "Diff'ы + снимки")
 Rel(normalizer, publisher, "Нормализованные события")
-
-' --- Запись ---
 Rel(batcher, writer, "Батчи")
-Rel(writer, dbPrimary, "Запись потоков", "Npgsql COPY")
-
-' --- Live наружу ---
+Rel(writer, dbPrimary, "Запись", "Npgsql COPY")
 Rel(publisher, ods, "Live-поток", "gRPC stream")
 
-' --- Управление сессией ---
-Rel(session, connector, "connect / subscribe", "команды")
-Rel(session, writer, "Сессии, подписки, гэпы")
+' --- NC ---
+Rel(session, ncOut, "lost / recovered / auto_error …")
+Rel(control, ncOut, "schedule / storage / ops …")
+Rel(ncOut, nc, "Ingest уведомлений", "HTTPS + JWT")
 
 SHOW_LEGEND()
 @enduml

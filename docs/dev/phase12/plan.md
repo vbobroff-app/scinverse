@@ -8,8 +8,20 @@
 
 **Статус:** `FUTURE` (регистрируем решение; стартует после того, как «быстрая графика» станет узким
 местом — при сотнях инструментов на записи). **Stage:** 1 (admin frontend), поздний этап.
-**Зависимости:** phase 7b (посессионная проекция/`sessions$`/`window$`), phase 7f (тайм-лайн-фильтр,
-inverse projector, crosshair), phase 6a (`coverage_segment`).
+
+**Входной gate (обязателен до старта кода phase 12):** вынос **Admin Front** и **NC** по to-be
+архитектуре ([`docs/architecture/c4/arch.md`](../../architecture/c4/arch.md), строка **11→12** в
+[`docs/dev/plan.md`](../plan.md)). WebGL делается уже в отдельном Admin Front shell; NC — отдельный
+сервис, подключение через **MFE**; **Keycloak** на control API и UI.
+
+| Контур | Состояние к gate |
+| --- | --- |
+| **OHS** | Полностью готов: функционал + рабочий API/WS |
+| **Admin Front** | MVP вынесен; дальше — UI + WebGL (эта фаза) + NC MFE |
+| **NC** | Частично готов; дальше — UI, взаимодействие, MFE remote |
+
+**Прочие зависимости:** phase 7b (`sessions$`/`window$`), phase 7f (тайм-лайн / projector / crosshair),
+phase 6a (`coverage_segment`), phase 10 (Keycloak) в составе gate.
 
 ## Мотивация
 
