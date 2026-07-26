@@ -223,14 +223,20 @@ Startup-recovery уже отделяет краш от обрыва на уро�
    стораджем и подтверждением приёма это снимает.
 5. **Множественные источники**: единая NC-шина принимает события от многих микросервисов → нужна схема
    атрибуции/маршрутизации и единый контракт `Ingest`.
+6. **Порядок ленты / event-time vs insert-time**: backdated ingest (§4) ломает порядок «как вставили»
+   (см. §9.5.1). На внешнем NC `List` обязан отдавать newest-first по `ts` (или писать фазы без
+   догонялок) — клиентская сортировка по `ts` тогда перестаёт быть источником истины.
+7. **Ось temporary (хранить или нет)** — см. §9.8: сейчас неявна («тики просто не POST-им»); на
+   внешнем NC — first-class в контракте `Ingest` / схеме, чтобы persist-правила не были размазаны по клиентам.
 
 Боли намеренно **не углубляем** — вернёмся, когда будет больше вводных под вынос.
 
 ---
 
-## 9. v2 — Sender, единый corr, персист всего стека (СПЕКА, к реализации)
+## 9. v2 — Sender, единый corr, персист всего стека (РЕАЛИЗОВАНО)
 
-**Статус: спека, согласована 2026-07-25, код НЕ написан.** Развилки закрыты (см. 9.7).
+**Статус: реализовано 2026-07-25** (§9.1 Sender + §9.4 дедуп — коммиты `f9595d2`/`735690a`; §9.2 единый
+corr на бэке + §9.3 health-probe/adopt + §9.5 персист стека — этот заход). Развилки закрыты (см. 9.7).
 
 **Проблема v1 (наблюдаемая на трёх скринах):** после reload стек рассыпается. Причины — три, тянут в разные
 стороны:
@@ -280,17 +286,43 @@ Startup-recovery уже отделяет краш от обрыва на уро�
 | холодный простой без 500 (kill / старт вперёд бэка) | клиент (бэк ничего не отчеканил) | `ohs.backend.outage:<startMs>` |
 | 500 во время уже открытого простоя | автор простоя | стамп в текущий corr инцидента (см. 9.5) |
 
-Схема из обсуждения — 1-в-1:
+Нарратив нити. **Главный инвариант: к OK всегда через WARNING** — не бывает `FATAL → OK`
+(ни open→ok, ни mid-stack 500→ok без recovering). WARNING = «снова проверяем штатность», не
+квитанция на каждый 500. Тики progress — temporary (§9.8).
+
+Пачка mid-stack 500 (один warn на всю пачку после кулдауна без нового 500):
 
 ```
-[FATAL] 500                                        corr=X  sender=backend
-[FATAL] Сервер OHS недоступен, жду восстановления   corr=X  sender=client   (эскалация: adopt requestId)
-[ERROR] … живой тик (эфемерный, не персистим)         corr=X  sender=client
-[OK]    Система восстановлена (реальная длительность) corr=X  sender=client
+t+00:00  [FATAL]   Сервер OHS недоступен…                    open           — упал
+t+01:00  [WARNING] Сервер OHS доступен, идёт восстановление… recovering#1  — чиню
+t+01:02  [FATAL]   500 #1                                    ohs.unhandled
+t+01:02  [FATAL]   500 #2                                    ohs.unhandled  — пачка (client ещё
+t+01:03  [FATAL]   500 #3                                    ohs.unhandled    не «перепроверил» WS)
+t+01:09  [WARNING] Сервер OHS доступен, идёт восстановление… recovering#2  — снова чиню
+t+01:14  [OK]      Система восстановлена…                    resolve
 ```
+
+Одного WARNING после пачки достаточно: между 500#1…#3 фазу recovering осмысленно не
+перезаходили. Если 500 разнести дальше кулдауна — будет `warn → fatal → warn → fatal` (каждый
+раз успели войти в recovering) — тоже ок. Один и тот же ts у warning и следующего fatal
+(или fatal чуть позже) — норма (гонка колбэка / клик в ту же секунду).
+
+Инвариант: `… → FATAL → … → WARNING → OK` (перед resolve всегда warn). Каждый вход в recovering —
+**отдельная** строка + mock-POST. `since` в warning нет — нить по corr; в expanded —
+`sender=client`.
 
 Единственное «что мешало» единой нити — раскол авторства corr (500 = бэк-минт, простой = клиент-минт).
 Adopt снимает раскол: клиент переиспользует бэк-минтованный `requestId` вместо своего.
+
+**Hold как можно раньше (race со swagger / `test-exception`):** `GlobalExceptionHandler` штампует
+`ohs.unhandled` corr'ом инцидента только пока `ClientRecoveryGate.ActiveCorrelationId` задан
+(`POST /recovery/hold`). Если hold слать лишь при входе в warning (после WS-reconnect), 500 через
+swagger **до** reconnect уходит под W3C `requestId` («бешеный corr») — вне стека. Поэтому:
+
+1. клиент долбит `holdRecovery(corr)` **с фазы open** (ретраи ~2 с, пока бэк не ответит 2xx);
+2. `outageHeldSignaled` — только после успеха (не до запроса);
+3. если 500 всё же проскочил с чужим corr — live-fold в corr инцидента + пере-POST того же `id` с
+   исправленным corr (persist/reload).
 
 ### 9.3. Одиночный 500 (инцидента нет) → health-probe
 
@@ -308,39 +340,94 @@ none + ohs.unhandled (critical, corr=requestId, sender=backend)
 - В debug 500 не роняет процесс (бэк устоял) → почти всегда ветка «Проверка ОК». На prod необработанное
   роняет сервак → ветка эскалации.
 
-### 9.4. Дедуп: только фазы-прогресса, не отдельные fatal
+### 9.4. Дедуп: I2 для тиков, discrete строки стека — нет
 
-`dedupIncidentPhases` (по `(corr, code, status)`) корректен для **обновляемых фаз** (один живой тик:
-`backend.unavailable.progress`, `backend.recovering`), но **ломает отдельные события**: N разных
-`ohs.unhandled` под одним corr → остаётся один.
+Upsert / `dedupIncidentPhases` по `(corr, code, status)` — для обычных I2-фаз (тики `*.progress`,
+`connection.recovering`, повторный `connection.lost`…).
 
-**Фикс:** upsert-схлопывание — **только для whitelisted фаза-кодов** (`*.progress`, `backend.recovering`).
-Настоящие события (`ohs.unhandled` и пр.) не дедупим → видно все N, ровно как в БД. Это и даёт **live = reload**.
+**Discrete (не схлопываем):** `critical` / `ohs.unhandled`, `backend.recovering`, `backend.unavailable`,
+`backend.recovered`, `backend.healthcheck.ok`. Иначе N×500 и N×warn «чиним» схлопнутся → live ≠ reload.
 
-### 9.5. Персист: весь стек, кроме тиков
+### 9.5. Персист: весь стек, кроме temporary-тиков
 
-- **Персистим:** open (fatal) + **каждый** отдельный fatal + warning + resolve (ok). Все под единым corr (9.2).
-- **НЕ персистим тики** (`*.progress`): чисто live-таймер, «всегда врёт», даже финальный не нужен. Реальная
-  длительность — в expanded у resolve. `sender=client`; после reload live-часть пропадает — не жалко.
-- **Автор персиста** — по 9.2: 500-часть пишет бэк на emit (corr уже правильный, ни фолд, ни re-POST не
-  нужны); клиент-авторские (open эскалации, health-ok, resolve) уходят backdated mock-POST'ом (§4) под тем же
-  corr. Снимает «персист-оговорку» §6.1.
+- **Персистим:** open (fatal) + **каждый** отдельный fatal + **каждый** recovering-warning + resolve (ok).
+  Все под единым corr (9.2).
+- **НЕ персистим тики** (`*.progress`) — ось temporary (§9.8): live-секундомер. Длительность — в expanded
+  у resolve.
+- **Автор персиста** — по 9.2: 500 пишет бэк; клиент-авторские (open, каждый warn, health-ok, resolve) —
+  mock-POST (§4).
 
-### 9.6. Код-карта (к реализации)
+#### 9.5.1. Порядок в стеке после reload: сортировка по `ts` на шине (временный контракт)
 
-- `GlobalExceptionHandler`: `ohs.unhandled` берёт corr активного инцидента, если бэк «held» (клиент сообщил
-  corr через `holdRecovery` / новое поле); иначе `requestId`. `requestId` уходит в `data`.
-- `ClientRecoveryGate` / `holdRecovery`: передавать активный `corr` (клиентский `startMs`-corr либо adopt-нутый
-  `requestId`).
-- `OhsStore`: одиночный `ohs.unhandled` без инцидента → health-probe → ok либо эскалация с adopt `requestId`;
-  фолд перестаёт быть механизмом персиста (остаётся только для внутри-инцидентного показа, если вообще нужен).
-- `NotificationBus.dedupIncidentPhases`: whitelist фаза-кодов (9.4).
-- `data.sender` во всех эмиттерах (`notifications.ts`, бэк `Publish`) + рендер в expanded (NC-компонент).
-- Персист-скоуп: mock-POST для open/fatal/warning/resolve; тики не POST-им.
+**Симптом (живой):** live-стек читается верно (`ok → warning → fatal` newest-first / снизу вверх
+причина→чиним→закрыто). После reload warning «убегает» вниз: `ok → fatal → warning` — хотя по датам
+warning между fatal и ok.
+
+**Причина:** insert-порядок в БД ≠ время события. Пока бэк лежит, `open` локален; в persist он уходит
+**backdated mock-POST'ом вместе с resolve**. `warning` POST'ится раньше (бэк уже на связи). Гидрация
+`GET /notifications` → `publish` по порядку вставки → шина клала backdated `open` *после* `warning`.
+
+**Фикс сейчас:** `NotificationBus` всегда держит ленту **newest-first по `ts`** (`sortNewestFirstByTs`),
+не по порядку ingest. При равном `ts` — стабильный порядок (новее по ingest выше). Контракт ленты =
+«время события», а не «когда доехало до стораджа».
+
+**Почему не «чище» прямо сейчас:** NC и OHS Host — одна машина; client-authored фазы пишутся
+асинхронно и с backdated `ts` (§4, §8). Пока mock-POST приземлён в тот же хаб — серверный `List`
+по insert/id не восстановит нарратив инцидента без той же сортировки по `ts`.
+
+**Когда вынесем NC-server:** порядок — ответственность владельца БД уведомлений:
+`List` / гидрация **по `ts` (или эквивалент event-time)** на сервере; фронт только показывает.
+Либо фазы пишутся в правильном event-time порядке без backdated-догонялок. Тогда клиентский
+`sortNewestFirstByTs` можно упростить до «доверяем порядку API» (или оставить как защитный
+инвариант — дёшево). Зафиксировать при выносе (§8).
+
+### 9.6. Код-карта (реализовано)
+
+- `ClientRecoveryGate`: держит `ActiveCorrelationId` независимо от одноразового стартового барьера
+  (`SetActiveIncident`/`ClearActiveIncident`), т.к. 500 у уже-поднявшегося бэка может прилететь в любой момент.
+- `GlobalExceptionHandler`: `ohs.unhandled` штампуется `recoveryGate.ActiveCorrelationId ?? requestId`
+  (единый corr, пока клиент held); `requestId` + `sender:"backend"` уходят в `data`.
+- `POST /api/recovery/hold`: тело `{ correlationId }` → `Hold()` + `SetActiveIncident(corr)`; `backend.recovered`
+  через `POST /api/notifications` → `Release()` + `ClearActiveIncident()`. `holdRecovery(corr)` на клиенте.
+- `OhsStore`: `outageCorr` (cold = `ohs.backend.outage:<startMs>` либо adopt `requestId`); hold-ретраи с
+  фазы open (`signalHoldRecovery`); одиночный `ohs.unhandled` → `probeHealthAfterFatal` → ok | adopt;
+  500 во время инцидента с чужим corr → `foldUnhandledIntoOutage` + пере-POST (race до hold).
+- `NotificationBus`: I2-upsert только не-discrete; discrete = FATAL + `backend.recovering` + open/resolve
+  простоя (9.4); `sortNewestFirstByTs` (§9.5.1).
+- `warnBackendOutage`: каждый вход в recovering — новый id + mock-POST; перед OK всегда warn
+  (пачка 500 → один warn после кулдауна). Expanded — `sender=client`, без `since`.
+- Персист: open + каждый fatal + каждый recovering-warn + resolve + health-ok; тики = temporary (§9.8), не POST.
 
 ### 9.7. Решённые развилки
 
 1. **Автор corr:** владелец БД (бэк-минт; клиент — только когда бэк мёртв). ✓
 2. **N одинаковых 500:** показываем **все N** (не счётчик). ✓
 3. **Одиночный 500 → потом краш:** **единая нить** через adopt `requestId` (не две нити). ✓
-4. **Тики:** **не персистим** (ни промежуточные, ни финальный). ✓
+4. **Тики:** **не персистим** (ни промежуточные, ни финальный) — temporary (§9.8). ✓
+5. **Порядок стека после reload:** newest-first по **`ts`** на шине (§9.5.1), пока NC на Host + backdated
+   mock-POST; при выносе NC-server — `List` по event-time на сервере. ✓ (временно на клиенте)
+6. **К OK только через WARNING** (не `FATAL→OK`); пачка mid-stack 500 → один warn после
+   кулдауна, не warn на каждый 500. ✓
+7. **`since` в warning:** убрали (YAGNI); нить по corr, в expanded — `sender=client`. ✓
+
+### 9.8. Ось temporary = «хранить или нет» (на будущее, после переезда NC)
+
+Не severity и не status. Ортогональная ось **жизни события в сторадже**:
+
+| | persistent (default) | temporary |
+|---|---|---|
+| смысл | история инцидента / аудит | «сейчас», секундомер, шум каденса |
+| примеры (простой бэка) | open, каждый 500, каждый recovering-warn, resolve | `backend.unavailable.progress` (тики `· N с`) |
+| reload | в стеке | нет |
+| роль | нарратив по corr | live UX |
+
+**Сейчас (mock на Host):** ось **неявная** — клиент просто не POST-ит тики; warn/open/resolve POST-ит.
+Контракт `Ingest` поля `temporary` не имеет.
+
+**После выноса NC-server:** first-class в контракте (поле / флаг / отдельный lane), чтобы:
+- persist-writer NC игнорировал temporary на приёме (клиент не обязан «знать и молчать»);
+- гидрация/`List` не тащила temporary в историю;
+- шина могла помечать temporary для UI (не «гореть» как unread после reload и т.п.).
+
+Не путать с warning: recovering-warning — **persistent** («чинили» — факт в истории);
+тики progress — temporary. Затравка зафиксирована; реализацию — при выносе (§8 п.7).

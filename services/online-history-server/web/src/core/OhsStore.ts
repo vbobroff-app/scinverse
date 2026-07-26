@@ -113,6 +113,12 @@ const BACKEND_OUTAGE_SETTLE_MS = 5_000;
 /** Кулдаун нестабильности: после втянутого в стек `ohs.unhandled` (500) ждём столько без нового 500 →
  * повторная попытка восстановления (warning→settle→ok). Каждый новый 500 сбрасывает кулдаун. */
 const BACKEND_OUTAGE_UNSTABLE_COOLDOWN_MS = 5_000;
+/** Окно adopt (§9.3): дроп WS в пределах стольки после одиночного 500 → инцидент наследует его corr
+ * (весь стек в одной нити: 500 → open → … → resolved), а не заводит свой `ohs.backend.outage:<ts>`. */
+const BACKEND_FATAL_ADOPT_WINDOW_MS = 15_000;
+/** Пока инцидент open/warning — долбим holdRecovery, пока бэк не примет (§9.2): иначе 500 через swagger
+ * до первого WS-reconnect уходит под requestId (вне стека). */
+const BACKEND_OUTAGE_HOLD_RETRY_MS = 2_000;
 /** Как часто пересчитывать окно (ловим смену суток/рост экстента; для range — no-op). */
 const WINDOW_REFRESH_MS = 60_000;
 /** Сколько сессий в неделе при выключенных/включённых выходных. */
@@ -296,20 +302,27 @@ export class OhsStore {
   private windowTimer?: ReturnType<typeof setInterval>;
   private coveragePollTimer?: ReturnType<typeof setInterval>;
 
-  // Инцидент недоступности бэка (7j.20 mock optimistic). Клиент ведёт его сам (бэк лежит). Фазы:
-  //   'grace'   — дроп зафиксирован, ждём grace (fatal ещё не показан);
-  //   'open'    — fatal показан, идут error-тики длительности;
-  //   'warning' — бэк снова на связи, идёт settle до ok.
-  // outageStart (по часам клиента) = момент дропа = backdated начало. null ⇒ инцидента нет.
+  // Инцидент недоступности бэка (7j.20). Фазы: grace → open (FATAL+тики) → warning → ok.
+  // §9.2: к OK только через WARNING (не FATAL→OK). Пачка mid-stack 500 → один warn после кулдауна.
+  // outageStart (часы клиента) = момент дропа = backdated начало. null ⇒ инцидента нет.
   private outageStart: number | null = null;
   private outagePhase: 'none' | 'grace' | 'open' | 'warning' = 'none';
   private outageGraceTimer?: ReturnType<typeof setTimeout>;
   private outageTickTimer?: ReturnType<typeof setInterval>;
   private outageSettleTimer?: ReturnType<typeof setTimeout>;
-  // Кулдаун после втянутого 500 (нестабильность): по истечении без нового 500 → повтор восстановления.
+  // Кулдаун после 500/пачки: без нового 500 → warn (один на пачку) → settle → ok.
   private outageRecoverTimer?: ReturnType<typeof setTimeout>;
-  // Heads-up барьеру бэка отправлен для текущего инцидента (шлём один раз, на первом реконнекте).
+  // Heads-up барьеру бэка принят (holdRecovery 2xx) — ActiveCorrelationId на бэке.
   private outageHeldSignaled = false;
+  private outageHoldInFlight = false;
+  private outageHoldTimer?: ReturnType<typeof setInterval>;
+  // corr инцидента (§9.2): cold = `ohs.backend.outage:<startMs>`; adopt = requestId 500.
+  private outageCorr: string | null = null;
+  // true после open/500/дропа из warning — пока не эмитнули recovering; resolve без warn запрещён.
+  private outageNeedsWarnBeforeOk = false;
+  // Одиночный 500 без инцидента (§9.3): corr/время для health-probe и adopt при дропе.
+  private pendingFatalCorr: string | null = null;
+  private pendingFatalAt: number | null = null;
 
   constructor(
     private readonly api: OhsApiClient = OhsApi,
@@ -491,6 +504,52 @@ export class OhsStore {
       clearTimeout(this.outageRecoverTimer);
       this.outageRecoverTimer = undefined;
     }
+    this.stopHoldRetry();
+    this.outageHoldInFlight = false;
+  }
+
+  private stopHoldRetry(): void {
+    if (this.outageHoldTimer !== undefined) {
+      clearInterval(this.outageHoldTimer);
+      this.outageHoldTimer = undefined;
+    }
+  }
+
+  /**
+   * §9.2: заявить бэку corr открытого инцидента как можно раньше (не ждать warning). Пока бэк лежит —
+   * запросы падают, ретраим с фазы open; как только 2xx — `ActiveCorrelationId` штампует `ohs.unhandled`.
+   * `outageHeldSignaled` только после успеха (раньше ставили до ответа → один фейл = hold навсегда).
+   */
+  private signalHoldRecovery(): void {
+    if (this.outageHeldSignaled || this.outageCorr === null || this.outageHoldInFlight) {
+      return;
+    }
+    const corr = this.outageCorr;
+    this.outageHoldInFlight = true;
+    this.api.holdRecovery(corr).subscribe({
+      next: () => {
+        this.outageHoldInFlight = false;
+        this.outageHeldSignaled = true;
+        this.stopHoldRetry();
+      },
+      error: () => {
+        this.outageHoldInFlight = false;
+        this.ensureHoldRetry();
+      },
+    });
+  }
+
+  private ensureHoldRetry(): void {
+    if (this.outageHeldSignaled || this.outageHoldTimer !== undefined) {
+      return;
+    }
+    this.outageHoldTimer = setInterval(() => {
+      if (this.outageHeldSignaled || this.outageStart === null || this.outageCorr === null) {
+        this.stopHoldRetry();
+        return;
+      }
+      this.signalHoldRecovery();
+    }, BACKEND_OUTAGE_HOLD_RETRY_MS);
   }
 
   /**
@@ -505,43 +564,58 @@ export class OhsStore {
           clearTimeout(this.outageSettleTimer);
           this.outageSettleTimer = undefined;
         }
+        // Снова «после FATAL» — к OK только через новый warn.
+        this.outageNeedsWarnBeforeOk = true;
         this.startOutageProgress(true);
       }
       return;
     }
     this.outageStart = Date.now();
+    // §9.2/§9.3: одиночный 500 и бэк тут же упал → adopt requestId; иначе cold corr от дропа.
+    const recentFatal =
+      this.pendingFatalCorr !== null &&
+      this.pendingFatalAt !== null &&
+      Date.now() - this.pendingFatalAt < BACKEND_FATAL_ADOPT_WINDOW_MS;
+    this.outageCorr = recentFatal ? this.pendingFatalCorr : `ohs.backend.outage:${this.outageStart}`;
+    this.pendingFatalCorr = null;
+    this.pendingFatalAt = null;
+    this.outageNeedsWarnBeforeOk = true;
     this.outagePhase = 'grace';
     this.outageGraceTimer = setTimeout(() => {
       this.outageGraceTimer = undefined;
-      if (this.outageStart === null) {
+      if (this.outageStart === null || this.outageCorr === null) {
         return;
       }
-      void import('./notifications').then((m) => m.openBackendOutage(this.outageStart!));
+      const corr = this.outageCorr;
+      void import('./notifications').then((m) => m.openBackendOutage(this.outageStart!, corr));
       this.startOutageProgress(false);
     }, BACKEND_OUTAGE_GRACE_MS);
   }
 
-  /** Фаза error: включаем интервал живых тиков длительности. immediate — тик сразу (при возврате из
-   * warning), иначе первый тик придёт через каденцию (fatal-строка держится «чистой» первые секунды). */
+  /** Фаза error: живые тики длительности. immediate — тик сразу (возврат из warning / после 500). */
   private startOutageProgress(immediate: boolean): void {
     this.outagePhase = 'open';
+    // §9.2: hold с open (ретраи) — иначе 500 до WS-reconnect уходит под requestId.
+    this.ensureHoldRetry();
+    this.signalHoldRecovery();
     if (this.outageTickTimer === undefined) {
       this.outageTickTimer = setInterval(() => {
-        if (this.outageStart === null) {
+        if (this.outageStart === null || this.outageCorr === null) {
           return;
         }
-        void import('./notifications').then((m) => m.tickBackendOutage(this.outageStart!, Date.now()));
+        const corr = this.outageCorr;
+        void import('./notifications').then((m) => m.tickBackendOutage(this.outageStart!, Date.now(), corr));
       }, BACKEND_OUTAGE_TICK_MS);
     }
-    if (immediate && this.outageStart !== null) {
-      void import('./notifications').then((m) => m.tickBackendOutage(this.outageStart!, Date.now()));
+    if (immediate && this.outageStart !== null && this.outageCorr !== null) {
+      const corr = this.outageCorr;
+      void import('./notifications').then((m) => m.tickBackendOutage(this.outageStart!, Date.now(), corr));
     }
   }
 
   /**
-   * Бэк снова отвечает (re-open WS + refresh-батч). Блип в пределах grace (fatal не показывали) — тихо
-   * сбрасываем. Иначе → warning; settle-таймер закрывает инцидент (ok), если связь продержится без
-   * нового дропа. Граница инцидента — client↔backend; «штатно» = бэк отвечает и состояние ре-синхр.
+   * Бэк снова отвечает. Grace-блип — тихо сброс. Уже в warning — только обновить settle (без второго warn).
+   * open → один WARNING recovering + settle (§9.2: пачка 500 даёт один вход сюда после кулдауна).
    */
   private onBackendReachable(): void {
     if (this.outageStart === null) {
@@ -551,6 +625,10 @@ export class OhsStore {
       this.clearOutageTimers();
       this.outageStart = null;
       this.outagePhase = 'none';
+      this.outageCorr = null;
+      this.outageNeedsWarnBeforeOk = false;
+      this.pendingFatalCorr = null;
+      this.pendingFatalAt = null;
       return;
     }
 
@@ -563,22 +641,25 @@ export class OhsStore {
       this.outageRecoverTimer = undefined;
     }
 
-    // Heads-up барьеру старта супервизора: «инцидент открыт, держи Auto до backend.recovered». Один раз
-    // на инцидент, на первом реконнекте — чтобы бэк расширил окно ожидания вместо фикс-таймаута.
-    if (!this.outageHeldSignaled) {
-      this.outageHeldSignaled = true;
-      this.api.holdRecovery().subscribe({ error: (err) => console.error('holdRecovery', err) });
+    const corr = this.outageCorr ?? `ohs.backend.outage:${this.outageStart}`;
+    this.signalHoldRecovery();
+
+    // Уже recovering: повторный WS-reconnect не плодит второй warn — только перевзводим settle.
+    if (this.outagePhase === 'warning') {
+      this.armOutageSettle();
+      return;
     }
 
     this.outagePhase = 'warning';
-    const start = this.outageStart;
-    void import('./notifications').then((m) => m.warnBackendOutage(start));
+    this.outageNeedsWarnBeforeOk = false;
+    void import('./notifications').then((m) => {
+      const warnDto = m.warnBackendOutage(corr);
+      this.api.postNotification(warnDto).subscribe({ error: (err) => console.error('postNotification', err) });
+    });
     this.armOutageSettle();
   }
 
-  /** Взводим settle: бэк ответил на readiness-пробу (тот же Kestrel, что и WS) → ждём стабильности; если
-   * за settle нового дропа не было — ok. Пробу не ждём жёстко (не должна подвешивать): settle в любом
-   * исходе, повторный дроп во время settle перехватит onBackendDrop и вернёт в error. */
+  /** Settle: readiness-проба → ждём стабильности → ok. Повторный дроп/500 гасит settle. */
   private armOutageSettle(): void {
     if (this.outageSettleTimer !== undefined) {
       clearTimeout(this.outageSettleTimer);
@@ -590,15 +671,21 @@ export class OhsStore {
         if (this.outageStart === null || this.outagePhase !== 'warning') {
           return;
         }
+        // Страховка инварианта: ok только после warn (не FATAL→OK).
+        if (this.outageNeedsWarnBeforeOk) {
+          this.onBackendReachable();
+          return;
+        }
         this.resolveOutage();
       }, BACKEND_OUTAGE_SETTLE_MS);
     };
     this.api.getConnections().subscribe({ next: startSettle, error: startSettle });
   }
 
-  /** После втянутого 500 (нестабильность) ждём кулдаун без нового 500, затем сами пробуем восстановиться
-   * (open→warning→settle→ok). Без этого таймера инцидент завис бы в error навсегда — WS не падал, а
-   * значит onBackendReachable больше не сработает (bug A). Каждый новый 500 сбрасывает кулдаун. */
+  /**
+   * После 500 (или пачки): кулдаун без нового 500 → один warn → settle → ok.
+   * Каждый новый 500 сбрасывает таймер (§9.2 пример: fatal×3 → один warn).
+   */
   private armOutageRecoveryAfterUnstable(): void {
     if (this.outageRecoverTimer !== undefined) {
       clearTimeout(this.outageRecoverTimer);
@@ -614,46 +701,102 @@ export class OhsStore {
   }
 
   /**
-   * Входящее серверное уведомление (WS). Обычно просто публикуем. Но настоящий `ohs.unhandled` (FATAL,
-   * nc-availability.md §6.1) во время УЖЕ ПОКАЗАННОГО инцидента простоя (open/warning) — признак, что бэк жив, но
-   * нестабилен (сыпет 500): втягиваем его в СТЕК инцидента (под его corr, остаётся critical) и НЕ считаем
-   * восстановленным — если мы в warning/settle, гасим settle и возвращаемся в error-прогресс (ждём полного
-   * восстановления). Транспортный шум (`ohs.request_error`, severity error) сюда не попадает — обычная
-   * ошибка. В grace (fatal ещё не показан) не фолдим — grace-таймер откроет инцидент штатно.
+   * WS-уведомления. `ohs.unhandled` (FATAL) во время инцидента (§9.2):
+   *  • fold при чужом corr; гасим settle; error-тики; кулдаун — пачка 500 → один warn (не warn на каждый);
+   *  • одиночный 500 без инцидента (§9.3) — health-probe;
+   *  • в grace — публикуем, grace откроет инцидент.
    */
   private onServerNotification(dto: NotificationDto): void {
     const isBackendFatal = dto.code === 'ohs.unhandled' && (dto.severity ?? '') === 'critical';
-    const incidentShown = this.outagePhase === 'open' || this.outagePhase === 'warning';
-    if (isBackendFatal && this.outageStart !== null && incidentShown) {
-      const start = this.outageStart;
-      void import('./notifications').then((m) => m.foldUnhandledIntoOutage(dto, start));
-      // Бэк жив, но кинул 500 → нестабилен. Гасим settle, возвращаемся в error-прогресс и НЕ ждём нового
-      // реконнекта WS (его не будет — 500 не роняет сокет): по кулдауну без нового 500 сами пробуем
-      // восстановиться (warning→settle→ok). Каждый новый 500 сбрасывает кулдаун (bug A: инцидент завис).
-      if (this.outageSettleTimer !== undefined) {
-        clearTimeout(this.outageSettleTimer);
-        this.outageSettleTimer = undefined;
+    if (isBackendFatal) {
+      const incidentShown = this.outagePhase === 'open' || this.outagePhase === 'warning';
+      if (this.outageStart !== null && incidentShown && this.outageCorr !== null) {
+        const outageCorr = this.outageCorr;
+        const slipped = dto.correlationId !== outageCorr;
+        void import('./notifications').then((m) => {
+          if (slipped) {
+            m.foldUnhandledIntoOutage(dto, outageCorr);
+            this.api
+              .postNotification({ ...dto, correlationId: outageCorr })
+              .subscribe({ error: (err) => console.error('postNotification', err) });
+          } else {
+            m.publishServerNotification(dto);
+          }
+        });
+        this.signalHoldRecovery();
+        if (this.outageSettleTimer !== undefined) {
+          clearTimeout(this.outageSettleTimer);
+          this.outageSettleTimer = undefined;
+        }
+        // После FATAL снова нужен warn перед OK; кулдаун склеивает пачку в один warn.
+        this.outageNeedsWarnBeforeOk = true;
+        this.startOutageProgress(true);
+        this.armOutageRecoveryAfterUnstable();
+        return;
       }
-      this.startOutageProgress(true);
-      this.armOutageRecoveryAfterUnstable();
-      return;
+      if (this.outageStart === null) {
+        const corr = dto.correlationId ?? null;
+        void import('./notifications').then((m) => m.publishServerNotification(dto));
+        if (corr !== null) {
+          this.pendingFatalCorr = corr;
+          this.pendingFatalAt = Date.now();
+          this.probeHealthAfterFatal(corr);
+        }
+        return;
+      }
     }
     void import('./notifications').then((m) => m.publishServerNotification(dto));
   }
 
-  /** Закрытие инцидента: локальный ok + mock-POST (open + resolve) задним числом. */
+  /**
+   * Одиночный 500 (§9.3): пробим health. Бэк ответил → закрываем «проверкой ОК» под ТЕМ ЖЕ corr (requestId)
+   * и персистим её mock-POST'ом (сам 500 персистит бэк). Если к моменту ответа инцидент уже начался (бэк
+   * упал, WS дропнул) — не трогаем: инцидент наследовал corr (adopt) и идёт своим чередом. Бэк не ответил —
+   * эскалацию сделает onBackendDrop; pendingFatal живёт до окна adopt (нет дропа → останется одиночный FATAL).
+   */
+  private probeHealthAfterFatal(corr: string): void {
+    this.api.getConnections().subscribe({
+      next: () => {
+        if (this.outageStart !== null || this.pendingFatalCorr !== corr) {
+          return;
+        }
+        this.pendingFatalCorr = null;
+        this.pendingFatalAt = null;
+        void import('./notifications').then((m) => {
+          const okDto = m.healthCheckOk(corr);
+          this.api.postNotification(okDto).subscribe({ error: (err) => console.error('postNotification', err) });
+        });
+      },
+      error: () => {
+        // Бэк не ответил — вероятно упал; инцидент заведёт onBackendDrop (adopt corr).
+      },
+    });
+  }
+
+  /** Закрытие: ok + mock-POST open+resolve. Вызывать только из warning после warn (§9.2). */
   private resolveOutage(): void {
     const start = this.outageStart;
+    const corr = this.outageCorr;
+    if (start === null || corr === null) {
+      return;
+    }
+    // Последний рубеж: никогда FATAL→OK без recovering в стеке.
+    if (this.outageNeedsWarnBeforeOk) {
+      // Сбросить в open, иначе ветка «уже warning» не эмитит warn → цикл settle.
+      this.outagePhase = 'open';
+      this.onBackendReachable();
+      return;
+    }
     this.clearOutageTimers();
     this.outageStart = null;
     this.outagePhase = 'none';
     this.outageHeldSignaled = false;
-    if (start === null) {
-      return;
-    }
+    this.outageHoldInFlight = false;
+    this.outageNeedsWarnBeforeOk = false;
+    this.outageCorr = null;
     const end = Date.now();
     void import('./notifications').then((m) => {
-      for (const dto of m.resolveBackendOutage(start, end)) {
+      for (const dto of m.resolveBackendOutage(start, end, corr)) {
         this.api.postNotification(dto).subscribe({
           error: (err) => console.error('postNotification', err),
         });

@@ -387,10 +387,12 @@ public static class OhsEndpoints
             hub.List(limit is > 0 and <= 500 ? limit : 100));
 
         // Heads-up барьеру старта супервизора (7j.20): клиент на реконнекте WS сообщает «у меня открыт
-        // инцидент простоя — держи Auto, пока не пришлю backend.recovered». Ничего не персистит.
-        api.MapPost("/recovery/hold", (ClientRecoveryGate recoveryGate) =>
+        // инцидент простоя — держи Auto, пока не пришлю backend.recovered» + corr этого инцидента (§9.2),
+        // чтобы `ohs.unhandled` во время recovery штамповался в ту же нить. Ничего не персистит.
+        api.MapPost("/recovery/hold", (HoldRecoveryRequest? req, ClientRecoveryGate recoveryGate) =>
         {
             recoveryGate.Hold();
+            recoveryGate.SetActiveIncident(req?.CorrelationId);
             return Results.Accepted();
         });
 
@@ -426,10 +428,12 @@ public static class OhsEndpoints
                 correlationId: req.CorrelationId);
 
             // 7j.20: recover клиента снимает стартовый барьер супервизора — Auto-реконнект пойдёт только
-            // теперь, когда «Система восстановлена» уже в NC (порядок в ленте: recover → connecting).
+            // теперь, когда «Система восстановлена» уже в NC (порядок в ленте: recover → connecting). Плюс
+            // снимаем штамп corr (§9.2): инцидент закрыт, следующие 500 — снова одиночные под requestId.
             if (string.Equals(req.Code, "backend.recovered", StringComparison.Ordinal))
             {
                 recoveryGate.Release();
+                recoveryGate.ClearActiveIncident();
             }
 
             return Results.Accepted();

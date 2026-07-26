@@ -308,3 +308,7 @@ public sealed record IngestNotificationRequest(
     JsonElement? Data,
     string? Status,
     string? CorrelationId);
+
+/// <summary>Тело <c>POST /api/recovery/hold</c> (7j.20 §9.2): corr открытого клиентского инцидента простоя,
+/// чтобы бэк штамповал `ohs.unhandled` во время recovery в ту же нить. Тело может отсутствовать.</summary>
+public sealed record HoldRecoveryRequest(string? CorrelationId);

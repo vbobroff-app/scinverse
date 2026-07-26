@@ -19,6 +19,26 @@ function isWarning(evt: NotificationEvent): boolean {
 }
 
 /**
+ * Discrete строки стека простоя / FATAL: НЕ upsert и НЕ dedup по (corr,code,status).
+ * Остальное (тики `*.progress`, `connection.recovering`, повторный `connection.lost`…) — I2 схлопывание.
+ * nc-availability.md §9.4 / warn-per-FATAL §9.2.
+ */
+function isDiscreteStackRow(evt: NotificationEvent): boolean {
+  if (evt.severity === 'critical') {
+    return true;
+  }
+  switch (evt.code) {
+    case 'backend.recovering':
+    case 'backend.unavailable':
+    case 'backend.recovered':
+    case 'backend.healthcheck.ok':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
  * Framework-agnostic шина уведомлений.
  * Хост создаёт экземпляр (или держит singleton) и кормит события из любого источника
  * (локальные действия, WS, REST-бэклог, другой сервис).
@@ -28,7 +48,7 @@ export class NotificationBus {
   private readonly eventsSubject: BehaviorSubject<NotificationEvent[]>;
   private readonly readIds = new Set<string>();
 
-  /** Лента: новые сверху (порядок публикации / ingest). Стабильная ссылка. */
+  /** Лента: новые сверху по `ts` (backdated mock-POST не ломает порядок после reload). Стабильная ссылка. */
   readonly stream$: Observable<NotificationEvent[]>;
 
   /** Число непрочитанных error/critical. Стабильная ссылка. */
@@ -90,25 +110,30 @@ export class NotificationBus {
       }
     }
     const additions: NotificationEvent[] = [];
+    // Повтор с тем же id (adopt 500: client ts + stackSeq) — заменяем поля, не дропаем.
+    const replacements = new Map<string, NotificationEvent>();
     // Прогресс-обновления «на месте»: correlationId → последнее событие того же (status, code).
     const updates = new Map<string, NotificationEvent>();
     for (const evt of incoming) {
-      if (!evt?.id || seen.has(evt.id)) {
+      if (!evt?.id) {
         continue;
       }
-      // `critical` (FATAL) — всегда отдельное событие, не фаза-прогресс: несколько разных 500 в одной нити
-      // инцидента (один corr, code, status) должны остаться N строками, а не схлопнуться в одну (иначе
-      // live ≠ reload, см. nc-availability.md §9.4). Схлопываем/обновляем на месте только НЕ-critical.
-      if (evt.correlationId && evt.severity !== 'critical') {
+      if (seen.has(evt.id)) {
+        replacements.set(evt.id, evt);
+        continue;
+      }
+      if (evt.correlationId && !isDiscreteStackRow(evt)) {
         const status = resolveStatus(evt);
         const prev = lastByCorr.get(evt.correlationId);
         if (prev && prev.status === status && prev.code === evt.code) {
-          // I2: тот же (status, code) инцидента — не плодим строку, а обновляем существующую (last wins).
+          // I2: тик / повтор той же фазы — обновляем строку на месте.
           updates.set(evt.correlationId, evt);
           seen.add(evt.id);
           continue;
         }
         lastByCorr.set(evt.correlationId, { status, code: evt.code });
+      } else if (evt.correlationId) {
+        lastByCorr.set(evt.correlationId, { status: resolveStatus(evt), code: evt.code });
       }
       seen.add(evt.id);
       additions.push(evt);
@@ -116,8 +141,8 @@ export class NotificationBus {
     if (additions.length === 0 && updates.size === 0) {
       return;
     }
-    // publishMany: сохраняем относительный порядок входящего массива (первое = новее).
-    let combined = additions.length > 0 ? [...additions, ...current] : current;
+    // Сначала additions (новее по ingest), затем current — при равном `ts` стабильный sort сохранит это.
+    let combined = additions.length > 0 ? [...additions, ...current] : [...current];
     if (updates.size > 0) {
       // Обновляем первую (newest-first) строку с совпадающими correlationId + code + status.
       const applied = new Set<string>();
@@ -133,6 +158,10 @@ export class NotificationBus {
         return e;
       });
     }
+    // Newest-first по `ts`, не по порядку вставки. Иначе после reload backdated `open` (POST при resolve,
+    // ts = момент дропа) оказывается новее `warning` в буфере — warning «убегает» вниз стека
+    // (nc-availability.md §9.5: open+warning+resolve персистятся в разном insert-порядке).
+    combined = sortNewestFirstByTs(combined);
     // Инвариант фазы инцидента: в рамках correlationId — одна строка на (code, status). Возврат в фазу
     // (напр. error→warning→фолд 500→error) добавляется новой строкой сверху, но прежняя (замершая) того же
     // (code, status) не должна оставаться в стеке — иначе два ERROR с разным временем. Лента newest-first,
@@ -145,15 +174,14 @@ export class NotificationBus {
   }
 
   /**
-   * Оставляет по одной (новейшей) строке на `(correlationId, code, status)`; одиночные (без corr) — как есть.
-   * `critical` (FATAL) исключён: каждый — отдельное событие (напр. несколько разных 500 в одной нити), не
-   * фаза-прогресс, дедупится только по `id` (nc-availability.md §9.4).
+   * Одна (новейшая) строка на `(correlationId, code, status)` для I2-фаз (тики и пр.).
+   * Discrete (`backend.recovering`, FATAL, open/resolve простоя) — не трогаем (nc-availability.md §9.4).
    */
   private dedupIncidentPhases(events: readonly NotificationEvent[]): NotificationEvent[] {
     const seenPhase = new Set<string>();
     const result: NotificationEvent[] = [];
     for (const e of events) {
-      if (!e.correlationId || e.severity === 'critical') {
+      if (!e.correlationId || isDiscreteStackRow(e)) {
         result.push(e);
         continue;
       }
@@ -246,6 +274,21 @@ export class NotificationBus {
       }
     }
   }
+}
+
+/** Newest-first по `ts`. При равном `ts` — стабильный порядок (новее по ingest остаётся выше). */
+function sortNewestFirstByTs(events: readonly NotificationEvent[]): NotificationEvent[] {
+  return events
+    .map((e, index) => ({ e, index, ms: Date.parse(e.ts) }))
+    .sort((a, b) => {
+      const tb = Number.isFinite(b.ms) ? b.ms : 0;
+      const ta = Number.isFinite(a.ms) ? a.ms : 0;
+      if (tb !== ta) {
+        return tb - ta;
+      }
+      return a.index - b.index;
+    })
+    .map(({ e }) => e);
 }
 
 export function createNotificationBus(options?: NotificationBusOptions): NotificationBus {

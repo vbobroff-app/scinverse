@@ -150,8 +150,8 @@ export const OhsApi = {
   postNotification: (dto: NotificationDto) => post<void>('/notifications', dto),
 
   // Heads-up барьеру старта супервизора (7j.20): «у клиента открыт инцидент простоя — держи Auto, пока
-  // не пришлю backend.recovered». Шлём на реконнекте WS, если инцидент показан.
-  holdRecovery: () => post<void>('/recovery/hold', {}),
+  // не пришлю backend.recovered» + corr инцидента (§9.2, штамп для `ohs.unhandled`). Шлём на реконнекте WS.
+  holdRecovery: (correlationId: string) => post<void>('/recovery/hold', { correlationId }),
 
   connect: (connectionId: number) => post<ConnectionDto>(`/connections/${connectionId}/connect`),
   disconnect: (connectionId: number) =>

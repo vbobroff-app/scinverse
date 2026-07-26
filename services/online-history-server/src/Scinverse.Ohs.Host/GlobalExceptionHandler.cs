@@ -18,6 +18,7 @@ namespace Scinverse.Ohs.Host;
 /// </summary>
 public sealed class GlobalExceptionHandler(
     INotificationPublisher notifications,
+    ClientRecoveryGate recoveryGate,
     ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(
@@ -52,6 +53,7 @@ public sealed class GlobalExceptionHandler(
                 data: new
                 {
                     requestId,
+                    sender = "backend",
                     lines = new[] { $"{method} {path}", Summarize(exception) },
                 },
                 correlationId: requestId);
@@ -76,6 +78,12 @@ public sealed class GlobalExceptionHandler(
             "Необработанное исключение {Method} {Path} (requestId={RequestId})",
             method, path, requestId);
 
+        // 7j.20 §9.2: если клиент заявил открытый инцидент простоя (held) — штампуем 500 его corr, чтобы
+        // `ohs.unhandled` персистился в ТУ ЖЕ нить (единый corr → reload = live). Иначе corr = requestId
+        // (одиночный 500 — клиент закроет его health-probe, §9.3). requestId всегда уходит в data (якорь лога).
+        var incidentCorr = recoveryGate.ActiveCorrelationId;
+        var correlationId = incidentCorr ?? requestId;
+
         notifications.Publish(
             code: "ohs.unhandled",
             message: "Внутренняя ошибка сервера: необработанное исключение (500)",
@@ -85,9 +93,10 @@ public sealed class GlobalExceptionHandler(
             data: new
             {
                 requestId,
+                sender = "backend",
                 lines = new[] { $"{method} {path}", Summarize(exception) },
             },
-            correlationId: requestId);
+            correlationId: correlationId);
 
         httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
         await httpContext.Response.WriteAsJsonAsync(

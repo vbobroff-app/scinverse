@@ -287,43 +287,39 @@ export function publishServerNotification(dto: NotificationDto): void {
 // сам (в отличие от инцидентов связи, где оркестратор — NotificationHub на бэке; тут бэк мёртв). Стек:
 //   fatal  (open)     — «Сервер OHS недоступен, жду восстановления»            (status active)
 //   error  (progress) — «Сервер OHS недоступен · N с», живые тики 5 c          (status underway, upsert)
-//   warning           — «Сервер OHS доступен, идёт восстановление системы…»    (status underway)
-//   ok     (resolve)  — «Система восстановлена, сервер OHS функционирует штатно» (status resolved)
-// Граница инцидента — только доступность client↔backend; здоровье линка к бирже — отдельная нить.
-// Персист (по реконнекте, mock-POST задним числом): open + resolve; длительность — в expanded у resolve.
-// progress/warning эфемерны (POST невозможен, пока бэк лежит). Точность начала — по часам клиента
-// (± цикл WS-retry ~2 c); более точный источник (link_liveness.to_ts осиротевшего интервала) — будущий
-// backend-side путь. Мульти-вкладка → дубли инцидентов от разных клиентов (боль дедупа, §8).
+//   warning           — «…идёт восстановление…» (отдельная строка, персист); к OK только через warn
+//   ok     (resolve)  — «Система восстановлена…» (status resolved)
+// Инвариант: не FATAL→OK; пачка mid-stack 500 → один warn после кулдауна. Тики — temporary (не POST).
+// corr: cold = ohs.backend.outage:<startMs>; эскалация 500 = adopt requestId (§9.2).
 const BACKEND_OUTAGE_MODULE = 'ohs.host';
 const OUTAGE_CODE_OPEN = 'backend.unavailable';
 const OUTAGE_CODE_PROGRESS = 'backend.unavailable.progress';
 const OUTAGE_CODE_RECOVERING = 'backend.recovering';
 const OUTAGE_CODE_RESOLVED = 'backend.recovered';
+const HEALTHCHECK_CODE_OK = 'backend.healthcheck.ok';
 
-function outageCorrelationId(startMs: number): string {
+/** corr cold-инцидента простоя (нет предшествующего 500). Экспорт — OhsStore шлёт его в holdRecovery (§9.2). */
+export function outageCorrelationId(startMs: number): string {
   return `ohs.backend.outage:${startMs}`;
 }
 
 /**
- * Настоящий `ohs.unhandled` (FATAL/critical) во время активного инцидента простоя → втягиваем в СТЕК
- * инцидента (nc-availability.md §6.1): публикуем под corr инцидента, оставляя `critical` (уровень = «FATAL:»,
- * отдельного типа нет) и исходный id (persist/echo). Так 500 живого-но-нестабильного бэка видны как часть
- * той же нити (кликом по corr — весь стек), а не сиротой-FATAL. Голова группы — по новейшему событию,
- * поэтому этот critical в середине не мешает зелёному закрытию (resolved эмитится последним). Персист
- * остаётся под серверным corr → после reload вернётся отдельной строкой (фолд пока для живого показа, §8).
+ * `ohs.unhandled` прилетел с чужим corr (обычно requestId/trace), пока бэк ещё не получил hold (§9.2
+ * race: swagger/test-exception до holdRecovery) → показываем в стеке инцидента. Persist: вызывающий
+ * может пере-POST'ить тот же id с исправленным corr.
  */
-export function foldUnhandledIntoOutage(dto: NotificationDto, startMs: number): void {
-  publishServerNotification({ ...dto, correlationId: outageCorrelationId(startMs) });
+export function foldUnhandledIntoOutage(dto: NotificationDto, correlationId: string): void {
+  publishServerNotification({ ...dto, correlationId });
 }
 
-// Живущие поля инцидента (ключ — startMs): open эмитится по grace, resolve — по settle; между ними
-// нужно помнить id/ts open, чтобы переиспользовать их в mock-POST (дедуп echo по id).
+// Живущие поля инцидента (ключ — corr): id/ts open для mock-POST при resolve (дедуп echo по id).
 interface OutageThread {
   correlationId: string;
+  startMs: number;
   openId: string;
   openTs: string;
 }
-const outageThreads = new Map<number, OutageThread>();
+const outageThreads = new Map<string, OutageThread>();
 
 function mskHms(ms: number): string {
   return new Intl.DateTimeFormat('ru-RU', {
@@ -363,12 +359,12 @@ function formatOutageDuration(totalSec: number): string {
   return restMin > 0 ? `${hours} ч ${restMin} мин` : `${hours} ч`;
 }
 
-/** Фаза 1 (open, fatal): связь с бэком потеряна. Заводит нить инцидента (ts = момент дропа). */
-export function openBackendOutage(startMs: number): void {
+/** Фаза 1 (open, fatal): связь с бэком потеряна. Заводит нить инцидента (ts = момент дропа). corr —
+ * снаружи (§9.2): cold = outageCorrelationId(startMs); эскалация одиночного 500 = adopt requestId. */
+export function openBackendOutage(startMs: number, correlationId: string): void {
   const startIso = new Date(startMs).toISOString();
-  const correlationId = outageCorrelationId(startMs);
   const openId = guidN();
-  outageThreads.set(startMs, { correlationId, openId, openTs: startIso });
+  outageThreads.set(correlationId, { correlationId, startMs, openId, openTs: startIso });
   notify.critical(notificationBus, {
     id: openId,
     ts: startIso,
@@ -385,8 +381,9 @@ export function openBackendOutage(startMs: number): void {
 }
 
 /** Фаза 2 (progress, error): живой тик длительности простоя. Повторы (underway+тот же code) обновляют
- * строку НА МЕСТЕ (I2 upsert), поэтому каждый тик — свежий id (иначе дедуп по id его отбросит). */
-export function tickBackendOutage(startMs: number, nowMs: number): void {
+ * строку НА МЕСТЕ (I2 upsert), поэтому каждый тик — свежий id (иначе дедуп по id его отбросит).
+ * Тики НЕ персистятся (§9.5) — только живой показ. */
+export function tickBackendOutage(startMs: number, nowMs: number, correlationId: string): void {
   const durationSec = Math.max(1, Math.round((nowMs - startMs) / 1000));
   notify.error(notificationBus, {
     id: guidN(),
@@ -398,26 +395,86 @@ export function tickBackendOutage(startMs: number, nowMs: number): void {
     interaction: 'system',
     localization: 'internal',
     status: 'underway',
-    correlationId: outageCorrelationId(startMs),
+    correlationId,
     data: { since: new Date(startMs).toISOString(), durationSec, sender: 'client' },
   });
 }
 
-/** Фаза 3 (warning): бэк снова на связи, но система ещё поднимается (гидрация/ре-хендшейк/писатели). */
-export function warnBackendOutage(startMs: number): void {
+/**
+ * Фаза recovering: бэк снова на связи, система ещё поднимается. Каждый вход — **новая** строка
+ * (§9.2: перед OK всегда warn; пачка 500 → один warn после кулдауна). `sender=client`; `since` нет.
+ * Возвращает DTO для персиста (§9.5) — POST на каждый вход.
+ */
+export function warnBackendOutage(correlationId: string): NotificationDto {
+  const warnId = guidN();
+  const ts = new Date().toISOString();
+  const message = 'Сервер OHS доступен, идёт восстановление системы…';
+  const data = { sender: 'client' };
   notify.warn(notificationBus, {
-    id: guidN(),
-    ts: new Date().toISOString(),
+    id: warnId,
+    ts,
     module: BACKEND_OUTAGE_MODULE,
     code: OUTAGE_CODE_RECOVERING,
-    message: 'Сервер OHS доступен, идёт восстановление системы…',
+    message,
     sourceType: 'system',
     interaction: 'system',
     localization: 'internal',
     status: 'underway',
-    correlationId: outageCorrelationId(startMs),
-    data: { since: new Date(startMs).toISOString(), sender: 'client' },
+    correlationId,
+    data,
   });
+  return {
+    id: warnId,
+    ts,
+    severity: 'warning',
+    sourceType: 'system',
+    module: BACKEND_OUTAGE_MODULE,
+    code: OUTAGE_CODE_RECOVERING,
+    message,
+    status: 'underway',
+    correlationId,
+    data,
+    interaction: 'system',
+    localization: 'internal',
+  };
+}
+
+/**
+ * Одиночный 500 (§9.3): бэк ответил на health-probe (жив) → закрываем micro-инцидент «проверкой ОК» под
+ * ТЕМ ЖЕ corr, что у 500 (requestId). Возвращает DTO для персиста — 500 персистит бэк, ok персистим mock-POST.
+ */
+export function healthCheckOk(correlationId: string): NotificationDto {
+  const id = guidN();
+  const ts = new Date().toISOString();
+  const message = 'Проверка работоспособности: сервер OHS функционирует штатно';
+  const data = { sender: 'client', lines: ['Одиночная ошибка 500: бэк ответил на проверку — инцидент не заводим'] };
+  notify.ok(notificationBus, {
+    id,
+    ts,
+    module: BACKEND_OUTAGE_MODULE,
+    code: HEALTHCHECK_CODE_OK,
+    message,
+    sourceType: 'system',
+    interaction: 'system',
+    localization: 'internal',
+    status: 'resolved',
+    correlationId,
+    data,
+  });
+  return {
+    id,
+    ts,
+    severity: 'ok',
+    sourceType: 'system',
+    module: BACKEND_OUTAGE_MODULE,
+    code: HEALTHCHECK_CODE_OK,
+    message,
+    status: 'resolved',
+    correlationId,
+    data,
+    interaction: 'system',
+    localization: 'internal',
+  };
 }
 
 /**
@@ -425,13 +482,14 @@ export function warnBackendOutage(startMs: number): void {
  * задним числом — open (переиспользуя id/ts из нити → echo дедупится, персист под тем же id) и resolve
  * (ts = момент восстановления, длительность в expanded). Нить закрывается (удаляется из карты).
  */
-export function resolveBackendOutage(startMs: number, endMs: number): NotificationDto[] {
-  const thread = outageThreads.get(startMs) ?? {
-    correlationId: outageCorrelationId(startMs),
+export function resolveBackendOutage(startMs: number, endMs: number, correlationId: string): NotificationDto[] {
+  const thread = outageThreads.get(correlationId) ?? {
+    correlationId,
+    startMs,
     openId: guidN(),
     openTs: new Date(startMs).toISOString(),
   };
-  outageThreads.delete(startMs);
+  outageThreads.delete(correlationId);
 
   const durationSec = Math.max(1, Math.round((endMs - startMs) / 1000));
   const endIso = new Date(endMs).toISOString();

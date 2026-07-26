@@ -144,6 +144,123 @@ describe('NotificationBus', () => {
       expect(bus.events.map((e) => e.id)).toEqual(['u3', 'u2', 'u1', 'o1']);
     });
 
+    it('§9.5: after reload, stack order follows ts (not insert order of backdated open)', () => {
+      const bus = createNotificationBus();
+      // Как в БД после mock-POST: warning записан раньше, open — backdated при resolve, потом ok.
+      bus.publish(
+        evt({
+          id: 'w',
+          correlationId: 'ohs.backend.outage:1',
+          code: 'backend.recovering',
+          severity: 'warning',
+          status: 'underway',
+          ts: '2026-07-25T15:36:42.000Z',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'f',
+          correlationId: 'ohs.backend.outage:1',
+          code: 'backend.unavailable',
+          severity: 'critical',
+          status: 'active',
+          ts: '2026-07-25T15:36:02.000Z',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'ok',
+          correlationId: 'ohs.backend.outage:1',
+          code: 'backend.recovered',
+          severity: 'ok',
+          status: 'resolved',
+          ts: '2026-07-25T15:36:48.000Z',
+        }),
+      );
+      // Newest-first по ts: ok → warning → fatal (чтение снизу вверх = причина → чиним → закрыто).
+      expect(bus.events.map((e) => e.code)).toEqual([
+        'backend.recovered',
+        'backend.recovering',
+        'backend.unavailable',
+      ]);
+    });
+
+    it('§9.2: each recovering entry stays a separate row (not collapsed)', () => {
+      const bus = createNotificationBus();
+      const corr = 'ohs.backend.outage:1';
+      bus.publish(
+        evt({
+          id: 'open',
+          correlationId: corr,
+          code: 'backend.unavailable',
+          severity: 'critical',
+          status: 'active',
+          ts: '2026-07-25T15:00:00.000Z',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'w1',
+          correlationId: corr,
+          code: 'backend.recovering',
+          severity: 'warning',
+          status: 'underway',
+          ts: '2026-07-25T15:00:10.000Z',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'f1',
+          correlationId: corr,
+          code: 'ohs.unhandled',
+          severity: 'critical',
+          status: 'active',
+          ts: '2026-07-25T15:00:11.000Z',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'w2',
+          correlationId: corr,
+          code: 'backend.recovering',
+          severity: 'warning',
+          status: 'underway',
+          ts: '2026-07-25T15:00:16.000Z',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'f2',
+          correlationId: corr,
+          code: 'ohs.unhandled',
+          severity: 'critical',
+          status: 'active',
+          ts: '2026-07-25T15:00:17.000Z',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'w3',
+          correlationId: corr,
+          code: 'backend.recovering',
+          severity: 'warning',
+          status: 'underway',
+          ts: '2026-07-25T15:00:22.000Z',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'ok',
+          correlationId: corr,
+          code: 'backend.recovered',
+          severity: 'ok',
+          status: 'resolved',
+          ts: '2026-07-25T15:00:27.000Z',
+        }),
+      );
+      expect(bus.events.map((e) => e.id)).toEqual(['ok', 'w3', 'f2', 'w2', 'f1', 'w1', 'open']);
+    });
+
     it('re-open (→ active) re-alerts via a fresh unread row', () => {
       const bus = createNotificationBus();
       notify.error(bus, { module: 'm', code: 'connection.lost', message: 'down', id: 'e1', correlationId: 'c', status: 'active' });

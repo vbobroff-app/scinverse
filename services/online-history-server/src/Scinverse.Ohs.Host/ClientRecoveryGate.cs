@@ -27,6 +27,18 @@ public sealed class ClientRecoveryGate
     private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    /// <summary>
+    /// corr активного клиентского инцидента простоя (7j.20 §9.2). Живёт независимо от одноразового
+    /// барьера <see cref="WaitAsync"/> (тот только на старте): 500 у уже-поднявшегося бэка может прилететь
+    /// в любой момент открытого инцидента, и <see cref="GlobalExceptionHandler"/> штампует его этим corr,
+    /// чтобы `ohs.unhandled` персистился в ТУ ЖЕ нить (единый corr, а не свой per-request). null ⇒ инцидента
+    /// нет ⇒ 500 идёт под собственным requestId (одиночный, закрывается health-probe на клиенте, §9.3).
+    /// </summary>
+    private volatile string? _activeCorrelationId;
+
+    /// <summary>corr активного инцидента простоя, заявленного клиентом (<see cref="SetActiveIncident"/>), либо null.</summary>
+    public string? ActiveCorrelationId => _activeCorrelationId;
+
     /// <summary>Подключился WS-клиент (из брокера). Запускает фазу heads-up. Идемпотентно.</summary>
     public void NotifyClientConnected() => _clientConnected.TrySetResult();
 
@@ -35,6 +47,13 @@ public sealed class ClientRecoveryGate
 
     /// <summary>Клиент подтвердил восстановление (<c>backend.recovered</c>) → снять барьер. Идемпотентно.</summary>
     public void Release() => _released.TrySetResult();
+
+    /// <summary>Клиент сообщил corr открытого инцидента простоя (7j.20 §9.2) — штамп для `ohs.unhandled`.</summary>
+    public void SetActiveIncident(string? correlationId) =>
+        _activeCorrelationId = string.IsNullOrWhiteSpace(correlationId) ? null : correlationId;
+
+    /// <summary>Инцидент простоя закрыт (<c>backend.recovered</c>) → снять штамп corr.</summary>
+    public void ClearActiveIncident() => _activeCorrelationId = null;
 
     /// <summary>
     /// Ждать снятия барьера. Возвращает причину снятия (для лога): <c>"recover"</c> — recover подтверждён
