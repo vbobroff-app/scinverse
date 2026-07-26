@@ -79,6 +79,44 @@ public sealed class ConnectionManager(
             ? $"Подключение {connectionId}"
             : $"Подключение {connectionId} («{name}»)";
 
+    /// <summary>NC <c>connection.connect_failed</c>: короткий заголовок без дубля детали;
+    /// сырой хвост → <c>data.error_message</c>; <c>data.sender</c> = origin (transaq / backend).
+    /// Пример: message «… — TRANSAQ connect failed», error_message = «connection error».</summary>
+    public static (string Message, object Data) FormatConnectFailedNotification(
+        long connectionId, string label, string exceptionMessage)
+    {
+        const string headline = "TRANSAQ connect failed";
+        var isTransaq = exceptionMessage.StartsWith(headline, StringComparison.OrdinalIgnoreCase);
+        var message = isTransaq
+            ? $"{label}: не удалось подключиться — {headline}"
+            : $"{label}: не удалось подключиться";
+        return (message, new
+        {
+            connectionId,
+            state = "Error",
+            error_message = ExtractTransaqErrorMessage(exceptionMessage),
+            sender = isTransaq ? "transaq" : "backend",
+        });
+    }
+
+    /// <summary>Хвост после <c>TRANSAQ connect failed:</c> → <c>data.error_message</c>; иначе целое сообщение.</summary>
+    public static string? ExtractTransaqErrorMessage(string exceptionMessage)
+    {
+        const string headline = "TRANSAQ connect failed";
+        if (!exceptionMessage.StartsWith(headline, StringComparison.OrdinalIgnoreCase))
+        {
+            return string.IsNullOrWhiteSpace(exceptionMessage) ? null : exceptionMessage;
+        }
+
+        var rest = exceptionMessage[headline.Length..].TrimStart();
+        if (rest.StartsWith(':'))
+        {
+            rest = rest[1..].Trim();
+        }
+
+        return string.IsNullOrEmpty(rest) ? null : rest;
+    }
+
     /// <summary>Ярлык подключения с резолвом имени (кэш → БД). Fallback — только id.</summary>
     public async ValueTask<string> ResolveLabelAsync(long connectionId, CancellationToken cancellationToken)
     {
@@ -95,39 +133,44 @@ public sealed class ConnectionManager(
         return ConnLabel(connectionId, name);
     }
 
-    /// <summary>QUIK-style детали к «связь установлена» отдельными строками (для expanded в NC, 7j.19/I4):
-    /// когда было предыдущее подключение (МСК) и как закрылось. Вызывать ДО подключения — иначе «последним»
-    /// станет текущий сеанс.</summary>
-    public async Task<IReadOnlyList<string>> DescribePreviousConnectionLinesAsync(
-        long connectionId, CancellationToken cancellationToken)
+    /// <summary>Данные NC для <c>connection.connected</c>. Вызывать ДО нового Heartbeat — иначе «предыдущим»
+    /// станет текущий сеанс. Expanded = JSON (<c>result</c> + <c>sender</c>), без <c>lines</c>.</summary>
+    public async Task<object> FormatConnectedNotifyDataAsync(
+        long connectionId, string sender, CancellationToken cancellationToken, string? autoNote = null)
     {
         var connection = await connectionStore.GetAsync(connectionId, cancellationToken).ConfigureAwait(false);
-        if (connection is null)
+        LinkInterval? previous = null;
+        if (connection is not null)
         {
-            return [];
+            previous = await linkLiveness.GetLastAsync(connection.SourceId, cancellationToken).ConfigureAwait(false);
         }
 
-        var previous = await linkLiveness.GetLastAsync(connection.SourceId, cancellationToken).ConfigureAwait(false);
-        return PreviousConnectionLines(previous);
+        return FormatConnectedNotificationData(connectionId, previous, sender, autoNote);
     }
 
-    /// <summary>QUIK-style детали предыдущего подключения строками: «Предыдущее подключение — … МСК» и
-    /// «Пред. сеанс — &lt;причина&gt;». Заголовок остаётся чистым, эти строки идут в expanded (data.lines).</summary>
-    public static IReadOnlyList<string> PreviousConnectionLines(LinkInterval? previous)
+    /// <summary>NC <c>connection.connected</c>: итог пред. сеанса в <c>result</c> (не <c>message</c> — то заголовок).</summary>
+    public static object FormatConnectedNotificationData(
+        long connectionId, LinkInterval? previous, string sender, string? autoNote = null)
+    {
+        var prev = FormatPreviousConnectionResult(previous);
+        var result = string.IsNullOrEmpty(autoNote) ? prev : $"{autoNote}. {prev}";
+        return new { connectionId, result, sender };
+    }
+
+    /// <summary>Одна строка итога (join <c>"; "</c>): «Предыдущее подключение — … МСК; Пред. сеанс — &lt;причина&gt;»
+    /// или «Первое подключение.»</summary>
+    public static string FormatPreviousConnectionResult(LinkInterval? previous)
     {
         if (previous is null)
         {
-            return ["Первое подключение."];
+            return "Первое подключение.";
         }
 
         var msk = previous.From.ToOffset(TimeSpan.FromHours(3));
-        var lines = new List<string>(2) { $"Предыдущее подключение — {msk:dd.MM.yyyy HH:mm} МСК" };
-        if (previous.CloseReason is { } r)
-        {
-            lines.Add($"Пред. сеанс — {LinkCloseReasonText(r)}");
-        }
-
-        return lines;
+        var head = $"Предыдущее подключение — {msk:dd.MM.yyyy HH:mm} МСК";
+        return previous.CloseReason is { } r
+            ? $"{head}; Пред. сеанс — {LinkCloseReasonText(r)}"
+            : head;
     }
 
     private static string LinkCloseReasonText(LinkCloseReason reason) => reason switch
@@ -220,7 +263,7 @@ public sealed class ConnectionManager(
             // 7j.20 J3/J6: успешный (ре)коннект = связь снова жива (server_status connected=true пришёл внутри
             // ConnectAsync). Свежая сессия НЕ даёт отдельного перехода в Live (рождается подключённой), поэтому
             // закрываем открытый инцидент здесь — иначе после handover он висел бы открытым (recovered терялся).
-            await CloseIncidentAsync(connectionId, DateTimeOffset.UtcNow, "Live", cancellationToken).ConfigureAwait(false);
+            await CloseIncidentAsync(connectionId, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
             _firstTradePending[connectionId] = DateTimeOffset.UtcNow;
             var connectElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(connectStartedAt);
             logger.LogInformation(
@@ -522,7 +565,7 @@ public sealed class ConnectionManager(
                 // _incidentSince, не на in-memory previous (реконнект супервизора идёт через полный
                 // DisconnectAsync, стелс-разрыв — без server_status Down). Общий путь с успешным реконнектом
                 // супервизора — см. CloseIncidentAsync.
-                await CloseIncidentAsync(connectionId, change.At, change.State.ToString(), CancellationToken.None)
+                await CloseIncidentAsync(connectionId, change.At, CancellationToken.None)
                     .ConfigureAwait(false);
 
                 // Ре-подписку НЕЛЬЗЯ гейтить in-memory `recovering` (7j.19/I6): реконнект супервизора идёт
@@ -560,7 +603,13 @@ public sealed class ConnectionManager(
                     "connection.lost",
                     $"{degradedLabel}: связь потеряна (Degraded)",
                     severity: "error",
-                    data: new { connectionId, state = change.State.ToString(), detail = change.Detail });
+                    data: new
+                    {
+                        connectionId,
+                        state = change.State.ToString(),
+                        detail = change.Detail,
+                        sender = "transaq",
+                    });
 
                 if (_sourceIds.TryGetValue(connectionId, out var degradedSourceId))
                 {
@@ -601,6 +650,7 @@ public sealed class ConnectionManager(
                     segmentStatus,
                     change.State,
                     change.Detail,
+                    sender: "transaq",
                     CancellationToken.None).ConfigureAwait(false);
                 break;
             }
@@ -615,7 +665,7 @@ public sealed class ConnectionManager(
     /// поэтому без вызова из ConnectAsync инцидент после handover висел бы открытым (recovered терялся). Owner
     /// фиксируем на момент закрытия: "supervisor" (после handover/Down) → «Восстановлено супервизором», иначе TRANSAQ.</summary>
     private async Task CloseIncidentAsync(
-        long connectionId, DateTimeOffset atTs, string stateLabel, CancellationToken cancellationToken)
+        long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
     {
         // TryRemove делает Resolve однократным (idempotent) и даёт длительность разрыва (I3).
         if (!_incidentSince.TryRemove(connectionId, out var incidentStart))
@@ -624,7 +674,6 @@ public sealed class ConnectionManager(
         }
 
         var label = await ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
-        var gapMs = (long)(atTs - incidentStart).TotalMilliseconds;
         // Кем восстановлена связь (7j.20): владелец на момент закрытия. TRANSAQ сам поднял (Degraded до
         // handover) → «Восстановлено TRANSAQ»; иначе (Down/ping-fail/после handover) → супервизор.
         var owner = _incidentOwner.TryRemove(connectionId, out var incidentOwner) ? incidentOwner : "transaq";
@@ -639,12 +688,8 @@ public sealed class ConnectionManager(
             data: new
             {
                 connectionId,
-                state = stateLabel,
-                owner,
-                gapStart = incidentStart,
-                gapEnd = atTs,
-                gapMs,
-                lines = new[] { ownerLine, FormatGapLine(incidentStart, atTs) },
+                result = $"{ownerLine}; {FormatGapLine(incidentStart, atTs)}",
+                sender = owner,
             });
     }
 
@@ -662,6 +707,7 @@ public sealed class ConnectionManager(
         string segmentStatus,
         ConnectorLinkState state,
         string? detail,
+        string sender,
         CancellationToken cancellationToken)
     {
         _incidentSince.TryAdd(connectionId, atTs);
@@ -672,7 +718,7 @@ public sealed class ConnectionManager(
             "connection.lost",
             message,
             severity: "error",
-            data: new { connectionId, state = state.ToString(), detail });
+            data: new { connectionId, state = state.ToString(), detail, sender });
 
         if (_sourceIds.TryGetValue(connectionId, out var srcId))
         {
@@ -718,6 +764,7 @@ public sealed class ConnectionManager(
             "disconnected",
             ConnectorLinkState.Down,
             "нет данных: активный пинг не прошёл",
+            sender: "supervisor",
             cancellationToken).ConfigureAwait(false);
     }
 

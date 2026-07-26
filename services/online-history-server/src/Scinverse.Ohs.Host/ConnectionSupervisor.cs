@@ -164,10 +164,15 @@ public sealed class ConnectionSupervisor(
 
         notifications.Publish(
             "connection.auto_error",
-            $"{label}: сбой авто-управления связью — {SummarizeException(ex)}",
+            $"{label}: сбой auto-управления связью",
             severity: "error",
             sourceType: "system",
-            data: new { connectionId, lines = new[] { SummarizeException(ex) } });
+            data: new
+            {
+                connectionId,
+                error_message = SummarizeException(ex),
+                sender = "supervisor",
+            });
     }
 
     /// <summary>Краткая суть исключения (тип + message, усечение ≤300). Полный стек — в логе.</summary>
@@ -295,12 +300,18 @@ public sealed class ConnectionSupervisor(
                 data: new { connectionId, attempt = fails + 1 });
         }
 
-        // «Предыдущее подключение» (QUIK-style) — до нового Heartbeat, иначе последним станет текущий сеанс.
-        // Нужно только для планового «связь установлена»; при инциденте детали (разрыв/владелец) идут в recovered.
-        var previousLines = incidentOpen
-            ? Array.Empty<string>()
-            : await connections.DescribePreviousConnectionLinesAsync(connectionId, cancellationToken)
+        // «Предыдущее подключение» — до нового Heartbeat. При инциденте детали идут в recovered, не сюда.
+        object? connectedData = null;
+        if (!incidentOpen)
+        {
+            var kickoff = _kickoffPending.ContainsKey(connectionId);
+            var autoNote = kickoff
+                ? "Auto подключение по расписанию"
+                : "Auto подключение внутри интервала расписания";
+            connectedData = await connections
+                .FormatConnectedNotifyDataAsync(connectionId, "supervisor", cancellationToken, autoNote)
                 .ConfigureAwait(false);
+        }
 
         try
         {
@@ -310,24 +321,16 @@ public sealed class ConnectionSupervisor(
             _autoCorr.TryRemove(connectionId, out _);
             // Плановое подключение → «связь установлена» (штатная auto-серия). При инциденте успех уже отражён
             // как connection.recovered (испущен из ConnectAsync при закрытии инцидента) — второй раз не шумим.
-            if (!incidentOpen)
+            if (!incidentOpen && connectedData is not null)
             {
-                // Пометка «(Auto)» + первая строка expanded: это авто-подключение супервизора (не ручная
-                // команда оператора и не восстановление инцидента). kickoff=true ⇒ расписание открыло окно
-                // (плановый старт по start date-time); иначе — подъём внутри уже открытого окна.
-                var kickoff = _kickoffPending.TryRemove(connectionId, out _);
-                var autoLine = kickoff
-                    ? "Auto подключение по расписанию"
-                    : "Auto подключение внутри интервала расписания";
-                var lines = new List<string>(previousLines.Count + 1) { autoLine };
-                lines.AddRange(previousLines);
+                _kickoffPending.TryRemove(connectionId, out _);
                 notifications.Publish(
                     "connection.connected",
                     $"{scheduleLabel}: связь установлена (Auto)",
                     severity: "ok",
                     status: "resolved",
                     correlationId: corr,
-                    data: new { connectionId, lines });
+                    data: connectedData);
             }
 
             logger.LogInformation(
@@ -350,7 +353,14 @@ public sealed class ConnectionSupervisor(
                     $"{scheduleLabel}: не удалось подключить за {MaxConnectAttempts} попыток",
                     severity: "error",
                     correlationId: corr,
-                    data: new { connectionId, attempts = nextFails });
+                    data: new
+                    {
+                        connectionId,
+                        attempts = nextFails,
+                        state = "Error",
+                        error_message = ConnectionManager.ExtractTransaqErrorMessage(ex.Message),
+                        sender = "supervisor",
+                    });
             }
         }
     }

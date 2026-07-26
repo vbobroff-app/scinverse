@@ -376,7 +376,7 @@ export function openBackendOutage(startMs: number, correlationId: string): void 
     localization: 'internal',
     status: 'active',
     correlationId,
-    data: { since: startIso, backdated: true, sender: 'client', lines: ['Отправитель: фронт (нет связи с бэком)'] },
+    data: { sender: 'client' },
   });
 }
 
@@ -447,7 +447,7 @@ export function healthCheckOk(correlationId: string): NotificationDto {
   const id = guidN();
   const ts = new Date().toISOString();
   const message = 'Проверка работоспособности: сервер OHS функционирует штатно';
-  const data = { sender: 'client', lines: ['Одиночная ошибка 500: бэк ответил на проверку — инцидент не заводим'] };
+  const data = { sender: 'client', probe: 'health_ok' };
   notify.ok(notificationBus, {
     id,
     ts,
@@ -496,7 +496,8 @@ export function resolveBackendOutage(startMs: number, endMs: number, correlation
   const resolveId = guidN();
   const okMessage = 'Система восстановлена, сервер OHS функционирует штатно';
   const spanLine = `Недоступен ${mskHms(startMs)} → ${mskHms(endMs)} (МСК) · ${formatOutageDuration(durationSec)}`;
-  const resolveData = { since: thread.openTs, until: endIso, durationSec, backdated: true, sender: 'client', lines: [spanLine] };
+  // `result` — итог интервала (не `message`: то заголовок события). Без `lines` → expanded = JSON.
+  const resolveData = { result: spanLine, sender: 'client' };
 
   notify.ok(notificationBus, {
     id: resolveId,
@@ -522,7 +523,7 @@ export function resolveBackendOutage(startMs: number, endMs: number, correlation
     message: 'Сервер OHS недоступен, жду восстановления',
     status: 'active',
     correlationId: thread.correlationId,
-    data: { since: thread.openTs, backdated: true, sender: 'client', lines: ['Отправитель: фронт (нет связи с бэком)'] },
+    data: { sender: 'client' },
     interaction: 'system',
     localization: 'internal',
   };

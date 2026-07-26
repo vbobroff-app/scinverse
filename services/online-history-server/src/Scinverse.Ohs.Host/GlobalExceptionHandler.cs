@@ -50,12 +50,7 @@ public sealed class GlobalExceptionHandler(
                 severity: "error",
                 sourceType: "system",
                 module: "ohs.host",
-                data: new
-                {
-                    requestId,
-                    sender = "backend",
-                    lines = new[] { $"{method} {path}", Summarize(exception) },
-                },
+                data: FormatExceptionData(requestId, method, path, exception),
                 correlationId: requestId);
 
             httpContext.Response.StatusCode = bad.StatusCode;
@@ -90,12 +85,7 @@ public sealed class GlobalExceptionHandler(
             severity: "critical",
             sourceType: "system",
             module: "ohs.host",
-            data: new
-            {
-                requestId,
-                sender = "backend",
-                lines = new[] { $"{method} {path}", Summarize(exception) },
-            },
+            data: FormatExceptionData(requestId, method, path, exception),
             correlationId: correlationId);
 
         httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
@@ -111,6 +101,16 @@ public sealed class GlobalExceptionHandler(
 
         return true;
     }
+
+    /// <summary>Expanded JSON: <c>result</c> = «METHOD path; Type: message» (join <c>"; "</c>), без <c>lines</c>.
+    /// <c>requestId</c> — якорь серверного лога (полный стек).</summary>
+    private static object FormatExceptionData(string requestId, string method, string path, Exception exception) =>
+        new
+        {
+            requestId,
+            result = $"{method} {path}; {Summarize(exception)}",
+            sender = "backend",
+        };
 
     /// <summary>Краткая суть исключения (тип + message, усечение ≤500). Полный стек — в логе.</summary>
     private static string Summarize(Exception ex)

@@ -280,7 +280,8 @@ public static class OhsEndpoints
                     data: new
                     {
                         connectionId = id,
-                        lines = new[] { SummarizeException(ex), "Настройка не записана, состояние не изменено" },
+                        result = $"Настройка не записана, состояние не изменено; {SummarizeException(ex)}",
+                        sender = "backend",
                     });
                 return Results.Json(
                     new { error = "Не удалось изменить настройки расписания" },
@@ -364,7 +365,8 @@ public static class OhsEndpoints
                     {
                         connectionId = id,
                         batchId,
-                        lines = new[] { SummarizeException(ex), "Откат транзакции, состояние не изменено" },
+                        result = $"Откат транзакции, состояние не изменено; {SummarizeException(ex)}",
+                        sender = "backend",
                     },
                     correlationId: batchId);
                 return Results.Json(
@@ -559,31 +561,25 @@ public static class OhsEndpoints
                     "connection.connected",
                     $"{label}: связь установлена.",
                     severity: "ok", sourceType: "system", status: "resolved", correlationId: attempt,
-                    data: new
-                    {
-                        connectionId = id,
-                        status,
-                        lines = ConnectionManager.PreviousConnectionLines(previous),
-                        lastConnectedAt = previous?.From,
-                        lastConnectionClosed = previous?.To,
-                        lastCloseReason = previous?.CloseReason?.ToString(),
-                    });
+                    data: ConnectionManager.FormatConnectedNotificationData(id, previous, sender: "backend"));
                 return Results.Ok(ToDto(connection, status));
             }
             catch (InvalidOperationException ex)
             {
+                var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, label, ex.Message);
                 notifications.Publish(
                     "connection.connect_failed",
-                    $"{label}: не удалось подключиться — {ex.Message}",
-                    severity: "error", sourceType: "system", correlationId: attempt, data: new { connectionId = id });
+                    failedMessage,
+                    severity: "error", sourceType: "system", correlationId: attempt, data: failedData);
                 return Results.BadRequest(new { error = ex.Message });
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, label, ex.Message);
                 notifications.Publish(
                     "connection.connect_failed",
-                    $"{label}: не удалось подключиться — {ex.Message}",
-                    severity: "error", sourceType: "system", correlationId: attempt, data: new { connectionId = id });
+                    failedMessage,
+                    severity: "error", sourceType: "system", correlationId: attempt, data: failedData);
                 throw;
             }
         });
