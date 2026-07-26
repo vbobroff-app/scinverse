@@ -15,22 +15,38 @@ public sealed class NotificationHubTests
         const string subject = "connection:1:link";
 
         hub.Open(subject, "connection.lost", "down").Should().BeTrue();
-        hub.Open(subject, "connection.lost", "down").Should().BeFalse("повторный open активного — no-op (I2)");
+        hub.Open(subject, "connection.lost", "down").Should().BeFalse("повторный open активного — no-op");
 
         hub.Progress(subject, "connection.reconnecting", "retry").Should().BeTrue();
-        hub.Progress(subject, "connection.reconnecting", "retry 2").Should().BeTrue("прогресс-тик повторяем (7j.20 J5): underway→underway пишет новую строку");
+        hub.Open(subject, "connection.lost", "escalated").Should().BeFalse(
+            "после Progress Open запрещён — иначе схлопывался первый lost; эскалация через Append");
+        hub.Append(subject, "connection.lost", "связь потеряна (Down)", severity: "error").Should().BeTrue();
+        hub.Progress(subject, "connection.reconnecting", "retry 2").Should().BeTrue(
+            "прогресс-тик повторяем (7j.20 J5): underway→underway пишет новую строку");
 
         hub.Resolve(subject, "connection.recovered", "up").Should().BeTrue();
         hub.Resolve(subject, "connection.recovered", "up").Should().BeFalse("инцидент уже закрыт — no-op");
 
         var list = hub.List();
-        list.Select(e => e.Status).Should().Equal("active", "underway", "underway", "resolved");
+        list.Select(e => e.Code).Should().Equal(
+            "connection.lost",
+            "connection.reconnecting",
+            "connection.lost",
+            "connection.reconnecting",
+            "connection.recovered");
 
-        // Все три события одного инцидента делят один per-occurrence correlationId = subject:uid.
         var ids = list.Select(e => e.CorrelationId).Distinct().ToList();
         ids.Should().ContainSingle();
         ids[0].Should().StartWith(subject + ":");
         ids[0]!.Length.Should().BeGreaterThan(subject.Length + 1, "после subject: должен идти uid");
+    }
+
+    [Fact]
+    public void Append_withoutOpenIncident_isNoop()
+    {
+        var hub = NewHub();
+        hub.Append("c", "connection.lost", "down").Should().BeFalse();
+        hub.List().Should().BeEmpty();
     }
 
     [Fact]

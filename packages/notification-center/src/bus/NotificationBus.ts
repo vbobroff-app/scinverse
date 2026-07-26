@@ -19,9 +19,10 @@ function isWarning(evt: NotificationEvent): boolean {
 }
 
 /**
- * Discrete строки стека простоя / FATAL: НЕ upsert и НЕ dedup по (corr,code,status).
- * Остальное (тики `*.progress`, `connection.recovering`, повторный `connection.lost`…) — I2 схлопывание.
- * nc-availability.md §9.4 / warn-per-FATAL §9.2.
+ * Discrete строки стека: НЕ upsert и НЕ dedup по (corr,code,status).
+ * `connection.lost` — дискретно: Degraded и последующий Down оба видны в нити break
+ * (иначе второй lost вытеснял первый после Progress→underway).
+ * Тики `connection.recovering` / `reconnecting` — I2 схлопывание.
  */
 function isDiscreteStackRow(evt: NotificationEvent): boolean {
   if (evt.severity === 'critical') {
@@ -32,6 +33,9 @@ function isDiscreteStackRow(evt: NotificationEvent): boolean {
     case 'backend.unavailable':
     case 'backend.recovered':
     case 'backend.healthcheck.ok':
+    case 'connection.lost':
+    case 'connection.auto_error':
+    case 'connection.connect_failed':
       return true;
     default:
       return false;

@@ -4,8 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// OHS control-plane host (see services/online-history-server/.../launchSettings.json).
-const OHS_TARGET = 'http://localhost:5080';
+// OHS control-plane (launchSettings.json :5080). Явно IPv4: на Windows `localhost` → ::1,
+// а залипший Kestrel на IPv6 даёт вечный proxy hang (UI «Нет подключений», AjaxError aborted).
+const OHS_TARGET = 'http://127.0.0.1:5080';
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const notificationCenterRoot = path.resolve(rootDir, '../../../packages/notification-center');
 

@@ -162,17 +162,31 @@ public sealed class ConnectionSupervisor(
             label = ConnectionManager.ConnLabel(connectionId, null);
         }
 
-        notifications.Publish(
-            "connection.auto_error",
-            $"{label}: сбой auto-управления связью",
-            severity: "error",
-            sourceType: "system",
-            data: new
-            {
-                connectionId,
-                error_message = SummarizeException(ex),
-                sender = "supervisor",
-            });
+        var data = new
+        {
+            connectionId,
+            error_message = SummarizeException(ex),
+            sender = "supervisor",
+        };
+        // Внутри открытого break — та же corr-нить; иначе одиночный system-error.
+        if (connections.GetIncidentSince(connectionId) is not null)
+        {
+            notifications.Append(
+                ConnectionManager.LinkIncidentSubject(connectionId),
+                "connection.auto_error",
+                $"{label}: сбой auto-управления связью",
+                severity: "error",
+                data: data);
+        }
+        else
+        {
+            notifications.Publish(
+                "connection.auto_error",
+                $"{label}: сбой auto-управления связью",
+                severity: "error",
+                sourceType: "system",
+                data: data);
+        }
     }
 
     /// <summary>Краткая суть исключения (тип + message, усечение ≤300). Полный стек — в логе.</summary>
@@ -227,20 +241,28 @@ public sealed class ConnectionSupervisor(
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
             _autoCorr.TryRemove(connectionId, out _);
+            // Открытый break → closing-warn в том же corr + клип ленты (Abandoned); иначе обычный info.
+            var abandoned = await connections
+                .TryAbandonIncidentByScheduleAsync(connectionId, nowUtc, cancellationToken)
+                .ConfigureAwait(false);
             if (isConnected)
             {
                 await connections.DisconnectAsync(connectionId, cancellationToken, LinkCloseReason.Scheduled)
                     .ConfigureAwait(false);
-                var label = await connections.ResolveLabelAsync(connectionId, cancellationToken)
-                    .ConfigureAwait(false);
-                notifications.Publish(
-                    "connection.schedule_disconnect",
-                    $"{label}: плановое отключение по расписанию",
-                    "info",
-                    data: new { connectionId });
+                if (!abandoned)
+                {
+                    var label = await connections.ResolveLabelAsync(connectionId, cancellationToken)
+                        .ConfigureAwait(false);
+                    notifications.Publish(
+                        "connection.schedule_disconnect",
+                        $"{label}: плановое отключение по расписанию",
+                        "info",
+                        data: new { connectionId });
+                }
+
                 logger.LogInformation(
-                    "ConnectionSupervisor: disconnect {ConnectionId} (out of schedule window)",
-                    connectionId);
+                    "ConnectionSupervisor: disconnect {ConnectionId} (out of schedule window{Abandoned})",
+                    connectionId, abandoned ? ", break abandoned" : "");
             }
 
             return;
@@ -287,7 +309,13 @@ public sealed class ConnectionSupervisor(
                 "connection.reconnecting",
                 $"{scheduleLabel}: восстановление связи, попытка {fails + 1}/{MaxConnectAttempts}",
                 severity: "warning",
-                data: new { connectionId, owner = "supervisor", attempt = fails + 1 });
+                data: new
+                {
+                    connectionId,
+                    owner = "supervisor",
+                    sender = "supervisor",
+                    attempt = fails + 1,
+                });
         }
         else
         {
@@ -297,7 +325,7 @@ public sealed class ConnectionSupervisor(
                 severity: "warning",
                 status: "underway",
                 correlationId: corr,
-                data: new { connectionId, attempt = fails + 1 });
+                data: new { connectionId, attempt = fails + 1, sender = "supervisor" });
         }
 
         // «Предыдущее подключение» — до нового Heartbeat. При инциденте детали идут в recovered, не сюда.
@@ -348,28 +376,39 @@ public sealed class ConnectionSupervisor(
             if (nextFails >= MaxConnectAttempts)
             {
                 _autoCorr.TryRemove(connectionId, out _);
-                notifications.Publish(
-                    "connection.connect_failed",
-                    $"{scheduleLabel}: не удалось подключить за {MaxConnectAttempts} попыток",
-                    severity: "error",
-                    correlationId: corr,
-                    data: new
-                    {
-                        connectionId,
-                        attempts = nextFails,
-                        state = "Error",
-                        error_message = ConnectionManager.ExtractTransaqErrorMessage(ex.Message),
-                        sender = "supervisor",
-                    });
+                var failData = new
+                {
+                    connectionId,
+                    attempts = nextFails,
+                    state = "Error",
+                    error_message = ConnectionManager.ExtractTransaqErrorMessage(ex.Message),
+                    sender = "supervisor",
+                };
+                if (incidentOpen)
+                {
+                    notifications.Append(
+                        ConnectionManager.LinkIncidentSubject(connectionId),
+                        "connection.connect_failed",
+                        $"{scheduleLabel}: не удалось подключить за {MaxConnectAttempts} попыток",
+                        severity: "error",
+                        data: failData);
+                }
+                else
+                {
+                    notifications.Publish(
+                        "connection.connect_failed",
+                        $"{scheduleLabel}: не удалось подключить за {MaxConnectAttempts} попыток",
+                        severity: "error",
+                        correlationId: corr,
+                        data: failData);
+                }
             }
         }
     }
 
     /// <summary>Прогресс-тик восстановления средствами TRANSAQ (7j.20 J5). Пока связь в <c>Degraded</c>
-    /// (owner=TRANSAQ сам чинит линк ①) и инцидент открыт — наш таймер (тик 15 c) шлёт underway-строку
-    /// «восстановление связи (TRANSAQ) · Nс» в нить инцидента (тот же correlationId, схлопывается фронтом).
-    /// Attempt-детализация самого TRANSAQ недоступна (чёрный ящик DLL) — фиксируем лишь длительность окна.
-    /// Передача владения супервизору по grace-таймауту <c>t</c> — J3/J6.</summary>
+    /// и инцидент открыт — тик супервизора шлёт underway «восстановление (TRANSAQ) · N с» (кратность 5 с)
+    /// с <c>sender=supervisor</c>, <c>owner=transaq</c>. По grace <c>t</c> — handover (J3/J6).</summary>
     private async Task TickRecoveringAsync(long connectionId, DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         if (connections.GetLinkState(connectionId) != ConnectorLinkState.Degraded
@@ -380,30 +419,43 @@ public sealed class ConnectionSupervisor(
 
         var elapsed = nowUtc - since;
         var label = await connections.ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        var graceSec = (int)RecoverGrace.TotalSeconds;
 
         if (elapsed >= RecoverGrace)
         {
-            // Передача владения TRANSAQ→супервизор (J3): TRANSAQ держит Degraded дольше t и не восстановил.
-            // Строка идёт в ту же нить инцидента (underway); дальше супервизор поднимет связь (connect ×5).
-            var graceSec = (int)RecoverGrace.TotalSeconds;
             notifications.Progress(
                 ConnectionManager.LinkIncidentSubject(connectionId),
                 "connection.reconnecting",
-                $"{label}: TRANSAQ не восстановил связь за {graceSec} c — переподключаю",
+                $"{label}: нет восстановления связи (TRANSAQ) за {graceSec} с, передача супервизору",
                 severity: "warning",
-                data: new { connectionId, owner = "supervisor", handoverAfterSeconds = graceSec });
+                data: new
+                {
+                    connectionId,
+                    owner = "supervisor",
+                    sender = "supervisor",
+                    handoverAfterSeconds = graceSec,
+                });
             await connections.HandoverToSupervisorAsync(connectionId, nowUtc, cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        var elapsedSec = (int)Math.Max(0, elapsed.TotalSeconds);
-        var remainingSec = Math.Max(0, (int)RecoverGrace.TotalSeconds - elapsedSec);
+        // Кратно 5 с: 5/55, 10/50… не 7/53 (тик ~5 с + floor elapsed).
+        const int stepSec = 5;
+        var elapsedSec = Math.Max(0, ((int)elapsed.TotalSeconds / stepSec) * stepSec);
+        var remainingSec = Math.Max(0, graceSec - elapsedSec);
         notifications.Progress(
             ConnectionManager.LinkIncidentSubject(connectionId),
             "connection.recovering",
-            $"{label}: восстановление связи (TRANSAQ) · {elapsedSec} c, передача супервизору через {remainingSec} c",
+            $"{label}: восстановление связи (TRANSAQ) · {elapsedSec} с, передача супервизору через {remainingSec} с",
             severity: "warning",
-            data: new { connectionId, owner = "transaq", elapsedSeconds = elapsedSec, handoverInSeconds = remainingSec });
+            data: new
+            {
+                connectionId,
+                owner = "transaq",
+                sender = "supervisor",
+                elapsedSeconds = elapsedSec,
+                handoverInSeconds = remainingSec,
+            });
     }
 
     private bool IsConnected(long connectionId)

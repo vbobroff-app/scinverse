@@ -184,6 +184,61 @@ public sealed class LinkLivenessStoreTests : IClassFixture<TimescaleFixture>, IA
     }
 
     [Fact]
+    public async Task ScheduleEnd_MarkerAbandonsBreakGap_WithoutMergingIntoGrey()
+    {
+        var t0 = new DateTimeOffset(2026, 7, 8, 10, 0, 0, TimeSpan.Zero);
+
+        await _store.HeartbeatAsync(TransaqSource, t0, MaxGap, CancellationToken.None);
+        await _store.CloseAsync(TransaqSource, LinkCloseReason.Degraded, t0.AddHours(1), CancellationToken.None);
+        // Конец окна расписания: нулевой маркер scheduled → клип break (Abandoned), без green на фронте.
+        await _store.InsertBoundaryMarkerAsync(
+            TransaqSource, LinkCloseReason.Scheduled, t0.AddHours(3), CancellationToken.None);
+        // Следующее утро — новый Live.
+        await _store.HeartbeatAsync(TransaqSource, t0.AddHours(12), MaxGap, CancellationToken.None);
+
+        var gaps = await _store.QueryGapsAsync(
+            new[] { TransaqSource }, t0.AddMinutes(-1), t0.AddDays(1), CancellationToken.None);
+
+        gaps.Should().HaveCount(2, "break (abandoned) + серый idle до следующего Live");
+        gaps[0].Cause.Should().Be(LinkCloseReason.Degraded);
+        gaps[0].From.Should().Be(t0.AddHours(1));
+        gaps[0].To.Should().Be(t0.AddHours(3));
+        gaps[0].Abandoned.Should().BeTrue();
+        gaps[0].EscalatedAt.Should().BeNull("scheduled-маркер — не handover");
+        gaps[1].Cause.Should().Be(LinkCloseReason.Scheduled);
+        gaps[1].From.Should().Be(t0.AddHours(3));
+        gaps[1].To.Should().Be(t0.AddHours(12));
+        gaps[1].Abandoned.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task NaturalDownAfterDegraded_ThenScheduleEnd_SplitsYellowThenRed_Abandoned()
+    {
+        // Кейс hard-down→timeout: Degraded → Down (~40 с) → schedule_end. Без маркера server_down
+        // на Down вся дыра остаётся жёлтой (баг ленты).
+        var t0 = new DateTimeOffset(2026, 7, 26, 12, 50, 0, TimeSpan.Zero); // 15:50 МСК
+
+        await _store.HeartbeatAsync(TransaqSource, t0.AddMinutes(-10), MaxGap, CancellationToken.None);
+        await _store.CloseAsync(TransaqSource, LinkCloseReason.Degraded, t0, CancellationToken.None);
+        await _store.InsertBoundaryMarkerAsync(
+            TransaqSource, LinkCloseReason.ServerDown, t0.AddSeconds(41), CancellationToken.None);
+        await _store.InsertBoundaryMarkerAsync(
+            TransaqSource, LinkCloseReason.Scheduled, t0.AddMinutes(10), CancellationToken.None);
+        await _store.HeartbeatAsync(TransaqSource, t0.AddHours(1), MaxGap, CancellationToken.None);
+
+        var gaps = await _store.QueryGapsAsync(
+            new[] { TransaqSource }, t0.AddMinutes(-1), t0.AddHours(2), CancellationToken.None);
+
+        gaps.Should().HaveCount(2, "break (abandoned) + серый idle до Live");
+        gaps[0].From.Should().Be(t0);
+        gaps[0].To.Should().Be(t0.AddMinutes(10));
+        gaps[0].Cause.Should().Be(LinkCloseReason.Degraded);
+        gaps[0].EscalatedAt.Should().Be(t0.AddSeconds(41), "натуральный Down = граница жёлтый→красный");
+        gaps[0].EscalatedCause.Should().Be(LinkCloseReason.ServerDown);
+        gaps[0].Abandoned.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task QueryAsync_ReturnsEmpty_ForNoSources()
     {
         var result = await _store.QueryAsync(

@@ -35,5 +35,13 @@ Handoff нового чата — [`docs/promt.md`](../../promt.md) §8.
 - показывать общее количество уведомлений в доке («Найдено: N» / всего)
 - NC на всю область (layout)
 - поиск не должен сбрасывать все фильтры при клике по `corr`
+- **FUTURE (WebGL):** клик по 1px-маркеру Connection-ленты → фильтр NC по `correlationId` без сброса
+  остальных фильтров — [incident.md](incident.md) §7.1
+
+### Инциденты · обрыв ленты (спека, код позже)
+
+- **J11** — исходы `abandoned_schedule` / `abandoned_manual`, клип тела к окну расписания коннектора
+  без green; liveness-маркеры; утро без продолжения вчерашнего corr — [incident.md](incident.md) §1.1–§1.3.
+  Код после обкатки Auto-connection / Auto-record. Журнал backfill — задел в [../phase7h/incident.md](../phase7h/incident.md).
 
 System-уведомления уже в JSON (`result`/`error_message`/`sender`); user schedule — `lines[]` (так и оставляем).

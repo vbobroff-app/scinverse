@@ -152,7 +152,7 @@ public static class OhsEndpoints
                 intervals.Select(i => new LivenessIntervalDto(
                     i.From, i.To, i.Open, i.CloseReason is null ? null : ToLinkReasonDto(i.CloseReason.Value))).ToList(),
                 gaps.Select(g => new CaptureGapDto(
-                    g.From, g.To, ToLinkReasonDto(g.Cause), g.EscalatedAt)).ToList());
+                    g.From, g.To, ToLinkReasonDto(g.Cause), g.EscalatedAt, g.Abandoned)).ToList());
         });
 
         api.MapGet("/recordings", (RecordingManager recordings) =>

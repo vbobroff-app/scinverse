@@ -36,6 +36,8 @@
 
 | Дата | Действие | Результат |
 |------|----------|-----------|
+| 2026-07-26 | **`break` timeout-close:** спад desired → `TryAbandonIncidentByScheduleAsync` — NC `connection.incident_closed` (warning, `sender=supervisor`, `reason=schedule_end`); маркер `scheduled` + `Abandoned` на ленте (без green). Виды `break`/`crash` в §0a. | Host + LinkLiveness 9 ✓ |
+| 2026-07-26 | **Инциденты — спека горизонта/исходов (docs):** якорь = расписание коннектора (default 00:00–24:00); исходы `recovered` / `abandoned_*` (green только на recovered); утро без продолжения вчерашнего corr; click→corr §7.1 FUTURE; J11 в очереди. Задел журнала backfill → [phase7h/incident.md](../phase7h/incident.md). | [incident.md](incident.md) · [todo.md](todo.md) |
 | 2026-07-26 | **Docs handoff:** актуализация `phase7j/*` + [`docs/promt.md`](../../promt.md) §7–8 для нового чата (очередь 7j.15/16, gate 11→12, инварианты NC). | документы |
 | 2026-07-26 | **7j.20 — system NC expanded = JSON.** Заголовки короткие; детали в `data.result` / `error_message` + `sender` (`connect_failed`, `connected`, `recovered`, `auto_error`, `storage_error`, `ohs.unhandled`, backend-outage). User-уведомления расписания — по-прежнему `lines[]`. Коммит `fd3e93e`. | Host + unit ConnectFailedNotify ✓ |
 | 2026-07-26 | **Архитектура to-be + gate перед WebGL.** C4: NC, dual front (Admin/Product) + MFE, Keycloak. В `docs/dev/plan.md` — **gate 11→12** (вынос Admin Front + NC до phase 12). Коммит `8b6825e`. | [arch.md](../../architecture/c4/arch.md) |

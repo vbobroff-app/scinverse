@@ -200,6 +200,10 @@ export interface CaptureGapDto {
    * null/отсутствует — передачи не было.
    */
   escalatedAt?: string | null;
+  /**
+   * Край по окончании окна расписания / manual (не возврат в Live). Зелёный 1px не рисуем.
+   */
+  abandoned?: boolean;
 }
 
 export interface LivenessQueryRequest {

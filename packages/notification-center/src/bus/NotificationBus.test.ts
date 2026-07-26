@@ -263,15 +263,39 @@ describe('NotificationBus', () => {
 
     it('re-open (→ active) re-alerts via a fresh unread row', () => {
       const bus = createNotificationBus();
-      notify.error(bus, { module: 'm', code: 'connection.lost', message: 'down', id: 'e1', correlationId: 'c', status: 'active' });
+      // Не-discrete код: I2 дедуп по (corr,code,status). connection.lost — discrete (Degraded+Down).
+      notify.error(bus, { module: 'm', code: 'connection.schedule_error', message: 'down', id: 'e1', correlationId: 'c', status: 'active' });
       bus.markAllRead();
       expect(bus.unreadAlertCount).toBe(0);
-      notify.error(bus, { module: 'm', code: 'connection.lost', message: 'down again', id: 'e2', correlationId: 'c', status: 'active' });
+      notify.error(bus, { module: 'm', code: 'connection.schedule_error', message: 'down again', id: 'e2', correlationId: 'c', status: 'active' });
       // Тот же статус того же кода — I2 дедуп: строка не добавляется, ре-алерта нет.
       expect(bus.unreadAlertCount).toBe(0);
       notify.info(bus, { module: 'm', code: 'connection.recovered', message: 'up', id: 'e3', correlationId: 'c', status: 'resolved' });
-      notify.error(bus, { module: 'm', code: 'connection.lost', message: 'flap', id: 'e4', correlationId: 'c', status: 'active' });
+      notify.error(bus, { module: 'm', code: 'connection.schedule_error', message: 'flap', id: 'e4', correlationId: 'c', status: 'active' });
       expect(bus.statusOf('c')).toBe('active');
+      expect(bus.unreadAlertCount).toBe(1);
+    });
+
+    it('discrete connection.lost keeps Degraded and Down as separate unread rows', () => {
+      const bus = createNotificationBus();
+      notify.error(bus, {
+        module: 'm',
+        code: 'connection.lost',
+        message: 'Degraded',
+        id: 'd1',
+        correlationId: 'c',
+        status: 'active',
+      });
+      bus.markAllRead();
+      notify.error(bus, {
+        module: 'm',
+        code: 'connection.lost',
+        message: 'Down',
+        id: 'd2',
+        correlationId: 'c',
+        status: 'active',
+      });
+      expect(bus.events.map((e) => e.id)).toEqual(['d2', 'd1']);
       expect(bus.unreadAlertCount).toBe(1);
     });
   });

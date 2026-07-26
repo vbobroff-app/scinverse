@@ -337,25 +337,19 @@ public sealed class ConnectionManager(
     }
 
     /// <summary>
-    /// Phase 7j.20 (J3): передача владения инцидентом TRANSAQ→супервизор. TRANSAQ держал <c>Degraded</c>
-    /// дольше grace-порога и сам не восстановил линк ① — форс-гасим залипшую сессию и отдаём восстановление
-    /// супервизору (плечо ②, connect ×5). Инцидент НЕ закрывается: <c>_incidentSince</c> переживает
-    /// передисконнект (I2). В <c>link_liveness</c> ставим границу владельца (<c>server_down</c>) на
-    /// <paramref name="atTs"/> — идущая жёлтая (Degraded) дырка с этого момента красная; дырка остаётся ОДНОЙ
-    /// (склейка через маркер, J6). Вызывается супервизором по grace-таймауту.
+    /// <summary>
+    /// Phase 7j.20 (J3): owner <c>transaq</c>→<c>supervisor</c> по истечении
+    /// <see cref="OhsOptions.LinkRecoverGraceSeconds"/> (T, по умолчанию 60 с). TRANSAQ не восстановил
+    /// линк ① сам — форс-дисконнект и connect ×5 (плечо ②). Раньше T то же владение отдаётся из
+    /// <see cref="OpenLinkLostAsync"/> при Down/Error/ping (TRANSAQ сдался). Инцидент не закрывается.
     /// </summary>
     public async Task HandoverToSupervisorAsync(long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
     {
-        if (_sourceIds.TryGetValue(connectionId, out var sourceId))
-        {
-            await linkLiveness
-                .InsertBoundaryMarkerAsync(sourceId, LinkCloseReason.ServerDown, atTs, cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        _incidentOwner[connectionId] = "supervisor";
+        await TransferBreakOwnerToSupervisorAsync(
+                connectionId, atTs, LinkCloseReason.ServerDown, cancellationToken)
+            .ConfigureAwait(false);
         logger.LogWarning(
-            "Подключение {ConnectionId}: TRANSAQ не восстановил связь за grace — передаю владение супервизору (форс-дисконнект)",
+            "Подключение {ConnectionId}: TRANSAQ не восстановил связь за grace T — owner=supervisor (форс-дисконнект)",
             connectionId);
 
         // Форс-гасим залипшую сессию: DisconnectAsync снимает сессию/подписки и ставит status=disconnected,
@@ -363,6 +357,26 @@ public sealed class ConnectionManager(
         // внутренний CloseAsync(ServerDown) — no-op (границу уже поставил маркер выше). Дальше связь поднимет
         // супервизор (connect ×5, ветка «не connected» в ReconcileOneAsync).
         await DisconnectAsync(connectionId, cancellationToken, LinkCloseReason.ServerDown).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Единая смена owner break: <c>transaq</c>→<c>supervisor</c>.
+    /// In-memory + нулевой маркер в <c>link_liveness</c> ⇒ на ленте жёлтое|красное с <c>escalatedAt</c>
+    /// (owner=transaq → жёлтый, owner=supervisor → красный сплошной).
+    /// </summary>
+    private async Task TransferBreakOwnerToSupervisorAsync(
+        long connectionId,
+        DateTimeOffset atTs,
+        LinkCloseReason reason,
+        CancellationToken cancellationToken)
+    {
+        _incidentOwner[connectionId] = "supervisor";
+        if (_sourceIds.TryGetValue(connectionId, out var sourceId))
+        {
+            await linkLiveness
+                .InsertBoundaryMarkerAsync(sourceId, reason, atTs, cancellationToken)
+                .ConfigureAwait(false);
+        }
     }
 
     public async Task<string> TestAsync(long connectionId, CancellationToken cancellationToken)
@@ -694,6 +708,61 @@ public sealed class ConnectionManager(
     }
 
     /// <summary>
+    /// Закрывает открытый <c>break</c>-инцидент по окончании окна расписания (desired true→false):
+    /// NC <c>connection.incident_closed</c> · warning · resolved; лента — маркер <c>scheduled</c>
+    /// (край дырки, <c>Abandoned</c>, без green). Идемпотентно: нет открытого инцидента → false.
+    /// </summary>
+    public async Task<bool> TryAbandonIncidentByScheduleAsync(
+        long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
+    {
+        if (!_incidentSince.TryRemove(connectionId, out var incidentStart))
+        {
+            return false;
+        }
+
+        _incidentOwner.TryRemove(connectionId, out _);
+
+        var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        if (sourceId is { } sid)
+        {
+            await linkLiveness
+                .InsertBoundaryMarkerAsync(sid, LinkCloseReason.Scheduled, atTs, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var label = await ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        notifications.Resolve(
+            LinkIncidentSubject(connectionId),
+            "connection.incident_closed",
+            $"{label}: инцидент закрыт по окончании окна расписания",
+            severity: "warning",
+            data: new
+            {
+                connectionId,
+                kind = "break",
+                reason = "schedule_end",
+                sender = "supervisor",
+                result = $"Закрыто по окончании окна расписания; {FormatGapLine(incidentStart, atTs)}",
+            });
+
+        logger.LogInformation(
+            "Подключение {ConnectionId}: break-инцидент закрыт по окончании окна расписания (с {Start:o} по {End:o})",
+            connectionId, incidentStart, atTs);
+        return true;
+    }
+
+    private async Task<short?> ResolveSourceIdAsync(long connectionId, CancellationToken cancellationToken)
+    {
+        if (_sourceIds.TryGetValue(connectionId, out var liveSourceId))
+        {
+            return liveSourceId;
+        }
+
+        var connection = await connectionStore.GetAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        return connection?.SourceId;
+    }
+
+    /// <summary>
     /// Открывает инцидент связи (`connection.lost`), закрывает живость связи причиной <paramref name="reason"/>
     /// на момент <paramref name="atTs"/> (честная граница дыры), гасит захват и статус. Общий путь для
     /// server_status Down и синтетического стелс-разрыва по пингу (7j.19/I3). Идемпотентен по инциденту:
@@ -710,19 +779,25 @@ public sealed class ConnectionManager(
         string sender,
         CancellationToken cancellationToken)
     {
-        _incidentSince.TryAdd(connectionId, atTs);
-        // Down/Error/ping-fail — зона супервизора (overwrite: Degraded→Down эскалирует владельца transaq→supervisor).
-        _incidentOwner[connectionId] = "supervisor";
-        notifications.Open(
-            LinkIncidentSubject(connectionId),
-            "connection.lost",
-            message,
-            severity: "error",
-            data: new { connectionId, state = state.ToString(), detail, sender });
-
-        if (_sourceIds.TryGetValue(connectionId, out var srcId))
+        var subject = LinkIncidentSubject(connectionId);
+        var isNew = _incidentSince.TryAdd(connectionId, atTs);
+        var lostData = new { connectionId, state = state.ToString(), detail, sender };
+        if (isNew)
         {
-            await linkLiveness.CloseAsync(srcId, reason, atTs, cancellationToken).ConfigureAwait(false);
+            // Сразу Down/Error/ping — owner=supervisor с t0 (жёлтой фазы не было).
+            _incidentOwner[connectionId] = "supervisor";
+            notifications.Open(subject, "connection.lost", message, severity: "error", data: lostData);
+            if (_sourceIds.TryGetValue(connectionId, out var srcId))
+            {
+                await linkLiveness.CloseAsync(srcId, reason, atTs, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        else
+        {
+            // TRANSAQ сдался раньше T (или уже был Degraded): та же смена owner, что и grace-handover.
+            notifications.Append(subject, "connection.lost", message, severity: "error", data: lostData);
+            await TransferBreakOwnerToSupervisorAsync(connectionId, atTs, reason, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         await liveness.Value.OnServerDownAsync(connectionId, atTs, cancellationToken).ConfigureAwait(false);

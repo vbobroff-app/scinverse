@@ -118,4 +118,10 @@ public sealed record LinkGap
     /// <summary>Причина после передачи владения (обычно <see cref="LinkCloseReason.ServerDown"/> — красный);
     /// null, если <see cref="EscalatedAt"/> == null.</summary>
     public LinkCloseReason? EscalatedCause { get; init; }
+
+    /// <summary>
+    /// Правый край — конец окна расписания / плановый stop (маркер <see cref="LinkCloseReason.Scheduled"/>
+    /// или <see cref="LinkCloseReason.Disconnected"/>), не возврат в Live. На ленте: без зелёного маркера.
+    /// </summary>
+    public bool Abandoned { get; init; }
 }

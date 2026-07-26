@@ -99,8 +99,9 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         Dispatch(evt);
     }
 
-    /// <summary>Открыть/подтвердить инцидент (status=active). Идемпотентно: повторный open активного — no-op.
-    /// Новый инцидент по subject получает свежий <c>correlationId = subject:uid</c>.</summary>
+    /// <summary>Открыть инцидент (status=active). Только если по subject ещё нет open (active/underway).
+    /// Повторный open / эскалация внутри нити — <see cref="Append"/> (иначе underway→Open схлопывал
+    /// первый <c>connection.lost</c> Degraded на шине).</summary>
     public bool Open(
         string subject,
         string code,
@@ -111,7 +112,7 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         object? data = null,
         NotificationActor? actor = null)
         => Transition(subject, "active", code, message, severity, sourceType, module, data, actor,
-            canTransition: current => current != "active");
+            canTransition: current => current is null);
 
     /// <summary>Прогресс восстановления (status=underway) открытого инцидента. Повторяемо (7j.20 J5):
     /// active→underway и underway→underway — каждый прогресс-тик (elapsed / попытка k/N) пишет строку под
@@ -128,6 +129,35 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         NotificationActor? actor = null)
         => Transition(subject, "underway", code, message, severity, sourceType, module, data, actor,
             canTransition: current => current is "active" or "underway");
+
+    /// <inheritdoc />
+    public bool Append(
+        string subject,
+        string code,
+        string message,
+        string severity = "error",
+        string sourceType = "system",
+        string module = "ohs.connection",
+        object? data = null,
+        NotificationActor? actor = null)
+    {
+        NotificationDto? evt;
+        lock (_gate)
+        {
+            if (!_openIncidents.TryGetValue(subject, out var open))
+            {
+                return false;
+            }
+
+            // Status хаба не трогаем (остаётся active|underway); строка — в ту же corr-нить.
+            evt = EnqueueLocked(
+                code, message, severity, sourceType, module,
+                open.Status, open.CorrelationId, data, actor, subject);
+        }
+
+        Dispatch(evt);
+        return true;
+    }
 
     /// <summary>Закрыть инцидент (status=resolved, терминальный). Идемпотентно: повторный resolve — no-op.</summary>
     public bool Resolve(

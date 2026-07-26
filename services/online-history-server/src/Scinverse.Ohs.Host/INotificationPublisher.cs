@@ -49,6 +49,20 @@ public interface INotificationPublisher
         object? data = null,
         NotificationActor? actor = null);
 
+    /// <summary>
+    /// Дописать строку в открытый инцидент (тот же <c>correlationId</c>), не меняя status хаба.
+    /// Для эскалации Degraded→Down, connect_failed / auto_error внутри break-нити. Нет открытого — false.
+    /// </summary>
+    bool Append(
+        string subject,
+        string code,
+        string message,
+        string severity = "error",
+        string sourceType = "system",
+        string module = "ohs.connection",
+        object? data = null,
+        NotificationActor? actor = null);
+
     /// <summary>Закрыть инцидент по <paramref name="subject"/> (resolved, терминальный).</summary>
     bool Resolve(
         string subject,

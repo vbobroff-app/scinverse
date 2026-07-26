@@ -44,11 +44,11 @@ function hhmm(ms: number, offMin: number): string {
 }
 
 /**
- * Класс тела периода «связь не жива» по owner (7j.20 §4):
- * - `degraded` → жёлтый: линк дёрнулся, TRANSAQ сам чинит (плечо ①);
- * - `server_down`/`ping_failed` → красный сплошной: перехватил супервизор (плечо ②);
- * - `interrupted` (краш/останов бэка) → красная штриховка: недоступен сам процесс;
- * - `disconnected`/`scheduled` → серый: не инцидент.
+ * Класс тела по owner break (7j.20 §0a/§4). В DTO owner закодирован причиной фазы:
+ * - `degraded` → owner=transaq → жёлтый (ждёт до T, может сдать раньше);
+ * - `server_down`/`ping_failed` / фаза после `escalatedAt` → owner=supervisor → красный сплошной;
+ * - `interrupted` → crash/admin → красная штриховка;
+ * - `disconnected`/`scheduled` → не инцидент → серый.
  */
 function gapClass(cause: string): string {
   if (GREY_CAUSES.has(cause)) return styles.idle;
@@ -146,9 +146,9 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
         ) : null,
       )}
 
-      {/* Зелёный конечный маркер (1px) — инцидент восстановлен (возврат в Live). */}
+      {/* Зелёный конечный маркер (1px) — только recovered (Live). abandoned (конец окна) — без маркера. */}
       {gaps?.map((gap, i) =>
-        gap.to && isIncident(gap.cause) ? (
+        gap.to && isIncident(gap.cause) && !gap.abandoned ? (
           <span
             key={`r${i}`}
             className={styles.recover}

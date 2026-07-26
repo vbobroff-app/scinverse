@@ -116,8 +116,14 @@ public sealed record LivenessIntervalDto(
 /// <summary>Разрыв захвата (производное от интервалов живости): [From, To), причина обрыва.
 /// <paramref name="EscalatedAt"/> (7j.20/J6, только для ленты Connection) — момент передачи владения
 /// инцидентом TRANSAQ→супервизор ВНУТРИ этой же дырки: до него тело жёлтое (TRANSAQ), после — красное
-/// (супервизор). Дырка остаётся ОДНОЙ (простой = [From, To] целиком). null — передачи не было.</summary>
-public sealed record CaptureGapDto(DateTimeOffset From, DateTimeOffset? To, string Cause, DateTimeOffset? EscalatedAt = null);
+/// (супервизор). Дырка остаётся ОДНОЙ (простой = [From, To] целиком). null — передачи не было.
+/// <paramref name="Abandoned"/> — край по расписанию/manual (не recovered); без зелёного маркера на ленте.</summary>
+public sealed record CaptureGapDto(
+    DateTimeOffset From,
+    DateTimeOffset? To,
+    string Cause,
+    DateTimeOffset? EscalatedAt = null,
+    bool Abandoned = false);
 
 /// <summary>Запрос живости/разрывов захвата для окна Ганта.</summary>
 public sealed record LivenessQueryRequest(DateTimeOffset From, DateTimeOffset To, short SourceId);

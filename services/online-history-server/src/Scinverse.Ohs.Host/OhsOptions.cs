@@ -17,10 +17,10 @@ public sealed class OhsOptions
     public double LivenessProbeSeconds { get; set; } = 15;
 
     /// <summary>
-    /// Дедлайн передачи владения инцидентом связи от TRANSAQ к супервизору (сек), phase 7j.20 (J3/J8).
-    /// Пока связь в <c>Degraded</c> (TRANSAQ сам чинит линк ①) дольше этого порога — супервизор форс-гасит
-    /// залипшую сессию и берёт восстановление на себя (connect ×5, плечо ②). Инцидент НЕ закрывается.
-    /// Это НЕ порог детекции (инцидент уже открыт с 0 c) — только момент смены владельца.
+    /// T — макс. ожидание восстановления средствами TRANSAQ (сек), phase 7j.20 (J3/J8).
+    /// Пока owner=<c>transaq</c> (фаза Degraded, жёлтая лента) — ждём до T; по истечении owner→supervisor
+    /// (красная лента, connect ×5). Раньше T TRANSAQ может сдаться (server_status Down/Error / ping) —
+    /// та же смена owner сразу. Не порог детекции: инцидент открыт с 0 c.
     /// </summary>
     public double LinkRecoverGraceSeconds { get; set; } = 60;
 

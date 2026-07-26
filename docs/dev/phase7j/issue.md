@@ -1,7 +1,8 @@
 # Phase 7j — Issues: инциденты связи и точность разрыва
 
-Статус: **I1–I8 РЕАЛИЗОВАНО** (связь + backend-outage v2; миграции **V026/V027**). Диагностика I1–I5 —
-живой тест 23.07.2026; I6/I7 — 24.07.2026; I8 — 25–26.07.2026 ([nc-availability.md](nc-availability.md)).
+Статус: **I1–I8 РЕАЛИЗОВАНО** · **I9** (localhost/IPv6 proxy hang) — учёт для prod, mitigation в vite.
+Диагностика I1–I5 — живой тест 23.07.2026; I6/I7 — 24.07.2026; I8 — 25–26.07.2026
+([nc-availability.md](nc-availability.md)); I9 — 26.07.2026 (после рестарта Host).
 Часть сценариев принята на Finam id=3. Остаток фазы 7j — **7j.15/7j.16** + UI NC ([todo.md](todo.md)).
 
 Связано: [auto-connect.md](auto-connect.md), [error-handling.md](error-handling.md), [report.md](report.md),
@@ -363,6 +364,62 @@ Npgsql.PostgresException: 23505: duplicate key value violates unique constraint 
 
 ---
 
+## I9. Admin UI «мёртвый» после рестарта Host: `localhost` → IPv6, Kestrel на `::1` залип
+
+**Симптом (26.07.2026).** После рестарта OHS Host фронт на Vite (`:5174`) поднимается, но UI пустой:
+«Нет подключений», NC пуст. В DevTools — пачка `AjaxError` / `message: 'aborted'` / `status: 0` на
+`getConnections` / `getCoverage` / `getSources` / … Процесс Vite жив; Host по API тоже отвечает — но
+**только по IPv4**.
+
+**Замер (факт):**
+
+| Путь | Результат |
+|---|---|
+| `http://127.0.0.1:5080/api/connections` | **~17 ms, 200** |
+| `http://[::1]:5080/api/connections` | **таймаут ≥10–20 s** |
+| `http://localhost:5174/api/connections` (Vite proxy → `localhost:5080`) | **таймаут** (идёт в `::1`) |
+
+На Host в этот момент на `::1:5080` копились `CloseWait` / `Established`; слушатель `127.0.0.1:5080`
+оставался живым. Vite слушал только `::1:5174`; proxy target был `http://localhost:5080`.
+
+**Причина.** Не баг React/OhsStore и не «сломанный» vite-config как таковой. Конфиг со `localhost`
+**годами работал**, пока dual-stack Host отвечал и по IPv4, и по IPv6.
+
+1. На Windows `localhost` часто резолвится в **`::1` раньше**, чем в `127.0.0.1`.
+2. Vite proxy ходит на `localhost:5080` → попадает в **IPv6**-сокет Kestrel.
+3. После жёсткого рестарта Host / лавины оборванных WS+HTTP (`ECONNRESET` → `ECONNREFUSED` в логе Vite)
+   путь **`::1` залипает** (полузакрытые сокеты), а **IPv4 остаётся здоровым**.
+4. Браузерные XHR через proxy висят → клиент abort (`status: 0`) → стор не наполняется → UI «не
+   поднимается», хотя бэкенд «вроде жив» (проверка с `127.0.0.1` обманывает).
+
+Отдельно: сам процесс Vite иногда умирал с `ELIFECYCLE … exit code 4294967295` (= `-1` на Windows) —
+внешнее убийство дерева процессов, не исключение приложения. Это усиливает хаос при рестарте Host, но
+корневой «пустой UI при живом Vite» — именно **proxy → залипший IPv6**.
+
+**Mitigation (dev, сделано).** В `web/vite.config.ts` target proxy зафиксирован на IPv4:
+
+```ts
+const OHS_TARGET = 'http://127.0.0.1:5080';
+```
+
+**Учесть при переходе на production (обязательно):**
+
+| Риск | Что сделать |
+|---|---|
+| Dual-stack bind | Явно решить: listen только `0.0.0.0` / конкретный IPv4, или корректный dual-stack с health на обоих. Не оставлять «случайно жив только один стек» без мониторинга. |
+| Имя хоста в reverse-proxy | Nginx/Caddy/Traefik/`localhost`/DNS A+AAAA: upstream должен резолвиться в **тот** адрес, на котором Kestrel реально здоров. Предпочтительно литерал IPv4 или отдельный DNS без сюрпризов AAAA. |
+| Healthchecks | Проверять тот же URL/family, что использует фронт/proxy (не только `127.0.0.1` с консоли админа). Иначе green health при мёртвом пути для UI. |
+| Рестарт / rolling | После kill −9 / crash Host — смотреть полузакрытые сокеты и зависания accept на одном family; readiness не отдавать, пока probe по боевому адресу не зелёный. |
+| Клиентский abort | `AjaxError aborted` / `status: 0` трактовать как «сеть/proxy/hang», не как «пустой каталог»; UI — явный offline/retry, а не вечное «Нет подключений». |
+| Admin Front vs Vite | На prod Vite proxy не будет; тот же класс бага возможен на любом hop `имя → AAAA → залипший listener`. Закладывать в runbook. |
+
+**Затрагивает.** Dev: `vite.config.ts` (proxy target). Prod: bind Kestrel, reverse-proxy upstream,
+health/readiness, runbook рестарта Host. Код доменной модели 7j не меняется.
+
+**Статус:** MITIGATION (dev) · OPEN для prod-checklist (gate Admin Front / вынос за Vite).
+
+---
+
 ## Сводка решений
 
 | # | Проблема | Решение | Статус |
@@ -375,6 +432,7 @@ Npgsql.PostgresException: 23505: duplicate key value violates unique constraint 
 | I6 | После авто-реконнекта нет сделок | `OnLinkLiveAsync` на любом `Live` | РЕАЛИЗОВАНО |
 | I7 | Гонка хартбитов / duplicate key | `pg_advisory_xact_lock` в Heartbeat | РЕАЛИЗОВАНО |
 | I8 | Простой бэка: live ≠ reload | Sender + единый corr + персист стека + warn-before-ok | РЕАЛИЗОВАНО |
+| I9 | UI пустой: `localhost`→`::1`, IPv6 Kestrel залип | proxy → `127.0.0.1`; prod: bind/health/proxy family | MITIGATION / prod OPEN |
 
 Остаток 7j: 7j.15/7j.16 + UI NC ([todo.md](todo.md)). Вынос Admin Front + NC — gate 11→12 ([../plan.md](../plan.md)).
 

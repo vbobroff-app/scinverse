@@ -187,6 +187,8 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
     /// ОДНУ дырку инцидента. Простой = [From, To] целиком (для сверки с записанными данными); момент первой
     /// смены владельца выносим в <c>EscalatedAt</c>/<c>EscalatedCause</c> (только для раскраски ленты).
     /// Дырки, разделённые РЕАЛЬНЫМ живым интервалом (ненулевым), — разные инциденты, не склеиваются.
+    /// Маркер <c>scheduled</c>/<c>disconnected</c> на стыке — клип инцидента (<see cref="LinkGap.Abandoned"/>),
+    /// не handover и не серое тело в составе break.
     /// </summary>
     private static List<LinkGap> CoalesceOwnerPhases(List<LinkGap> gaps)
     {
@@ -198,6 +200,23 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
                 && prevSource == gap.SourceId
                 && prevTo == gap.From)
             {
+                // Конец окна / manual: нулевой (или серый) маркер обрезает break без green.
+                if (IsNonIncidentCause(gap.Cause))
+                {
+                    if (!IsNonIncidentCause(prev.Cause))
+                    {
+                        result[^1] = prev with { Abandoned = true };
+                    }
+
+                    // Нулевой маркер в выдачу не кладём; ненулевой серый хвост (idle) — отдельной дыркой.
+                    if (gap.To is null || gap.To > gap.From)
+                    {
+                        result.Add(gap);
+                    }
+
+                    continue;
+                }
+
                 result[^1] = prev with
                 {
                     To = gap.To,
@@ -208,11 +227,20 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
                 continue;
             }
 
+            // Одиночный нулевой scheduled/disconnected-маркер без предшественника — служебный, пропускаем.
+            if (IsNonIncidentCause(gap.Cause) && gap.To == gap.From)
+            {
+                continue;
+            }
+
             result.Add(gap);
         }
 
         return result;
     }
+
+    private static bool IsNonIncidentCause(LinkCloseReason cause) =>
+        cause is LinkCloseReason.Scheduled or LinkCloseReason.Disconnected;
 
     public async Task<int> RecoverOpenIntervalsAsync(CancellationToken cancellationToken)
     {

@@ -262,11 +262,36 @@ capture_liveness (
 Сегмент = намерение **на инструмент**. При реконнекте после обрыва открывается **новый** сегмент
 (цепочка сегментов на одной дорожке).
 
-### Что **не** храним
+### Что **не** храним (сейчас)
 
-- Отдельная таблица `incidents` — **нет** (журнал = `QueryGapsAsync` / `gapsFromLivenessIntervals`).
+- Отдельная таблица `incidents` — **нет** (журнал разрывов = `QueryGapsAsync` / `gapsFromLivenessIntervals`).
 - Состояние автомата связи — только in-memory + WS-события.
 - Каждый тик хартбита — только агрегат в `to_ts`.
+
+### Задел: производный журнал инцидентов для backfill (FUTURE)
+
+**Сейчас таблицы нет** — и это осознанно: геометрию дыр даёт негативное пространство liveness; NC —
+нарратив (`notification`, retention 90 дней). Для **подклейки исторических** (после обкатки Auto-connection
+и Auto-record) понадобится стабильный интервальный журнал шире, чем «прочитать gaps на лету» и шире, чем
+текст NC.
+
+**Закладываемся на производную таблицу/материализацию** (имя условное — `capture_incident` /
+`incident_gap`), наполняемую при **закрытии** инцидента (не на каждый тик):
+
+| Поле | Смысл |
+|------|--------|
+| `incident_id` / `correlation_id` | нить NC + идемпотентность |
+| `kind` | `link` \| `capture` \| `backend` |
+| `source_id` | провайдер |
+| `opened_at` / `closed_at` | границы дыры (= простой для сверки с `md_trade`) |
+| `close_mode` | `recovered` \| `abandoned_schedule` \| `abandoned_manual` (см. [../phase7j/incident.md](../phase7j/incident.md) §1.2) |
+| `cause` | `server_down` / `ping_failed` / `interrupted` / … |
+| `escalated_at?` | жёлтое→красное (раскраска; не дробит простой) |
+| `instrument_ids[]` | снимок намерения (`coverage_segment` ∩ окно) — кого backfill-ить |
+
+Лента Connection по-прежнему из `link_liveness` (+ маркеры abandoned). Журнал — очередь восстановления
+данных day-by-day. Реализацию **не начинаем**, пока не обкатаны Auto-connection (7j) и Auto-record (7i).
+Горизонт инцидента связи = **окно расписания коннектора**, не «до следующего boot» (7j §1.1).
 
 ---
 
