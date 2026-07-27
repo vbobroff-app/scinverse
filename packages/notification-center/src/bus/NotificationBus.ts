@@ -1,7 +1,13 @@
 import { BehaviorSubject, type Observable } from 'rxjs';
 import { map, distinctUntilChanged } from 'rxjs/operators';
 import { resolveStatus } from '../types';
-import type { NotificationBusOptions, NotificationEvent, NotificationStatus } from '../types';
+import type {
+  NotificationBusOptions,
+  NotificationEvent,
+  NotificationItem,
+  NotificationStatus,
+} from '../types';
+import { projectThreads } from './projectThreads';
 
 const DEFAULT_LIMIT = 1000;
 
@@ -52,8 +58,17 @@ export class NotificationBus {
   private readonly eventsSubject: BehaviorSubject<NotificationEvent[]>;
   private readonly readIds = new Set<string>();
 
-  /** Лента: новые сверху по `ts` (backdated mock-POST не ломает порядок после reload). Стабильная ссылка. */
+  /**
+   * Плоский audit (newest-first по `ts`). Стабильная ссылка.
+   * Для UI контейнеров — `items$`; `stream$` сохраняем для совместимости.
+   */
   readonly stream$: Observable<NotificationEvent[]>;
+
+  /** Плоский audit — то же, что `stream$` (to-threads §5.2). */
+  readonly events$: Observable<NotificationEvent[]>;
+
+  /** Проекция Single | Thread для UI (to-threads §5.2). */
+  readonly items$: Observable<NotificationItem[]>;
 
   /** Число непрочитанных error/critical. Стабильная ссылка. */
   readonly unreadAlertCount$: Observable<number>;
@@ -65,6 +80,8 @@ export class NotificationBus {
     this.limit = Math.max(1, options.limit ?? DEFAULT_LIMIT);
     this.eventsSubject = new BehaviorSubject<NotificationEvent[]>([]);
     this.stream$ = this.eventsSubject.asObservable();
+    this.events$ = this.stream$;
+    this.items$ = this.eventsSubject.pipe(map((events) => projectThreads(events)));
     this.unreadAlertCount$ = this.eventsSubject.pipe(
       map((events) => this.countUnread(events, isAlert)),
       distinctUntilChanged(),
@@ -75,9 +92,14 @@ export class NotificationBus {
     );
   }
 
-  /** Снимок ленты. */
+  /** Снимок плоского audit. */
   get events(): NotificationEvent[] {
     return this.eventsSubject.value;
+  }
+
+  /** Снимок проекции контейнеров Single | Thread. */
+  get items(): NotificationItem[] {
+    return projectThreads(this.eventsSubject.value);
   }
 
   get unreadAlertCount(): number {

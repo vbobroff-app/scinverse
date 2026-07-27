@@ -44,6 +44,7 @@ export { createNotificationId } from './id';
 
 export { NotificationBus, createNotificationBus } from './bus/NotificationBus';
 export { notify, type NotifyInput } from './bus/notify';
+export { projectThreads, deriveSubject } from './bus/projectThreads';
 
 export { filterEvents } from './filter/filterEvents';
 export type { DockRangeFilter, DockRangePreset, RangeBounds } from './filter/dateRange';

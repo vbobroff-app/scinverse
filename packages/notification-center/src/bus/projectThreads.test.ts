@@ -1,0 +1,248 @@
+import { describe, expect, it } from 'vitest';
+import { createNotificationBus } from './NotificationBus';
+import { projectThreads } from './projectThreads';
+import type { NotificationEvent, ThreadItem } from '../types';
+import { isSingleItem, isThreadItem } from '../types';
+
+function evt(
+  partial: Partial<NotificationEvent> & Pick<NotificationEvent, 'id' | 'code'>,
+): NotificationEvent {
+  return {
+    ts: '2026-07-14T12:00:00.000Z',
+    severity: 'info',
+    sourceType: 'system',
+    module: 'test',
+    message: 'msg',
+    ...partial,
+  };
+}
+
+function threadOf(items: ReturnType<typeof projectThreads>, uid: string): ThreadItem {
+  const t = items.find((i) => i.itemKind === 'thread' && i.uid === uid);
+  expect(t).toBeDefined();
+  return t as ThreadItem;
+}
+
+describe('projectThreads', () => {
+  it('Single without correlationId stays Single', () => {
+    const items = projectThreads([
+      evt({ id: 's1', code: 'recording.started', message: 'start' }),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(isSingleItem(items[0]!)).toBe(true);
+    if (isSingleItem(items[0]!)) {
+      expect(items[0].id).toBe('s1');
+      expect(items[0].itemKind).toBe('single');
+    }
+  });
+
+  it('lost → recovering → recovered projects Incident resolved', () => {
+    const corr = 'connection:c1:link';
+    const items = projectThreads([
+      evt({
+        id: 'close',
+        correlationId: corr,
+        code: 'connection.recovered',
+        status: 'resolved',
+        severity: 'ok',
+        ts: '2026-07-14T12:02:00.000Z',
+        data: { closeOutcome: 'recovered' },
+      }),
+      evt({
+        id: 'rec',
+        correlationId: corr,
+        code: 'connection.recovering',
+        status: 'underway',
+        severity: 'warning',
+        ts: '2026-07-14T12:01:00.000Z',
+      }),
+      evt({
+        id: 'open',
+        correlationId: corr,
+        code: 'connection.lost',
+        status: 'active',
+        severity: 'error',
+        ts: '2026-07-14T12:00:00.000Z',
+        data: { threadKindHint: 'incident' },
+      }),
+    ]);
+
+    expect(items).toHaveLength(1);
+    const t = threadOf(items, corr);
+    expect(t.threadKind).toBe('incident');
+    expect(t.threadStatus).toBe('resolved');
+    expect(t.closeOutcome).toBe('recovered');
+    expect(t.openedAt).toBe('2026-07-14T12:00:00.000Z');
+    expect(t.closedAt).toBe('2026-07-14T12:02:00.000Z');
+    expect(t.lastActivityAt).toBe('2026-07-14T12:02:00.000Z');
+    expect(t.notifications.map((e) => e.id)).toEqual(['open', 'rec', 'close']);
+    expect(t.subject).toBe('connection:c1');
+  });
+
+  it('schedule abandon → resolved with abandoned_schedule', () => {
+    const corr = 'connection:c2:link';
+    const items = projectThreads([
+      evt({
+        id: 'closed',
+        correlationId: corr,
+        code: 'connection.incident_closed',
+        status: 'resolved',
+        severity: 'warning',
+        ts: '2026-07-14T18:00:00.000Z',
+        data: { closeOutcome: 'abandoned_schedule' },
+      }),
+      evt({
+        id: 'open',
+        correlationId: corr,
+        code: 'connection.lost',
+        status: 'active',
+        severity: 'error',
+        ts: '2026-07-14T10:00:00.000Z',
+        data: { threadKindHint: 'incident' },
+      }),
+    ]);
+
+    const t = threadOf(items, corr);
+    expect(t.threadKind).toBe('incident');
+    expect(t.threadStatus).toBe('resolved');
+    expect(t.closeOutcome).toBe('abandoned_schedule');
+  });
+
+  it('orphan recovering → Thread with one Entry, no fake open', () => {
+    const corr = 'ohs.backend.outage:orphan';
+    const items = projectThreads([
+      evt({
+        id: 'w1',
+        correlationId: corr,
+        code: 'backend.recovering',
+        status: 'underway',
+        severity: 'warning',
+        ts: '2026-07-14T12:00:00.000Z',
+      }),
+    ]);
+
+    const t = threadOf(items, corr);
+    expect(t.notifications).toHaveLength(1);
+    expect(t.notifications[0]?.id).toBe('w1');
+    expect(t.threadStatus).toBe('recovering');
+    // без open-кода / hint → group (безопаснее)
+    expect(t.threadKind).toBe('group');
+  });
+
+  it('threadKindHint group wins over open-code heuristic', () => {
+    const corr = 'connection:c3:link';
+    const items = projectThreads([
+      evt({
+        id: 'open',
+        correlationId: corr,
+        code: 'connection.lost',
+        status: 'active',
+        severity: 'error',
+        data: { threadKindHint: 'group' },
+      }),
+    ]);
+    expect(threadOf(items, corr).threadKind).toBe('group');
+  });
+
+  it('known open code without hint → incident', () => {
+    const corr = 'connection:c4:link';
+    const items = projectThreads([
+      evt({
+        id: 'open',
+        correlationId: corr,
+        code: 'backend.unavailable',
+        status: 'active',
+        severity: 'critical',
+      }),
+    ]);
+    const t = threadOf(items, corr);
+    expect(t.threadKind).toBe('incident');
+    expect(t.threadStatus).toBe('active');
+  });
+
+  it('merges Single + Thread by lastActivityAt (newest first)', () => {
+    const corr = 'connection:c5:link';
+    const items = projectThreads([
+      evt({
+        id: 's-old',
+        code: 'user.click',
+        ts: '2026-07-14T11:00:00.000Z',
+      }),
+      evt({
+        id: 'open',
+        correlationId: corr,
+        code: 'connection.lost',
+        status: 'active',
+        severity: 'error',
+        ts: '2026-07-14T12:00:00.000Z',
+      }),
+      evt({
+        id: 's-new',
+        code: 'user.click',
+        ts: '2026-07-14T13:00:00.000Z',
+      }),
+    ]);
+
+    expect(items.map((i) => (isThreadItem(i) ? i.uid : i.id))).toEqual([
+      's-new',
+      corr,
+      's-old',
+    ]);
+  });
+
+  it('Group and Incident with different corr stay two threads', () => {
+    const items = projectThreads([
+      evt({
+        id: 'g1',
+        correlationId: 'connection:g:link',
+        code: 'connection.lost',
+        status: 'active',
+        data: { threadKindHint: 'group' },
+        ts: '2026-07-14T12:00:00.000Z',
+      }),
+      evt({
+        id: 'i1',
+        correlationId: 'connection:i:link',
+        code: 'connection.lost',
+        status: 'active',
+        data: { threadKindHint: 'incident' },
+        ts: '2026-07-14T12:01:00.000Z',
+      }),
+    ]);
+    expect(items.filter(isThreadItem)).toHaveLength(2);
+    expect(threadOf(items, 'connection:g:link').threadKind).toBe('group');
+    expect(threadOf(items, 'connection:i:link').threadKind).toBe('incident');
+  });
+});
+
+describe('NotificationBus items$ / events$', () => {
+  it('items$ projects after publish; events$ mirrors flat audit', () => {
+    const bus = createNotificationBus();
+    const corr = 'connection:bus:link';
+    bus.publish(
+      evt({
+        id: 'open',
+        correlationId: corr,
+        code: 'connection.lost',
+        status: 'active',
+        severity: 'error',
+        ts: '2026-07-14T12:00:00.000Z',
+        data: { threadKindHint: 'incident' },
+      }),
+    );
+    bus.publish(
+      evt({
+        id: 'solo',
+        code: 'ping',
+        message: 'solo',
+        ts: '2026-07-14T13:00:00.000Z',
+      }),
+    );
+
+    expect(bus.events$).toBe(bus.stream$);
+    expect(bus.events.map((e) => e.id)).toEqual(['solo', 'open']);
+    expect(bus.items).toHaveLength(2);
+    expect(bus.items[0]?.itemKind).toBe('single');
+    expect(bus.items[1]?.itemKind).toBe('thread');
+  });
+});
