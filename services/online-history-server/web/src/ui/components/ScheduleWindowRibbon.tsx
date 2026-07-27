@@ -216,6 +216,8 @@ export function ScheduleWindowRibbon({
     }
     e.preventDefault();
     e.stopPropagation();
+    // preventDefault снимает native-focus — явно фокусируем, чтобы ←/→ двигали этот край.
+    e.currentTarget.focus({ preventScroll: true });
     dragRef.current = { kind: which };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
@@ -252,6 +254,26 @@ export function ScheduleWindowRibbon({
     onChange(next, next + span);
   };
 
+  /** Сдвиг одного края (тот же clamp, что у drag маркера). */
+  const nudgeEdge = (which: 'start' | 'end', deltaMin: number) => {
+    if (readOnly || off) return;
+    const s = startMin;
+    const en = endMin;
+    if (which === 'start') {
+      const next = clamp(
+        snapMin(s + deltaMin),
+        Math.max(OPEN_LO, en - MAX_SPAN_MIN),
+        Math.min(en - SNAP, maxOpenMin()),
+      );
+      if (next === s) return;
+      onChange(next, en);
+      return;
+    }
+    const next = clamp(snapMin(en + deltaMin), s + SNAP, Math.min(HORIZON_HI, s + MAX_SPAN_MIN));
+    if (next === en) return;
+    onChange(s, next);
+  };
+
   const onRangeKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (readOnly || off) return;
     if (e.key === 'ArrowLeft') {
@@ -260,6 +282,19 @@ export function ScheduleWindowRibbon({
     } else if (e.key === 'ArrowRight') {
       e.preventDefault();
       nudgeRange(SNAP);
+    }
+  };
+
+  const onEdgeKeyDown = (which: 'start' | 'end') => (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (readOnly || off) return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      e.stopPropagation();
+      nudgeEdge(which, -SNAP);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      e.stopPropagation();
+      nudgeEdge(which, SNAP);
     }
   };
 
@@ -439,6 +474,7 @@ export function ScheduleWindowRibbon({
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}
+              onKeyDown={onEdgeKeyDown('start')}
             >
               <span className={styles.triangle} aria-hidden="true" />
             </button>
@@ -452,6 +488,7 @@ export function ScheduleWindowRibbon({
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}
+              onKeyDown={onEdgeKeyDown('end')}
             >
               <span className={styles.triangle} aria-hidden="true" />
             </button>

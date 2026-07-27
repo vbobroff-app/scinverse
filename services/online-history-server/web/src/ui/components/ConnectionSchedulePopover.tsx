@@ -103,6 +103,19 @@ const WEEKDAYS: { dow: number; label: string }[] = [
   { dow: 0, label: 'Вс' },
 ];
 
+/** Непрерывный ряд в порядке Пн…Вс (включительно), по js dow. */
+function daysInWeekdayRange(fromDow: number, toDow: number): number[] {
+  const order = WEEKDAYS.map((w) => w.dow);
+  const ia = order.indexOf(fromDow);
+  const ib = order.indexOf(toDow);
+  if (ia < 0 && ib < 0) return [];
+  if (ia < 0) return [toDow];
+  if (ib < 0) return [fromDow];
+  const lo = Math.min(ia, ib);
+  const hi = Math.max(ia, ib);
+  return order.slice(lo, hi + 1);
+}
+
 type ScopeMode = 'window' | 'off';
 
 const WEEKDAY_DAYS = [1, 2, 3, 4, 5];
@@ -664,6 +677,8 @@ export function ConnectionSchedulePopover({
   layersRef.current = layers;
   const editingRef = useRef(editing);
   editingRef.current = editing;
+  /** Якорь для Shift+ряда на Пн…Вс (последний клик без Shift). */
+  const weekdayAnchorRef = useRef<number | null>(null);
 
   const softClose = useCallback(() => {
     preserveDraftRef.current = true;
@@ -1177,6 +1192,60 @@ export function ConnectionSchedulePopover({
     setScopeMain(false);
     setWeekdays(new Set(days));
     loadEditorFromLayer(layer);
+  };
+
+  /** Shift+ряд Пн…Вс: выделить непрерывный интервал (как Ctrl-multi, окно редактора общее). */
+  const selectDayRange = (fromDow: number, toDow: number) => {
+    if (readOnly) return;
+    setAggregateView(false);
+    setScopeDate(null);
+    setScopeMain(false);
+    const days = daysInWeekdayRange(fromDow, toDow);
+    if (days.length === 0) return;
+
+    setLayers((prev) => {
+      let cur = prev;
+      for (const d of days) {
+        const mask = maskFromDays(new Set([d]));
+        const id = layerIdDow(mask);
+        const existing = findSingleDayExc(cur, d);
+        if (!existing) {
+          const layer: ScheduleLayer = {
+            id,
+            scopeKind: 'dow',
+            dowMask: mask,
+            dateFrom: null,
+            dateTo: null,
+            label: labelFromMask(mask),
+            mode,
+            startMin,
+            endMin,
+          };
+          rememberLayer(id, memFromLayer(layer));
+          cur = promoteExc(cur, layer);
+        } else {
+          cur = patchActiveLayer(
+            cur,
+            { kind: 'dow', days: new Set([d]) },
+            { mode, startMin, endMin },
+          );
+        }
+      }
+      return cur;
+    });
+    setWeekdays(new Set(days));
+  };
+
+  /** [Пн]…[Вс]: single; Ctrl/Cmd — multi; Shift — ряд от якоря. */
+  const onSingleDayClick = (dow: number, e: React.MouseEvent) => {
+    if (e.shiftKey) {
+      const anchor = weekdayAnchorRef.current ?? dow;
+      if (weekdayAnchorRef.current == null) weekdayAnchorRef.current = dow;
+      selectDayRange(anchor, dow);
+      return;
+    }
+    weekdayAnchorRef.current = dow;
+    toggleSingleDay(dow, e.ctrlKey || e.metaKey);
   };
 
   /** [Пн]…[Вс]: single; Ctrl/Cmd — multi-select для солидарных маркеров. */
@@ -2243,7 +2312,11 @@ export function ConnectionSchedulePopover({
                       .filter(Boolean)
                       .join(' ')}
                     disabled={readOnly}
-                    onClick={(e) => toggleSingleDay(w.dow, e.ctrlKey || e.metaKey)}
+                    onMouseDown={(e) => {
+                      // Shift+клик: не фокусировать — иначе лишний :focus-visible контур.
+                      if (e.shiftKey) e.preventDefault();
+                    }}
+                    onClick={(e) => onSingleDayClick(w.dow, e)}
                   >
                     {w.label}
                   </button>

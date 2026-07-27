@@ -197,7 +197,7 @@
   color: var(--color-text);
 }
 
-/* chipOn уже рисует рамку — глобальный :focus-visible даёт двойной контур. */
+/* chipOn / dayOn уже рисуют рамку — глобальный :focus-visible даёт двойной контур. */
 .chipOn:focus-visible {
   outline: none;
 }
@@ -220,6 +220,11 @@
   cursor: pointer;
 }
 
+.day:focus-visible,
+.dayOn:focus-visible {
+  outline: none;
+}
+
 .day:hover:not(:disabled) {
   border-color: var(--color-border-focus);
   color: var(--color-text);
@@ -239,6 +244,14 @@
 .dayHas {
   border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
   color: var(--color-text);
+}
+
+/* Выбранные (активный / есть слой): синий текст на hover — как Будни/Все.
+   Двойной класс бьёт специфичность .day:hover (белый). */
+.day.dayOn:hover:not(:disabled),
+.day.dayHas:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 /* Tetris periodical: этаж 0 всегда main; выше — group/single без дыр. */
