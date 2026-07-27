@@ -5,8 +5,11 @@
   border-left: 2px solid transparent;
 }
 
+/* Не трогаем border-left — иначе status-strip (active/recovering/resolved) тухнет. */
 .thread:hover {
-  border-color: var(--color-border, #373a40);
+  border-top-color: var(--color-border, #373a40);
+  border-right-color: var(--color-border, #373a40);
+  border-bottom-color: var(--color-border, #373a40);
 }
 
 .stripActive {

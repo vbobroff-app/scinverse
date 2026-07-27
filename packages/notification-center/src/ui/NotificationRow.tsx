@@ -32,7 +32,7 @@ interface Props {
 const SEVERITY_LABEL: Record<NotificationSeverity, string> = {
   ok: 'OK:',
   info: 'INFO:',
-  warning: 'WARNING:',
+  warning: 'WARN:',
   error: 'ERROR:',
   critical: 'FATAL:',
 };
