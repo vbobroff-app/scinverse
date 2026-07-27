@@ -296,6 +296,8 @@ const OUTAGE_CODE_OPEN = 'backend.unavailable';
 const OUTAGE_CODE_PROGRESS = 'backend.unavailable.progress';
 const OUTAGE_CODE_RECOVERING = 'backend.recovering';
 const OUTAGE_CODE_RESOLVED = 'backend.recovered';
+/** Тот же code, что у break schedule-end; различает `data.kind` = crash | break. */
+const OUTAGE_CODE_INCIDENT_CLOSED = 'connection.incident_closed';
 const HEALTHCHECK_CODE_OK = 'backend.healthcheck.ok';
 
 /** corr cold-инцидента простоя (нет предшествующего 500). Экспорт — OhsStore шлёт его в holdRecovery (§9.2). */
@@ -376,7 +378,7 @@ export function openBackendOutage(startMs: number, correlationId: string): void 
     localization: 'internal',
     status: 'active',
     correlationId,
-    data: { sender: 'client' },
+    data: { sender: 'client', kind: 'crash' },
   });
 }
 
@@ -403,7 +405,8 @@ export function tickBackendOutage(startMs: number, nowMs: number, correlationId:
 /**
  * Фаза recovering: бэк снова на связи, система ещё поднимается. Каждый вход — **новая** строка
  * (§9.2: перед OK всегда warn; пачка 500 → один warn после кулдауна). `sender=client`; `since` нет.
- * Возвращает DTO для персиста (§9.5) — POST на каждый вход.
+ * Локальная шина сразу; persist — только в пакете close (`resolveBackendOutage`), иначе при обрыве
+ * settle в БД остаётся сирота `backend.recovering` без FATAL/OK.
  */
 export function warnBackendOutage(correlationId: string): NotificationDto {
   const warnId = guidN();
@@ -478,11 +481,15 @@ export function healthCheckOk(correlationId: string): NotificationDto {
 }
 
 /**
- * Фаза 4 (resolve, ok): система восстановлена. Эмитит локальный ok и возвращает DTO'шки для mock-POST
- * задним числом — open (переиспользуя id/ts из нити → echo дедупится, персист под тем же id) и resolve
- * (ts = момент восстановления, длительность в expanded). Нить закрывается (удаляется из карты).
+ * Фаза 4 (resolve, ok): система восстановлена. Эмитит локальный ok и возвращает DTO для mock-POST:
+ * open (+ опц. последний recovering) + resolve. Persist warn только здесь — не на входе в warning.
  */
-export function resolveBackendOutage(startMs: number, endMs: number, correlationId: string): NotificationDto[] {
+export function resolveBackendOutage(
+  startMs: number,
+  endMs: number,
+  correlationId: string,
+  recoveringDto?: NotificationDto | null,
+): NotificationDto[] {
   const thread = outageThreads.get(correlationId) ?? {
     correlationId,
     startMs,
@@ -523,7 +530,7 @@ export function resolveBackendOutage(startMs: number, endMs: number, correlation
     message: 'Сервер OHS недоступен, жду восстановления',
     status: 'active',
     correlationId: thread.correlationId,
-    data: { sender: 'client' },
+    data: { sender: 'client', kind: 'crash' },
     interaction: 'system',
     localization: 'internal',
   };
@@ -541,5 +548,108 @@ export function resolveBackendOutage(startMs: number, endMs: number, correlation
     interaction: 'system',
     localization: 'internal',
   };
-  return [openDto, resolveDto];
+  return recoveringDto
+    ? [openDto, recoveringDto, resolveDto]
+    : [openDto, resolveDto];
+}
+
+/** Строка разрыва как на бэке (FormatGapLine): «Разрыв … (МСК), длительность HH:MM:SS». */
+function formatGapLineMsk(startMs: number, endMs: number): string {
+  const msk = (ms: number) => {
+    const d = new Date(ms + 3 * 60 * 60_000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return {
+      day: `${pad(d.getUTCDate())}.${pad(d.getUTCMonth() + 1)}`,
+      hms: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`,
+      y: d.getUTCFullYear(),
+      m: d.getUTCMonth(),
+      dd: d.getUTCDate(),
+    };
+  };
+  const a = msk(startMs);
+  const b = msk(endMs);
+  const durSec = Math.max(0, Math.round((endMs - startMs) / 1000));
+  const hh = String(Math.floor(durSec / 3600)).padStart(2, '0');
+  const mm = String(Math.floor((durSec % 3600) / 60)).padStart(2, '0');
+  const ss = String(durSec % 60).padStart(2, '0');
+  const sameDay = a.y === b.y && a.m === b.m && a.dd === b.dd;
+  const fromText = sameDay ? a.hms : `${a.day} ${a.hms}`;
+  const toText = sameDay ? b.hms : `${b.day} ${b.hms}`;
+  return `Разрыв ${fromText} → ${toText} (МСК), длительность ${hh}:${mm}:${ss}`;
+}
+
+/**
+ * Исход `abandoned_schedule` для crash: WARNING resolved (без green / без `backend.recovered`).
+ * Эмитит close в локальную шину; возвращает [open, close] для mock-POST когда бэк оживёт
+ * (как resolveBackendOutage, но close = incident_closed · kind=crash).
+ */
+export function abandonBackendOutageBySchedule(
+  startMs: number,
+  endMs: number,
+  correlationId: string,
+  connectionId: number,
+  connectionLabel: string,
+): NotificationDto[] {
+  const thread = outageThreads.get(correlationId) ?? {
+    correlationId,
+    startMs,
+    openId: guidN(),
+    openTs: new Date(startMs).toISOString(),
+  };
+  outageThreads.delete(correlationId);
+
+  const endIso = new Date(endMs).toISOString();
+  const closeId = guidN();
+  const message = `${connectionLabel}: инцидент закрыт по окончании окна расписания`;
+  const closeData = {
+    connectionId,
+    kind: 'crash' as const,
+    reason: 'schedule_end',
+    sender: 'client',
+    result: `Закрыто по окончании окна расписания; ${formatGapLineMsk(startMs, endMs)}`,
+  };
+
+  notify.warn(notificationBus, {
+    id: closeId,
+    ts: endIso,
+    module: BACKEND_OUTAGE_MODULE,
+    code: OUTAGE_CODE_INCIDENT_CLOSED,
+    message,
+    sourceType: 'system',
+    interaction: 'system',
+    localization: 'internal',
+    status: 'resolved',
+    correlationId: thread.correlationId,
+    data: closeData,
+  });
+
+  const openDto: NotificationDto = {
+    id: thread.openId,
+    ts: thread.openTs,
+    severity: 'critical',
+    sourceType: 'system',
+    module: BACKEND_OUTAGE_MODULE,
+    code: OUTAGE_CODE_OPEN,
+    message: 'Сервер OHS недоступен, жду восстановления',
+    status: 'active',
+    correlationId: thread.correlationId,
+    data: { sender: 'client', kind: 'crash' },
+    interaction: 'system',
+    localization: 'internal',
+  };
+  const closeDto: NotificationDto = {
+    id: closeId,
+    ts: endIso,
+    severity: 'warning',
+    sourceType: 'system',
+    module: BACKEND_OUTAGE_MODULE,
+    code: OUTAGE_CODE_INCIDENT_CLOSED,
+    message,
+    status: 'resolved',
+    correlationId: thread.correlationId,
+    data: closeData,
+    interaction: 'system',
+    localization: 'internal',
+  };
+  return [openDto, closeDto];
 }

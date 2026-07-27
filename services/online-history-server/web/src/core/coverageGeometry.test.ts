@@ -6,6 +6,7 @@ import {
   intersectMs,
   isBreakGap,
   livenessEndMs,
+  overlayCrashOutageOnLink,
   resolveGapEndMs,
   segmentRecordedEndMs,
   visibleTradeSpans,
@@ -134,5 +135,32 @@ describe('coverageGeometry', () => {
       gaps: [],
     };
     expect(segmentRecordedEndMs(seg, now, windowTo)).toBe(Date.parse('2026-07-13T15:03:37.000Z'));
+  });
+
+  it('overlayCrashOutageOnLink: режет open live и открывает interrupted gap с to=null', () => {
+    const start = Date.parse('2026-07-26T14:30:00.000Z');
+    const over = overlayCrashOutageOnLink(
+      {
+        intervals: [
+          {
+            from: '2026-07-26T10:00:00.000Z',
+            to: '',
+            open: true,
+            closeReason: null,
+          },
+        ],
+        gaps: [],
+      },
+      start,
+    );
+    expect(over.intervals).toHaveLength(1);
+    expect(over.intervals[0]).toMatchObject({
+      open: false,
+      closeReason: 'interrupted',
+      to: new Date(start).toISOString(),
+    });
+    expect(over.gaps).toEqual([
+      { from: new Date(start).toISOString(), to: null, cause: 'interrupted' },
+    ]);
   });
 });

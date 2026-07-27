@@ -751,6 +751,22 @@ public sealed class ConnectionManager(
         return true;
     }
 
+    /// <summary>
+    /// Клиент закрыл crash по schedule_end (mock-POST): маркер <c>scheduled</c> на ленте —
+    /// клип штриховки без green (<c>Abandoned</c>). Не трогает NC (уже ingest'нут).
+    /// </summary>
+    public async Task MarkCrashAbandonedByScheduleAsync(
+        long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
+    {
+        var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        if (sourceId is { } sid)
+        {
+            await linkLiveness
+                .InsertBoundaryMarkerAsync(sid, LinkCloseReason.Scheduled, atTs, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
     private async Task<short?> ResolveSourceIdAsync(long connectionId, CancellationToken cancellationToken)
     {
         if (_sourceIds.TryGetValue(connectionId, out var liveSourceId))

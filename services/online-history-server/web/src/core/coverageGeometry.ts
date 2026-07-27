@@ -211,3 +211,79 @@ export function gapIntersectsSegment(
   }
   return intersectMs(segFromMs, segToMs, gapFromMs, gapEndMs);
 }
+
+export interface LinkLivenessSnapshot {
+  intervals: LivenessIntervalDto[];
+  gaps: CaptureGapDto[];
+}
+
+/**
+ * Оптимистичная геометрия crash (Host down): пока API молчит, лента Connection не должна
+ * тянуть голубой open-интервал. Режем live на `startMs`, открываем `interrupted` gap → `to:null`
+ * (ползёт с `nowMs` на ленте) + красный стартовый маркер.
+ */
+export function overlayCrashOutageOnLink(
+  state: LinkLivenessSnapshot,
+  startMs: number,
+): LinkLivenessSnapshot {
+  const startIso = new Date(startMs).toISOString();
+  const intervals: LivenessIntervalDto[] = [];
+  for (const iv of state.intervals) {
+    const fromMs = Date.parse(iv.from);
+    if (!Number.isFinite(fromMs) || fromMs >= startMs) {
+      continue;
+    }
+    if (iv.open) {
+      intervals.push({
+        from: iv.from,
+        to: startIso,
+        open: false,
+        closeReason: 'interrupted',
+      });
+      continue;
+    }
+    const toMs = Date.parse(iv.to);
+    if (!Number.isFinite(toMs)) {
+      continue;
+    }
+    if (toMs <= startMs) {
+      intervals.push(iv);
+    } else {
+      // Закрытый интервал пересекал момент дропа — обрезаем.
+      intervals.push({
+        ...iv,
+        to: startIso,
+        closeReason: iv.closeReason ?? 'interrupted',
+      });
+    }
+  }
+
+  const gaps: CaptureGapDto[] = [];
+  for (const g of state.gaps) {
+    const fromMs = Date.parse(g.from);
+    if (!Number.isFinite(fromMs) || fromMs >= startMs) {
+      continue;
+    }
+    if (g.to == null) {
+      gaps.push({ ...g, to: startIso });
+      continue;
+    }
+    const toMs = Date.parse(g.to);
+    if (!Number.isFinite(toMs)) {
+      continue;
+    }
+    if (toMs <= startMs) {
+      gaps.push(g);
+    } else {
+      gaps.push({ ...g, to: startIso });
+    }
+  }
+
+  gaps.push({
+    from: startIso,
+    to: null,
+    cause: 'interrupted',
+  });
+
+  return { intervals, gaps };
+}

@@ -4,7 +4,8 @@ import { notificationBus } from './notifications';
 import { catchError, finalize, map, mergeMap, switchMap, tap, timeout, toArray } from 'rxjs/operators';
 import { bucketSecondsForTimeframe } from './activityBucket';
 import { OhsApi, type OhsApiClient } from './api';
-import { gapsFromLivenessIntervals } from './coverageGeometry';
+import { isConnectedNow } from './connectionSchedule';
+import { gapsFromLivenessIntervals, overlayCrashOutageOnLink } from './coverageGeometry';
 import { createLiveStream, linkStateToConnectionStatus } from './live';
 import { loadSelectedInstruments, persistSelectedInstruments } from './selectedInstrumentsStorage';
 import { loadViewState, persistViewState, type PersistedSeries } from './viewStateStorage';
@@ -323,6 +324,15 @@ export class OhsStore {
   // Одиночный 500 без инцидента (§9.3): corr/время для health-probe и adopt при дропе.
   private pendingFatalCorr: string | null = null;
   private pendingFatalAt: number | null = null;
+  /** Кэш desired расписания на время crash-outage — ловим спад true→false → abandoned_schedule. */
+  private outageScheduleDesired: boolean | null = null;
+  /**
+   * После schedule-end close: [FATAL open, WARNING incident_closed] ждут mock-POST, пока бэк мёртв
+   * (как open+resolve при recovered). По оживлении — flush, без зелёного `backend.recovered`.
+   */
+  private pendingOutagePersist: NotificationDto[] | null = null;
+  /** Последний `backend.recovering` — в шину сразу, в БД только вместе с open+recovered (анти-сирота). */
+  private pendingRecoveringDto: NotificationDto | null = null;
 
   constructor(
     private readonly api: OhsApiClient = OhsApi,
@@ -564,8 +574,9 @@ export class OhsStore {
           clearTimeout(this.outageSettleTimer);
           this.outageSettleTimer = undefined;
         }
-        // Снова «после FATAL» — к OK только через новый warn.
+        // Снова «после FATAL» — к OK только через новый warn; черновик recovering сбрасываем.
         this.outageNeedsWarnBeforeOk = true;
+        this.pendingRecoveringDto = null;
         this.startOutageProgress(true);
       }
       return;
@@ -587,7 +598,12 @@ export class OhsStore {
         return;
       }
       const corr = this.outageCorr;
-      void import('./notifications').then((m) => m.openBackendOutage(this.outageStart!, corr));
+      const start = this.outageStart!;
+      const horizon = this.resolveOutageScheduleHorizon();
+      this.outageScheduleDesired = horizon?.desired ?? null;
+      // Лента Connection: сразу красный маркер + ползущая штриховка (API во время простоя молчит).
+      this.link$.next(overlayCrashOutageOnLink(this.link$.value, start));
+      void import('./notifications').then((m) => m.openBackendOutage(start, corr));
       this.startOutageProgress(false);
     }, BACKEND_OUTAGE_GRACE_MS);
   }
@@ -601,6 +617,10 @@ export class OhsStore {
     if (this.outageTickTimer === undefined) {
       this.outageTickTimer = setInterval(() => {
         if (this.outageStart === null || this.outageCorr === null) {
+          return;
+        }
+        // Горизонт crash = то же desired, что у break (кэш расписания).
+        if (this.tryAbandonOutageBySchedule()) {
           return;
         }
         const corr = this.outageCorr;
@@ -618,6 +638,14 @@ export class OhsStore {
    * open → один WARNING recovering + settle (§9.2: пачка 500 даёт один вход сюда после кулдауна).
    */
   private onBackendReachable(): void {
+    // Сначала сбросить отложенный schedule-end persist (инцидент уже закрыт локально).
+    if (this.pendingOutagePersist !== null) {
+      this.flushPendingOutagePersist();
+      // После abandon лента могла остаться на клиентском клипе — подтянуть SoT.
+      if (this.outageStart === null) {
+        this.refreshLiveness();
+      }
+    }
     if (this.outageStart === null) {
       return;
     }
@@ -653,8 +681,8 @@ export class OhsStore {
     this.outagePhase = 'warning';
     this.outageNeedsWarnBeforeOk = false;
     void import('./notifications').then((m) => {
-      const warnDto = m.warnBackendOutage(corr);
-      this.api.postNotification(warnDto).subscribe({ error: (err) => console.error('postNotification', err) });
+      // Live сразу; POST — в resolveOutage вместе с open+ok (иначе сирота recovering в БД).
+      this.pendingRecoveringDto = m.warnBackendOutage(corr);
     });
     this.armOutageSettle();
   }
@@ -773,6 +801,120 @@ export class OhsStore {
     });
   }
 
+  /**
+   * Connection с Auto + правилами из кэша (бэк может быть мёртв). Предпочитаем active, иначе первый Auto.
+   */
+  private resolveOutageScheduleHorizon(): {
+    connectionId: number;
+    label: string;
+    desired: boolean;
+  } | null {
+    const schedules = this.connectionSchedule$.value;
+    const connections = this.connections$.value;
+    const activeId = this.activeConnectionId$.value;
+    const candidates = connections.filter((c) => {
+      const st = schedules.get(c.connectionId);
+      return st?.settings.autoEnabled === true && st.rules.length > 0;
+    });
+    if (candidates.length === 0) {
+      return null;
+    }
+    const row =
+      (activeId != null ? candidates.find((c) => c.connectionId === activeId) : undefined) ??
+      candidates[0];
+    const st = schedules.get(row.connectionId)!;
+    const desired = isConnectedNow(st.rules, new Date());
+    const label = row.name?.trim()
+      ? `Подключение ${row.connectionId} («${row.name}»)`
+      : `Подключение ${row.connectionId}`;
+    return { connectionId: row.connectionId, label, desired };
+  }
+
+  /**
+   * Спад desired при открытом crash → WARNING schedule_end (локально) + очередь mock-POST.
+   * Идемпотентно: только true→false.
+   */
+  private tryAbandonOutageBySchedule(): boolean {
+    if (this.outageStart === null || this.outageCorr === null) {
+      return false;
+    }
+    if (this.outagePhase !== 'open' && this.outagePhase !== 'warning') {
+      return false;
+    }
+    const horizon = this.resolveOutageScheduleHorizon();
+    if (horizon === null) {
+      return false;
+    }
+    if (this.outageScheduleDesired === null) {
+      this.outageScheduleDesired = horizon.desired;
+      return false;
+    }
+    const wasDesired = this.outageScheduleDesired;
+    this.outageScheduleDesired = horizon.desired;
+    if (!(wasDesired && !horizon.desired)) {
+      return false;
+    }
+
+    const start = this.outageStart;
+    const corr = this.outageCorr;
+    const end = Date.now();
+    this.clearOutageTimers();
+    this.outageStart = null;
+    this.outagePhase = 'none';
+    this.outageHeldSignaled = false;
+    this.outageHoldInFlight = false;
+    this.outageNeedsWarnBeforeOk = false;
+    this.outageCorr = null;
+    this.outageScheduleDesired = null;
+    this.pendingRecoveringDto = null;
+    // Клип штриховки на t_end (abandoned), без green — до refresh после оживления бэка.
+    this.link$.next({
+      intervals: this.link$.value.intervals,
+      gaps: this.link$.value.gaps.map((g) =>
+        g.to == null && g.cause === 'interrupted'
+          ? { ...g, to: new Date(end).toISOString(), abandoned: true }
+          : g,
+      ),
+    });
+
+    void import('./notifications').then((m) => {
+      const dtos = m.abandonBackendOutageBySchedule(
+        start,
+        end,
+        corr,
+        horizon.connectionId,
+        horizon.label,
+      );
+      this.pendingOutagePersist = dtos;
+      this.flushPendingOutagePersist();
+    });
+    return true;
+  }
+
+  /** mock-POST [open, incident_closed]; при мёртвом бэке оставит очередь до onBackendReachable. */
+  private flushPendingOutagePersist(): void {
+    const batch = this.pendingOutagePersist;
+    if (batch === null || batch.length === 0) {
+      return;
+    }
+    let left = batch.length;
+    let failed = false;
+    for (const dto of batch) {
+      this.api.postNotification(dto).subscribe({
+        next: () => {
+          left -= 1;
+          if (left === 0 && !failed) {
+            this.pendingOutagePersist = null;
+          }
+        },
+        error: (err) => {
+          failed = true;
+          console.error('postNotification', err);
+        },
+      });
+    }
+  }
+
   /** Закрытие: ok + mock-POST open+resolve. Вызывать только из warning после warn (§9.2). */
   private resolveOutage(): void {
     const start = this.outageStart;
@@ -794,14 +936,20 @@ export class OhsStore {
     this.outageHoldInFlight = false;
     this.outageNeedsWarnBeforeOk = false;
     this.outageCorr = null;
+    this.outageScheduleDesired = null;
+    this.pendingOutagePersist = null;
+    const recovering = this.pendingRecoveringDto;
+    this.pendingRecoveringDto = null;
     const end = Date.now();
     void import('./notifications').then((m) => {
-      for (const dto of m.resolveBackendOutage(start, end, corr)) {
+      for (const dto of m.resolveBackendOutage(start, end, corr, recovering)) {
         this.api.postNotification(dto).subscribe({
           error: (err) => console.error('postNotification', err),
         });
       }
     });
+    // Снимаем оптимистичный overlay — серверная геометрия после recover.
+    this.refreshLiveness();
   }
 
   /** Переключает активный раздел верхнего уровня (левый рейл). */
@@ -1555,7 +1703,16 @@ export class OhsStore {
     // Лента Connection (phase 7h.8): вся история связи по тому же источнику. Gaps берём с сервера как
     // есть — они включают серый 'disconnected' (в отличие от захвата, где серое отфильтровано).
     this.api.getLinkLiveness({ from, to, sourceId }).subscribe({
-      next: (dto) => this.link$.next({ intervals: dto.intervals, gaps: dto.gaps }),
+      next: (dto) => {
+        // Во время открытого crash не затираем оптимистичную штриховку ответом «до дропа».
+        if (this.outagePhase === 'open' || this.outagePhase === 'warning') {
+          if (this.outageStart !== null) {
+            this.link$.next(overlayCrashOutageOnLink(dto, this.outageStart));
+            return;
+          }
+        }
+        this.link$.next({ intervals: dto.intervals, gaps: dto.gaps });
+      },
       error: (err) => console.error('getLinkLiveness', err),
     });
   }
