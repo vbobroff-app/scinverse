@@ -48,6 +48,8 @@ describe('NotificationDock', () => {
         interactions: [],
         localizations: [],
         statuses: [],
+        threadStatuses: [],
+        choices: [],
         range: { preset: 'all' as const },
         query: '',
       },
@@ -127,6 +129,8 @@ describe('NotificationDock', () => {
             interactions: [],
             localizations: [],
             statuses: ['resolved'],
+            threadStatuses: [],
+            choices: [],
             range: { preset: 'all' },
             query: '',
           },
@@ -134,7 +138,47 @@ describe('NotificationDock', () => {
       />,
     );
 
+    // Thread header показывает last message; Entry стек свёрнут.
     expect(screen.getByText('Восстановлено')).toBeTruthy();
     expect(screen.queryByText('Потеря связи')).toBeNull();
+  });
+
+  it('renders Thread container without severity icon on header; expands Entry stack', () => {
+    const bus = createNotificationBus();
+    bus.publish({
+      id: 'open',
+      ts: '2026-07-14T12:00:00.000Z',
+      severity: 'error',
+      sourceType: 'system',
+      module: 'm',
+      code: 'connection.lost',
+      message: 'Потеря связи',
+      status: 'active',
+      correlationId: 'connection:x:link',
+      data: { threadKindHint: 'incident' },
+    });
+    bus.publish({
+      id: 'close',
+      ts: '2026-07-14T12:01:00.000Z',
+      severity: 'ok',
+      sourceType: 'system',
+      module: 'm',
+      code: 'connection.recovered',
+      message: 'Восстановлено',
+      status: 'resolved',
+      correlationId: 'connection:x:link',
+      data: { closeOutcome: 'recovered' },
+    });
+
+    render(<NotificationDock bus={bus} defaultExpanded />);
+
+    expect(screen.getByText('Incident')).toBeTruthy();
+    expect(screen.getByText('Восстановлено')).toBeTruthy();
+    // стек свёрнут — Entry-строка open не видна как отдельный текст статуса FATAL в header
+    expect(screen.queryByText('FATAL:')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Раскрыть нить/i }));
+    expect(screen.getByText('Потеря связи')).toBeTruthy();
+    expect(screen.getAllByText('[!]').length).toBeGreaterThan(0);
   });
 });

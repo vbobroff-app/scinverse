@@ -3,12 +3,14 @@ import type {
   DockFilterKey,
   DockFilterState,
   DockRangeFilter,
+  NcChoiceFilter,
   NotificationDockFiltersSnapshot,
   NotificationDockSettings,
   NotificationInteraction,
   NotificationLocalization,
   NotificationSeverity,
   NotificationStatus,
+  ThreadStatus,
 } from '@scinverse/notification-center';
 import {
   EMPTY_DOCK_RANGE,
@@ -24,6 +26,8 @@ const VALID_ACTIVE: readonly DockFilterKey[] = [
   'interaction',
   'localization',
   'status',
+  'threadStatus',
+  'choice',
   'range',
 ];
 const VALID_SEVERITIES: readonly NotificationSeverity[] = [
@@ -36,6 +40,8 @@ const VALID_SEVERITIES: readonly NotificationSeverity[] = [
 const VALID_INTERACTIONS: readonly NotificationInteraction[] = ['user', 'system'];
 const VALID_LOCALIZATIONS: readonly NotificationLocalization[] = ['internal', 'external'];
 const VALID_STATUSES: readonly NotificationStatus[] = ['active', 'underway', 'resolved'];
+const VALID_THREAD_STATUSES: readonly ThreadStatus[] = ['active', 'recovering', 'resolved'];
+const VALID_CHOICES: readonly NcChoiceFilter[] = ['favorite', 'left'];
 
 export interface PersistedNotificationDock {
   open: boolean;
@@ -52,6 +58,8 @@ function emptyFilter(): DockFilterState {
     interactions: [],
     localizations: [],
     statuses: [],
+    threadStatuses: [],
+    choices: [],
     range: { ...EMPTY_DOCK_RANGE },
     query: '',
   };
@@ -116,6 +124,12 @@ function parseFilter(raw: unknown): DockFilterState {
     statuses: asStringArray(f.statuses).filter((s): s is NotificationStatus =>
       (VALID_STATUSES as readonly string[]).includes(s),
     ),
+    threadStatuses: asStringArray(f.threadStatuses).filter((s): s is ThreadStatus =>
+      (VALID_THREAD_STATUSES as readonly string[]).includes(s),
+    ),
+    choices: asStringArray(f.choices).filter((s): s is NcChoiceFilter =>
+      (VALID_CHOICES as readonly string[]).includes(s),
+    ),
     range: parseRange(f.range),
     query: typeof f.query === 'string' ? f.query : '',
   };
@@ -152,6 +166,8 @@ function cloneFilter(filter: DockFilterState): DockFilterState {
     interactions: [...(filter.interactions ?? [])],
     localizations: [...(filter.localizations ?? [])],
     statuses: [...(filter.statuses ?? [])],
+    threadStatuses: [...(filter.threadStatuses ?? [])],
+    choices: [...(filter.choices ?? [])],
     range: nextRange,
     query: filter.query ?? '',
   };
@@ -315,6 +331,10 @@ class NotificationDockStore {
       this.filter$.next({ ...f, localizations: [] });
     } else if (key === 'status') {
       this.filter$.next({ ...f, statuses: [] });
+    } else if (key === 'threadStatus') {
+      this.filter$.next({ ...f, threadStatuses: [] });
+    } else if (key === 'choice') {
+      this.filter$.next({ ...f, choices: [] });
     } else if (key === 'range') {
       this.filter$.next({ ...f, range: { ...EMPTY_DOCK_RANGE } });
     }
@@ -328,6 +348,8 @@ class NotificationDockStore {
       interactions: [],
       localizations: [],
       statuses: [],
+      threadStatuses: [],
+      choices: [],
       range: { ...EMPTY_DOCK_RANGE },
       query: this.filter$.value.query,
     });

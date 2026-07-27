@@ -1,0 +1,175 @@
+.thread {
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-bg-input, #2c2e33);
+  border: 1px solid transparent;
+  border-left: 2px solid transparent;
+}
+
+.thread:hover {
+  border-color: var(--color-border, #373a40);
+}
+
+.stripActive {
+  border-left-color: color-mix(in srgb, var(--color-error, #ff6b6b) 55%, transparent);
+}
+
+.stripRecovering {
+  border-left-color: color-mix(in srgb, var(--color-warning, #d29922) 70%, transparent);
+}
+
+.stripResolved {
+  border-left-color: color-mix(in srgb, var(--color-success, #51cf66) 70%, transparent);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 8px;
+}
+
+.expandBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text-muted, #6c757d);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.expandBtn:hover {
+  color: var(--color-text-secondary, #adb5bd);
+  background: var(--color-bg-hover, #373a40);
+}
+
+.chevron {
+  display: inline-block;
+  font-size: 18px;
+  line-height: 1;
+  width: 1em;
+  text-align: center;
+  transition: transform 0.15s ease;
+  transform: rotate(90deg);
+}
+
+.chevronOpen {
+  transform: rotate(180deg) translateY(-2px);
+}
+
+.kindBadge {
+  flex: none;
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.kindIncident {
+  color: color-mix(in srgb, var(--color-error, #ff6b6b) 85%, #fff);
+}
+
+.kindGroup {
+  color: var(--color-text-muted, #6c757d);
+}
+
+.kindName {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary, #adb5bd);
+  white-space: nowrap;
+}
+
+.time {
+  flex: none;
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-size: 11px;
+  margin-top: 4px;
+  color: var(--color-text-muted, #6c757d);
+  white-space: nowrap;
+  min-width: 130px;
+}
+
+.status {
+  flex: none;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary, #adb5bd);
+  background: var(--color-bg-hover, #373a40);
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+.title {
+  flex: none;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--color-text-muted, #6c757d);
+}
+
+.message {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary, #adb5bd);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.messageMuted {
+  opacity: 0.65;
+}
+
+.count {
+  color: var(--color-text-muted, #6c757d);
+}
+
+.marks {
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+}
+
+.markBtn {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--color-text-muted, #6c757d);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.markBtn:hover {
+  color: var(--color-text-secondary, #adb5bd);
+  background: var(--color-bg-hover, #373a40);
+}
+
+.markOn {
+  color: var(--color-accent, #4dabf7);
+}
+
+.entries {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 4px 4px 12px;
+}

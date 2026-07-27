@@ -15,6 +15,15 @@ interface Props {
   showStatusLogo?: boolean;
   /** Показывать текстовую метку типа (Info:/ERROR:/…) за иконкой. Независимо от {@link showStatusLogo}. */
   showType?: boolean;
+  /**
+   * Subtle `[!]` / `[G]` внутри Thread: сдвигает контент, не indent карточки
+   * (to-threads §2.2 / §4.1).
+   */
+  kindBadge?: 'incident' | 'group';
+  isFavorite?: boolean;
+  isLeft?: boolean;
+  onToggleFavorite?: () => void;
+  onToggleLeft?: () => void;
   onOpen?: (event: NotificationEvent) => void;
   /** Клик по Id инцидента (`correlationId`) — фильтрует ленту до этого инцидента. */
   onFilterIncident?: (correlationId: string) => void;
@@ -70,6 +79,11 @@ export function NotificationRow({
   unread,
   showStatusLogo = true,
   showType = true,
+  kindBadge,
+  isFavorite,
+  isLeft,
+  onToggleFavorite,
+  onToggleLeft,
   onOpen,
   onFilterIncident,
 }: Props) {
@@ -118,6 +132,17 @@ export function NotificationRow({
             ▴
           </span>
         </button>
+        {kindBadge && (
+          <span
+            className={[
+              styles.kindBadge,
+              kindBadge === 'incident' ? styles.kindIncident : styles.kindGroup,
+            ].join(' ')}
+            aria-hidden
+          >
+            {kindBadge === 'incident' ? '[!]' : '[G]'}
+          </span>
+        )}
         {showStatusLogo && <SeverityIcon severity={event.severity} />}
         {showType && (
           <span className={styles.severityLabel} aria-label={event.severity}>
@@ -131,6 +156,42 @@ export function NotificationRow({
         <span className={[styles.message, expanded ? styles.messageWrap : ''].filter(Boolean).join(' ')}>
           {event.message}
         </span>
+        {(onToggleFavorite || onToggleLeft) && (
+          <span className={styles.marks}>
+            {onToggleFavorite && (
+              <Tip content={isFavorite ? 'Снять избранное' : 'В избранное'}>
+                <button
+                  type="button"
+                  className={[styles.markBtn, isFavorite ? styles.markOn : ''].filter(Boolean).join(' ')}
+                  aria-pressed={Boolean(isFavorite)}
+                  aria-label="Избранное"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleFavorite();
+                  }}
+                >
+                  ★
+                </button>
+              </Tip>
+            )}
+            {onToggleLeft && (
+              <Tip content={isLeft ? 'Вернуть в ленту' : 'Отложить'}>
+                <button
+                  type="button"
+                  className={[styles.markBtn, isLeft ? styles.markOn : ''].filter(Boolean).join(' ')}
+                  aria-pressed={Boolean(isLeft)}
+                  aria-label="Отложить"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleLeft();
+                  }}
+                >
+                  ⦸
+                </button>
+              </Tip>
+            )}
+          </span>
+        )}
         <Tip content="Копировать">
           <button type="button" className={styles.copyBtn} onClick={copy} aria-label="Копировать">
             ⎘

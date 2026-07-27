@@ -1,0 +1,132 @@
+import type {
+  NotificationEvent,
+  NotificationFilter,
+  NotificationItem,
+  ThreadItem,
+  ThreadStatus,
+} from '../types';
+import { filterEvents } from './filterEvents';
+
+export type NcChoiceFilter = 'favorite' | 'left';
+
+/** Фильтр ленты контейнеров (атомы + threadStatus + Выбор). */
+export interface NotificationItemFilter extends NotificationFilter {
+  threadStatuses?: ReadonlySet<ThreadStatus> | readonly ThreadStatus[];
+  choices?: ReadonlySet<NcChoiceFilter> | readonly NcChoiceFilter[];
+}
+
+function toSet<T extends string>(value: ReadonlySet<T> | readonly T[] | undefined): Set<T> | null {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Set) {
+    return value.size === 0 ? null : value;
+  }
+  const arr = value as readonly T[];
+  return arr.length === 0 ? null : new Set(arr);
+}
+
+function eventMatches(
+  evt: NotificationEvent,
+  atomFilter: NotificationFilter,
+  now?: Date,
+): boolean {
+  return filterEvents([evt], atomFilter, now).length > 0;
+}
+
+function headerMatchesQuery(thread: ThreadItem, query: string): boolean {
+  if (!query) {
+    return true;
+  }
+  const hay = `${thread.header.title} ${thread.header.summary ?? ''} ${thread.uid} ${thread.subject ?? ''} ${thread.threadKind} ${thread.threadStatus}`.toLowerCase();
+  return hay.includes(query);
+}
+
+function threadMatchesAtoms(
+  thread: ThreadItem,
+  atomFilter: NotificationFilter,
+  now?: Date,
+): boolean {
+  const query = atomFilter.query?.trim().toLowerCase() ?? '';
+  const withoutQuery: NotificationFilter = { ...atomFilter, query: undefined };
+  const hasAtomConstraints = Boolean(
+    atomFilter.severities ||
+      atomFilter.sourceTypes ||
+      atomFilter.interactions ||
+      atomFilter.localizations ||
+      atomFilter.statuses ||
+      atomFilter.modules ||
+      atomFilter.range,
+  );
+
+  const anyEntry = thread.notifications.some((e) => eventMatches(e, withoutQuery, now));
+  if (hasAtomConstraints && !anyEntry) {
+    return false;
+  }
+
+  if (query) {
+    const entryHit = thread.notifications.some((e) => eventMatches(e, { query }, now));
+    if (!entryHit && !headerMatchesQuery(thread, query)) {
+      return false;
+    }
+  }
+
+  // Если только query/пусто — и без atom constraints: пропускаем (уже проверили query).
+  if (!hasAtomConstraints && !query) {
+    return true;
+  }
+  if (!hasAtomConstraints && query) {
+    return true;
+  }
+  return anyEntry || (query ? headerMatchesQuery(thread, query) : false);
+}
+
+/**
+ * Фильтрация проекции Single | Thread.
+ * `threadStatuses` — только Thread; при активном фильтре Single скрываются.
+ * `choices` — ★ / ⦸ на контейнере (уже проставленные на item).
+ */
+export function filterItems(
+  items: readonly NotificationItem[],
+  filter: NotificationItemFilter = {},
+  now?: Date,
+): NotificationItem[] {
+  const threadStatuses = toSet<ThreadStatus>(filter.threadStatuses);
+  const choices = toSet<NcChoiceFilter>(filter.choices);
+
+  const atomFilter: NotificationFilter = {
+    severities: filter.severities,
+    sourceTypes: filter.sourceTypes,
+    interactions: filter.interactions,
+    localizations: filter.localizations,
+    statuses: filter.statuses,
+    modules: filter.modules,
+    query: filter.query,
+    range: filter.range,
+    tzOffsetMin: filter.tzOffsetMin,
+  };
+
+  return items.filter((item) => {
+    if (choices) {
+      const wantFav = choices.has('favorite');
+      const wantLeft = choices.has('left');
+      const matchFav = wantFav && Boolean(item.isFavorite);
+      const matchLeft = wantLeft && Boolean(item.isLeft);
+      if (!matchFav && !matchLeft) {
+        return false;
+      }
+    }
+
+    if (item.itemKind === 'single') {
+      if (threadStatuses) {
+        return false;
+      }
+      return eventMatches(item, atomFilter, now);
+    }
+
+    if (threadStatuses && !threadStatuses.has(item.threadStatus)) {
+      return false;
+    }
+    return threadMatchesAtoms(item, atomFilter, now);
+  });
+}

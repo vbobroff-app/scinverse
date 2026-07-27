@@ -47,6 +47,15 @@ export { notify, type NotifyInput } from './bus/notify';
 export { projectThreads, deriveSubject } from './bus/projectThreads';
 
 export { filterEvents } from './filter/filterEvents';
+export { filterItems, type NotificationItemFilter, type NcChoiceFilter } from './filter/filterItems';
+export {
+  NC_MARKS_STORAGE_KEY,
+  loadNcMarks,
+  saveNcMarks,
+  toggleNcMark,
+  type NcMarkMap,
+} from './ui/ncMarks';
+export { ThreadBlock } from './ui/ThreadBlock';
 export type { DockRangeFilter, DockRangePreset, RangeBounds } from './filter/dateRange';
 export {
   DEFAULT_TIME_FROM,

@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { NotificationBus } from '../bus/NotificationBus';
-import { filterEvents } from '../filter/filterEvents';
+import { filterItems } from '../filter/filterItems';
 import { formatTsUtc, type FormatTs } from '../format/formatTs';
-import type { NotificationEvent, NotificationSeverity } from '../types';
+import type { NotificationEvent, NotificationItem, NotificationSeverity } from '../types';
 import { DockFilters, EMPTY_DOCK_FILTER, normalizeDockFilter, type DockDateFieldProps, type DockDateRangeProps, type DockFilterKey, type DockFilterState } from './DockFilters';
 import {
   EMPTY_DOCK_SETTINGS,
   normalizeDockSettings,
   type NotificationDockSettings,
 } from './dockSettings';
+import { loadNcMarks, saveNcMarks, toggleNcMark, type NcMarkMap } from './ncMarks';
 import { NotificationRow } from './NotificationRow';
+import { ThreadBlock } from './ThreadBlock';
 import { Tip } from './Tooltip';
 import { useObservable } from './useObservable';
 import styles from './NotificationDock.module.css';
@@ -112,9 +114,12 @@ export function NotificationDock({
   renderDateRange,
   renderDateField,
 }: NotificationDockProps) {
-  const events = useObservable(bus.stream$, bus.events);
+  const items = useObservable(bus.items$, bus.items);
   const unreadAlerts = useObservable(bus.unreadAlertCount$, bus.unreadAlertCount);
   const unreadWarnings = useObservable(bus.unreadWarningCount$, bus.unreadWarningCount);
+
+  const [marks, setMarks] = useState<NcMarkMap>(() => loadNcMarks());
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(() => new Set());
 
   const controlledExpanded = expandedProp !== undefined;
   const [uncontrolledExpanded, setUncontrolledExpanded] = useState(defaultExpanded);
@@ -277,10 +282,15 @@ export function NotificationDock({
     [emitFilters, expanded, lastHeight, setExpanded],
   );
 
-  /** Клик по Id инцидента: показать всю его ленту — сбрасываем прочие фильтры, ищем по correlationId. */
+  /** Клик по Id инцидента: focus Thread (expand + query по corr). */
   const filterByIncident = useCallback(
     (correlationId: string) => {
       emitFilters({ ...EMPTY_DOCK_FILTER, query: correlationId }, []);
+      setExpandedThreads((prev) => {
+        const next = new Set(prev);
+        next.add(correlationId);
+        return next;
+      });
       if (!expanded) {
         setExpanded(true);
         setBodyMounted(true);
@@ -290,19 +300,52 @@ export function NotificationDock({
     [emitFilters, expanded, lastHeight, setExpanded],
   );
 
+  const markedItems = useMemo((): NotificationItem[] => {
+    return items.map((item) => {
+      const uid = item.itemKind === 'thread' ? item.uid : item.id;
+      const m = marks[uid];
+      if (!m) {
+        return item;
+      }
+      return { ...item, isFavorite: m.isFavorite, isLeft: m.isLeft };
+    });
+  }, [items, marks]);
+
   const visible = useMemo(
     () =>
-      filterEvents(events, {
+      filterItems(markedItems, {
         severities: filter.severities,
         interactions: filter.interactions,
         localizations: filter.localizations,
         statuses: filter.statuses,
+        threadStatuses: activeFilters.includes('threadStatus') ? filter.threadStatuses : undefined,
+        choices: activeFilters.includes('choice') ? filter.choices : undefined,
         query: filter.query,
         range: activeFilters.includes('range') ? filter.range : undefined,
         tzOffsetMin,
       }),
-    [events, filter, activeFilters, tzOffsetMin],
+    [markedItems, filter, activeFilters, tzOffsetMin],
   );
+
+  const toggleThreadExpanded = useCallback((uid: string) => {
+    setExpandedThreads((prev) => {
+      const next = new Set(prev);
+      if (next.has(uid)) {
+        next.delete(uid);
+      } else {
+        next.add(uid);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleMark = useCallback((uid: string, key: 'isFavorite' | 'isLeft') => {
+    setMarks((prev) => {
+      const next = toggleNcMark(prev, uid, key);
+      saveNcMarks(next);
+      return next;
+    });
+  }, []);
 
   // Live-tail: новые события → скролл вверх списка (новые сверху), пауза при ручном уходе.
   useEffect(() => {
@@ -546,24 +589,61 @@ export function NotificationDock({
             {visible.length === 0 ? (
               <div className={styles.empty}>Нет уведомлений</div>
             ) : (
-              visible.map((evt) => (
-                <NotificationRow
-                  key={evt.id}
-                  event={evt}
-                  formatTs={formatTs}
-                  showStatusLogo={settings.showStatusLogo}
-                  showType={settings.showType}
-                  unread={
-                    showUnreadUi &&
-                    (evt.severity === 'warning' ||
-                      evt.severity === 'error' ||
-                      evt.severity === 'critical') &&
-                    !bus.isRead(evt.id)
-                  }
-                  onOpen={showUnreadUi ? onOpenRow : undefined}
-                  onFilterIncident={filterByIncident}
-                />
-              ))
+              visible.map((item) => {
+                if (item.itemKind === 'thread') {
+                  const threadUnread = (id: string) => {
+                    if (!showUnreadUi || item.isLeft || bus.isRead(id)) {
+                      return false;
+                    }
+                    const e = item.notifications.find((n) => n.id === id);
+                    return Boolean(
+                      e &&
+                        (e.severity === 'warning' ||
+                          e.severity === 'error' ||
+                          e.severity === 'critical'),
+                    );
+                  };
+                  return (
+                    <ThreadBlock
+                      key={item.uid}
+                      thread={item}
+                      formatTs={formatTs}
+                      expanded={expandedThreads.has(item.uid)}
+                      onToggleExpanded={() => toggleThreadExpanded(item.uid)}
+                      showStatusLogo={settings.showStatusLogo}
+                      showType={settings.showType}
+                      isEntryUnread={threadUnread}
+                      onOpenEntry={showUnreadUi ? onOpenRow : undefined}
+                      onFilterIncident={filterByIncident}
+                      onToggleFavorite={() => toggleMark(item.uid, 'isFavorite')}
+                      onToggleLeft={() => toggleMark(item.uid, 'isLeft')}
+                    />
+                  );
+                }
+                return (
+                  <NotificationRow
+                    key={item.id}
+                    event={item}
+                    formatTs={formatTs}
+                    showStatusLogo={settings.showStatusLogo}
+                    showType={settings.showType}
+                    isFavorite={item.isFavorite}
+                    isLeft={item.isLeft}
+                    onToggleFavorite={() => toggleMark(item.id, 'isFavorite')}
+                    onToggleLeft={() => toggleMark(item.id, 'isLeft')}
+                    unread={
+                      showUnreadUi &&
+                      !item.isLeft &&
+                      (item.severity === 'warning' ||
+                        item.severity === 'error' ||
+                        item.severity === 'critical') &&
+                      !bus.isRead(item.id)
+                    }
+                    onOpen={showUnreadUi ? onOpenRow : undefined}
+                    onFilterIncident={filterByIncident}
+                  />
+                );
+              })
             )}
           </div>
         </div>

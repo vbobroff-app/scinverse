@@ -4,6 +4,7 @@ import type {
   NotificationLocalization,
   NotificationSeverity,
   NotificationStatus,
+  ThreadStatus,
 } from '../types';
 import {
   DEFAULT_TIME_FROM,
@@ -16,6 +17,7 @@ import {
   type DockRangeFilter,
   type DockRangePreset,
 } from '../filter/dateRange';
+import type { NcChoiceFilter } from '../filter/filterItems';
 import {
   normalizeDockFilter,
   type DockFilterKey,
@@ -85,6 +87,8 @@ const AVAILABLE: { key: DockFilterKey; name: string }[] = [
   { key: 'interaction', name: 'Взаимодействие' },
   { key: 'localization', name: 'Локализация' },
   { key: 'status', name: 'Статус' },
+  { key: 'threadStatus', name: 'Статус нити' },
+  { key: 'choice', name: 'Выбор' },
   { key: 'range', name: 'Период' },
 ];
 
@@ -112,6 +116,17 @@ const STATUS_OPTIONS: FilterOption[] = [
   { id: 'resolved', label: 'Решённые' },
 ];
 
+const THREAD_STATUS_OPTIONS: FilterOption[] = [
+  { id: 'active', label: 'Active' },
+  { id: 'recovering', label: 'Recovering' },
+  { id: 'resolved', label: 'Resolved' },
+];
+
+const CHOICE_OPTIONS: FilterOption[] = [
+  { id: 'favorite', label: '★ Избранное' },
+  { id: 'left', label: '⦸ Отложено' },
+];
+
 function isFilterAtDefault(key: DockFilterKey, value: DockFilterState): boolean {
   if (key === 'severity') {
     return value.severities.length === 0;
@@ -124,6 +139,12 @@ function isFilterAtDefault(key: DockFilterKey, value: DockFilterState): boolean 
   }
   if (key === 'status') {
     return value.statuses.length === 0;
+  }
+  if (key === 'threadStatus') {
+    return value.threadStatuses.length === 0;
+  }
+  if (key === 'choice') {
+    return value.choices.length === 0;
   }
   return (value.range.preset === 'all' || !value.range.preset) && !value.range.timeEnabled;
 }
@@ -140,6 +161,12 @@ function resetFilterValue(key: DockFilterKey, value: DockFilterState): DockFilte
   }
   if (key === 'status') {
     return { ...value, statuses: [] };
+  }
+  if (key === 'threadStatus') {
+    return { ...value, threadStatuses: [] };
+  }
+  if (key === 'choice') {
+    return { ...value, choices: [] };
   }
   return { ...value, range: { ...EMPTY_DOCK_RANGE } };
 }
@@ -298,6 +325,21 @@ export function DockFilters({
         selected: value.statuses,
         onChange: (selected) => onChange({ ...value, statuses: selected as NotificationStatus[] }),
       },
+      threadStatus: {
+        key: 'threadStatus',
+        name: 'Статус нити',
+        options: THREAD_STATUS_OPTIONS,
+        selected: value.threadStatuses,
+        onChange: (selected) =>
+          onChange({ ...value, threadStatuses: selected as ThreadStatus[] }),
+      },
+      choice: {
+        key: 'choice',
+        name: 'Выбор',
+        options: CHOICE_OPTIONS,
+        selected: value.choices,
+        onChange: (selected) => onChange({ ...value, choices: selected as NcChoiceFilter[] }),
+      },
     }),
     [value, onChange],
   );
@@ -341,6 +383,8 @@ export function DockFilters({
         interactions: [],
         localizations: [],
         statuses: [],
+        threadStatuses: [],
+        choices: [],
         range: { ...EMPTY_DOCK_RANGE },
         query: value.query,
       },
