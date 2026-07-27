@@ -204,9 +204,9 @@ scinverse/
 |--------|-----------|
 | **OHS Host** | NotificationHub + PersistWriter → `notification` (V025). Миграции до **V027**. |
 | **Admin web** | Монолит `services/online-history-server/web`; Vite proxy → `http://127.0.0.1:5080` (I9). |
-| **NC** | Пакет `packages/notification-center`: плоская лента атомов, I2-upsert по corr. |
-| **7j** | Инциденты готовы; J11c crash-abandon может быть в **uncommitted** working tree — проверить `git status`. |
-| **phase11 docs** | `issue.md` + `to-threads.md` + plan 11.8–11.12 — готовы; код Thread — **не начат**. |
+| **NC** | Пакет `packages/notification-center`: Thread-проекция (`items$`), UI контейнеры, I2 на атомах. |
+| **7j** | Инциденты готовы (хвост 7j.15/16). |
+| **phase11 Thread** | **11.8–11.12 DONE** (типы → проекция → UI → hints в `data` → регрессия). |
 
 ### Модель (кратко)
 

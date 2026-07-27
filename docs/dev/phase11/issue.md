@@ -1,6 +1,6 @@
 # Phase 11 — Issues: объектная модель NC (Thread / Incident / Group)
 
-Статус: **OPEN** (проектирование). Обновлено: 2026-07-27.
+Статус: **RESOLVED** (реализовано 11.8–11.12). Обновлено: 2026-07-27.
 
 Связано: [plan.md](plan.md), [to-threads.md](to-threads.md), [persistence.md](persistence.md),
 инциденты связи/crash — [../phase7j/incident.md](../phase7j/incident.md),
@@ -62,4 +62,5 @@ Entry extends Single { corr_uid }
 
 ### Статус
 
-Спека / план — в работе. Код UI Thread — не начат.
+Реализовано: типы → проекция → UI контейнеры → hints в `data` → регрессия 7j/hydrate.
+См. [report.md](report.md) 11.8–11.12.

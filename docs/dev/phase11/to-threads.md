@@ -1,6 +1,6 @@
 # Phase 11 — Проектирование: Thread / Incident / Group
 
-Статус: **DESIGN**. Обновлено: 2026-07-27.
+Статус: **IMPLEMENTED** (11.8–11.12). Обновлено: 2026-07-27.
 
 Проблема: [issue.md](issue.md). Персист атомов: [persistence.md](persistence.md) (V025).
 Домен инцидентов связи: [../phase7j/incident.md](../phase7j/incident.md).

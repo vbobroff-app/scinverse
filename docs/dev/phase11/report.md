@@ -2,7 +2,7 @@
 
 Актуальный статус фазы 11. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
-**Текущий статус:** `IN PROGRESS` (база 11.1–11.6 DONE; очередь **11.8–11.12 Thread**).
+**Текущий статус:** `IN PROGRESS` (база 11.1–11.6 DONE; **Thread 11.8–11.12 DONE**).
 **Обновлено:** 2026-07-27. Handoff нового чата — [`docs/promt.md`](../../promt.md) §8.
 
 ## Статус задач
@@ -16,12 +16,12 @@
 | 11.4 | UI: нижний док `NotificationDock` (tail, раскрытие, resize) | DONE | виртуализация — follow-up |
 | 11.5 | Фильтры (уровень/тип/модуль/поиск) + бейдж непрочитанных | DONE | в доке пакета |
 | 11.6 | Встраивание в OHS web + персистенция состояния | DONE | док + колокольчик; WS `notification`→шина; бэклог `GET /api/notifications` на старте; демо-seed только в dev |
-| 11.7 | Тесты | PARTIAL | vitest пакета 29 + OHS web 89; backend unit 115; ApiTests: connect/disconnect→user-события, drop→инцидент lost/recovered |
-| 11.8 | Объектная модель Thread (TS): Single / Entry / Thread / Incident / Group | PENDING | спека [to-threads.md](to-threads.md), проблема [issue.md](issue.md) |
-| 11.9 | Проекция `events → items` в шине + тесты | PENDING | |
-| 11.10 | UI NC: контейнеры, expand Thread, фильтры статуса нити + Выбор | PENDING | |
-| 11.11 | Backend `threadKindHint` / `closeOutcome` в колонке `data` | PENDING | таблицы не меняем: `data` покрывает объектную модель (§6.0 to-threads) |
-| 11.12 | Регрессия Thread (7j break/crash + hydrate V025) | PENDING | |
+| 11.7 | Тесты | PARTIAL | vitest пакета + OHS web + backend unit; ApiTests connect/drop; Thread — 11.12 |
+| 11.8 | Объектная модель Thread (TS): Single / Entry / Thread / Incident / Group | DONE | `types.ts` + guards / `readThreadKindHint` |
+| 11.9 | Проекция `events → items` в шине + тесты | DONE | `projectThreads` + `items$` / `events$` |
+| 11.10 | UI NC: контейнеры, expand Thread, фильтры статуса нити + Выбор | DONE | `ThreadBlock`, `filterItems`, ★/⦸ localStorage |
+| 11.11 | Backend `threadKindHint` / `closeOutcome` в колонке `data` | DONE | Hub enrich + ConnectionManager + client crash; таблицы не меняли |
+| 11.12 | Регрессия Thread (7j break/crash + hydrate V025) | DONE | `threadRegression.test.ts` + web `notifications.thread.test.ts` |
 
 ## Решение
 
@@ -47,7 +47,11 @@
 | 2026-07-18 | Фаза connect как мини-ЖЦ (QUIK-опыт): `Publish` (+iface) получил опц. `status`/`correlationId`; эндпоинт `/connect` шлёт `connection.connecting` (warning/underway) мгновенно → `connection.connect` (ok/resolved) / `connection.connect.failed` (error) одной группой `connection:{id}:connect:{uid}` — жёлтый→зелёный/красный; в сообщение успеха дописано «Предыдущее подключение — … МСК; пред. сеанс — …» из нового `ILinkLivenessStore.GetLastAsync` (+ `data.lastConnectedAt`/`lastCloseReason`); ApiTest обновлён (connecting+connect+общий corr) | backend unit 115 + ApiTests 3 — зелёные; проверено вживую (synthetic) |
 | 2026-07-18 | Фикс гонки `recovered`: `ConnectorSession` await-ит `onLinkState` в pump-цикле (было fire-and-forget `_ = HandleLinkStateAsync`) — близкие `Down→Degraded→Live` обрабатывались конкурентно, `previous` считался неверно и `recovered` не публиковался; теперь смены связи строго последовательны | цикл lost→recovered надёжен (unit 115 + ApiTests 3 зелёные, подтверждено live) |
 | 2026-07-18 | Разделение «команда/исполнение» в connect: ведущее `connection.connect` (info, **user**) «по команде оператора» + исполнение системой `connection.connecting`(warning/underway)→`connection.connected`(ok/resolved)/`connection.connect_failed`(error), все **system**; коды успеха/ошибки согласованы с авто-путём `ConnectionSupervisor`; ApiTest обновлён | unit 115 + ApiTests 3 зелёные; live: 4-строчный цикл user→system→system→user подтверждён |
+| 2026-07-27 | Thread upgrade 11.8–11.12: типы Single/Entry/Thread; проекция `items$`; UI контейнеры + фильтры threadStatus/Выбор; hints в `data` jsonb (без миграций); регрессия break/crash + hydrate | NC vitest + web vitest + Host unit — зелёные |
 
 ## Итог
 
-_(заполняется по завершении фазы)_
+Thread v1 (проекция над плоским V025): лента контейнеров Single|Thread, Incident vs Group по
+`data.threadKindHint` / горизонту, closeOutcome на close. First-class `notification_thread` — только
+когда понадобится серверный журнал (§6.5 to-threads). Остаток фазы 11: довести 11.7 / MFE-задел по
+мере необходимости; gate 11→12 — отдельно.

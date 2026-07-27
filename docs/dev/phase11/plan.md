@@ -119,8 +119,7 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 
 **База (DONE / PARTIAL):** 11.1 → 11.3 → 11.4 → 11.5 → 11.2 → 11.6 → 11.7 (partial) + persistence V025.
 
-**Upgrade модели (очередь):** 11.8 (типы) → 11.9 (проекция в шине) → 11.10 (UI контейнеры/фильтры)
-→ 11.11 (backend hints; опц. индекс/таблица) → 11.12 (регрессия).
+**Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
 
 Детали — в [apply.md](apply.md), Thread — [to-threads.md](to-threads.md), статус — в
 [report.md](report.md).
