@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using Scinverse.Ohs.Host;
 
@@ -7,6 +8,18 @@ namespace Scinverse.Ohs.UnitTests;
 public sealed class NotificationHubTests
 {
     private static NotificationHub NewHub() => new(new WebSocketBroadcaster());
+
+    private static string? DataString(NotificationDto evt, string key)
+    {
+        if (evt.Data is not { } data || data.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return data.TryGetProperty(key, out var p) && p.ValueKind == JsonValueKind.String
+            ? p.GetString()
+            : null;
+    }
 
     [Fact]
     public void Open_progress_resolve_transitions_and_isIdempotent()
@@ -93,5 +106,85 @@ public sealed class NotificationHubTests
         var evt = hub.List().Should().ContainSingle().Subject;
         evt.Status.Should().BeNull();
         evt.CorrelationId.Should().BeNull();
+    }
+
+    [Fact]
+    public void Open_enriches_threadKindHint_incident_by_default()
+    {
+        var hub = NewHub();
+        hub.Open("connection:1:link", "connection.lost", "down", severity: "error");
+
+        var open = hub.List().Should().ContainSingle().Subject;
+        DataString(open, "threadKindHint").Should().Be(NotificationThreadData.KindIncident);
+    }
+
+    [Fact]
+    public void Open_preserves_explicit_threadKindHint_group()
+    {
+        var hub = NewHub();
+        hub.Open(
+            "connection:1:link",
+            "connection.lost",
+            "down",
+            severity: "error",
+            data: new { threadKindHint = NotificationThreadData.KindGroup, sender = "test" });
+
+        var open = hub.List().Should().ContainSingle().Subject;
+        DataString(open, "threadKindHint").Should().Be(NotificationThreadData.KindGroup);
+        DataString(open, "sender").Should().Be("test");
+    }
+
+    [Fact]
+    public void Resolve_enriches_closeOutcome_recovered_and_abandoned_schedule()
+    {
+        var hub = NewHub();
+        hub.Open("connection:1:link", "connection.lost", "down", severity: "error");
+        hub.Resolve("connection:1:link", "connection.recovered", "up", severity: "ok");
+
+        var recovered = hub.List().Last(e => e.Code == "connection.recovered");
+        DataString(recovered, "closeOutcome").Should().Be(NotificationThreadData.OutcomeRecovered);
+
+        hub.Open("connection:2:link", "connection.lost", "down", severity: "error");
+        hub.Resolve(
+            "connection:2:link",
+            "connection.incident_closed",
+            "schedule end",
+            severity: "warning",
+            data: new { reason = "schedule_end" });
+
+        var abandoned = hub.List().Last(e => e.Code == "connection.incident_closed");
+        DataString(abandoned, "closeOutcome").Should().Be(NotificationThreadData.OutcomeAbandonedSchedule);
+    }
+
+    [Fact]
+    public void Ingest_enriches_json_data_with_thread_hints()
+    {
+        var hub = NewHub();
+        var openData = JsonSerializer.SerializeToElement(new { sender = "client", kind = "crash" });
+        hub.Ingest(
+            id: Guid.NewGuid().ToString("N"),
+            ts: DateTimeOffset.UtcNow,
+            code: "backend.unavailable",
+            message: "down",
+            severity: "critical",
+            status: "active",
+            correlationId: "ohs.backend.outage:1",
+            data: openData);
+
+        var closeData = JsonSerializer.SerializeToElement(new { kind = "crash", reason = "schedule_end" });
+        hub.Ingest(
+            id: Guid.NewGuid().ToString("N"),
+            ts: DateTimeOffset.UtcNow,
+            code: "connection.incident_closed",
+            message: "closed",
+            severity: "warning",
+            status: "resolved",
+            correlationId: "ohs.backend.outage:1",
+            data: closeData);
+
+        var list = hub.List();
+        DataString(list[0], "threadKindHint").Should().Be(NotificationThreadData.KindIncident);
+        DataString(list[0], "kind").Should().Be("crash");
+        DataString(list[1], "closeOutcome").Should().Be(NotificationThreadData.OutcomeAbandonedSchedule);
     }
 }

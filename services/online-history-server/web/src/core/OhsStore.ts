@@ -603,7 +603,9 @@ export class OhsStore {
       this.outageScheduleDesired = horizon?.desired ?? null;
       // Лента Connection: сразу красный маркер + ползущая штриховка (API во время простоя молчит).
       this.link$.next(overlayCrashOutageOnLink(this.link$.value, start));
-      void import('./notifications').then((m) => m.openBackendOutage(start, corr));
+      // 11.11: Incident в горизонте desired, иначе Group (не журнал инцидентов).
+      const threadKindHint = horizon?.desired === false ? 'group' : 'incident';
+      void import('./notifications').then((m) => m.openBackendOutage(start, corr, threadKindHint));
       this.startOutageProgress(false);
     }, BACKEND_OUTAGE_GRACE_MS);
   }

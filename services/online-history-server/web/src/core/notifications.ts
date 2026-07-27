@@ -320,6 +320,8 @@ interface OutageThread {
   startMs: number;
   openId: string;
   openTs: string;
+  /** Incident vs Group по горизонту desired на Open (phase 11.11). */
+  threadKindHint: 'incident' | 'group';
 }
 const outageThreads = new Map<string, OutageThread>();
 
@@ -362,11 +364,16 @@ function formatOutageDuration(totalSec: number): string {
 }
 
 /** Фаза 1 (open, fatal): связь с бэком потеряна. Заводит нить инцидента (ts = момент дропа). corr —
- * снаружи (§9.2): cold = outageCorrelationId(startMs); эскалация одиночного 500 = adopt requestId. */
-export function openBackendOutage(startMs: number, correlationId: string): void {
+ * снаружи (§9.2): cold = outageCorrelationId(startMs); эскалация одиночного 500 = adopt requestId.
+ * `threadKindHint`: incident в горизонте desired, иначе group (phase 11.11). */
+export function openBackendOutage(
+  startMs: number,
+  correlationId: string,
+  threadKindHint: 'incident' | 'group' = 'incident',
+): void {
   const startIso = new Date(startMs).toISOString();
   const openId = guidN();
-  outageThreads.set(correlationId, { correlationId, startMs, openId, openTs: startIso });
+  outageThreads.set(correlationId, { correlationId, startMs, openId, openTs: startIso, threadKindHint });
   notify.critical(notificationBus, {
     id: openId,
     ts: startIso,
@@ -378,7 +385,7 @@ export function openBackendOutage(startMs: number, correlationId: string): void 
     localization: 'internal',
     status: 'active',
     correlationId,
-    data: { sender: 'client', kind: 'crash' },
+    data: { sender: 'client', kind: 'crash', threadKindHint },
   });
 }
 
@@ -495,6 +502,7 @@ export function resolveBackendOutage(
     startMs,
     openId: guidN(),
     openTs: new Date(startMs).toISOString(),
+    threadKindHint: 'incident' as const,
   };
   outageThreads.delete(correlationId);
 
@@ -504,7 +512,11 @@ export function resolveBackendOutage(
   const okMessage = 'Система восстановлена, сервер OHS функционирует штатно';
   const spanLine = `Недоступен ${mskHms(startMs)} → ${mskHms(endMs)} (МСК) · ${formatOutageDuration(durationSec)}`;
   // `result` — итог интервала (не `message`: то заголовок события). Без `lines` → expanded = JSON.
-  const resolveData = { result: spanLine, sender: 'client' };
+  const resolveData = {
+    result: spanLine,
+    sender: 'client',
+    closeOutcome: 'recovered' as const,
+  };
 
   notify.ok(notificationBus, {
     id: resolveId,
@@ -530,7 +542,7 @@ export function resolveBackendOutage(
     message: 'Сервер OHS недоступен, жду восстановления',
     status: 'active',
     correlationId: thread.correlationId,
-    data: { sender: 'client', kind: 'crash' },
+    data: { sender: 'client', kind: 'crash', threadKindHint: thread.threadKindHint },
     interaction: 'system',
     localization: 'internal',
   };
@@ -595,6 +607,7 @@ export function abandonBackendOutageBySchedule(
     startMs,
     openId: guidN(),
     openTs: new Date(startMs).toISOString(),
+    threadKindHint: 'incident' as const,
   };
   outageThreads.delete(correlationId);
 
@@ -607,6 +620,7 @@ export function abandonBackendOutageBySchedule(
     reason: 'schedule_end',
     sender: 'client',
     result: `Закрыто по окончании окна расписания; ${formatGapLineMsk(startMs, endMs)}`,
+    closeOutcome: 'abandoned_schedule' as const,
   };
 
   notify.warn(notificationBus, {
@@ -633,7 +647,7 @@ export function abandonBackendOutageBySchedule(
     message: 'Сервер OHS недоступен, жду восстановления',
     status: 'active',
     correlationId: thread.correlationId,
-    data: { sender: 'client', kind: 'crash' },
+    data: { sender: 'client', kind: 'crash', threadKindHint: thread.threadKindHint },
     interaction: 'system',
     localization: 'internal',
   };

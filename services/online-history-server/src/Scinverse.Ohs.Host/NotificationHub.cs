@@ -80,7 +80,7 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
                 Message: message,
                 Status: status,
                 CorrelationId: correlationId,
-                Data: data,
+                Data: NotificationThreadData.EnrichJson(code, status, data),
                 Interaction: ResolveInteraction(sourceType),
                 Localization: ResolveLocalization(sourceType),
                 ActorKind: resolvedActor.Kind,
@@ -227,6 +227,8 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         string? status, string? correlationId, object? data, NotificationActor? actor, string? subject)
     {
         var resolvedActor = ResolveActor(actor, sourceType, module);
+        // 11.11: threadKindHint / closeOutcome в data jsonb (без смены схемы).
+        var enriched = NotificationThreadData.EnrichByCode(code, status, data);
         var evt = new NotificationDto(
             Id: Guid.NewGuid().ToString("N"),
             Ts: DateTimeOffset.UtcNow,
@@ -237,7 +239,7 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
             Message: message,
             Status: status,
             CorrelationId: correlationId,
-            Data: data is null ? null : JsonSerializer.SerializeToElement(data),
+            Data: enriched is null ? null : JsonSerializer.SerializeToElement(enriched),
             Interaction: ResolveInteraction(sourceType),
             Localization: ResolveLocalization(sourceType),
             ActorKind: resolvedActor.Kind,

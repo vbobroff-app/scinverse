@@ -623,6 +623,7 @@ public sealed class ConnectionManager(
                         state = change.State.ToString(),
                         detail = change.Detail,
                         sender = "transaq",
+                        threadKindHint = NotificationThreadData.KindIncident,
                     });
 
                 if (_sourceIds.TryGetValue(connectionId, out var degradedSourceId))
@@ -704,6 +705,7 @@ public sealed class ConnectionManager(
                 connectionId,
                 result = $"{ownerLine}; {FormatGapLine(incidentStart, atTs)}",
                 sender = owner,
+                closeOutcome = NotificationThreadData.OutcomeRecovered,
             });
     }
 
@@ -743,6 +745,7 @@ public sealed class ConnectionManager(
                 reason = "schedule_end",
                 sender = "supervisor",
                 result = $"Закрыто по окончании окна расписания; {FormatGapLine(incidentStart, atTs)}",
+                closeOutcome = NotificationThreadData.OutcomeAbandonedSchedule,
             });
 
         logger.LogInformation(
@@ -797,7 +800,15 @@ public sealed class ConnectionManager(
     {
         var subject = LinkIncidentSubject(connectionId);
         var isNew = _incidentSince.TryAdd(connectionId, atTs);
-        var lostData = new { connectionId, state = state.ToString(), detail, sender };
+        // Host открывает break только пока сессия жива (= горизонт desired) → Incident.
+        var lostData = new
+        {
+            connectionId,
+            state = state.ToString(),
+            detail,
+            sender,
+            threadKindHint = NotificationThreadData.KindIncident,
+        };
         if (isNew)
         {
             // Сразу Down/Error/ping — owner=supervisor с t0 (жёлтой фазы не было).
