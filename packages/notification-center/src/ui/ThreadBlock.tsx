@@ -1,9 +1,26 @@
 import { useEffect, useRef } from 'react';
 import type { FormatTs } from '../format/formatTs';
 import type { NotificationEvent, ThreadItem } from '../types';
+import { BreakIncidentIcon } from './BreakIncidentIcon';
+import { GroupStackIcon } from './GroupStackIcon';
+import { IncidentFlameIcon } from './IncidentFlameIcon';
 import { NotificationRow } from './NotificationRow';
 import { Tip } from './Tooltip';
 import styles from './ThreadBlock.module.css';
+
+/** crash (Host outage) vs break (link) — по data.kind / кодам Entry. */
+function isCrashThread(thread: ThreadItem): boolean {
+  return thread.notifications.some((e) => {
+    if (e.data?.kind === 'crash') {
+      return true;
+    }
+    return (
+      e.code === 'backend.unavailable' ||
+      e.code === 'backend.recovering' ||
+      e.code === 'backend.recovered'
+    );
+  });
+}
 
 interface Props {
   thread: ThreadItem;
@@ -86,15 +103,15 @@ export function ThreadBlock({
           </span>
         </button>
 
-        <span
-          className={[
-            styles.kindBadge,
-            kindBadge === 'incident' ? styles.kindIncident : styles.kindGroup,
-          ].join(' ')}
-          title={kindLabel}
-        >
-          {kindBadge === 'incident' ? '[!]' : '[G]'}
-        </span>
+        {kindBadge === 'incident' ? (
+          isCrashThread(thread) ? (
+            <IncidentFlameIcon title="Incident (crash)" />
+          ) : (
+            <BreakIncidentIcon title="Incident (break)" />
+          )
+        ) : (
+          <GroupStackIcon title="Group" />
+        )}
 
         <span className={styles.kindName}>{kindLabel}</span>
 
@@ -158,7 +175,6 @@ export function ThreadBlock({
               formatTs={formatTs}
               showStatusLogo={showStatusLogo}
               showType={showType}
-              kindBadge={kindBadge}
               unread={Boolean(isEntryUnread?.(entry.id))}
               onOpen={onOpenEntry}
               onFilterIncident={onFilterIncident}

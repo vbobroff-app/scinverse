@@ -179,6 +179,7 @@ describe('NotificationDock', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Раскрыть нить/i }));
     expect(screen.getByText('Потеря связи')).toBeTruthy();
-    expect(screen.getAllByText('[!]').length).toBeGreaterThan(0);
+    // break-инцидент — BreakIncidentIcon; Entry без kind-бейджа.
+    expect(screen.getByLabelText('Incident (break)')).toBeTruthy();
   });
 });

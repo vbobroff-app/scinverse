@@ -83,6 +83,9 @@ export {
 } from './ui/dockSettings';
 export { NotificationRow } from './ui/NotificationRow';
 export { SeverityIcon } from './ui/SeverityIcon';
+export { IncidentFlameIcon } from './ui/IncidentFlameIcon';
+export { BreakIncidentIcon } from './ui/BreakIncidentIcon';
+export { GroupStackIcon } from './ui/GroupStackIcon';
 export { InteractionIcon } from './ui/InteractionIcon';
 export { Tip, type TipProps } from './ui/Tooltip';
 export {

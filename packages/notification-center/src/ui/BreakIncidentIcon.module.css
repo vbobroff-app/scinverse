@@ -1,0 +1,24 @@
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 11px;
+  height: 11px;
+  line-height: 0;
+  cursor: default;
+}
+
+.icon * {
+  cursor: default;
+}
+
+.svg {
+  display: block;
+  width: 11px;
+  height: 11px;
+}
+
+.fill {
+  fill: var(--color-error, #ff6b6b);
+}
