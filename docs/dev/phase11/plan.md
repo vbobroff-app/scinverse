@@ -77,18 +77,20 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
   ⦸ left, клиент). Бейдж непрочитанных — по контейнерам (см. to-threads §4).
 - **11.11 Backend hints + политика kind.** На Open писать `data.threadKindHint`
   (`incident`|`group` по горизонту расписания); на close — `data.closeOutcome`
-  (`recovered`|`abandoned_schedule`|`abandoned_manual`). **Таблицы не меняем:** колонка `data`
-  покрывает изменения объектной модели. Wire WS/REST атомов без ломки. First-class
-  `notification_thread` — только если понадобится серверный журнал ([to-threads.md](to-threads.md) §6.0).
+  (`recovered`|`abandoned_schedule`|`abandoned_manual`). **Таблицы v1 не меняем:** колонка `data`
+  покрывает UI/проекцию. Задел под журнал: тот же enum `incident|group` (не `single`) станет
+  индексируемой колонкой `thread_kind` в производной `notification_thread` — см.
+  [to-threads.md](to-threads.md) §6.3. Wire WS/REST атомов без ломки.
 - **11.12 Регрессия + приёмка Thread.** Пакет + OHS web + backend: сценарии break/crash из
   phase 7j отображаются как Incident/Group; Group не продолжает Incident; плоский audit V025
   и hydrate не ломаются; tsc/vitest/`dotnet` зелёные.
 
 ## Вне области (out of scope)
 
-- Изменение схемы `notification` / новая таблица под Thread — не нужно для v1: колонка `data`
-  покрывает объектную модель (см. [to-threads.md](to-threads.md) §6.0). First-class
-  `notification_thread` + `GET /api/notification-threads` — только по необходимости (вариант B).
+- Изменение схемы `notification` / новая таблица под Thread — не нужно для UI Thread: колонка
+  `data` покрывает модель ([to-threads.md](to-threads.md) §6.0). Миграцию
+  `notification_thread` вносим **только когда заводим серверный журнал инцидентов**
+  (экран/API списка нитей) — критерий в [to-threads.md](to-threads.md) §6.5.
 - Пуш-уведомления (email/telegram/desktop) и правила-алерты — позже.
 - Тонкая маршрутизация по ролям (кто какие события видит) — грубо; тонко — вместе с phase 10.
 - Полноценный рантайм Module Federation с раздельными деплоями — задел в контракте, включаем когда

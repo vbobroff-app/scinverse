@@ -51,9 +51,12 @@ Thread (base) → Incident | Group
 Entry extends Single { corr_uid }
 ```
 
-**Почему не меняем таблицы в DB:** колонка `data` (JSONB) покрывает изменения объектной модели
-(`threadKindHint`, `closeOutcome` на open/close-событиях). Thread собирается проекцией, не новой
-строкой схемы. Таблица `notification_thread` — только если позже понадобится серверный журнал нитей.
+**Почему не меняем таблицы в DB (v1):** колонка `data` (JSONB) покрывает изменения объектной модели
+(`threadKindHint`, `closeOutcome` на open/close). Thread собирается проекцией.
+
+**Задел журнала инцидентов:** производная `notification_thread` + индекс `thread_kind`
+(`incident|group`; Single не пишется) — **когда реально заводим серверный журнал** (экран/API),
+не вместе с UI Thread. Критерий — [to-threads.md](to-threads.md) §6.5.
 
 Внедрение — пункты **11.8–11.12** в [plan.md](plan.md).
 

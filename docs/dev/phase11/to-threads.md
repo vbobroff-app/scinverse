@@ -300,15 +300,46 @@ Thread **не** хранится отдельной строкой; восста
 Плюсы: нет рассинхрона thread↔atoms; проще.  
 Минусы: тяжёлая агрегация на больших окнах; нет first-class API «список инцидентов».
 
-### 6.3 Вариант B — first-class `notification_thread` (позже)
+### 6.3 Вариант B — производная таблица «журнал нитей» (позже, но закладываем)
 
-Включать, если нужен общий серверный журнал / пагинация нитей / метрики без скана атомов.
+Когда понадобится серверный **журнал инцидентов** (пагинация, фильтры, метрики без скана
+атомов) — вводим производную таблицу `notification_thread` (одна строка = один Thread).
+
+#### Что индексируем: не `single`
+
+Объектная модель UI: `Single | Thread(Incident|Group)`.
+
+| Вид | В журнале? | Как хранится |
+|-----|------------|--------------|
+| **Single** | **нет** | только атом в `notification` (`correlation_id IS NULL`) |
+| **Incident** | да | строка `notification_thread` с `thread_kind = 'incident'` |
+| **Group** | да | строка с `thread_kind = 'group'` |
+
+`single` **не** значение колонки журнала: одиночные notify не попадают в производную таблицу.
+Фильтр «журнал инцидентов» = `WHERE thread_kind = 'incident'` (Group — отдельный список / отчёт).
+
+#### Почему колонка, а не только `data` jsonb
+
+На атомах hint в `data.threadKindHint` достаточен для клиентской проекции (вариант A).
+Для журнала нужен **типизированный индексируемый** атрибут:
+
+```text
+thread_kind  NOT NULL  CHECK (IN ('incident', 'group'))
+INDEX (thread_kind, thread_status, last_activity_at DESC)
+```
+
+Фильтр по `data->>'threadKindHint'` на hypertable атомов — плохой путь для списка нитей
+(скан/agg + JSON path). Производная таблица + btree по `thread_kind` — правильный.
+
+Источник kind при Open: горизонт расписания → пишем и в `data` атома (audit), и в колонку
+thread-строки (журнал). Они должны совпадать.
 
 ```sql
--- эскиз V02x__notification_thread.sql
+-- эскиз V02x__notification_thread.sql  (= журнал нитей / инцидентов)
 CREATE TABLE notification_thread (
   corr_uid          text PRIMARY KEY,
   subject           text,
+  -- индексируемый вид нити (НЕ включает single — Single в эту таблицу не пишем)
   thread_kind       text NOT NULL CHECK (thread_kind IN ('incident', 'group')),
   thread_status     text NOT NULL CHECK (thread_status IN ('active', 'recovering', 'resolved')),
   close_outcome     text NULL,  -- recovered | abandoned_schedule | abandoned_manual
@@ -316,34 +347,51 @@ CREATE TABLE notification_thread (
   closed_at         timestamptz NULL,
   last_activity_at  timestamptz NOT NULL,
   module            text,
-  -- опционально денорм для списка:
   title             text,
   severity_peak     text
 );
 
-CREATE INDEX ON notification_thread (thread_kind, thread_status, last_activity_at DESC);
+-- Журнал инцидентов: kind=incident + статус + свежесть
+CREATE INDEX ix_notification_thread_journal
+  ON notification_thread (thread_kind, thread_status, last_activity_at DESC);
 ```
 
-Связь с атомами: `notification.correlation_id = notification_thread.corr_uid` (без FK на
-hypertable — мягкая связь; writer обновляет thread в той же транзакции, что и insert атома).
+Связь с атомами: `notification.correlation_id = notification_thread.corr_uid` (мягкая, без FK на
+hypertable). Writer обновляет thread в той же транзакции, что insert open/progress/close атома.
 
 **Writer (PersistWriter / Hub):**
 
-- Open → UPSERT thread (kind, status=active, opened_at);
+- Open (есть corr + kind) → UPSERT thread (`thread_kind`, status=active, opened_at);
 - Progress/Recovering → update status + last_activity;
-- Resolve → status=resolved, close_outcome, closed_at.
+- Resolve → status=resolved, close_outcome, closed_at;
+- атом без corr → **только** `notification`, thread-строки нет.
 
-API (опционально): `GET /api/notification-threads?kind=incident&status=active`.
+API: `GET /api/notification-threads?kind=incident&status=active` (журнал инцидентов).
 
-Retention: либо cascade-логика «удалить thread когда все атомы вышли за retention», либо
-отдельный job; проще — **не** hypertable для thread, чистить orphan threads по `closed_at` + N дней.
+Retention: не hypertable; чистить orphan threads по `closed_at` + N дней (или когда атомы
+ушли за retention V025).
 
 ### 6.4 Решение по БД для плана
 
 | Этап | БД |
 |------|-----|
 | 11.8–11.10 (модель + UI) | **A** — без новой таблицы; hint/outcome в `data` jsonb |
-| 11.11 (если нужен серверный журнал) | индекс по `correlation_id` и/или **B** |
+| 11.11 | hints в `data` (обязательно); **задел контракта** `thread_kind ∈ {incident,group}` |
+| **когда заводим серверный журнал** | **B** — миграция `notification_thread` + индекс по `thread_kind` |
+
+### 6.5 Когда именно разумно менять структуру БД (вариант B)
+
+**Не** вместе с UI Thread (11.8–11.10) и **не** «на всякий случай» при первых hints в `data`.
+
+**Разумно вносить миграцию / ALTER**, когда реально стартуем **серверный журнал инцидентов** — то есть появляется хотя бы одно из:
+
+1. Экран/раздел **«Журнал инцидентов»** (или отчёт) с пагинацией списка нитей, не плоской ленты атомов.
+2. API вроде `GET /api/notification-threads?kind=incident&status=…` как источник UI/отчётов.
+3. Нужны серверные метрики / фильтры по нитям (`kind`/`status`/`opened_at`) без `GROUP BY correlation_id` и без `data->>'threadKindHint'` на hypertable.
+
+**До этого триггера:** только вариант A (`notification` + `data`). Enum `incident|group` в hints держим стабильным, чтобы миграция B не ломала контракт.
+
+**Не повод для B:** клиентский expand Thread в NC, ★/⦸, фильтр статуса нити на шине — это всё проекция.
 
 ---
 

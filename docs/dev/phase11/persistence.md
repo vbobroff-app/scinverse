@@ -122,9 +122,10 @@ CREATE INDEX IF NOT EXISTS ix_notification_sev_ts    ON notification (severity, 
 
 Пишем **все** события (полный аудит, включая `info`/`ok`) — фильтрация на чтении.
 
-**Почему не меняем таблицы в DB (Thread upgrade):** колонка `data` покрывает наши изменения в
-объектной модели (`threadKindHint`, `closeOutcome` на open/close). Thread / Incident / Group —
-проекция, не новая сущность схемы. Подробнее — [to-threads.md](to-threads.md) §6.0.
+**Почему не меняем таблицы в DB (Thread upgrade v1):** колонка `data` покрывает изменения
+объектной модели (`threadKindHint`, `closeOutcome`). Thread / Incident / Group — проекция.
+Производную `notification_thread` (журнал) добавляем **только когда заводим серверный журнал
+инцидентов** — критерий [to-threads.md](to-threads.md) §6.5.
 
 ---
 

@@ -219,6 +219,8 @@ Entry extends Single { corr_uid }
 - UI: один вертикальный список **контейнеров**; Thread header **без** severity-иконки; expand = стек Entry.
 - БД: атомы + `correlation_id`; в `data` на open/close — `threadKindHint`, `closeOutcome`.
 - Thread/status — **проекция** в шине (`items$`), не новая таблица.
+- Миграцию `notification_thread` — **только когда заводим серверный журнал инцидентов**
+  (экран/API), не с UI Thread; критерий — [to-threads.md](./dev/phase11/to-threads.md) §6.5.
 
 ### План работ (порядок)
 
