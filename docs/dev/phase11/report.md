@@ -2,7 +2,8 @@
 
 Актуальный статус фазы 11. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
-**Текущий статус:** `IN PROGRESS`. **Обновлено:** 2026-07-18.
+**Текущий статус:** `IN PROGRESS` (база 11.1–11.6 DONE; очередь **11.8–11.12 Thread**).
+**Обновлено:** 2026-07-27. Handoff нового чата — [`docs/promt.md`](../../promt.md) §8.
 
 ## Статус задач
 
@@ -16,6 +17,11 @@
 | 11.5 | Фильтры (уровень/тип/модуль/поиск) + бейдж непрочитанных | DONE | в доке пакета |
 | 11.6 | Встраивание в OHS web + персистенция состояния | DONE | док + колокольчик; WS `notification`→шина; бэклог `GET /api/notifications` на старте; демо-seed только в dev |
 | 11.7 | Тесты | PARTIAL | vitest пакета 29 + OHS web 89; backend unit 115; ApiTests: connect/disconnect→user-события, drop→инцидент lost/recovered |
+| 11.8 | Объектная модель Thread (TS): Single / Entry / Thread / Incident / Group | PENDING | спека [to-threads.md](to-threads.md), проблема [issue.md](issue.md) |
+| 11.9 | Проекция `events → items` в шине + тесты | PENDING | |
+| 11.10 | UI NC: контейнеры, expand Thread, фильтры статуса нити + Выбор | PENDING | |
+| 11.11 | Backend `threadKindHint` / `closeOutcome` в колонке `data` | PENDING | таблицы не меняем: `data` покрывает объектную модель (§6.0 to-threads) |
+| 11.12 | Регрессия Thread (7j break/crash + hydrate V025) | PENDING | |
 
 ## Решение
 

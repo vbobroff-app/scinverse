@@ -11,7 +11,10 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 состояния панели/фильтров. Влияет на все модули фронта и на серверное логирование.
 
 **Ядро UI/шины:** пакет [`packages/notification-center`](../../../packages/notification-center)
-(`@scinverse/notification-center`) — без привязки к OHS; встраивание в web и backend — следующие шаги.
+(`@scinverse/notification-center`) — без привязки к OHS.
+
+**Upgrade объектной модели (Thread):** проблема — [issue.md](issue.md); проектирование —
+[to-threads.md](to-threads.md); персист атомов — [persistence.md](persistence.md) (V025 DONE).
 
 ## Мотивация
 
@@ -61,15 +64,39 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 - **11.7 Тесты.** Ядро: publish/stream, буфер/лимит, дедуп, маппинг WS→событие (vitest). UI: рендер
   ленты, фильтрация по уровню/типу, tail/пауза, бейдж непрочитанных. Backend: ring-buffer +
   `GET /api/notifications` (фильтры), `ILogger`-sink → notification.
+- **11.8 Объектная модель Thread (контракт TS).** Типы `NotificationItem = Single | Thread`,
+  `Entry`, специализации `Incident` / `Group`; поля `threadKind`, `threadStatus`, `closeOutcome`;
+  инварианты T1/T2. Спека — [to-threads.md](to-threads.md); мотивация — [issue.md](issue.md).
+- **11.9 Проекция в шине.** `events → items`: группировка по `correlationId`, вывод
+  `threadStatus` / `threadKind`, orphan-политика, `items$` для UI при сохранении плоского
+  `events$` (совместимость, I2-upsert атомов). Тесты проекции (vitest): recovered, abandon,
+  orphan recovering, Single без corr.
+- **11.10 UI NC: контейнеры.** Лента = Single + Thread header на одном уровне; header без
+  severity-иконки, custom summary; expand/collapse стека Entry; subtle `[!]`/`[G]` сдвигает
+  контент Entry. Фильтры: статус нити (active / recovering / resolved) + «Выбор» (★ favorite /
+  ⦸ left, клиент). Бейдж непрочитанных — по контейнерам (см. to-threads §4).
+- **11.11 Backend hints + политика kind.** На Open писать `data.threadKindHint`
+  (`incident`|`group` по горизонту расписания); на close — `data.closeOutcome`
+  (`recovered`|`abandoned_schedule`|`abandoned_manual`). **Таблицы не меняем:** колонка `data`
+  покрывает изменения объектной модели. Wire WS/REST атомов без ломки. First-class
+  `notification_thread` — только если понадобится серверный журнал ([to-threads.md](to-threads.md) §6.0).
+- **11.12 Регрессия + приёмка Thread.** Пакет + OHS web + backend: сценарии break/crash из
+  phase 7j отображаются как Incident/Group; Group не продолжает Incident; плоский audit V025
+  и hydrate не ломаются; tsc/vitest/`dotnet` зелёные.
 
 ## Вне области (out of scope)
 
-- Долговременное хранение ленты в БД/поиск по всей истории — v1 держит только ring-buffer в памяти
-  + текущую сессию на фронте (персистентный аудит-лог — отдельная фаза при необходимости).
+- Изменение схемы `notification` / новая таблица под Thread — не нужно для v1: колонка `data`
+  покрывает объектную модель (см. [to-threads.md](to-threads.md) §6.0). First-class
+  `notification_thread` + `GET /api/notification-threads` — только по необходимости (вариант B).
 - Пуш-уведомления (email/telegram/desktop) и правила-алерты — позже.
 - Тонкая маршрутизация по ролям (кто какие события видит) — грубо; тонко — вместе с phase 10.
 - Полноценный рантайм Module Federation с раздельными деплоями — задел в контракте, включаем когда
   появятся реально отдельные MFE-сборки (см. сравнение в [apply.md](apply.md)).
+- Серверное хранение меток ★/⦸ — v1 только клиент / `user_settings`.
+
+> Персист плоского аудита (`notification`, V025, retention 90d) — **сделан** ([persistence.md](persistence.md));
+> прежний out-of-scope «только ring-buffer» устарел.
 
 ## Критерии приёмки
 
@@ -83,9 +110,15 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 4. Панель встраивается в любой модуль единообразно (один компонент + общая шина-singleton); лента
    сквозная (события из разных модулей в одном потоке).
 5. `dotnet build`/тесты и `tsc`/`vitest` зелёные; секреты/креды в ленту и логи не попадают.
+6. **Thread:** лента показывает контейнеры Single/Thread; Incident vs Group по политике горизонта;
+   фильтры статуса нити и «Выбор»; стек Entry раскрывается без смены wire-аудита.
 
 ## Порядок
 
-11.1 (контракт) → 11.3 (MFE-ядро/шина) → 11.4 (док-UI) → 11.5 (фильтры/бейджи) → 11.2 (backend
-шина+история, параллельно с UI на моках) → 11.6 (встраивание в модули) → 11.7 (тесты). Детали — в
-[apply.md](apply.md), статус — в [report.md](report.md).
+**База (DONE / PARTIAL):** 11.1 → 11.3 → 11.4 → 11.5 → 11.2 → 11.6 → 11.7 (partial) + persistence V025.
+
+**Upgrade модели (очередь):** 11.8 (типы) → 11.9 (проекция в шине) → 11.10 (UI контейнеры/фильтры)
+→ 11.11 (backend hints; опц. индекс/таблица) → 11.12 (регрессия).
+
+Детали — в [apply.md](apply.md), Thread — [to-threads.md](to-threads.md), статус — в
+[report.md](report.md).

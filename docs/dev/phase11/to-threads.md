@@ -1,0 +1,382 @@
+# Phase 11 — Проектирование: Thread / Incident / Group
+
+Статус: **DESIGN**. Обновлено: 2026-07-27.
+
+Проблема: [issue.md](issue.md). Персист атомов: [persistence.md](persistence.md) (V025).
+Домен инцидентов связи: [../phase7j/incident.md](../phase7j/incident.md).
+
+---
+
+## 1. Цель
+
+Перейти от «лента = список атомов» к **ленте контейнеров**:
+
+- оператор видит **Single** и **заголовок Thread** на одном вертикальном уровне;
+- внутри Thread — стек `Entry` (раскрытие);
+- **Incident** и **Group** — специализации Thread с разной политикой (обязательное закрытие /
+  «просто группа»).
+
+Плоский audit в Timescale **не отменяем**: каждое событие по-прежнему строка `notification`.
+Thread — **проекция** (v1 клиент / шина), later — опциональная серверная сущность.
+
+---
+
+## 2. Иерархия сущностей
+
+```text
+NotificationItem
+├── Single          — атом без corr (или corr игнорируется для UI-контейнера)
+└── Thread          — контейнер по corr_uid
+    ├── Incident    — Thread, открытый в горизонте расписания; обязан закрыться
+    └── Group       — Thread вне горизонта; не «журнал инцидентов»
+
+Entry extends Single { corr_uid }   — атом внутри Thread
+```
+
+### 2.1 Single
+
+Поля (как сейчас + UI-метки):
+
+| Поле | Источник | Примечание |
+|------|----------|------------|
+| `uid` / `id` | событие | стабильный id атома |
+| `ts`, `severity`, `sourceType`, `module`, `code`, `message`, `data?` | контракт | без изменений |
+| `status?` | lifecycle атома | для одиночных lifecycle-событий |
+| `isFavorite?` | клиент | ★, не в V025 v1 |
+| `isLeft?` | клиент | ⦸ «отложено / не смотрю» |
+
+**Правило:** нет `correlationId` → всегда `Single`. Есть corr, но в проекции решено не группировать
+(whitelist кодов / политика) → можно оставить `Single` (исключения — в §5).
+
+### 2.2 Entry
+
+`Entry = Single + { corr_uid }`.
+
+- `corr_uid` = `correlationId` события (`subject:uid` или эквивалент).
+- В UI: строка стека; subtle `[!]` / `[G]` сдвигает **контент**, не indent карточки.
+- Severity-иконка **на Entry** (как сейчас на атоме), не на заголовке Thread.
+
+### 2.3 Thread (base)
+
+| Поле | Тип | Примечание |
+|------|-----|------------|
+| `uid` | string | = `corr_uid` |
+| `notifications` | `Entry[]` | упорядочены по `ts` (и стабильный tie-break по id) |
+| `threadKind` | `'incident' \| 'group'` | политика |
+| `threadStatus` | см. §3 | статус **нити**, не копия severity |
+| `openedAt` | ISO | `ts` первого Entry (обычно open) |
+| `closedAt?` | ISO | terminal close |
+| `subject?` | string | префикс corr до uid (`connection:{id}:link`) |
+| `isFavorite?` / `isLeft?` | bool | метки на **контейнере** (★/⦸ в заголовке) |
+| `header` | derived | title/summary для заголовка без severity-иконки |
+
+**Инвариант T1.** Все Entry одного Thread имеют один `corr_uid`.
+
+**Инвариант T2.** В ленте контейнеров Thread занимает **одну** позицию (по `openedAt` или
+`lastActivityAt` — выбрать в 11.9; рекомендация: `lastActivityAt` для live-хвоста).
+
+### 2.4 Incident ⊂ Thread
+
+Условия открытия (согласовано с phase 7j):
+
+- стек заведён, когда связь **должна** быть (`desired` / расписание / connector running);
+- break / crash с обязательным terminal.
+
+Terminal outcomes:
+
+| Outcome | Смысл | UI / ribbon (связь) |
+|---------|--------|---------------------|
+| `recovered` | связь восстановлена | зелёный 1px на ленте Connection |
+| `abandoned_schedule` | горизонт закончился, не recovered | без зелёного |
+| `abandoned_manual` | позже: оператор сбросил | без зелёного |
+
+**Политика:** открытый Incident **нельзя** «забыть» — только recovered или abandoned_*.
+
+### 2.5 Group ⊂ Thread
+
+- Та же форма стека (`Entry[]` + `threadStatus`), но **вне** горизонта.
+- Не входит в «журнал инцидентов» (отдельный фильтр / отчёт).
+- Может оставаться `open` при входе в сессию; новый сбой **в окне** → **новый** Incident
+  (новый corr), не продолжение Group.
+- Close outcomes те же коды допустимы, но **не обязательны** для корректности журнала.
+
+Классификация Incident vs Group:
+
+```text
+на Open (первый Entry стека):
+  if inScheduleHorizon(subject, ts) → threadKind = incident
+  else → threadKind = group
+```
+
+Горизонт — тот же, что для связи (желаемое окно), не «конец сессии MOEX» сам по себе.
+Переклассификация mid-flight (Group → Incident) **запрещена**; только новый corr.
+
+---
+
+## 3. Статус нити (`threadStatus`)
+
+Отдельно от lifecycle-атома (`active` / `underway` / `resolved`) и от read-state.
+
+| `threadStatus` | Смысл | Типичные Entry |
+|----------------|-------|----------------|
+| `active` | нить открыта, нет фазы восстановления | open / progress без recovering |
+| `recovering` | идёт восстановление | `*.recovering`, reconnecting countdown |
+| `resolved` | закрыта (любой terminal) | recovered / incident_closed / abandoned_* |
+
+Фильтр UI «Статус нити»: `active` | `recovering` | `resolved` (≠ bounded только по severity).
+
+Вывод `threadStatus` (проекция):
+
+```text
+если есть terminal close Entry → resolved
+иначе если последний «ведущий» lifecycle = recovering/underway-recovery → recovering
+иначе → active
+```
+
+Детали кодов — таблица маппинга в §5.2.
+
+---
+
+## 4. UI-контракт (док)
+
+### 4.1 Список
+
+Один вертикальный поток **контейнеров**:
+
+```text
+[ Single ]
+[ Thread header ]          ← custom content, БЕЗ severity-иконки
+  [ Entry ]                ← при expand; [!]/[G] сдвигает контент
+  [ Entry ]
+[ Single ]
+```
+
+- Collapse Thread = скрыть весь стек Entry.
+- Заголовок Thread: summary (subject, kind badge Incident/Group, threadStatus, время
+  open→last / close), ★ / ⦸.
+- Entry: как нынешняя строка (severity icon, message, expand JSON).
+
+### 4.2 Фильтры (дополнение к существующим)
+
+| Фильтр | Область |
+|--------|---------|
+| severity / sourceType / module / search | атомы и/или заголовок (search по Entry+header) |
+| thread status | только Thread: active / recovering / resolved |
+| «Выбор» | favorite / left (клиент) на Single и Thread |
+
+Бейдж непрочитанных: по контейнерам (непрочитанный Thread = есть unread Entry или политика
+«header unread until collapsed+seen» — зафиксировать в 11.9; рекомендация: unread если любой
+Entry unread и нить не `isLeft`).
+
+### 4.3 Что не меняем в v1 UI
+
+- Цветовая модель border/фона по read + lifecycle атома — на **Entry** и на **Single**.
+- Thread header — нейтральный / по `threadStatus` (тонкая полоса), без маски severity open.
+
+---
+
+## 5. Изменения по слоям
+
+### 5.1 Контракт события (атом) — минимальные правки
+
+Текущий `NotificationEvent` / `NotificationDto` **остаётся** источником истины.
+
+Опциональные поля (добавить при необходимости, без ломки):
+
+| Поле | Зачем |
+|------|--------|
+| `data.threadKindHint?` | `'incident'\|'group'` с бэка (Open уже знает горизонт) |
+| `data.closeOutcome?` | `recovered` \| `abandoned_schedule` \| `abandoned_manual` |
+| `data.kind?` | уже есть для crash (`kind:crash`) |
+
+`correlationId` обязателен для Entry/Thread; без него — Single.
+
+### 5.2 Шина `@scinverse/notification-center`
+
+Сейчас: `NotificationBus` держит плоский массив, upsert по corr (I2).
+
+**Целевой API:**
+
+```ts
+type NotificationItem = SingleItem | ThreadItem;
+
+interface NotificationBus {
+  // publish атома как сейчас
+  publish(event: NotificationEvent): void;
+  // проекция для UI
+  items$: Observable<NotificationItem[]>;  // или derived selector
+  events$: Observable<NotificationEvent[]>; // плоский audit (отладка / совместимость)
+}
+```
+
+Алгоритм проекции `events → items`:
+
+1. Разбить по наличию `correlationId`.
+2. Группы с corr → Thread; упорядочить Entry по ts.
+3. `threadKind` = hint из data / эвристика (если нет hint: коды `connection.lost` /
+   `backend.unavailable` + наличие schedule в data → incident; иначе group; whitelist).
+4. `threadStatus` по §3.
+5. События без corr → Single.
+6. Merge Single + Thread в один список по `sortKey` (lastActivity).
+
+**Переходный период:** UI может читать `items$`; старые тесты — `events$` / `statusOf`.
+
+Файлы (ориентир):
+
+- `packages/notification-center/src/bus/NotificationBus.ts` — проекция
+- `packages/notification-center/src/types.ts` — Single / Thread / Entry
+- новые: `projectThreads.ts`, тесты проекции
+- UI: `NotificationDock.tsx`, `NotificationRow.tsx` → `ThreadHeader` + `EntryRow`
+
+### 5.3 OHS web
+
+- `OhsStore` / `publishServerNotification` — без смены wire; опционально прокидывать
+  `threadKindHint` / `closeOutcome` когда Host начнёт слать.
+- Локальные клиентские события (optimistic) — те же атомы; проекция подхватит.
+- Метки ★/⦸: `localStorage` или `user_settings` (phase 10) — ключ `nc.marks[uid]`.
+
+### 5.4 Backend (Host)
+
+**Обязательно для корректной политики Incident/Group:**
+
+- при `Open` инцидента связи/crash писать в `data`:
+  - `threadKindHint: incident|group` (по горизонту на момент Open),
+  - для close — `closeOutcome`.
+- Не менять форму WS/REST: по-прежнему поток атомов (+ hydrate из БД).
+
+**Не обязательно в v1:** таблица `notification_thread` (см. §6).
+
+Файлы-ориентир: `NotificationHub.cs` (Open/Progress/Resolve), продюсеры
+`ConnectionManager` / `ConnectionSupervisor`, ingest crash.
+
+### 5.5 Маппинг кодов → роль в нити (черновик)
+
+| code (пример) | Роль Entry | Влияние на threadStatus |
+|---------------|------------|-------------------------|
+| `connection.lost`, `backend.unavailable` | open | → active |
+| `connection.reconnecting`, progress ticks | progress | active |
+| `connection.recovering`, `backend.recovering` | recovering | → recovering |
+| `connection.recovered`, `backend.recovered` | close recovered | → resolved |
+| `connection.incident_closed` + abandoned_* | close abandoned | → resolved |
+| user `connection.connect` / disconnect | обычно Single или чужой corr | не смешивать с link-incident corr |
+
+Сироты (recovering без open в бэклоге): проекция → Thread `active`/`recovering` с одним Entry
+**или** orphan Single с пометкой; рекомендация: **не** создавать фейковый open; UI: Thread из
+одного Entry + warn в dev.
+
+---
+
+## 6. Структура БД
+
+### 6.0 Почему не меняем таблицы в DB
+
+**Таблицы / колонки не добавляем.** Колонка `data` (JSONB) в `notification` покрывает наши
+изменения в объектной модели:
+
+- `data.threadKindHint` — Incident vs Group на open-событии;
+- `data.closeOutcome` — чем закрылся стек на close-событии.
+
+Thread / Incident / Group — проекция над атомами (`correlation_id` + эти поля в `data`), а не
+отдельная сущность схемы. Новая таблица или ALTER нужны только если позже понадобится
+first-class журнал нитей (вариант B).
+
+### 6.1 Как сейчас (остаётся)
+
+`notification` (V025, hypertable, retention 90d) — **плоский audit**.  
+Поля: id, ts, severity, source_type, module, code, message, **data jsonb**, correlation_id, status, …
+
+Thread **не** хранится отдельной строкой; восстанавливается группировкой по `correlation_id`
+и чтением меток из `data`.
+
+### 6.2 Вариант A — projection-first (рекомендация v1)
+
+**Миграций схемы нет** — см. §6.0: хватает колонки `data`.
+
+- Hydrate: `GET /api/notifications` → плоский список → клиент/`NotificationBus` строит Threads.
+- Серверный «журнал инцидентов»: SQL `WHERE correlation_id IS NOT NULL AND …` + фильтр по
+  `data->>'threadKindHint' = 'incident'` (после появления hint).
+- Индекс `(correlation_id, ts DESC)` уже есть в V025; отдельная миграция не нужна.
+
+Плюсы: нет рассинхрона thread↔atoms; проще.  
+Минусы: тяжёлая агрегация на больших окнах; нет first-class API «список инцидентов».
+
+### 6.3 Вариант B — first-class `notification_thread` (позже)
+
+Включать, если нужен общий серверный журнал / пагинация нитей / метрики без скана атомов.
+
+```sql
+-- эскиз V02x__notification_thread.sql
+CREATE TABLE notification_thread (
+  corr_uid          text PRIMARY KEY,
+  subject           text,
+  thread_kind       text NOT NULL CHECK (thread_kind IN ('incident', 'group')),
+  thread_status     text NOT NULL CHECK (thread_status IN ('active', 'recovering', 'resolved')),
+  close_outcome     text NULL,  -- recovered | abandoned_schedule | abandoned_manual
+  opened_at         timestamptz NOT NULL,
+  closed_at         timestamptz NULL,
+  last_activity_at  timestamptz NOT NULL,
+  module            text,
+  -- опционально денорм для списка:
+  title             text,
+  severity_peak     text
+);
+
+CREATE INDEX ON notification_thread (thread_kind, thread_status, last_activity_at DESC);
+```
+
+Связь с атомами: `notification.correlation_id = notification_thread.corr_uid` (без FK на
+hypertable — мягкая связь; writer обновляет thread в той же транзакции, что и insert атома).
+
+**Writer (PersistWriter / Hub):**
+
+- Open → UPSERT thread (kind, status=active, opened_at);
+- Progress/Recovering → update status + last_activity;
+- Resolve → status=resolved, close_outcome, closed_at.
+
+API (опционально): `GET /api/notification-threads?kind=incident&status=active`.
+
+Retention: либо cascade-логика «удалить thread когда все атомы вышли за retention», либо
+отдельный job; проще — **не** hypertable для thread, чистить orphan threads по `closed_at` + N дней.
+
+### 6.4 Решение по БД для плана
+
+| Этап | БД |
+|------|-----|
+| 11.8–11.10 (модель + UI) | **A** — без новой таблицы; hint/outcome в `data` jsonb |
+| 11.11 (если нужен серверный журнал) | индекс по `correlation_id` и/или **B** |
+
+---
+
+## 7. Совместимость и миграция поведения
+
+1. Старые события без `threadKindHint`: эвристика §5.2; unknown → `group` (безопаснее, чем
+   раздувать журнал инцидентов) **или** `incident` для известных link/crash open-кодов в окне —
+   зафиксировать в тестах проекции.
+2. I2 upsert тиков: остаётся на уровне атомов; UI показывает один Entry «текущий progress» или
+   полный стек (продуктово: **полный стек**, upsert только заменяет id тика — как сейчас).
+3. Фильтр по corr (клик) → expand+focus Thread, не только flat filter.
+4. Бэклог 90d: проекция на клиенте ограничивает число Thread (например merge старых resolved в
+   «сжатый» вид) — follow-up perf, не блокер дизайна.
+
+---
+
+## 8. Критерии приёмки проектирования → реализации
+
+1. Спека сущностей Single / Entry / Thread / Incident / Group согласована (этот документ).
+2. Лента UI = контейнеры; Thread header без severity-иконки; Entry со стеком.
+3. Incident vs Group по горизонту на Open; Group не продолжает Incident.
+4. Фильтры threadStatus + Выбор (★/⦸).
+5. V025 audit не ломается; миграция thread-таблицы не обязательна для UI.
+6. Тесты проекции: lost→recovering→recovered; schedule abandon; orphan recovering; Single без corr.
+
+---
+
+## 9. Открытые вопросы
+
+| # | Вопрос | Рекомендация |
+|---|--------|--------------|
+| Q1 | FATAL crash **вне** горизонта — открывать Group в NC или глушить? | Group (audit), не Incident; продукт уточнит |
+| Q2 | sortKey ленты: `openedAt` vs `lastActivityAt` | `lastActivityAt` |
+| Q3 | unread на collapsed Thread | unread пока есть unread Entry |
+| Q4 | когда вводить таблицу `notification_thread` | после запроса «журнал инцидентов» на сервере |
+| Q5 | хранить ★/⦸ в БД | нет в v1; local / user_settings |
