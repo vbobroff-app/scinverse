@@ -9,10 +9,12 @@
 > (TRANSAQ→supervisor) + severity=error + ribbon v2** (7j.20 — [incident.md](incident.md)). Живой статус —
 > [report.md](report.md).
 
-**Статус:** 7j.17–7j.20 **КОД ГОТОВ** (связь v2 J1–J8, backend-outage §9, system-NC JSON). В очереди
-фазы: **7j.15** / **7j.16**. Зависимости: **7h / 7h.8**, **7c**, **7e**. Соседняя **7i** — Auto записи.
-To-be вынос Admin Front + NC — **gate 11→12** в [`docs/dev/plan.md`](../plan.md) (до WebGL).
-Детали — [apply.md](apply.md); статус/лог — [report.md](report.md). **Обновлено:** 2026-07-26.
+**Статус:** инцидентный контур **7j.17–7j.20 + J11a/J11c КОД ГОТОВ** (связь v2, backend-outage,
+abandon schedule break/crash, system-NC JSON). Хвост инцидентов: **J11b** (`abandoned_manual`).
+Очередь фазы (не инциденты): **7j.15** / **7j.16**. UI NC Thread → **phase 11**
+([../phase11/plan.md](../phase11/plan.md)). Зависимости: **7h / 7h.8**, **7c**, **7e**. Соседняя **7i** —
+Auto записи. Gate Admin Front + NC — **11→12**. Детали — [apply.md](apply.md); статус —
+[report.md](report.md); остаток — [todo.md](todo.md). **Обновлено:** 2026-07-27.
 
 ## Проблема
 
@@ -68,18 +70,17 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 | 7j.17 | Обработка исключений **редактирования**: атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler` + severity-модель + попап без оптимизма | DONE | [error-handling.md](error-handling.md) |
 | 7j.18 | **Auto Connect: все исключения + инциденты** | **КОД ГОТОВ** | [auto-connect.md](auto-connect.md) |
 | 7j.19 | **Инциденты связи + точность разрыва** (I1–I5) | **КОД ГОТОВ** | [issue.md](issue.md) |
-| 7j.20 | **Инциденты связи v2** + **backend-outage v2** + system NC JSON | **КОД ГОТОВ** | [incident.md](incident.md) · [nc-availability.md](nc-availability.md) |
+| 7j.20 | **Инциденты связи v2** + **backend-outage v2** + system NC JSON + **J11a/J11c** abandon schedule | **КОД ГОТОВ** | [incident.md](incident.md) · [nc-availability.md](nc-availability.md) · [todo.md](todo.md) |
 | **7j.15** | Рыночный/календарный профиль на settings; UI без хардкода MOEX | **ОЧЕРЕДЬ** | [market-profile.md](market-profile.md) |
 | **7j.16** | `date`-авторинг на фронте + пагинация графика по месяцам | **ОЧЕРЕДЬ** | [todo.md](todo.md) |
 
-## Активная очередь — 7j.15 / 7j.16 + UI NC
+## Что осталось в 7j / куда ушло
 
-**7j.17–7j.20 закрыты по коду** (детали scope/критериев — секции ниже, исторические). Дальше в фазе 7j:
+**Инциденты связи/crash по коду закрыты** (кроме `abandoned_manual` / J11b). Дальше:
 
-1. **7j.15** — market/calendar profile на `ScheduleSettings` ([market-profile.md](market-profile.md)).
-2. **7j.16** — `date`-авторинг + пагинация графика по месяцам ([todo.md](todo.md)).
-3. **UI NC** — счётчик, full-area, corr-клик не сбрасывает фильтры ([todo.md](todo.md)).
-4. Смежно: **H1/H2** (recording-ribbon, 7h); **7i** Auto записи; **не** WebGL до gate 11→12.
+1. **7j.15 / 7j.16** — market profile / `date`-авторинг ([todo.md](todo.md)) — когда вернёмся к расписанию.
+2. **UI NC Thread** — не 7j: **phase 11** (11.8–11.12) — [../phase11/to-threads.md](../phase11/to-threads.md).
+3. Смежно: **H1/H2** (recording-ribbon, 7h); **7i** Auto записи; **не** WebGL до gate 11→12.
 
 ---
 

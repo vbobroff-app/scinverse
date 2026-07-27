@@ -131,9 +131,10 @@ Single-flight connect только через `ConnectionManager` (не дубл
   глобальный `IExceptionHandler`; severity по смыслу перехода (applied=info/cleared=warning/recreated=ok),
   user/system-дисциплина, `correlationId=batchId`, попап без оптимизма. Каталог и детали —
   [error-handling.md](error-handling.md), сводки — [notify-composer.md](notify-composer.md).
-- **7j.18–7j.20 — КОД ГОТОВ:** auto-connect NC ([auto-connect.md](auto-connect.md)), I1–I8
-  ([issue.md](issue.md)), связь v2 ([incident.md](incident.md)), backend-outage v2
-  ([nc-availability.md](nc-availability.md)), system expanded = JSON.
+- **7j.18–7j.20 + J11a/J11c — КОД ГОТОВ:** auto-connect NC ([auto-connect.md](auto-connect.md)),
+  I1–I9 ([issue.md](issue.md)), связь v2 + abandon schedule ([incident.md](incident.md)),
+  backend-outage v2 ([nc-availability.md](nc-availability.md)), system expanded = JSON.
+  Хвост: J11b `abandoned_manual`. UI NC Thread → phase 11.
 
 ### Креды
 

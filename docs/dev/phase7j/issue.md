@@ -1,9 +1,10 @@
 # Phase 7j — Issues: инциденты связи и точность разрыва
 
-Статус: **I1–I8 РЕАЛИЗОВАНО** · **I9** (localhost/IPv6 proxy hang) — учёт для prod, mitigation в vite.
+Статус: **I1–I8 РЕАЛИЗОВАНО** · **I9** — mitigation в vite; prod-checklist OPEN.
 Диагностика I1–I5 — живой тест 23.07.2026; I6/I7 — 24.07.2026; I8 — 25–26.07.2026
 ([nc-availability.md](nc-availability.md)); I9 — 26.07.2026 (после рестарта Host).
-Часть сценариев принята на Finam id=3. Остаток фазы 7j — **7j.15/7j.16** + UI NC ([todo.md](todo.md)).
+Часть сценариев принята на Finam id=3. Инцидентный контур 7j закрыт (кроме J11b);
+остаток фазы — **7j.15/7j.16** ([todo.md](todo.md)); UI NC Thread → **phase 11**.
 
 Связано: [auto-connect.md](auto-connect.md), [error-handling.md](error-handling.md), [report.md](report.md),
 [incident.md](incident.md), 7h (лента Connection / `link_liveness`).
@@ -434,7 +435,8 @@ health/readiness, runbook рестарта Host. Код доменной мод�
 | I8 | Простой бэка: live ≠ reload | Sender + единый corr + персист стека + warn-before-ok | РЕАЛИЗОВАНО |
 | I9 | UI пустой: `localhost`→`::1`, IPv6 Kestrel залип | proxy → `127.0.0.1`; prod: bind/health/proxy family | MITIGATION / prod OPEN |
 
-Остаток 7j: 7j.15/7j.16 + UI NC ([todo.md](todo.md)). Вынос Admin Front + NC — gate 11→12 ([../plan.md](../plan.md)).
+Остаток 7j: 7j.15/7j.16 + J11b ([todo.md](todo.md)). NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).
+Gate Admin Front + NC — 11→12 ([../plan.md](../plan.md)).
 
 **Вне scope 7j (уровень данных).** Задержка ~3 мин до «первых данных» после connect (зелёный `waiting`
 не сменяется голубым `active`) — это **data-path**: блокирующая регистрация справочника инструментов в

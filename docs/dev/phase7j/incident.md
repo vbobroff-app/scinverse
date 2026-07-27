@@ -1,9 +1,9 @@
 # Phase 7j — Инциденты: модель, владение, хранение, визуализация
 
-Статус: **J1–J8 КОД ГОТОВ** · спека **J11** (обрыв ленты / исходы) — docs · остаток **H1/H2** → 7h.
-Модель 2026-07-24; уточнение горизонта/исходов и **видов** 2026-07-26. Живая приёмка части сценариев
-на Finam id=3. Данные/запись — 7h ([../phase7h/incident.md](../phase7h/incident.md)).
-Обновлено: 2026-07-26.
+Статус: **J1–J8 + J11a/J11c КОД ГОТОВ** · хвост **J11b** (`abandoned_manual`) · **H1/H2** → 7h.
+Модель 2026-07-24; горизонт/исходы/виды 2026-07-26; abandon schedule (break+crash) 2026-07-26…27.
+Живая приёмка части сценариев на Finam id=3. Данные/запись — 7h ([../phase7h/incident.md](../phase7h/incident.md)).
+Обновлено: 2026-07-27.
 
 Связано: [auto-connect.md](auto-connect.md), [issue.md](issue.md) (I1–I8),
 [nc-availability.md](nc-availability.md) (вид **`crash`** / Host Unavailable), [v2-exceptions.md](v2-exceptions.md)
@@ -164,10 +164,15 @@ abandoned:     |red [yellow|red body]      |   ← обрыв без green («н
 **до `t_end` окна**, затем обрыв без green. То же для backend-outage (штриховка) и для `interrupted`:
 клип к концу окна того дня, не «до следующего старта процесса».
 
-**Реализация обрыва ленты (J11, код позже):** правый край без «восстановления» — **liveness-маркер**
-(тот же приём, что handover J6: нулевой closed-интервал в `t_end` / `t_stop` с причиной
-`abandoned_schedule` / `abandoned_manual` или эквивалент), чтобы `QueryGapsAsync` дал конечный `To` и
-фронт не рисовал green (`isIncident` + `close_mode != recovered`). Пока — только спека.
+**Реализация обрыва ленты (J11):** правый край без «восстановления» — **liveness-маркер**
+(тот же приём, что handover J6: нулевой closed-интервал в `t_end` с `Abandoned` / `scheduled`),
+чтобы `QueryGapsAsync` дал конечный `To` и фронт не рисовал green.
+
+- **J11a `break`:** `TryAbandonIncidentByScheduleAsync` + NC `connection.incident_closed` — **DONE**
+  (`368bfb9`).
+- **J11c `crash`:** клиент `abandonBackendOutageBySchedule` + Host `MarkCrashAbandonedByScheduleAsync`
+  (Release + ribbon) + optimistic `overlayCrashOutageOnLink` — **КОД ГОТОВ** (working tree 2026-07-27).
+- **J11b `abandoned_manual`:** ещё не сделано.
 
 ### 1.3. Утро / рестарт бэка
 
@@ -465,7 +470,9 @@ abandoned:   |red [ yellow: TRANSAQ ][ red: supervisor ]      |  ← без gree
     бóльших значениях пробы пересмотреть `LinkMaxGap`.
 - [x] **J11a. `break` + `abandoned_schedule`** — спад desired → NC warning `connection.incident_closed`
   (`sender=supervisor`, `reason=schedule_end`) + маркер `scheduled` / `Abandoned` (без green).
-- [ ] **J11b. `abandoned_manual`** + **`crash` timeout-close** (фронт) — позже. Клик→corr — §7.1 FUTURE.
+- [x] **J11c. `crash` + `abandoned_schedule`** — клиент orchestrate close + Host Release/ribbon;
+  optimistic Connection overlay на outage. (Закоммитить working tree.)
+- [ ] **J11b. `abandoned_manual`** — ручной off / Auto off при открытом инциденте. Клик→corr — §7.1 FUTURE.
 
 ### Scope 7h — данные / запись (recording-лента, capture)
 

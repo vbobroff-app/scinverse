@@ -1,7 +1,8 @@
 # Phase 7j — report: расписание соединения
 
-**Статус:** ядро + 7j.17–7j.20 **КОД ГОТОВ** (связь v2, backend-outage v2, system-NC JSON). Остаток фазы:
-7j.15/7j.16 (профиль / `date`-авторинг) + UI-мелочи NC ([todo.md](todo.md)). **Обновлено:** 2026-07-26.
+**Статус:** инцидентный контур **7j.17–7j.20 + J11a/J11c КОД ГОТОВ**. Хвост: **J11b** (`abandoned_manual`).
+Очередь фазы (расписание UI): **7j.15 / 7j.16**. UI NC Thread → **phase 11**. Список —
+[todo.md](todo.md). **Обновлено:** 2026-07-27.
 
 Актуальный статус фазы. Обновляется по мере выполнения задач из [plan.md](plan.md) /
 [apply.md](apply.md). Якорная модель + слоистые исключения — [v2-exceptions.md](v2-exceptions.md).
@@ -30,13 +31,15 @@
 | 7j.17 | **Обработка исключений расписания:** атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler` + severity-модель (applied=info / cleared=warning / recreated=ok, 2a/2b) + попап без оптимизма (баннер + Retry); удалены одиночные rule/cancel/compose | DONE | см. [error-handling.md](error-handling.md); коммиты `86bd497`, `e1ed5b7` |
 | 7j.18 | **Auto-connect NC & incident hardening:** имя `Подключение {id} («{name}»)` в supervisor/manager, `connected=ok`, `connecting=warning+underway`, общий corr авто-серии, `connection.auto_error` | **КОД ГОТОВ** | [auto-connect.md](auto-connect.md) |
 | 7j.19 | **Инциденты связи + точность разрыва (I1–I5)** | **КОД ГОТОВ** | [issue.md](issue.md); `22cd62d`, `68151e0` |
-| 7j.20 | **Инциденты связи v2 (J1–J8)** + **backend-outage v2 (§9)** + **system NC → JSON** | **КОД ГОТОВ** · H1/H2 → 7h | [incident.md](incident.md) · [nc-availability.md](nc-availability.md); `5ffc58c`…`3c1c267`, `8bdfc6c`, `fd3e93e` |
+| 7j.20 | **Инциденты связи v2 (J1–J8)** + **backend-outage v2 (§9)** + **system NC → JSON** + **J11a/J11c** | **КОД ГОТОВ** · H1/H2 → 7h · J11b TODO | [incident.md](incident.md) · [nc-availability.md](nc-availability.md); `368bfb9` + working tree crash-abandon |
 
 ## Лог выполнения
 
 | Дата | Действие | Результат |
 |------|----------|-----------|
-| 2026-07-26 | **`break` timeout-close:** спад desired → `TryAbandonIncidentByScheduleAsync` — NC `connection.incident_closed` (warning, `sender=supervisor`, `reason=schedule_end`); маркер `scheduled` + `Abandoned` на ленте (без green). Виды `break`/`crash` в §0a. | Host + LinkLiveness 9 ✓ |
+| 2026-07-27 | **Docs:** актуализация 7j (остаток = 7j.15/16 + J11b); UI NC Thread уехал в phase 11; handoff [`docs/promt.md`](../../promt.md) §8 → phase11. | документы |
+| 2026-07-27 | **J11c `crash` + `abandoned_schedule`:** клиент `abandonBackendOutageBySchedule` + pending persist; Host ingest Release + `MarkCrashAbandonedByScheduleAsync`; optimistic `overlayCrashOutageOnLink`; orphan `backend.recovering` — warn live-only. | **working tree** (не в `368bfb9`) |
+| 2026-07-26 | **`break` timeout-close (J11a):** спад desired → `TryAbandonIncidentByScheduleAsync` — NC `connection.incident_closed`; маркер `scheduled` + `Abandoned` (без green). Также: Append/corr stack, Degraded→Down owner ribbon, discrete NC lost/auto_error. Коммит `368bfb9`. | Host + LinkLiveness ✓ |
 | 2026-07-26 | **Инциденты — спека горизонта/исходов (docs):** якорь = расписание коннектора (default 00:00–24:00); исходы `recovered` / `abandoned_*` (green только на recovered); утро без продолжения вчерашнего corr; click→corr §7.1 FUTURE; J11 в очереди. Задел журнала backfill → [phase7h/incident.md](../phase7h/incident.md). | [incident.md](incident.md) · [todo.md](todo.md) |
 | 2026-07-26 | **Docs handoff:** актуализация `phase7j/*` + [`docs/promt.md`](../../promt.md) §7–8 для нового чата (очередь 7j.15/16, gate 11→12, инварианты NC). | документы |
 | 2026-07-26 | **7j.20 — system NC expanded = JSON.** Заголовки короткие; детали в `data.result` / `error_message` + `sender` (`connect_failed`, `connected`, `recovered`, `auto_error`, `storage_error`, `ohs.unhandled`, backend-outage). User-уведомления расписания — по-прежнему `lines[]`. Коммит `fd3e93e`. | Host + unit ConnectFailedNotify ✓ |
@@ -105,9 +108,11 @@ per-connection настройки (`auto/engine/tz`) + правила `main/dow/
 (`canceled`). Овернайт разрешается по дню открытия сессии. Фронт: авторинг скоупа с **двухшаговым
 approve** (diff-превью kept/added/removed), guardrail на правку основного слоя и live-push баннер.
 Уведомления сведены **Notification Composer**-ом (одно user + одно system на пачку, общий
-`correlationId`, богатые подписи с окном). `main`/`dow` покрыты UI полностью; `date`-авторинг и
-рыночный профиль — перспектива (7j.15–7j.16). Детали — [v2-exceptions.md](v2-exceptions.md),
-[notify-composer.md](notify-composer.md).
+`correlationId`, богатые подписи с окном). Инциденты связи v2 + backend-outage +
+`abandoned_schedule` (break/crash) — **код готов**; хвост `abandoned_manual`. `main`/`dow` в UI
+полностью; `date`-авторинг и рыночный профиль — **7j.15–7j.16**. UI NC Thread → phase 11.
+Детали — [v2-exceptions.md](v2-exceptions.md), [notify-composer.md](notify-composer.md),
+[todo.md](todo.md).
 
 ## Что проверить локально / регресс
 
@@ -116,7 +121,8 @@ backend-outage — [nc-availability.md](nc-availability.md) §9.
 
 1. Расписание: скоуп `Все` → Утвердить; `Сб, Вс` → своё окно → Утвердить; Auto on/off.
 2. Связь: VPN/кабель → одна нить `lost`→`recovering`/`reconnecting`→`recovered`; Degraded ≤ grace = owner TRANSAQ.
-3. Конец окна → `schedule_disconnect` + серый `scheduled` на ленте Connection.
+3. Конец окна при открытом break/crash → `abandoned_schedule` (без green) + `schedule_disconnect` /
+   серый `scheduled` где уместно.
 4. System expanded = JSON (`result`/`error_message`/`sender`); user schedule — `lines[]`.
 5. Backend-outage: не FATAL→OK; пачка 500 → один warn; reload = live (без progress ERROR ticks).
 6. `dotnet build` / `dotnet test`; web `tsc` + vitest; NC-bus vitest.
