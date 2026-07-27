@@ -64,3 +64,9 @@ Entry extends Single { corr_uid }
 
 Реализовано: типы → проекция → UI контейнеры → hints в `data` → регрессия 7j/hydrate.
 См. [report.md](report.md) 11.8–11.12.
+
+### Связанный дефект домена (не phase 11)
+
+Thread UI сделал видимым разрыв **open break + crash + Group `auto:`** после рестарта Host.
+Фикс — adopt / catch-up abandon на Host/supervisor (**7j I10**), не смена проекции Thread:
+[../phase7j/issue.md](../phase7j/issue.md) I10, [../phase7j/incident.md](../phase7j/incident.md) §1.3.

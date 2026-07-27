@@ -1,11 +1,12 @@
 # Phase 7j — Инциденты: модель, владение, хранение, визуализация
 
-Статус: **J1–J8 + J11a/J11c КОД ГОТОВ** · хвост **J11b** (`abandoned_manual`) · **H1/H2** → 7h.
-Модель 2026-07-24; горизонт/исходы/виды 2026-07-26; abandon schedule (break+crash) 2026-07-26…27.
+Статус: **J1–J8 + J11a/J11c + I10 КОД ГОТОВ** · хвост **J11b** · **H1/H2** → 7h.
+Модель 2026-07-24; горизонт/исходы/виды 2026-07-26; abandon schedule (break+crash) 2026-07-26…27;
+I10 — 2026-07-27.
 Живая приёмка части сценариев на Finam id=3. Данные/запись — 7h ([../phase7h/incident.md](../phase7h/incident.md)).
 Обновлено: 2026-07-27.
 
-Связано: [auto-connect.md](auto-connect.md), [issue.md](issue.md) (I1–I8),
+Связано: [auto-connect.md](auto-connect.md), [issue.md](issue.md) (I1–I10),
 [nc-availability.md](nc-availability.md) (вид **`crash`** / Host Unavailable), [v2-exceptions.md](v2-exceptions.md)
 (якорь расписания).
 
@@ -189,6 +190,23 @@ abandoned:     |red [yellow|red body]      |   ← обрыв без green («н
    corr), а не продолжение вчерашнего.
 4. Порядок утра: recovery геометрии → (опц.) «жив» в NC → затем Auto/connect по расписанию. Если с утра
    снова плохо — заводим новый инцидент штатно.
+
+**Рестарт / crash Host внутри того же окна `desired`** — другой случай: open break мог остаться
+в audit без terminal (память Hub сброшена), а супервизор после оживления чеканит новый `auto:`-corr.
+В Thread это выглядит как `break OPEN` + `crash` + отдельный **Group** восстановления — см. **I10**
+([issue.md](issue.md)#i10-после-crashрестарта-host-open-break-остаётся-active-восстановление-уходит-в-новый-group-auto).
+
+Правило после оживления (после ingest crash-пачки):
+
+```text
+desired?
+  НЕТ → если в БД есть open link-corr → catch-up abandoned_schedule; connect не запускать
+  ДА  → если в БД есть open link-corr → adopt: connecting…recovered в ЭТОТ corr
+        иначе → auto-corr как сейчас (чистый kickoff)
+```
+
+Источник open break — V025 (`connection:{id}:link:*` без terminal), не in-memory `_openIncidents`.
+Crash-corr не сливать с link-corr; вложенность только по времени.
 
 ---
 
@@ -397,10 +415,16 @@ abandoned:   |red [ yellow: TRANSAQ ][ red: supervisor ]      |  ← без gree
 - NC: применить corr-фильтр **без сброса** остальных фильтров (уже в [todo.md](todo.md));
 - до WebGL клик по 1px на дискретном D1 малополезен — поэтому не делаем сейчас, только контракт.
 
+**Crash внутри break на Connection-ленте** (штриховка поверх сплошного) — проекция «почему», не ось
+записи. Если гант показал одну сплошную дыру на весь интервал (как на живом Finam 27.07: supervisor
+10:06–11:07), а NC развалил тот же эпизод на break + crash + Group `auto:` — **права геометрия ленты**;
+баг в corr-журнале NC → [issue.md](issue.md) **I10**. Довести вложенный crash на ганте не критично
+для writer: жёлтый / красный / полосатый для записи без разницы.
+
 ### Recording-лента оператора (полнота данных: есть/нет)
 
 Ей **не важно**, из-за чего и чья ответственность — важно только «данные шли или нет». Сплошной красный на
-всём инциденте, без полосок и владельцев:
+всём инциденте, без полосок и владельцев (та же ось, что для writer):
 
 ```text
 [ blue ][ ─────── red ─────── ][ blue ]

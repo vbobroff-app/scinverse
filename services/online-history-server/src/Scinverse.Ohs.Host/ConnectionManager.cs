@@ -69,6 +69,22 @@ public sealed class ConnectionManager(
     public DateTimeOffset? GetIncidentSince(long connectionId) =>
         _incidentSince.TryGetValue(connectionId, out var since) ? since : null;
 
+    /// <summary>
+    /// Засеять открытый break в память после рестарта (I10): <c>_incidentSince</c>/<c>_incidentOwner</c>
+    /// из аудита V025. Без новой NC-строки. false — уже был открытый инцидент в памяти.
+    /// </summary>
+    public bool AdoptOpenIncident(
+        long connectionId, DateTimeOffset since, string owner = "supervisor")
+    {
+        if (!_incidentSince.TryAdd(connectionId, since))
+        {
+            return false;
+        }
+
+        _incidentOwner[connectionId] = string.IsNullOrWhiteSpace(owner) ? "supervisor" : owner;
+        return true;
+    }
+
     public string GetStatus(long connectionId) =>
         _status.TryGetValue(connectionId, out var status) ? status : "disconnected";
 

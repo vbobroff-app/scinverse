@@ -71,6 +71,36 @@ public sealed class NotificationHubTests
     }
 
     [Fact]
+    public void Adopt_seedsOpenIncident_withoutEmitting_thenProgressResolveReuseCorr()
+    {
+        var hub = NewHub();
+        const string subject = "connection:3:link";
+        const string corr = "connection:3:link:deadbeef";
+
+        hub.Adopt(subject, corr, "active").Should().BeTrue();
+        hub.List().Should().BeEmpty("Adopt не пишет строку в ленту");
+
+        hub.Progress(subject, "connection.reconnecting", "retry").Should().BeTrue();
+        hub.Resolve(subject, "connection.recovered", "up").Should().BeTrue();
+
+        var list = hub.List();
+        list.Select(e => e.Code).Should().Equal("connection.reconnecting", "connection.recovered");
+        list.Should().OnlyContain(e => e.CorrelationId == corr);
+    }
+
+    [Fact]
+    public void Adopt_sameCorr_isIdempotent_foreignCorr_rejected()
+    {
+        var hub = NewHub();
+        const string subject = "connection:3:link";
+
+        hub.Adopt(subject, "connection:3:link:aaaa1111", "underway").Should().BeTrue();
+        hub.Adopt(subject, "connection:3:link:aaaa1111", "underway").Should().BeTrue("тот же corr");
+        hub.Adopt(subject, "connection:3:link:bbbb2222", "active").Should().BeFalse("чужой corr не перетираем");
+        hub.Adopt(subject, "connection:3:link:cccc3333", "resolved").Should().BeFalse("status resolved недопустим");
+    }
+
+    [Fact]
     public void Resolve_withoutOpenIncident_isNoop()
     {
         var hub = NewHub();

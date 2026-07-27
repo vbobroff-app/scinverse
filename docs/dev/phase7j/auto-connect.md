@@ -156,6 +156,10 @@ connect-фейлов — у них своя серия). Дедуп по сиг�
 
 ## 8. Перспектива (backlog)
 
+- **I10 — adopt open break после crash/рестарта Host.** **КОД ГОТОВ:** перед веткой desired
+  Supervisor читает open `link:` из V025 (`FindOpenLinkIncidentAsync`) и засевает Hub+Manager
+  (`Adopt` / `AdoptOpenIncident`) → reconnecting/recovered или catch-up `abandoned_schedule`
+  без нового Group `auto:`. Алгоритм — [issue.md](issue.md) I10, [incident.md](incident.md) §1.3.
 - **Общий мост Serilog → NC.** Точечный `connection.auto_error` (7j.18) закрывает per-connection сбои
   тика супервизора, но остальные фоновые пути (`TradeBatcher`, `LivenessProbe`, `RecordingSupervisor`,
   `ConnectorSession` pump, WS) при ошибке пишут **только в лог**. Общее решение — тонкий

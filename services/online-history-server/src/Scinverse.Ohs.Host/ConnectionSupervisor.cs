@@ -15,6 +15,7 @@ public sealed class ConnectionSupervisor(
     OhsOptions options,
     TimeProvider time,
     INotificationPublisher notifications,
+    INotificationStore notificationStore,
     ClientRecoveryGate recoveryGate,
     ILogger<ConnectionSupervisor> logger)
 {
@@ -236,6 +237,10 @@ public sealed class ConnectionSupervisor(
 
         _prevDesired[connectionId] = desiredConnected;
 
+        // I10: после crash/рестарта память Hub/Manager пуста, а в V025 может висеть open link-corr.
+        // Подхватить до ветки desired — иначе !desired не сделает catch-up abandon, а desired счеканит auto:.
+        await TryAdoptOpenBreakFromAuditAsync(connectionId, cancellationToken).ConfigureAwait(false);
+
         if (!desiredConnected)
         {
             _failCounts.TryRemove(connectionId, out _);
@@ -404,6 +409,57 @@ public sealed class ConnectionSupervisor(
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// I10: если в памяти нет open break — найти в аудите V025 и засеять Manager + Hub
+    /// (тот же <c>connection:{id}:link:{uid}</c>). Без новой Open-строки. Crash-corr не трогаем.
+    /// </summary>
+    private async Task TryAdoptOpenBreakFromAuditAsync(long connectionId, CancellationToken cancellationToken)
+    {
+        if (connections.GetIncidentSince(connectionId) is not null)
+        {
+            return;
+        }
+
+        OpenLinkIncident? open;
+        try
+        {
+            open = await notificationStore
+                .FindOpenLinkIncidentAsync(connectionId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                ex,
+                "ConnectionSupervisor: не удалось прочитать open break из аудита для {ConnectionId}",
+                connectionId);
+            return;
+        }
+
+        if (open is null)
+        {
+            return;
+        }
+
+        if (!connections.AdoptOpenIncident(connectionId, open.OpenedAt, owner: "supervisor"))
+        {
+            return;
+        }
+
+        var subject = ConnectionManager.LinkIncidentSubject(connectionId);
+        if (!notifications.Adopt(subject, open.CorrelationId, open.Status))
+        {
+            logger.LogWarning(
+                "ConnectionSupervisor: Hub.Adopt отказал для {Subject} corr={Corr} status={Status}",
+                subject, open.CorrelationId, open.Status);
+            return;
+        }
+
+        logger.LogInformation(
+            "ConnectionSupervisor: adopted open break {Corr} (status={Status}, since={Since:o}) для {ConnectionId}",
+            open.CorrelationId, open.Status, open.OpenedAt, connectionId);
     }
 
     /// <summary>Прогресс-тик восстановления средствами TRANSAQ (7j.20 J5). Пока связь в <c>Degraded</c>

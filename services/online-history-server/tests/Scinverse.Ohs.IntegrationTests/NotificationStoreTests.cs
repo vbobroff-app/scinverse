@@ -33,7 +33,8 @@ public sealed class NotificationStoreTests : IClassFixture<TimescaleFixture>, IA
 
     private static NotificationRecord Rec(
         DateTimeOffset ts, string message, string sourceType = "user", string? data = null,
-        string? subject = null, string? correlationId = null, Guid? id = null) => new()
+        string? subject = null, string? correlationId = null, Guid? id = null,
+        string? status = null, string code = "connection.schedule.rule_set") => new()
     {
         EventId = id ?? Guid.NewGuid(),
         Ts = ts,
@@ -41,9 +42,9 @@ public sealed class NotificationStoreTests : IClassFixture<TimescaleFixture>, IA
         SourceType = sourceType,
         Interaction = sourceType == "user" ? "user" : "system",
         Localization = sourceType == "external" ? "external" : "internal",
-        Status = null,
+        Status = status,
         Module = "ohs.connection",
-        Code = "connection.schedule.rule_set",
+        Code = code,
         Message = message,
         Subject = subject,
         CorrelationId = correlationId,
@@ -116,5 +117,56 @@ public sealed class NotificationStoreTests : IClassFixture<TimescaleFixture>, IA
     {
         await _store.AppendBatchAsync(Array.Empty<NotificationRecord>(), CancellationToken.None);
         (await _store.QueryRecentAsync(10, CancellationToken.None)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task FindOpenLinkIncident_returnsLatestOpenCorr_withOpenedAt()
+    {
+        const long connectionId = 3;
+        const string subject = "connection:3:link";
+        const string openCorr = "connection:3:link:aaaaaaaa";
+        const string closedCorr = "connection:3:link:bbbbbbbb";
+
+        await _store.AppendBatchAsync(new[]
+        {
+            // Закрытый более ранний break — не должен вернуться.
+            Rec(T0, "lost-old", sourceType: "system", subject: subject, correlationId: closedCorr,
+                status: "active", code: "connection.lost"),
+            Rec(T0.AddMinutes(5), "recovered-old", sourceType: "system", subject: subject,
+                correlationId: closedCorr, status: "resolved", code: "connection.recovered"),
+            // Открытый break: open + progress; OpenedAt = первый ts.
+            Rec(T0.AddHours(1), "lost", sourceType: "system", subject: subject, correlationId: openCorr,
+                status: "active", code: "connection.lost"),
+            Rec(T0.AddHours(1).AddMinutes(2), "reconnecting", sourceType: "system", subject: subject,
+                correlationId: openCorr, status: "underway", code: "connection.reconnecting"),
+            // Чужой subject / crash — игнор.
+            Rec(T0.AddHours(1).AddMinutes(3), "crash", sourceType: "system",
+                subject: "ohs.backend.outage", correlationId: "ohs.backend.outage:1",
+                status: "active", code: "backend.unavailable"),
+        }, CancellationToken.None);
+
+        var open = await _store.FindOpenLinkIncidentAsync(connectionId, CancellationToken.None);
+
+        open.Should().NotBeNull();
+        open!.CorrelationId.Should().Be(openCorr);
+        open.Status.Should().Be("underway");
+        open.OpenedAt.Should().Be(T0.AddHours(1));
+    }
+
+    [Fact]
+    public async Task FindOpenLinkIncident_whenResolved_returnsNull()
+    {
+        const string subject = "connection:9:link";
+        const string corr = "connection:9:link:cccccccc";
+        await _store.AppendBatchAsync(new[]
+        {
+            Rec(T0, "lost", sourceType: "system", subject: subject, correlationId: corr,
+                status: "active", code: "connection.lost"),
+            Rec(T0.AddMinutes(1), "closed", sourceType: "system", subject: subject, correlationId: corr,
+                status: "resolved", code: "connection.incident_closed"),
+        }, CancellationToken.None);
+
+        (await _store.FindOpenLinkIncidentAsync(9, CancellationToken.None)).Should().BeNull();
+        (await _store.FindOpenLinkIncidentAsync(3, CancellationToken.None)).Should().BeNull();
     }
 }

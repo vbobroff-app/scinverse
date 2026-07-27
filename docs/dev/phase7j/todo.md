@@ -49,6 +49,7 @@ UI пресетов захардкожен под MOEX; рынок (CME и др.
 | **J11a** | `break` + `abandoned_schedule` | **DONE** (`368bfb9`) |
 | **J11c** | `crash` + `abandoned_schedule` (клиент orchestrate + Host Release/ribbon) + optimistic ribbon overlay | **КОД ГОТОВ** (working tree 2026-07-27; закоммитить в чате phase11 или отдельно) |
 | **J11b** | `abandoned_manual` (ручной off / Auto off при открытом инциденте) | TODO |
+| **I10** | После crash/рестарта: adopt open break из V025; catch-up abandon вне окна; не плодить Group `auto:` | **КОД ГОТОВ** ([issue.md](issue.md) I10); живая приёмка |
 | **J9 / J10** | per-connection grace / глобальный порог NC | ПЛАН, позже ([incident.md](incident.md) §8) |
 | **H1 / H2** | recording-ribbon бинарный под Degraded | → **7h** |
 | **I9 prod** | bind/health/proxy family после Vite | OPEN checklist ([issue.md](issue.md) I9) |

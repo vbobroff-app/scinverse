@@ -63,6 +63,47 @@ public sealed class NotificationStore(NpgsqlDataSource dataSource) : INotificati
         return list;
     }
 
+    public async Task<OpenLinkIncident?> FindOpenLinkIncidentAsync(
+        long connectionId, CancellationToken cancellationToken)
+    {
+        var subject = $"connection:{connectionId}:link";
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        // Latest row per corr; open = active|underway. OpenedAt = MIN(ts) по corr (левая граница дыры).
+        var row = await connection.QuerySingleOrDefaultAsync<OpenRow>(new CommandDefinition(
+            """
+            WITH latest AS (
+                SELECT DISTINCT ON (correlation_id)
+                    correlation_id AS CorrelationId,
+                    status         AS Status,
+                    ts             AS LastTs
+                FROM notification
+                WHERE subject = @subject
+                  AND correlation_id IS NOT NULL
+                ORDER BY correlation_id, ts DESC, event_id DESC
+            )
+            SELECT l.CorrelationId,
+                   l.Status,
+                   (SELECT MIN(n.ts) FROM notification n WHERE n.correlation_id = l.CorrelationId) AS OpenedAt
+            FROM latest l
+            WHERE l.Status IN ('active', 'underway')
+            ORDER BY l.LastTs DESC
+            LIMIT 1;
+            """,
+            new { subject }, cancellationToken: cancellationToken));
+
+        if (row is null || string.IsNullOrWhiteSpace(row.CorrelationId) || string.IsNullOrWhiteSpace(row.Status))
+        {
+            return null;
+        }
+
+        return new OpenLinkIncident(
+            row.CorrelationId,
+            row.Status,
+            new DateTimeOffset(DateTime.SpecifyKind(row.OpenedAt, DateTimeKind.Unspecified), TimeSpan.Zero));
+    }
+
+    private sealed record OpenRow(string CorrelationId, string Status, DateTime OpenedAt);
+
     // timestamptz читаем в DateTime (Kind=Utc от Npgsql) и оборачиваем в UTC-offset — как LinkLivenessStore
     // (прямое чтение timestamptz в DateTimeOffset через Dapper ненадёжно).
     private sealed record Row(

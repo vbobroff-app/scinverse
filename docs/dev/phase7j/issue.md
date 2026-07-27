@@ -1,13 +1,16 @@
 # Phase 7j — Issues: инциденты связи и точность разрыва
 
-Статус: **I1–I8 РЕАЛИЗОВАНО** · **I9** — mitigation в vite; prod-checklist OPEN.
+Статус: **I1–I8 РЕАЛИЗОВАНО** · **I9** — mitigation в vite; prod-checklist OPEN ·
+**I10** — КОД ГОТОВ (adopt open break после crash / рестарта Host).
 Диагностика I1–I5 — живой тест 23.07.2026; I6/I7 — 24.07.2026; I8 — 25–26.07.2026
-([nc-availability.md](nc-availability.md)); I9 — 26.07.2026 (после рестарта Host).
-Часть сценариев принята на Finam id=3. Инцидентный контур 7j закрыт (кроме J11b);
+([nc-availability.md](nc-availability.md)); I9 — 26.07.2026 (после рестарта Host);
+I10 — 27.07.2026 (Thread UI + вложенный crash).
+Часть сценариев принята на Finam id=3. Инцидентный контур 7j закрыт (кроме J11b + **I10**);
 остаток фазы — **7j.15/7j.16** ([todo.md](todo.md)); UI NC Thread → **phase 11**.
 
 Связано: [auto-connect.md](auto-connect.md), [error-handling.md](error-handling.md), [report.md](report.md),
-[incident.md](incident.md), 7h (лента Connection / `link_liveness`).
+[incident.md](incident.md) (§1.1–1.3, J11), 7h (лента Connection / `link_liveness`),
+[../phase11/to-threads.md](../phase11/to-threads.md) (проекция Incident/Group).
 
 ---
 
@@ -421,6 +424,129 @@ health/readiness, runbook рестарта Host. Код доменной мод�
 
 ---
 
+## I10. После crash/рестарта Host: open break остаётся `active`, восстановление уходит в новый Group (`auto:`)
+
+**Статус:** КОД ГОТОВ (2026-07-27). Живая приёмка — после рестарта Host с open break.
+
+**Симптом (Thread UI, phase 11).** Вложенный по времени сценарий:
+
+```text
+целевая картина (одна дыра связи + вложенный crash):
+
+|------ break (corr = connection:{id}:link:{uid}) ------|
+               |---- crash (corr = ohs.backend.outage:…) ----|
+                                                         X
+                                              супервизор добивает break
+                                              тем же link-corr → recovered
+                                              (или abandoned_schedule вне окна)
+```
+
+Фактически в NC получается **три контейнера** вместо двух:
+
+```text
+факты сейчас:
+
+|--- break OPEN … active ---|     ← terminal нет, висит навсегда
+               |---- crash ----|  ← свой outage-corr (ok)
+                                   |--- Group auto:… ---|  ← connecting→connected
+                                      (новый corr, не link!)
+```
+
+Живой пример (МСК, 2026-07-27): break open ~10:06:59 остаётся `active`; рядом
+Group `connection:3:auto:…` 06:00:00→06:00:07 (или иной kickoff) с
+`connection.connecting` → `connection.connected` (`sender=supervisor`) — восстановление
+написано **не в break-corr**. Аналогично: crash закрыт как Group по `abandoned_schedule`,
+а break слева не обрезан.
+
+**Лента (гант) vs NC — разные оси.** На том же эпизоде Connection-гант оказался **умнее NC**:
+одна сплошная полоса, интервал дыры распознан верно (`link_liveness` / геометрия записи).
+Вложенный crash внутри break гант **не** выделяет — и это **не баг и не цель I10**: для
+writer важно «данные шли / не шли», а не причина (жёлтый / красный / полосатый — проекция
+легенды; для записи без разницы). I10 чинит **журнал corr в NC** (adopt / catch-up), не геометрию ленты.
+
+**Почему так (корневая причина).**
+
+1. Open break / `_incidentSince` / `_openIncidents` живут **в памяти** Host.
+2. При crash Host память сбрасывается; в БД (V025 `notification`) атомы break **остаются**
+   без terminal (`status` active/underway, нет `resolved` / `incident_closed` / `recovered`
+   по тому же `correlation_id`).
+3. Клиент ведёт crash (таймер + mock-POST) — это отдельно и правильно ([nc-availability.md](nc-availability.md)).
+4. После оживления порядок уже есть: сначала crash-пачка, потом Auto/connect. Но супервизор
+   **не смотрит audit** на open break → чеканит новый `connection:{id}:auto:{uid}` → в Thread
+   это **Group** (или короткий resolved-стек), а не продолжение Incident break.
+5. Обрезка по горизонту (`desired` true→false → `abandoned_schedule`, J11a/J11c) при **мёртвом**
+   Host на break не срабатывает (тик супервизора спал); crash клиент закрывает сам; break в
+   БД остаётся open → вечный `active` в проекции Thread.
+
+**Инварианты, которые нельзя ломать** ([incident.md](incident.md) §1.1–1.2):
+
+- Горизонт = окно расписания коннектора (`desired`); Auto — исполнитель, не «вечный ремонтник».
+- Вне окна connect не нужен; open break на спаде desired → `abandoned_schedule` (без green),
+  **независимо** от того, починили ли связь.
+- Утро / новое окно → **новый** corr при новом сбое; вчерашний стек через ночь не реанимируем,
+  если горизонт уже обрезан.
+- Crash и break — **разные** corr (разные владельцы); вложенность только по времени.
+
+**Путь решения (adopt + catch-up из БД).**
+
+Источник правды по «есть ли open break» после рестарта — **audit V025**, не память Hub.
+Фронт может подсказать `openBreakCorr` в crash-пачке, но истина — SQL/store по
+`correlation_id LIKE 'connection:{id}:link:%'` без terminal.
+
+Целевая лента после фикса:
+
+```text
+|------------- break Incident (один link-corr) -------------|
+               |---- crash (outage-corr) ----|
+                          connecting → connected / recovered
+                          ← те же Entry в break, не Group auto:
+```
+
+Вне окна после оживления Host — не connect, а **catch-up abandon** open break из БД.
+
+**Алгоритм (Host ожил → после ingest crash):**
+
+```text
+Host ожил
+  → обработать клиентский POST crash-стека (outage-corr)     // как сейчас, первым
+
+  → desired = IsConnectDesired(расписание connection)?
+
+     НЕТ  (вне окна; Auto молчит):
+       → SELECT open break в БД по connection:{id}:link:* ?
+            да  → Resolve/incident_closed + abandoned_schedule в ЭТОТ corr
+                  (+ marker scheduled на ленте, как J11a)
+                  + засеять Hub._openIncidents при необходимости перед Resolve
+            нет → тишина
+       → connect НЕ запускать
+
+     ДА   (в окне; Auto работает):
+       → SELECT open break в БД?
+            да  → adopt: connecting / connected / failed / recovered
+                  в link-corr (не auto:); Hub знает этот corr
+            нет → auto-corr как сейчас (плановый kickoff / чистый старт)
+```
+
+**Следствия для компонентов:**
+
+| Компонент | Что сделать |
+|-----------|-------------|
+| `INotificationStore` | Запрос «последний open link-corr по connectionId» (есть active/underway, нет terminal по corr) |
+| `NotificationHub` | Adopt: Progress/Resolve/Append в **уже существующий** corr после рестарта (засев `_openIncidents`) |
+| `ConnectionSupervisor` | Перед auto-серией — ветка desired / open-break (алгоритм выше); не чеканить `auto:` поверх open break |
+| `ConnectionManager` | `CloseIncidentAsync` / abandon работают по adopted corr, не только по in-memory `_incidentSince` |
+| Клиент (опц.) | В recover/abandon crash-пачке — `data.openBreakCorr` / connectionId как подсказка; не дублировать open break |
+| Thread UI (phase 11) | Без смены проекции: один corr → один Incident-аккордеон; Group auto исчезнет с adopt |
+
+**Не делать:** вливать crash в link-corr; продолжать вчерашний break через ночь после честного
+`abandoned_schedule`; connect вне `desired`.
+
+**Связано.** [incident.md](incident.md) §1.3 (утро/рестарт — дополнить adopt); J11a/J11c;
+[auto-connect.md](auto-connect.md) (серия `auto:` только если open break нет);
+I2 (recovered после реконнекта — частный случай при живой памяти; I10 = то же после wipe памяти).
+
+---
+
 ## Сводка решений
 
 | # | Проблема | Решение | Статус |
@@ -434,8 +560,9 @@ health/readiness, runbook рестарта Host. Код доменной мод�
 | I7 | Гонка хартбитов / duplicate key | `pg_advisory_xact_lock` в Heartbeat | РЕАЛИЗОВАНО |
 | I8 | Простой бэка: live ≠ reload | Sender + единый corr + персист стека + warn-before-ok | РЕАЛИЗОВАНО |
 | I9 | UI пустой: `localhost`→`::1`, IPv6 Kestrel залип | proxy → `127.0.0.1`; prod: bind/health/proxy family | MITIGATION / prod OPEN |
+| I10 | После crash: break `active` + восстановление в Group `auto:` | Adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ** |
 
-Остаток 7j: 7j.15/7j.16 + J11b ([todo.md](todo.md)). NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).
+Остаток 7j: 7j.15/7j.16 + J11b ([todo.md](todo.md)); I10 — живая приёмка. NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).
 Gate Admin Front + NC — 11→12 ([../plan.md](../plan.md)).
 
 **Вне scope 7j (уровень данных).** Задержка ~3 мин до «первых данных» после connect (зелёный `waiting`

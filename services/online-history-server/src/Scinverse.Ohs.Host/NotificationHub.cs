@@ -172,6 +172,29 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         => Transition(subject, "resolved", code, message, severity, sourceType, module, data, actor,
             canTransition: current => current is "active" or "underway");
 
+    /// <inheritdoc />
+    public bool Adopt(string subject, string correlationId, string status)
+    {
+        if (string.IsNullOrWhiteSpace(subject)
+            || string.IsNullOrWhiteSpace(correlationId)
+            || status is not ("active" or "underway"))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            if (_openIncidents.TryGetValue(subject, out var existing))
+            {
+                // Тот же corr уже в памяти — идемпотентный успех; чужой corr не перетираем.
+                return existing.CorrelationId == correlationId;
+            }
+
+            _openIncidents[subject] = (correlationId, status);
+            return true;
+        }
+    }
+
     private bool Transition(
         string subject,
         string targetStatus,

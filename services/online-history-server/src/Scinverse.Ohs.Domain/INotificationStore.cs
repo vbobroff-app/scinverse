@@ -8,4 +8,10 @@ public interface INotificationStore
 
     /// <summary>Последние <paramref name="limit"/> событий, отсортированные по возрастанию времени (oldest-first).</summary>
     Task<IReadOnlyList<NotificationRecord>> QueryRecentAsync(int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Последний открытый break по подключению: subject <c>connection:{id}:link</c>, latest status
+    /// по corr ∈ {active, underway}. <c>null</c> — нет open (или уже resolved). I10 adopt/catch-up.
+    /// </summary>
+    Task<OpenLinkIncident?> FindOpenLinkIncidentAsync(long connectionId, CancellationToken cancellationToken);
 }

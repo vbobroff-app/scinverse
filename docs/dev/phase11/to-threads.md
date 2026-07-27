@@ -428,3 +428,4 @@ Retention: не hypertable; чистить orphan threads по `closed_at` + N �
 | Q3 | unread на collapsed Thread | unread пока есть unread Entry |
 | Q4 | когда вводить таблицу `notification_thread` | после запроса «журнал инцидентов» на сервере |
 | Q5 | хранить ★/⦸ в БД | нет в v1; local / user_settings |
+| Q6 | после crash Host: break `active` + восстановление в `auto:` Group | **не Thread** — adopt на Host (**I10 КОД ГОТОВ**); [../phase7j/issue.md](../phase7j/issue.md) |

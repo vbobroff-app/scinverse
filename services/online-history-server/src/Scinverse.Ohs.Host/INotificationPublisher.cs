@@ -73,4 +73,11 @@ public interface INotificationPublisher
         string module = "ohs.connection",
         object? data = null,
         NotificationActor? actor = null);
+
+    /// <summary>
+    /// Засеять открытый инцидент в память хаба без новой строки (I10): после рестарта Host
+    /// Progress/Resolve/Append продолжают существующий <paramref name="correlationId"/> из аудита.
+    /// Идемпотентно при том же corr; иначе false (уже открыт другой / невалидный status).
+    /// </summary>
+    bool Adopt(string subject, string correlationId, string status);
 }
