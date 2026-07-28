@@ -550,8 +550,8 @@ I2 (recovered после реконнекта — частный случай п
 
 ## I11. Рассинхрон Manager ↔ Hub: NC «молчит», костыли вокруг `link:` / `auto:` / ленты
 
-**Статус:** OPEN (2026-07-28). Код I10 / fold fail→`link:` / paint-fallback ленты **не снимают** корневой
-рассинхрон двух «мозгов». Цель — убрать костыли, а не наращивать.
+**Статус:** КОД ГОТОВ (2026-07-28). Close-break / Adopt / connect-fail / лента зачищены;
+осталась живая приёмка.
 
 ### Симптом
 
@@ -599,36 +599,28 @@ I2 (recovered после реконнекта — частный случай п
 - Handover: `DisconnectAsync` **намеренно** не снимает `_incidentSince` (инцидент продолжается).
 - После первого fail (Manager=Hub sync) повторные попытки → один `link:` corr — **целевая модель**.
 
-### Целевая модель (без костылей)
+### Целевая модель — реализация
 
 ```text
-один close-break helper (Manager + Hub вместе):
+CloseBreakAsync(outcome):
+  TryTakeOpenBreak → [маркер scheduled|disconnected] → Hub.Resolve(closeOutcome)
   recovered | abandoned_schedule | abandoned_manual
-  → TryRemove(_incidentSince/_incidentOwner) + Hub.Resolve(code, closeOutcome)
-  всегда в одном месте
 
-Adopt:
-  Hub.Adopt сначала (или rollback Manager, если Hub отказал)
-
-Connect-fail:
-  нет open break → Open link: (Incident); дальнейшие попытки только Append/Progress в link:
-  без throwaway Group и без fails>0-прокси
-
-Лента:
-  escalatedAt только из реального маркера link_liveness (InsertBoundaryMarker);
-  frontend synthetic 60s — снять после того, как маркеры пишутся всегда
+Adopt: Hub.Adopt → Manager; fail Manager → Hub.Forget
+Connect-fail: Open link: + Append (Group auto:/connect: только после успеха)
+Лента: escalatedAt только из InsertBoundaryMarker (grace / Degraded→Down)
 ```
 
-### Следствия для компонентов
+### Чеклист компонентов
 
-| Компонент | Что сделать |
-|-----------|-------------|
-| `ConnectionManager` | Единый `CloseBreakAsync` / аналог: clear memory + Resolve; J11b зовёт его с `abandoned_manual` |
-| `OhsEndpoints` disconnect | Не голый `Hub.Resolve` — через helper Manager |
-| `ConnectionSupervisor` I10 | Adopt атомарно; убрать `fails > 0` proxy после sync |
-| `ConnectionSupervisor` / connect fail | Один путь эскалации в `link:` без Group-`resolved` хака (или явный короткий Group только на success-kickoff) |
-| `ConnectionRibbon` | Убрать synthetic escalatedAt после приёмки маркеров |
-| Docs | [auto-connect.md](auto-connect.md), [incident.md](incident.md) §1.2 — `abandoned_manual`; этот I11 |
+| Компонент | Статус |
+|-----------|--------|
+| `CloseBreakAsync` (Manager+Hub) | **ГОТОВ** — thin wrappers: recovered / schedule / manual |
+| `OhsEndpoints` disconnect | **ГОТОВ** — `TryAbandonIncidentByManualAsync` |
+| Adopt атомарно + без `fails>0` | **ГОТОВ** |
+| Connect-fail без throwaway Group | **ГОТОВ** |
+| Ribbon без synthetic `from+60s` | **ГОТОВ** |
+| Docs `auto-connect` / `incident` §1.2 | **ГОТОВ** (хвост — живая приёмка) |
 
 ### Не делать
 
@@ -655,9 +647,9 @@ Connect-fail:
 | I8 | Простой бэка: live ≠ reload | Sender + единый corr + персист стека + warn-before-ok | РЕАЛИЗОВАНО |
 | I9 | UI пустой: `localhost`→`::1`, IPv6 Kestrel залип | proxy → `127.0.0.1`; prod: bind/health/proxy family | MITIGATION / prod OPEN |
 | I10 | После crash: break `active` + восстановление в Group `auto:` | Adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ** |
-| I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **OPEN** (B1+B2+connect-fail+лента готово; close-helper/docs хвост) |
+| I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **КОД ГОТОВ** (живая приёмка) |
 
-Остаток 7j: 7j.15/7j.16 + **I11 / J11b** ([todo.md](todo.md)); I10 — живая приёмка.
+Остаток 7j: 7j.15/7j.16 ([todo.md](todo.md)); I10/I11 — живая приёмка.
 NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).
 Gate Admin Front + NC — 11→12 ([../plan.md](../plan.md)).
 

@@ -1,6 +1,6 @@
 # Phase 7j — Инциденты: модель, владение, хранение, визуализация
 
-Статус: **J1–J8 + J11a/J11c + I10 КОД ГОТОВ** · хвост **J11b** · **H1/H2** → 7h.
+Статус: **J1–J8 + J11a/b/c + I10 + I11 КОД ГОТОВ** · живая приёмка I11 · **H1/H2** → 7h.
 Модель 2026-07-24; горизонт/исходы/виды 2026-07-26; abandon schedule (break+crash) 2026-07-26…27;
 I10 — 2026-07-27.
 Живая приёмка части сценариев на Finam id=3. Данные/запись — 7h ([../phase7h/incident.md](../phase7h/incident.md)).
@@ -173,8 +173,8 @@ abandoned:     |red [yellow|red body]      |   ← обрыв без green («н
   (`368bfb9`).
 - **J11c `crash`:** клиент `abandonBackendOutageBySchedule` + Host `MarkCrashAbandonedByScheduleAsync`
   (Release + ribbon) + optimistic `overlayCrashOutageOnLink` — **КОД ГОТОВ** (working tree 2026-07-27).
-- **J11b `abandoned_manual`:** `TryAbandonIncidentByManualAsync` + clear `_incidentSince` (I11 B1) —
-  **КОД ГОТОВ** (2026-07-28).
+- **J11b `abandoned_manual`:** `CloseBreakAsync(abandoned_manual)` / `TryAbandonIncidentByManualAsync`
+  (I11 B1) — **КОД ГОТОВ** (2026-07-28).
 
 ### 1.3. Утро / рестарт бэка
 

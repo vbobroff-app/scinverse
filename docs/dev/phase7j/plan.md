@@ -9,9 +9,8 @@
 > (TRANSAQ→supervisor) + severity=error + ribbon v2** (7j.20 — [incident.md](incident.md)). Живой статус —
 > [report.md](report.md).
 
-**Статус:** инцидентный контур **7j.17–7j.20 + J11a/J11c КОД ГОТОВ** (связь v2, backend-outage,
-abandon schedule break/crash, system-NC JSON). Хвост инцидентов: **I11** (рассинхрон Manager↔Hub /
-зачистка костылей — [issue.md](issue.md) I11) + **J11b** (`abandoned_manual`).
+**Статус:** инцидентный контур **7j.17–7j.20 + J11a/b/c + I10/I11 КОД ГОТОВ** (связь v2,
+backend-outage, abandon, close-break sync Manager↔Hub). Живая приёмка I11.
 Очередь фазы (не инциденты): **7j.15** / **7j.16**. UI NC Thread → **phase 11**
 ([../phase11/plan.md](../phase11/plan.md)). Зависимости: **7h / 7h.8**, **7c**, **7e**. Соседняя **7i** —
 Auto записи. Gate Admin Front + NC — **11→12**. Детали — [apply.md](apply.md); статус —
@@ -72,38 +71,31 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 | 7j.18 | **Auto Connect: все исключения + инциденты** | **КОД ГОТОВ** | [auto-connect.md](auto-connect.md) |
 | 7j.19 | **Инциденты связи + точность разрыва** (I1–I5) | **КОД ГОТОВ** | [issue.md](issue.md) |
 | 7j.20 | **Инциденты связи v2** + **backend-outage v2** + system NC JSON + **J11a/J11c** abandon schedule | **КОД ГОТОВ** | [incident.md](incident.md) · [nc-availability.md](nc-availability.md) · [todo.md](todo.md) |
-| **7j.21** | **I11:** единый close-break (Manager+Hub); атомарный Adopt; снять костыли `auto:`/лента | **OPEN** | [issue.md](issue.md) I11 · [todo.md](todo.md) |
+| **7j.21** | **I11:** единый close-break (Manager+Hub); атомарный Adopt; снять костыли `auto:`/лента | **КОД ГОТОВ** | [issue.md](issue.md) I11 · [todo.md](todo.md) |
 | **7j.15** | Рыночный/календарный профиль на settings; UI без хардкода MOEX | **ОЧЕРЕДЬ** | [market-profile.md](market-profile.md) |
 | **7j.16** | `date`-авторинг на фронте + пагинация графика по месяцам | **ОЧЕРЕДЬ** | [todo.md](todo.md) |
 
 ## Что осталось в 7j / куда ушло
 
-**Инциденты связи/crash по сценариям 7j.20 закрыты по коду**, но **продюсер break ещё дырявый**:
-рассинхрон `_incidentSince` ↔ Hub (I11), хвост **J11b**. Дальше:
+**Инциденты связи/crash + I11 close-break — код готов.** Дальше:
 
-1. **7j.21 / I11 + J11b** — единый close-break, атомарный Adopt, убрать throwaway Group / paint-fallback
-   ([issue.md](issue.md) I11) — **текущий фокус зачистки**, не новые подпорки.
-2. **7j.15 / 7j.16** — market profile / `date`-авторинг ([todo.md](todo.md)) — когда вернёмся к расписанию.
-3. **UI NC Thread** — не 7j: **phase 11** (11.8–11.12) — [../phase11/to-threads.md](../phase11/to-threads.md);
-   честная проекция зависит от sync продюсера (I11).
+1. **7j.21 / I11** — живая приёмка ([issue.md](issue.md) I11).
+2. **7j.15 / 7j.16** — market profile / `date`-авторинг ([todo.md](todo.md)).
+3. **UI NC Thread** — **phase 11** (11.8–11.12) — [../phase11/to-threads.md](../phase11/to-threads.md).
 4. Смежно: **H1/H2** (recording-ribbon, 7h); **7i** Auto записи; **не** WebGL до gate 11→12.
 
 ### 7j.21 — план зачистки I11 (без наращивания костылей)
 
 Порядок работ (код — отдельно, после согласования):
 
-1. **Close-break helper** в `ConnectionManager`: clear `_incidentSince`/`_incidentOwner` +
-   `Hub.Resolve` с `closeOutcome` ∈ {`recovered`, `abandoned_schedule`, `abandoned_manual`}.
-   Звать из recovered / schedule abandon / **J11b** manual off (вместо голого Resolve в endpoint).
-2. **Adopt атомарно** (I10): Hub сначала или rollback Manager при отказе Hub.
-3. **Connect-fail → `link:`** без `fails>0`-прокси и без throwaway Group на fail —
-   **КОД ГОТОВ** (короткий `auto:`/`connect:` Group только после успешного connect).
-4. **Лента:** маркеры handover только из `link_liveness`; frontend synthetic `from+60s` и
-   Transfer-на-teardown сняты — **КОД ГОТОВ**.
-5. Доки: [auto-connect.md](auto-connect.md) (эскалация с 1-го fail), [incident.md](incident.md) §1.2
-   (`abandoned_manual`) — частично (connect-fail + J11b + лента).
+1. **Close-break helper** `CloseBreakAsync` — **КОД ГОТОВ**
+   (`recovered` / `abandoned_schedule` / `abandoned_manual`).
+2. **Adopt атомарно** (I10) — **КОД ГОТОВ**.
+3. **Connect-fail → `link:`** без throwaway Group — **КОД ГОТОВ**.
+4. **Лента** без synthetic `from+60s` / Transfer-на-teardown — **КОД ГОТОВ**.
+5. Доки: [auto-connect.md](auto-connect.md), [incident.md](incident.md) §1.2 — **ГОТОВО**.
 
-Критерий: после manual off / failed Adopt / reconnect ×N — нет «тишины» Progress/Append;
+Критерий приёмки: после manual off / failed Adopt / reconnect ×N — нет «тишины» Progress/Append;
 гант break = red 1px → yellow ≤T → red → green 1px **из данных**, не из UI-fallback.
 
 ---

@@ -2,9 +2,9 @@
 
 **Обновлено:** 2026-07-28.
 
-Ядро фазы (**7j.17–7j.20** + **J11a/J11c**) по сценариям инцидентов — **сделано**.
-Текущий фокус зачистки продюсера break: **I11 / 7j.21** ([issue.md](issue.md) I11) + **J11b**.
-UI NC Thread — **phase 11** ([../phase11/plan.md](../phase11/plan.md)).
+Ядро фазы (**7j.17–7j.20** + **J11a/b/c** + **I10/I11**) по сценариям инцидентов — **код готов**.
+Остаток 7j (не инциденты): **7j.15** / **7j.16**. UI NC Thread — **phase 11**
+([../phase11/plan.md](../phase11/plan.md)).
 
 ---
 
@@ -48,7 +48,7 @@ UI пресетов захардкожен под MOEX; рынок (CME и др.
 |---|-----|--------|
 | **J11a** | `break` + `abandoned_schedule` | **DONE** (`368bfb9`) |
 | **J11c** | `crash` + `abandoned_schedule` (клиент orchestrate + Host Release/ribbon) + optimistic ribbon overlay | **КОД ГОТОВ** (working tree 2026-07-27; закоммитить в чате phase11 или отдельно) |
-| **I11 / 7j.21** | Рассинхрон Manager↔Hub; единый close-break; атомарный Adopt; снять костыли `auto:`/лента | **OPEN** — B1+B2+connect-fail+лента готово; close-helper хвост ([issue.md](issue.md) I11) |
+| **I11 / 7j.21** | Рассинхрон Manager↔Hub; единый close-break; атомарный Adopt; снять костыли `auto:`/лента | **КОД ГОТОВ** — живая приёмка ([issue.md](issue.md) I11) |
 | **J11b** | `abandoned_manual` (ручной off при open break) — часть I11 close-break | **КОД ГОТОВ** (I11 B1) |
 | **I10** | После crash/рестарта: adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ**; Adopt атомарный (I11 B2) |
 | **UI outage mask** | При crash open: тумблер «OHS недоступен» (жёлтый) + AUTO жёлтый | **КОД ГОТОВ** (`backendOutage$`) |
