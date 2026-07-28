@@ -80,4 +80,10 @@ public interface INotificationPublisher
     /// Идемпотентно при том же corr; иначе false (уже открыт другой / невалидный status).
     /// </summary>
     bool Adopt(string subject, string correlationId, string status);
+
+    /// <summary>
+    /// I11 B2: снять adopted open из памяти хаба без NC-события (откат, если Manager.Adopt отказал).
+    /// false — subject не open или corr не совпал.
+    /// </summary>
+    bool Forget(string subject, string? correlationId = null);
 }

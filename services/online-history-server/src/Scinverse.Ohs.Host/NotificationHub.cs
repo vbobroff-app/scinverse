@@ -195,6 +195,31 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         }
     }
 
+    /// <inheritdoc />
+    public bool Forget(string subject, string? correlationId = null)
+    {
+        if (string.IsNullOrWhiteSpace(subject))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            if (!_openIncidents.TryGetValue(subject, out var open))
+            {
+                return false;
+            }
+
+            if (correlationId is not null
+                && !string.Equals(open.CorrelationId, correlationId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return _openIncidents.Remove(subject);
+        }
+    }
+
     private bool Transition(
         string subject,
         string targetStatus,

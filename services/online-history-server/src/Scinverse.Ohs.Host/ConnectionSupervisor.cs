@@ -455,17 +455,23 @@ public sealed class ConnectionSupervisor(
             return;
         }
 
-        if (!connections.AdoptOpenIncident(connectionId, open.OpenedAt, owner: "supervisor"))
-        {
-            return;
-        }
-
+        // I11 B2: Hub — ворота Progress/Append. Сначала Hub, потом Manager;
+        // отказ Manager → Forget Hub (без Resolve-события). Отказ Hub → ничего не сеем.
         var subject = ConnectionManager.LinkIncidentSubject(connectionId);
         if (!notifications.Adopt(subject, open.CorrelationId, open.Status))
         {
             logger.LogWarning(
                 "ConnectionSupervisor: Hub.Adopt отказал для {Subject} corr={Corr} status={Status}",
                 subject, open.CorrelationId, open.Status);
+            return;
+        }
+
+        if (!connections.AdoptOpenIncident(connectionId, open.OpenedAt, owner: "supervisor"))
+        {
+            notifications.Forget(subject, open.CorrelationId);
+            logger.LogWarning(
+                "ConnectionSupervisor: Manager.Adopt отказал после Hub — откат Hub для {Subject} corr={Corr}",
+                subject, open.CorrelationId);
             return;
         }
 

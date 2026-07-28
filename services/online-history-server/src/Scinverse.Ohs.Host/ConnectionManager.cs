@@ -86,6 +86,15 @@ public sealed class ConnectionManager(
     }
 
     /// <summary>
+    /// I11 B2: откат <see cref="AdoptOpenIncident"/> если Hub.Adopt отказал — без NC-строки.
+    /// </summary>
+    public bool ClearAdoptedIncident(long connectionId)
+    {
+        _incidentOwner.TryRemove(connectionId, out _);
+        return _incidentSince.TryRemove(connectionId, out _);
+    }
+
+    /// <summary>
     /// Первый fail connect при отсутствии open break → открыть <c>link:</c> Incident.
     /// Все дальнейшие попытки (auto ×N / ручной тумблер ×25) пишут в этот же corr.
     /// true — только что открыли; false — break уже был.

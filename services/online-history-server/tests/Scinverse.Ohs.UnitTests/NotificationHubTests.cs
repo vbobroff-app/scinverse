@@ -101,6 +101,21 @@ public sealed class NotificationHubTests
     }
 
     [Fact]
+    public void Forget_rollsBackAdopt_withoutEmitting_thenOpenAllowed()
+    {
+        var hub = NewHub();
+        const string subject = "connection:4:link";
+        const string corr = "connection:4:link:dddd4444";
+
+        hub.Adopt(subject, corr, "active").Should().BeTrue();
+        hub.Forget(subject, corr).Should().BeTrue();
+        hub.List().Should().BeEmpty("Forget не пишет NC");
+        hub.Progress(subject, "connection.reconnecting", "x").Should().BeFalse("после Forget open нет");
+        hub.Open(subject, "connection.lost", "down").Should().BeTrue("Hub снова свободен");
+        hub.Forget(subject, "connection:4:link:other").Should().BeFalse("чужой corr не снимаем");
+    }
+
+    [Fact]
     public void Resolve_withoutOpenIncident_isNoop()
     {
         var hub = NewHub();

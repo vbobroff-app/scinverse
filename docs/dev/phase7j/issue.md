@@ -572,9 +572,8 @@ I2 (recovered после реконнекта — частный случай п
 **B1. Ручной disconnect (J11b).** ~~Hub `Resolve` без clear Manager~~ →
 `TryAbandonIncidentByManualAsync` (Manager+Hub, `abandoned_manual`). **КОД ГОТОВ** (2026-07-28).
 
-**B2. I10 Adopt не атомарный.**  
-`TryAdoptOpenBreakFromAuditAsync`: сначала `AdoptOpenIncident` (Manager), потом `Hub.Adopt`.  
-Hub отказал → log + return, Manager уже open → та же чёрная дыра.
+**B2. I10 Adopt не атомарный.** ~~Manager → Hub без отката~~ → Hub.Adopt сначала,
+затем Manager; отказ Manager → `Hub.Forget` (без NC-строки). **КОД ГОТОВ** (2026-07-28).
 
 ### Костыли / шум (не «убивают», но плодят баги)
 
@@ -656,7 +655,7 @@ Connect-fail:
 | I8 | Простой бэка: live ≠ reload | Sender + единый corr + персист стека + warn-before-ok | РЕАЛИЗОВАНО |
 | I9 | UI пустой: `localhost`→`::1`, IPv6 Kestrel залип | proxy → `127.0.0.1`; prod: bind/health/proxy family | MITIGATION / prod OPEN |
 | I10 | После crash: break `active` + восстановление в Group `auto:` | Adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ** |
-| I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **OPEN** (B1/J11b готово) |
+| I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **OPEN** (B1+B2 готово) |
 
 Остаток 7j: 7j.15/7j.16 + **I11 / J11b** ([todo.md](todo.md)); I10 — живая приёмка.
 NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).
