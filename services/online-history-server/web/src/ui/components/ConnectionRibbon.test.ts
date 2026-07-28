@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CaptureGapDto } from '../../core/types';
-import { resolveEscalatedMs } from './ConnectionRibbon';
+import { resolveEscalatedMs } from './connectionRibbonGaps';
 
 describe('resolveEscalatedMs', () => {
   const from = Date.parse('2026-07-28T06:44:49.000Z');

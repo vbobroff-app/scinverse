@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { MONTHS_RU, MonthGrid } from './MonthGrid';
+import { MonthGrid } from './MonthGrid';
+import { MONTHS_RU } from './monthGridModel';
 import { CalendarIcon } from './icons';
 import styles from './DatePicker.module.css';
 

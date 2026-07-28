@@ -43,15 +43,16 @@ import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { ConfirmDialog, type MessageBoxSeverity } from './ConfirmDialog';
 import { CalendarIcon, EyeIcon, PencilIcon } from './icons';
-import { layerTone, staticPreviewTone, StaticExceptionCalendar } from './StaticExceptionCalendar';
+import { StaticExceptionCalendar } from './StaticExceptionCalendar';
+import { ScheduleWindowRibbon } from './ScheduleWindowRibbon';
 import {
   DAY_MIN,
   HORIZON_HI,
   MAX_SPAN_MIN,
   OPEN_LO,
-  ScheduleWindowRibbon,
   templateToAxisMins,
-} from './ScheduleWindowRibbon';
+} from './scheduleWindowAxis';
+import { layerTone, staticPreviewTone } from './staticExceptionTones';
 import { WeeklyDayColumns, type DayColumn } from './WeeklyDayColumns';
 import styles from './ConnectionSchedulePopover.module.css';
 

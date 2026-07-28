@@ -22,7 +22,8 @@ import type {
   RecordingDto,
   SessionDto,
 } from '../../core/types';
-import { RecordingAutoToggle, autoPhase, type AutoPhase } from './RecordingAutoToggle';
+import { RecordingAutoToggle } from './RecordingAutoToggle';
+import { autoPhase, type AutoPhase } from './recordingAutoPhase';
 import styles from './InstrumentPicker.module.css';
 
 const ROW_HEIGHT = 50;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { MONTHS_RU, MonthGrid } from './MonthGrid';
+import { MonthGrid } from './MonthGrid';
+import { MONTHS_RU } from './monthGridModel';
 import styles from './DateRangePicker.module.css';
 
 export interface DateDayAppearance {

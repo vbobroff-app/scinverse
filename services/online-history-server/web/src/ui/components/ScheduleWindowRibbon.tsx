@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  AXIS_MIN,
+  DAY_MIN,
+  HORIZON_HI,
+  MAX_SPAN_MIN,
+  OPEN_HI,
+  OPEN_LO,
+  SNAP,
+} from './scheduleWindowAxis';
 import styles from './ScheduleWindowRibbon.module.css';
 
-const DAY_MIN = 24 * 60;
-const AXIS_MIN = 48 * 60;
-/** Окно соединения ≤ одних суток (duration). */
-const MAX_SPAN_MIN = DAY_MIN;
-/**
- * Сессия: open только сегодня, close сегодня|завтра.
- * Hard frame: start ∈ [00:00 today, 24:00 today), end ≤ 24:00 tomorrow.
- */
-const OPEN_LO = 0;
-const OPEN_HI = DAY_MIN;
-const HORIZON_HI = AXIS_MIN;
-const SNAP = 5;
 /** Peek вчера при упоре в 00:00 today (без постановки маркеров во вчера). */
 const OVERSCROLL_PEEK = 40;
 const PEEK_MAX = 0.18;
@@ -507,69 +504,3 @@ export function ScheduleWindowRibbon({
     </div>
   );
 }
-
-/**
- * Шаблон open/close + pad → start/end от полуночи сегодня.
- * null, если duration >24ч, open не сегодня, или open уходит во вчера (pad слишком большой).
- */
-export function templateToAxisMins(
-  openH: number,
-  openM: number,
-  closeH: number,
-  closeM: number,
-  padHours: number,
-  minSpanMin = 60,
-): { startMin: number; endMin: number } | null {
-  const startMin = snapMin(openH * 60 + openM - padHours * 60);
-  const endMin = snapMin(closeH * 60 + closeM + padHours * 60);
-  const span = endMin - startMin;
-  if (span < minSpanMin || span > MAX_SPAN_MIN || endMin <= startMin) {
-    return null;
-  }
-  // Open только сегодня; shift не может увести start во вчера / в завтра.
-  if (startMin < OPEN_LO || startMin >= OPEN_HI) {
-    return null;
-  }
-  if (endMin > HORIZON_HI) {
-    return null;
-  }
-  return { startMin, endMin };
-}
-
-/** HH:mm → минуты 0..1439. */
-export function parseHmToMin(hhmm: string): number {
-  const [hh, mm] = hhmm.split(':').map((x) => Number(x));
-  return (hh || 0) * 60 + (mm || 0);
-}
-
-/** Минуты → HH:mm в пределах суток. */
-export function fmtMinToHm(total: number): string {
-  return fmtClock(total);
-}
-
-/**
- * Из API-окон HH:mm → минуты от полуночи сегодня (overnight: end уезжает во «завтра»).
- * Open зажимается в сегодня.
- */
-export function windowToAxisMins(startHm: string, endHm: string): { startMin: number; endMin: number } {
-  let startMin = snapMin(parseHmToMin(startHm));
-  let endMin = snapMin(parseHmToMin(endHm));
-  if (endMin <= startMin) {
-    endMin += DAY_MIN;
-  }
-  startMin = clamp(startMin, OPEN_LO, maxOpenMin());
-  endMin = clamp(endMin, startMin + SNAP, Math.min(HORIZON_HI, startMin + MAX_SPAN_MIN));
-  return { startMin, endMin };
-}
-
-/** Абсолютные минуты → пара HH:mm для API. */
-export function axisMinsToWindow(startMin: number, endMin: number): { start: string; end: string } {
-  return {
-    start: fmtMinToHm(startMin),
-    end: fmtMinToHm(endMin),
-  };
-}
-
-export { DAY_MIN, AXIS_MIN, MAX_SPAN_MIN, OPEN_LO, OPEN_HI, HORIZON_HI, SNAP };
-/** @deprecated alias — сессия не уходит во вчера; open ≥ 00:00 today. */
-export const HORIZON_LO = OPEN_LO;

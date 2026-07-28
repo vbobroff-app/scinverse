@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { OhsApi } from '../../core/api';
-import { MONTHS_RU, MonthGrid, isoDate } from '../components/MonthGrid';
+import { MonthGrid } from '../components/MonthGrid';
+import { MONTHS_RU, isoDate } from '../components/monthGridModel';
 import type { CalendarDayDto, CalendarDayKind } from '../../core/types';
 import styles from './ExchangeCalendar.module.css';
 
