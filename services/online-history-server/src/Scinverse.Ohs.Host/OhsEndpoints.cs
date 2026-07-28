@@ -604,45 +604,37 @@ public static class OhsEndpoints
                 }
             }
 
-            // Нет open break — штатная Group connect: (намерение + connecting → connected|failed).
-            var attempt = $"connection:{id}:connect:{Guid.NewGuid().ToString("N")[..8]}";
-
+            // I11: нет open break — user intent без corr; Group connect: только после успеха.
+            // Fail → Open link: Incident (без throwaway connect: Group).
             notifications.Publish(
                 "connection.connect",
                 $"{label}: подключение по команде оператора",
-                severity: "info", sourceType: "user", correlationId: attempt, data: new { connectionId = id });
+                severity: "info", sourceType: "user", data: new { connectionId = id });
 
             var previous = await linkLiveness.GetLastAsync(connection.SourceId, ct);
-
-            notifications.Publish(
-                "connection.connecting",
-                $"{label}: устанавливаю связь…",
-                severity: "warning", sourceType: "system", status: "underway", correlationId: attempt,
-                data: new { connectionId = id, threadKindHint = NotificationThreadData.KindGroup });
 
             try
             {
                 var status = await manager.ConnectAsync(id, ct);
+                var attempt = $"connection:{id}:connect:{Guid.NewGuid().ToString("N")[..8]}";
+                notifications.Publish(
+                    "connection.connecting",
+                    $"{label}: устанавливаю связь…",
+                    severity: "warning", sourceType: "system", status: "underway", correlationId: attempt,
+                    data: new { connectionId = id, threadKindHint = NotificationThreadData.KindGroup });
                 notifications.Publish(
                     "connection.connected",
                     $"{label}: связь установлена.",
                     severity: "ok", sourceType: "system", status: "resolved", correlationId: attempt,
-                    data: ConnectionManager.FormatConnectedNotificationData(id, previous, sender: "backend"));
+                    data: NotificationThreadData.WithHints(
+                        ConnectionManager.FormatConnectedNotificationData(id, previous, sender: "backend"),
+                        threadKindHint: NotificationThreadData.KindGroup));
                 recordingSupervisor.Nudge();
                 return Results.Ok(ToDto(connection, status));
             }
             catch (InvalidOperationException ex)
             {
                 var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, label, ex.Message);
-                // Закрыть connect: Group, открыть link: Incident — все дальнейшие попытки (×N) в тот же corr.
-                notifications.Publish(
-                    "connection.connect_failed",
-                    failedMessage,
-                    severity: "error",
-                    sourceType: "system",
-                    status: "resolved",
-                    correlationId: attempt,
-                    data: NotificationThreadData.WithHints(failedData, threadKindHint: NotificationThreadData.KindGroup));
                 manager.EnsureBreakIncidentOnConnectFailure(id, DateTimeOffset.UtcNow, label);
                 notifications.Append(
                     linkSubject,
@@ -655,14 +647,6 @@ public static class OhsEndpoints
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, label, ex.Message);
-                notifications.Publish(
-                    "connection.connect_failed",
-                    failedMessage,
-                    severity: "error",
-                    sourceType: "system",
-                    status: "resolved",
-                    correlationId: attempt,
-                    data: NotificationThreadData.WithHints(failedData, threadKindHint: NotificationThreadData.KindGroup));
                 manager.EnsureBreakIncidentOnConnectFailure(id, DateTimeOffset.UtcNow, label);
                 notifications.Append(
                     linkSubject,

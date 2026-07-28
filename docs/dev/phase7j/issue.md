@@ -577,21 +577,21 @@ I2 (recovered после реконнекта — частный случай п
 
 ### Костыли / шум (не «убивают», но плодят баги)
 
-| Костыль | Где | Зачем появился |
-|---------|-----|----------------|
-| `status=resolved` на `connect_failed` Group | Supervisor / `POST connect` | закрыть throwaway `auto:`/`connect:` до Open `link:` |
-| `fails > 0` ≈ `incidentOpen` | Supervisor | не чеканить второй `auto:` после 1-го fail |
-| Dual/triple write на 1-й fail | auto + manual | Group close + Open lost (+ Append fail) |
-| Throwaway Group `auto:`/`connect:` | kickoff / 1-й ручной | Group только до первого fail |
-| `threadKindHint` overrides | data | `connect_failed` сам не Open-код |
-| Paint-fallback `from+60s` без `escalatedAt` | `ConnectionRibbon` | исторические дыры без маркера handover |
-| Transfer на любом teardown при `owner=transaq` | `DisconnectAsync` | подпорка маркера ленты, не модель close |
+| Костыль | Где | Статус |
+|---------|-----|--------|
+| `status=resolved` на `connect_failed` Group | Supervisor / `POST connect` | **СНЯТ** — fail → Open `link:` + Append, без Group-`resolved` |
+| `fails > 0` ≈ `incidentOpen` | Supervisor | **СНЯТ** — только `GetIncidentSince` |
+| Dual/triple write на 1-й fail | auto + manual | **СНЯТ** — EnsureBreak + Append в `link:` |
+| Throwaway Group `auto:`/`connect:` на fail | kickoff / 1-й ручной | **СНЯТ** — короткий Group только после **успешного** connect |
+| `threadKindHint` overrides | data | частично нужен для Group на success; Open `link:` — KindIncident |
+| Paint-fallback `from+60s` без `escalatedAt` | `ConnectionRibbon` | **OPEN** — снять после приёмки маркеров |
+| Transfer на любом teardown при `owner=transaq` | `DisconnectAsync` | **OPEN** — подпорка маркера ленты |
 
 ### Асимметрии (дизайн, не баг)
 
 - Auto стоп на ×5, ручной — ×∞ в тот же `link:`.
-- Docs `auto-connect.md` ещё местами описывают `connecting×N → failed` в одном `auto:` — код эскалирует
-  в `link:` с 1-го fail (обновить при зачистке).
+- Успешный kickoff / ручной connect без break → короткая Group `auto:`/`connect:`
+  (connecting→connected); любой fail → Incident `link:` с 1-го fail.
 
 ### Что уже чисто (не ломать)
 
@@ -655,7 +655,7 @@ Connect-fail:
 | I8 | Простой бэка: live ≠ reload | Sender + единый corr + персист стека + warn-before-ok | РЕАЛИЗОВАНО |
 | I9 | UI пустой: `localhost`→`::1`, IPv6 Kestrel залип | proxy → `127.0.0.1`; prod: bind/health/proxy family | MITIGATION / prod OPEN |
 | I10 | После crash: break `active` + восстановление в Group `auto:` | Adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ** |
-| I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **OPEN** (B1+B2 готово) |
+| I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **OPEN** (B1+B2+connect-fail готово; лента OPEN) |
 
 Остаток 7j: 7j.15/7j.16 + **I11 / J11b** ([todo.md](todo.md)); I10 — живая приёмка.
 NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).

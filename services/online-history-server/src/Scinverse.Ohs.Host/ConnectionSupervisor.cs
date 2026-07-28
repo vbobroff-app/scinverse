@@ -40,9 +40,6 @@ public sealed class ConnectionSupervisor(
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly ConcurrentDictionary<long, int> _failCounts = new();
     private readonly ConcurrentDictionary<long, DateTimeOffset> _nextAttemptAt = new();
-    // correlationId авто-серии (7j.18): connecting×N → connected/connect_failed сворачиваются в один
-    // сеанс; создаётся на первой попытке, снимается при успехе/исчерпании/сбросе.
-    private readonly ConcurrentDictionary<long, string> _autoCorr = new();
     // Дедуп сбоев тика по подключению (7j.18): сигнатура последней ошибки — чтобы не спамить NC.
     private readonly ConcurrentDictionary<long, string> _tickError = new();
     // 7j.20: детект «плановый старт окна» (kickoff). _prevDesired — предыдущее IsConnectDesired на тике;
@@ -245,7 +242,6 @@ public sealed class ConnectionSupervisor(
         {
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
-            _autoCorr.TryRemove(connectionId, out _);
             // Открытый break → closing-warn в том же corr + клип ленты (Abandoned); иначе обычный info.
             var abandoned = await connections
                 .TryAbandonIncidentByScheduleAsync(connectionId, nowUtc, cancellationToken)
@@ -277,7 +273,6 @@ public sealed class ConnectionSupervisor(
         {
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
-            _autoCorr.TryRemove(connectionId, out _);
             await TickRecoveringAsync(connectionId, nowUtc, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -295,12 +290,10 @@ public sealed class ConnectionSupervisor(
 
         var scheduleLabel = await connections.ResolveLabelAsync(connectionId, cancellationToken)
             .ConfigureAwait(false);
-        // Open break ИЛИ уже были fail в этой серии → всё в link: (один corr на все попытки).
-        // auto: Group — только чистый kickoff (fails==0 и нет инцидента) до первого fail/успеха.
-        var incidentOpen = connections.GetIncidentSince(connectionId) is not null
-            || fails > 0;
+        // I11: источник правды — только Manager open break (не fails>0).
+        // auto: Group — только после успешного kickoff (не throwaway на fail).
+        var incidentOpen = connections.GetIncidentSince(connectionId) is not null;
         var linkSubject = ConnectionManager.LinkIncidentSubject(connectionId);
-        string? corr = null;
 
         if (incidentOpen)
         {
@@ -315,24 +308,6 @@ public sealed class ConnectionSupervisor(
                     owner = "supervisor",
                     sender = "supervisor",
                     attempt = fails + 1,
-                });
-        }
-        else
-        {
-            corr = _autoCorr.GetOrAdd(
-                connectionId, id => $"connection:{id}:auto:{Guid.NewGuid().ToString("N")[..8]}");
-            notifications.Publish(
-                "connection.connecting",
-                $"{scheduleLabel}: подключаю по расписанию, попытка {fails + 1}/{MaxConnectAttempts}…",
-                severity: "warning",
-                status: "underway",
-                correlationId: corr,
-                data: new
-                {
-                    connectionId,
-                    attempt = fails + 1,
-                    sender = "supervisor",
-                    threadKindHint = NotificationThreadData.KindGroup,
                 });
         }
 
@@ -354,19 +329,31 @@ public sealed class ConnectionSupervisor(
             await connections.ConnectAsync(connectionId, cancellationToken).ConfigureAwait(false);
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
-            _autoCorr.TryRemove(connectionId, out _);
-            // Плановое подключение → «связь установлена» (штатная auto-серия). При инциденте успех уже отражён
-            // как connection.recovered (испущен из ConnectAsync при закрытии инцидента) — второй раз не шумим.
+            // Успешный kickoff без break → короткая Group auto: (connecting→connected), не до fail.
             if (!incidentOpen && connectedData is not null)
             {
                 _kickoffPending.TryRemove(connectionId, out _);
+                var corr = $"connection:{connectionId}:auto:{Guid.NewGuid().ToString("N")[..8]}";
+                notifications.Publish(
+                    "connection.connecting",
+                    $"{scheduleLabel}: подключаю по расписанию…",
+                    severity: "warning",
+                    status: "underway",
+                    correlationId: corr,
+                    data: new
+                    {
+                        connectionId,
+                        sender = "supervisor",
+                        threadKindHint = NotificationThreadData.KindGroup,
+                    });
                 notifications.Publish(
                     "connection.connected",
                     $"{scheduleLabel}: связь установлена (Auto)",
                     severity: "ok",
                     status: "resolved",
                     correlationId: corr,
-                    data: connectedData);
+                    data: NotificationThreadData.WithHints(
+                        connectedData, threadKindHint: NotificationThreadData.KindGroup));
             }
 
             logger.LogInformation(
@@ -381,45 +368,26 @@ public sealed class ConnectionSupervisor(
                 "ConnectionSupervisor: connect fail {ConnectionId} ({Attempt}/{Max})",
                 connectionId, nextFails, MaxConnectAttempts);
 
-            // Первый fail без break → открыть link: Incident; закрыть auto: Group если была.
-            // Дальше auto ×N и ручные попытки пишут в этот же corr (не плодим auto:/connect:).
-            if (connections.EnsureBreakIncidentOnConnectFailure(connectionId, nowUtc, scheduleLabel)
-                && !incidentOpen
-                && corr is not null)
-            {
-                notifications.Publish(
-                    "connection.connect_failed",
-                    $"{scheduleLabel}: не удалось подключиться",
-                    severity: "error",
-                    status: "resolved",
-                    correlationId: corr,
-                    data: new
-                    {
-                        connectionId,
-                        sender = "supervisor",
-                        threadKindHint = NotificationThreadData.KindGroup,
-                    });
-                _autoCorr.TryRemove(connectionId, out _);
-            }
+            // Fail → link: Incident (без auto: Group). Дальше ×N только Progress/Append в link:.
+            connections.EnsureBreakIncidentOnConnectFailure(connectionId, nowUtc, scheduleLabel);
 
-            if (nextFails >= MaxConnectAttempts)
+            var failData = new
             {
-                _autoCorr.TryRemove(connectionId, out _);
-                var failData = new
-                {
-                    connectionId,
-                    attempts = nextFails,
-                    state = "Error",
-                    error_message = ConnectionManager.ExtractTransaqErrorMessage(ex.Message),
-                    sender = "supervisor",
-                };
-                notifications.Append(
-                    linkSubject,
-                    "connection.connect_failed",
-                    $"{scheduleLabel}: не удалось подключить за {MaxConnectAttempts} попыток",
-                    severity: "error",
-                    data: failData);
-            }
+                connectionId,
+                attempts = nextFails,
+                state = "Error",
+                error_message = ConnectionManager.ExtractTransaqErrorMessage(ex.Message),
+                sender = "supervisor",
+            };
+            var failMessage = nextFails >= MaxConnectAttempts
+                ? $"{scheduleLabel}: не удалось подключить за {MaxConnectAttempts} попыток"
+                : $"{scheduleLabel}: не удалось подключиться (попытка {nextFails}/{MaxConnectAttempts})";
+            notifications.Append(
+                linkSubject,
+                "connection.connect_failed",
+                failMessage,
+                severity: "error",
+                data: failData);
         }
     }
 

@@ -96,12 +96,12 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
    `Hub.Resolve` с `closeOutcome` ∈ {`recovered`, `abandoned_schedule`, `abandoned_manual`}.
    Звать из recovered / schedule abandon / **J11b** manual off (вместо голого Resolve в endpoint).
 2. **Adopt атомарно** (I10): Hub сначала или rollback Manager при отказе Hub.
-3. **Connect-fail → `link:`** без `fails>0`-прокси и без обязательного throwaway Group
-   (`resolved` на `connect_failed` только если оставляем короткий success-kickoff Group).
+3. **Connect-fail → `link:`** без `fails>0`-прокси и без throwaway Group на fail —
+   **КОД ГОТОВ** (короткий `auto:`/`connect:` Group только после успешного connect).
 4. **Лента:** маркеры handover только из `link_liveness`; снять frontend synthetic `from+60s`
-   после приёмки п.1–2.
+   после приёмки п.1–2 — **OPEN**.
 5. Доки: [auto-connect.md](auto-connect.md) (эскалация с 1-го fail), [incident.md](incident.md) §1.2
-   (`abandoned_manual`).
+   (`abandoned_manual`) — частично (connect-fail + J11b).
 
 Критерий: после manual off / failed Adopt / reconnect ×N — нет «тишины» Progress/Append;
 гант break = red 1px → yellow ≤T → red → green 1px **из данных**, не из UI-fallback.

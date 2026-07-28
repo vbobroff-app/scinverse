@@ -100,10 +100,15 @@
 | Ситуация | Код | Severity | Текст (цель) | corr |
 |----------|-----|----------|--------------|------|
 | Плановое отключение (вне окна) | `connection.schedule_disconnect` | info | `Подключение {id} («{name}»): плановое отключение по расписанию` | — |
-| Попытка N/max | `connection.connecting` | warning (`underway`) | `Подключение {id} («{name}»): подключаю по расписанию, попытка {n}/{max}…` | `connection:{id}:auto:{uid}` |
-| Успех | `connection.connected` | **ok** (`resolved`) | `Подключение {id} («{name}»): связь установлена{. Предыдущее подключение …}` (QUIK-хвост, как в ручном) | тот же |
-| Исчерпаны попытки | `connection.connect_failed` | error | `Подключение {id} («{name}»): не удалось подключить за {max} попыток` | тот же |
+| **Успешный** kickoff (нет open break) | `connecting` → `connected` | warning→**ok** | короткая Group после успеха | `connection:{id}:auto:{uid}` |
+| 1-й fail (нет open break) | `connection.lost` Open + `connect_failed` Append | error | эскалация в Incident | `connection:{id}:link:{uid}` |
+| Повтор N/max при open break | `connection.reconnecting` Progress | warning | попытка восстановления | тот же `link:` |
+| Исчерпаны попытки | `connection.connect_failed` Append | error | `… не удалось подключить за {max} попыток` | тот же `link:` |
 | **Сбой тика** (плановый disconnect, чтение расписания, резолвер и т.п.) | `connection.auto_error` | error | `Подключение {id} («{name}»): сбой авто-управления связью — {суть}` | — (дедуп по сигнатуре) |
+
+Прим. (I11): Group `auto:` **не** создаётся до fail и **не** закрывается через `resolved` на
+`connect_failed`. Fail → `EnsureBreakIncidentOnConnectFailure` + Append в `link:`. Ручной
+`POST …/connect` — тот же контракт (`connect:` Group только после успеха).
 
 Прим.: `connection.auto_error` закрывает «молчаливые» фоновые падения тика супервизора (кроме
 connect-фейлов — у них своя серия). Дедуп по сигнатуре исключения: одинаковая ошибка не спамит NC
