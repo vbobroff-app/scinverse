@@ -56,8 +56,13 @@ export { filterItems, type NotificationItemFilter, type NcChoiceFilter } from '.
 export {
   NC_MARKS_STORAGE_KEY,
   loadNcMarks,
+  resolveEntryMarks,
+  resolveThreadHeaderMarks,
   saveNcMarks,
+  setNcMarksForIds,
+  setThreadBulkMarks,
   toggleNcMark,
+  type NcMarkKey,
   type NcMarkMap,
 } from './ui/ncMarks';
 export { ThreadBlock } from './ui/ThreadBlock';

@@ -1,6 +1,7 @@
 # NC Dock Settings — опции отображения
 
-Связано: [apply.md](apply.md) (I2), [to-threads.md](to-threads.md), пакет
+Связано: [apply.md](apply.md) (I2), [to-threads.md](to-threads.md),
+[nc-marks.md](nc-marks.md) (★/⊘ и фильтр «Выбор»), пакет
 `@scinverse/notification-center` (`dockSettings.ts`, `NotificationDock`).
 
 Персист: хост (OHS — `notificationDockStorage` / localStorage); позже phase 10 `user_settings`.

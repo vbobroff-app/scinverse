@@ -9,7 +9,16 @@ import {
   normalizeDockSettings,
   type NotificationDockSettings,
 } from './dockSettings';
-import { loadNcMarks, saveNcMarks, toggleNcMark, type NcMarkMap } from './ncMarks';
+import {
+  loadNcMarks,
+  resolveEntryMarks,
+  resolveThreadHeaderMarks,
+  saveNcMarks,
+  setThreadBulkMarks,
+  toggleNcMark,
+  type NcMarkKey,
+  type NcMarkMap,
+} from './ncMarks';
 import { NotificationRow } from './NotificationRow';
 import { ThreadBlock } from './ThreadBlock';
 import { Tip } from './Tooltip';
@@ -363,11 +372,11 @@ export function NotificationDock({
 
   const markedItems = useMemo((): NotificationItem[] => {
     return items.map((item) => {
-      const uid = item.itemKind === 'thread' ? item.uid : item.id;
-      const m = marks[uid];
-      if (!m) {
-        return item;
+      if (item.itemKind === 'thread') {
+        const m = resolveThreadHeaderMarks(marks, item);
+        return { ...item, isFavorite: m.isFavorite, isLeft: m.isLeft };
       }
+      const m = resolveEntryMarks(marks, item.id);
       return { ...item, isFavorite: m.isFavorite, isLeft: m.isLeft };
     });
   }, [items, marks]);
@@ -404,13 +413,25 @@ export function NotificationDock({
     });
   }, []);
 
-  const toggleMark = useCallback((uid: string, key: 'isFavorite' | 'isLeft') => {
+  const toggleMark = useCallback((uid: string, key: NcMarkKey) => {
     setMarks((prev) => {
       const next = toggleNcMark(prev, uid, key);
       saveNcMarks(next);
       return next;
     });
   }, []);
+
+  const toggleThreadHeaderMark = useCallback(
+    (thread: Extract<NotificationItem, { itemKind: 'thread' }>, key: NcMarkKey) => {
+      setMarks((prev) => {
+        const header = resolveThreadHeaderMarks(prev, thread);
+        const next = setThreadBulkMarks(prev, thread, key, !header[key]);
+        saveNcMarks(next);
+        return next;
+      });
+    },
+    [],
+  );
 
   // Live-tail: новые события → скролл вверх списка (новые сверху), пауза при ручном уходе.
   useEffect(() => {
@@ -680,7 +701,11 @@ export function NotificationDock({
               visible.map((item) => {
                 if (item.itemKind === 'thread') {
                   const threadUnread = (id: string) => {
-                    if (!showUnreadUi || item.isLeft || bus.isRead(id)) {
+                    if (!showUnreadUi || bus.isRead(id)) {
+                      return false;
+                    }
+                    const entryMarks = resolveEntryMarks(marks, id, item.uid);
+                    if (entryMarks.isLeft) {
                       return false;
                     }
                     const e = item.notifications.find((n) => n.id === id);
@@ -701,10 +726,13 @@ export function NotificationDock({
                       showStatusLogo={settings.showStatusLogo}
                       showType={settings.showType}
                       isEntryUnread={threadUnread}
+                      getEntryMarks={(entryId) => resolveEntryMarks(marks, entryId, item.uid)}
                       onOpenEntry={showUnreadUi ? onOpenRow : undefined}
                       onFilterIncident={filterByIncident}
-                      onToggleFavorite={() => toggleMark(item.uid, 'isFavorite')}
-                      onToggleLeft={() => toggleMark(item.uid, 'isLeft')}
+                      onToggleFavorite={() => toggleThreadHeaderMark(item, 'isFavorite')}
+                      onToggleLeft={() => toggleThreadHeaderMark(item, 'isLeft')}
+                      onToggleEntryFavorite={(entryId) => toggleMark(entryId, 'isFavorite')}
+                      onToggleEntryLeft={(entryId) => toggleMark(entryId, 'isLeft')}
                     />
                   );
                 }

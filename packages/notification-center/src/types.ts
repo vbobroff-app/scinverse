@@ -156,7 +156,7 @@ export const CLOSE_OUTCOMES: readonly CloseOutcome[] = [
   'abandoned_manual',
 ] as const;
 
-/** Клиентские метки ★ / ⦸ (v1 не в БД). */
+/** Клиентские метки ★ / ⊘ (`isLeft` = спам; v1 не в БД). */
 export interface NcMarks {
   isFavorite?: boolean;
   isLeft?: boolean;

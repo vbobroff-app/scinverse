@@ -24,7 +24,7 @@ export interface DockFilterState {
   statuses: NotificationStatus[];
   /** Статус нити (только Thread). */
   threadStatuses: ThreadStatus[];
-  /** Выбор: ★ favorite / ⦸ left. */
+  /** Выбор: ★ favorite (include) / ⊘ left=спам (exclude). */
   choices: NcChoiceFilter[];
   range: DockRangeFilter;
   query: string;

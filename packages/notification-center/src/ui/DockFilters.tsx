@@ -128,8 +128,8 @@ const THREAD_STATUS_OPTIONS: FilterOption[] = [
 ];
 
 const CHOICE_OPTIONS: FilterOption[] = [
-  { id: 'favorite', label: '★ Избранное' },
-  { id: 'left', label: '⦸ Отложено' },
+  { id: 'favorite', label: '★ Избранные' },
+  { id: 'left', label: '⊘ Скрывать спам' },
 ];
 
 function isFilterAtDefault(key: DockFilterKey, value: DockFilterState): boolean {

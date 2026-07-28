@@ -177,18 +177,18 @@ export function NotificationRow({
               </Tip>
             )}
             {onToggleLeft && (
-              <Tip content={isLeft ? 'Вернуть в ленту' : 'Отложить'}>
+              <Tip content={isLeft ? 'Показывать снова' : 'Скрывать спам'}>
                 <button
                   type="button"
                   className={[styles.markBtn, isLeft ? styles.markOn : ''].filter(Boolean).join(' ')}
                   aria-pressed={Boolean(isLeft)}
-                  aria-label="Отложить"
+                  aria-label="Скрывать спам"
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggleLeft();
                   }}
                 >
-                  ⦸
+                  ⊘
                 </button>
               </Tip>
             )}

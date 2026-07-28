@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { FormatTs } from '../format/formatTs';
-import type { NotificationEvent, ThreadItem } from '../types';
+import type { NcMarks, NotificationEvent, ThreadItem } from '../types';
 import { BreakIncidentIcon } from './BreakIncidentIcon';
 import { GroupStackIcon } from './GroupStackIcon';
 import { IncidentFlameIcon } from './IncidentFlameIcon';
@@ -31,10 +31,15 @@ interface Props {
   showType?: boolean;
   /** Непрочитанность по Entry id. */
   isEntryUnread?: (id: string) => boolean;
+  /** Маркеры Entry (уже с учётом legacy thread.uid). */
+  getEntryMarks?: (entryId: string) => NcMarks;
   onOpenEntry?: (event: NotificationEvent) => void;
   onFilterIncident?: (correlationId: string) => void;
+  /** Bulk header: any★ / all⊘. */
   onToggleFavorite?: () => void;
   onToggleLeft?: () => void;
+  onToggleEntryFavorite?: (entryId: string) => void;
+  onToggleEntryLeft?: (entryId: string) => void;
 }
 
 const STATUS_LABEL: Record<ThreadItem['threadStatus'], string> = {
@@ -61,10 +66,13 @@ export function ThreadBlock({
   showStatusLogo = true,
   showType = true,
   isEntryUnread,
+  getEntryMarks,
   onOpenEntry,
   onFilterIncident,
   onToggleFavorite,
   onToggleLeft,
+  onToggleEntryFavorite,
+  onToggleEntryLeft,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const newest = thread.notifications[thread.notifications.length - 1];
@@ -135,12 +143,18 @@ export function ThreadBlock({
         </span>
 
         <div className={styles.marks}>
-          <Tip content={thread.isFavorite ? 'Снять избранное' : 'В избранное'}>
+          <Tip
+            content={
+              thread.isFavorite
+                ? 'Снять ★ со всех Entry'
+                : 'Пометить ★ все Entry'
+            }
+          >
             <button
               type="button"
               className={[styles.markBtn, thread.isFavorite ? styles.markOn : ''].filter(Boolean).join(' ')}
               aria-pressed={Boolean(thread.isFavorite)}
-              aria-label="Избранное"
+              aria-label="Избранное (нить)"
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleFavorite?.();
@@ -149,18 +163,24 @@ export function ThreadBlock({
               ★
             </button>
           </Tip>
-          <Tip content={thread.isLeft ? 'Вернуть в ленту' : 'Отложить'}>
+          <Tip
+            content={
+              thread.isLeft
+                ? 'Снять ⊘ со всех Entry'
+                : 'Пометить ⊘ все Entry'
+            }
+          >
             <button
               type="button"
               className={[styles.markBtn, thread.isLeft ? styles.markOn : ''].filter(Boolean).join(' ')}
               aria-pressed={Boolean(thread.isLeft)}
-              aria-label="Отложить"
+              aria-label="Скрывать спам (нить)"
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleLeft?.();
               }}
             >
-              ⦸
+              ⊘
             </button>
           </Tip>
         </div>
@@ -168,18 +188,27 @@ export function ThreadBlock({
 
       {expanded && (
         <div className={styles.entries}>
-          {[...thread.notifications].reverse().map((entry) => (
-            <NotificationRow
-              key={entry.id}
-              event={entry}
-              formatTs={formatTs}
-              showStatusLogo={showStatusLogo}
-              showType={showType}
-              unread={Boolean(isEntryUnread?.(entry.id))}
-              onOpen={onOpenEntry}
-              onFilterIncident={onFilterIncident}
-            />
-          ))}
+          {[...thread.notifications].reverse().map((entry) => {
+            const entryMarks = getEntryMarks?.(entry.id) ?? {};
+            return (
+              <NotificationRow
+                key={entry.id}
+                event={entry}
+                formatTs={formatTs}
+                showStatusLogo={showStatusLogo}
+                showType={showType}
+                unread={Boolean(isEntryUnread?.(entry.id))}
+                isFavorite={entryMarks.isFavorite}
+                isLeft={entryMarks.isLeft}
+                onToggleFavorite={
+                  onToggleEntryFavorite ? () => onToggleEntryFavorite(entry.id) : undefined
+                }
+                onToggleLeft={onToggleEntryLeft ? () => onToggleEntryLeft(entry.id) : undefined}
+                onOpen={onOpenEntry}
+                onFilterIncident={onFilterIncident}
+              />
+            );
+          })}
         </div>
       )}
     </div>

@@ -84,7 +84,9 @@ function threadMatchesAtoms(
 /**
  * Фильтрация проекции Single | Thread.
  * `threadStatuses` — только Thread; при активном фильтре Single скрываются.
- * `choices` — ★ / ⦸ на контейнере (уже проставленные на item).
+ * `choices` — асимметрия (см. docs/dev/phase11/nc-marks.md):
+ *   ★ favorite — include; ⊘ left (спам) — exclude; при обеих ⊘ побеждает.
+ * Маркеры на item уже агрегированы (Single = Entry; Thread header = any★ / all⊘).
  */
 export function filterItems(
   items: readonly NotificationItem[],
@@ -109,10 +111,12 @@ export function filterItems(
   return items.filter((item) => {
     if (choices) {
       const wantFav = choices.has('favorite');
-      const wantLeft = choices.has('left');
-      const matchFav = wantFav && Boolean(item.isFavorite);
-      const matchLeft = wantLeft && Boolean(item.isLeft);
-      if (!matchFav && !matchLeft) {
+      const hideSpam = choices.has('left');
+      // ⊘ exclude — и побеждает ★, если обе галки on.
+      if (hideSpam && item.isLeft) {
+        return false;
+      }
+      if (wantFav && !item.isFavorite) {
         return false;
       }
     }

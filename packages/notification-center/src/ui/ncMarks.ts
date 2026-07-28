@@ -1,9 +1,10 @@
-import type { NcMarks } from '../types';
+import type { NcMarks, ThreadItem } from '../types';
 
-/** localStorage key: `nc.marks[uid]` → ★ / ⦸ (to-threads §5.3). */
+/** localStorage key: `nc.marks[uid]` → ★ / ⊘ (id события или legacy thread.uid). */
 export const NC_MARKS_STORAGE_KEY = 'nc.marks';
 
 export type NcMarkMap = Record<string, NcMarks>;
+export type NcMarkKey = 'isFavorite' | 'isLeft';
 
 export function loadNcMarks(): NcMarkMap {
   if (typeof localStorage === 'undefined') {
@@ -49,14 +50,49 @@ export function saveNcMarks(marks: NcMarkMap): void {
   }
 }
 
-export function toggleNcMark(
+/** Маркер Entry: своё значение, иначе legacy-метка на thread.uid (старые данные). */
+export function resolveEntryMarks(
   marks: NcMarkMap,
-  uid: string,
-  key: 'isFavorite' | 'isLeft',
-): NcMarkMap {
+  entryId: string,
+  threadUid?: string,
+): NcMarks {
+  const own = marks[entryId];
+  const legacy = threadUid ? marks[threadUid] : undefined;
+  return {
+    isFavorite: Boolean(own?.isFavorite || legacy?.isFavorite) || undefined,
+    isLeft: Boolean(own?.isLeft || legacy?.isLeft) || undefined,
+  };
+}
+
+/** Header ★ = any; header ⊘ = all (пустой стек → оба false). */
+export function resolveThreadHeaderMarks(
+  marks: NcMarkMap,
+  thread: Pick<ThreadItem, 'uid' | 'notifications'>,
+): NcMarks {
+  const entries = thread.notifications;
+  if (entries.length === 0) {
+    return {};
+  }
+  let anyFav = false;
+  let allSpam = true;
+  for (const e of entries) {
+    const m = resolveEntryMarks(marks, e.id, thread.uid);
+    if (m.isFavorite) {
+      anyFav = true;
+    }
+    if (!m.isLeft) {
+      allSpam = false;
+    }
+  }
+  return {
+    isFavorite: anyFav || undefined,
+    isLeft: allSpam || undefined,
+  };
+}
+
+function writeMark(marks: NcMarkMap, uid: string, key: NcMarkKey, value: boolean): NcMarkMap {
   const prev = marks[uid] ?? {};
-  const nextVal = !prev[key];
-  const next: NcMarks = { ...prev, [key]: nextVal || undefined };
+  const next: NcMarks = { ...prev, [key]: value || undefined };
   const copy = { ...marks };
   if (!next.isFavorite && !next.isLeft) {
     delete copy[uid];
@@ -64,4 +100,39 @@ export function toggleNcMark(
     copy[uid] = next;
   }
   return copy;
+}
+
+export function toggleNcMark(marks: NcMarkMap, uid: string, key: NcMarkKey): NcMarkMap {
+  const prev = marks[uid] ?? {};
+  return writeMark(marks, uid, key, !prev[key]);
+}
+
+/** Выставить маркер на набор id (bulk header). */
+export function setNcMarksForIds(
+  marks: NcMarkMap,
+  ids: readonly string[],
+  key: NcMarkKey,
+  value: boolean,
+): NcMarkMap {
+  let next = marks;
+  for (const id of ids) {
+    next = writeMark(next, id, key, value);
+  }
+  return next;
+}
+
+/**
+ * Bulk header: все Entry on/off + сброс legacy-метки на `thread.uid`
+ * (иначе resolveEntryMarks продолжит тянуть старый thread-level mark).
+ */
+export function setThreadBulkMarks(
+  marks: NcMarkMap,
+  thread: Pick<ThreadItem, 'uid' | 'notifications'>,
+  key: NcMarkKey,
+  value: boolean,
+): NcMarkMap {
+  const ids = thread.notifications.map((e) => e.id);
+  let next = setNcMarksForIds(marks, ids, key, value);
+  next = writeMark(next, thread.uid, key, false);
+  return next;
 }

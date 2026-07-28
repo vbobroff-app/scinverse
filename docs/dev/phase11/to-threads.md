@@ -233,7 +233,8 @@ interface NotificationBus {
 - `OhsStore` / `publishServerNotification` — без смены wire; опционально прокидывать
   `threadKindHint` / `closeOutcome` когда Host начнёт слать.
 - Локальные клиентские события (optimistic) — те же атомы; проекция подхватит.
-- Метки ★/⦸: `localStorage` или `user_settings` (phase 10) — ключ `nc.marks[uid]`.
+- Метки ★/⊘: `localStorage` или `user_settings` (phase 10) — ключ `nc.marks[id]`;
+  правила UI/фильтра — [nc-marks.md](nc-marks.md).
 
 ### 5.4 Backend (Host)
 

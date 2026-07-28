@@ -58,7 +58,7 @@ describe('filterItems', () => {
     expect(visible[0]?.itemKind === 'thread' && visible[0].uid).toBe('c1');
   });
 
-  it('choice filter keeps favorite containers', () => {
+  it('choice ★ keeps only favorites', () => {
     const items = projectThreads([
       evt({ id: 's1', code: 'ping', message: 'solo' }),
       evt({ id: 's2', code: 'pong', message: 'other' }),
@@ -66,5 +66,59 @@ describe('filterItems', () => {
     const visible = filterItems(items, { choices: ['favorite'] });
     expect(visible).toHaveLength(1);
     expect(visible[0]?.itemKind === 'single' && visible[0].id).toBe('s1');
+  });
+
+  it('choice ⊘ excludes spam containers', () => {
+    const items = projectThreads([
+      evt({ id: 's1', code: 'ping', message: 'solo' }),
+      evt({ id: 's2', code: 'pong', message: 'spam' }),
+    ]).map((item, i) => (i === 1 ? { ...item, isLeft: true } : item));
+    const visible = filterItems(items, { choices: ['left'] });
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.itemKind === 'single' && visible[0].id).toBe('s1');
+  });
+
+  it('choice ★+⊘: spam wins over favorite', () => {
+    const items = projectThreads([
+      evt({ id: 'fav', code: 'ping', message: 'keep' }),
+      evt({ id: 'both', code: 'pong', message: 'dual' }),
+      evt({ id: 'spam', code: 'zap', message: 'hide' }),
+    ]).map((item) => {
+      if (item.itemKind !== 'single') {
+        return item;
+      }
+      if (item.id === 'fav') {
+        return { ...item, isFavorite: true };
+      }
+      if (item.id === 'both') {
+        return { ...item, isFavorite: true, isLeft: true };
+      }
+      if (item.id === 'spam') {
+        return { ...item, isLeft: true };
+      }
+      return item;
+    });
+    const visible = filterItems(items, { choices: ['favorite', 'left'] });
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.itemKind === 'single' && visible[0].id).toBe('fav');
+  });
+
+  it('choice ★ keeps Thread when header favorite (any)', () => {
+    const items = projectThreads([
+      evt({
+        id: 'o1',
+        correlationId: 'c1',
+        code: 'connection.lost',
+        status: 'active',
+        severity: 'error',
+        message: 'down',
+      }),
+      evt({ id: 's1', code: 'ping', message: 'solo' }),
+    ]).map((item) =>
+      item.itemKind === 'thread' && item.uid === 'c1' ? { ...item, isFavorite: true } : item,
+    );
+    const visible = filterItems(items, { choices: ['favorite'] });
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.itemKind === 'thread' && visible[0].uid).toBe('c1');
   });
 });
