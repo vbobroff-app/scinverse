@@ -21,35 +21,25 @@ interface Props {
 /** Не-инцидент (серое, без маркеров): отключил оператор / плановое по расписанию. Всё прочее = инцидент. */
 const GREY_CAUSES = new Set(['disconnected', 'scheduled']);
 
-/** Жёлтая фаза TRANSAQ (Degraded) — max T; дальше красное (супервизор). Совпадает с LinkRecoverGraceSeconds. */
-const DEGRADED_YELLOW_MAX_MS = 60_000;
-
 function isIncident(cause: string): boolean {
   return !GREY_CAUSES.has(cause);
 }
 
 /**
- * Момент жёлтое→красное: `escalatedAt` с бэка, иначе для `degraded` без маркера —
- * clamp from+60с (исторические дыры без handover-маркера не должны быть жёлтыми целиком).
+ * Момент жёлтое→красное: только `escalatedAt` с бэка (маркер handover в `link_liveness`).
+ * Без маркера — одна фаза по `cause` (не изобретаем from+60с).
  */
 export function resolveEscalatedMs(
   gap: CaptureGapDto,
   fromMs: number,
   toMs: number,
-  yellowMaxMs: number = DEGRADED_YELLOW_MAX_MS,
 ): number | null {
-  if (gap.escalatedAt) {
-    const esc = Date.parse(gap.escalatedAt);
-    if (Number.isFinite(esc) && esc > fromMs && esc < toMs) {
-      return esc;
-    }
-  }
-  if (gap.cause !== 'degraded') {
+  if (!gap.escalatedAt) {
     return null;
   }
-  const synthetic = fromMs + yellowMaxMs;
-  if (synthetic > fromMs && synthetic < toMs) {
-    return synthetic;
+  const esc = Date.parse(gap.escalatedAt);
+  if (Number.isFinite(esc) && esc > fromMs && esc < toMs) {
+    return esc;
   }
   return null;
 }

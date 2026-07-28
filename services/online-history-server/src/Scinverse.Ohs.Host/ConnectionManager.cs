@@ -371,16 +371,9 @@ public sealed class ConnectionManager(
         LinkCloseReason reason = LinkCloseReason.Disconnected)
     {
         var hasSource = _sourceIds.TryGetValue(connectionId, out var sourceId);
-        // Degraded (owner=transaq) → teardown без handover: иначе дыра остаётся вся жёлтой
-        // (нет нулевого маркера server_down → нет escalatedAt на ленте).
-        if (_incidentSince.ContainsKey(connectionId)
-            && _incidentOwner.TryGetValue(connectionId, out var owner)
-            && owner == "transaq")
-        {
-            await TransferBreakOwnerToSupervisorAsync(
-                    connectionId, DateTimeOffset.UtcNow, LinkCloseReason.ServerDown, cancellationToken)
-                .ConfigureAwait(false);
-        }
+        // I11: не invent'им handover на любом teardown. Маркер жёлтое→красное пишут только
+        // реальные пути: grace (`HandoverToSupervisorAsync`) и Degraded→Down (`OpenLinkLostAsync`).
+        // Manual/schedule abandon клипают дыру своим маркером без фейкового server_down.
 
         if (_sessions.TryRemove(connectionId, out var session))
         {
@@ -414,7 +407,6 @@ public sealed class ConnectionManager(
         return "disconnected";
     }
 
-    /// <summary>
     /// <summary>
     /// Phase 7j.20 (J3): owner <c>transaq</c>→<c>supervisor</c> по истечении
     /// <see cref="OhsOptions.LinkRecoverGraceSeconds"/> (T, по умолчанию 60 с). TRANSAQ не восстановил

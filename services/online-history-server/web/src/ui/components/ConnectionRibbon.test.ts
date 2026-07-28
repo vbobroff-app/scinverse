@@ -17,13 +17,13 @@ describe('resolveEscalatedMs', () => {
     expect(resolveEscalatedMs(gap, from, to)).toBe(from + 41_000);
   });
 
-  it('caps degraded without marker at 60s yellow', () => {
+  it('does not invent escalation without marker', () => {
     const gap: CaptureGapDto = {
       from: new Date(from).toISOString(),
       to: new Date(to).toISOString(),
       cause: 'degraded',
     };
-    expect(resolveEscalatedMs(gap, from, to)).toBe(from + 60_000);
+    expect(resolveEscalatedMs(gap, from, to)).toBeNull();
   });
 
   it('does not invent escalation for server_down', () => {
@@ -35,13 +35,13 @@ describe('resolveEscalatedMs', () => {
     expect(resolveEscalatedMs(gap, from, to)).toBeNull();
   });
 
-  it('no split when degraded shorter than yellow max', () => {
-    const shortTo = from + 30_000;
+  it('ignores escalatedAt outside gap', () => {
     const gap: CaptureGapDto = {
       from: new Date(from).toISOString(),
-      to: new Date(shortTo).toISOString(),
+      to: new Date(to).toISOString(),
       cause: 'degraded',
+      escalatedAt: new Date(to + 1_000).toISOString(),
     };
-    expect(resolveEscalatedMs(gap, from, shortTo)).toBeNull();
+    expect(resolveEscalatedMs(gap, from, to)).toBeNull();
   });
 });

@@ -584,8 +584,8 @@ I2 (recovered после реконнекта — частный случай п
 | Dual/triple write на 1-й fail | auto + manual | **СНЯТ** — EnsureBreak + Append в `link:` |
 | Throwaway Group `auto:`/`connect:` на fail | kickoff / 1-й ручной | **СНЯТ** — короткий Group только после **успешного** connect |
 | `threadKindHint` overrides | data | частично нужен для Group на success; Open `link:` — KindIncident |
-| Paint-fallback `from+60s` без `escalatedAt` | `ConnectionRibbon` | **OPEN** — снять после приёмки маркеров |
-| Transfer на любом teardown при `owner=transaq` | `DisconnectAsync` | **OPEN** — подпорка маркера ленты |
+| Paint-fallback `from+60s` без `escalatedAt` | `ConnectionRibbon` | **СНЯТ** — только API `escalatedAt` |
+| Transfer на любом teardown при `owner=transaq` | `DisconnectAsync` | **СНЯТ** — маркер только grace / Degraded→Down |
 
 ### Асимметрии (дизайн, не баг)
 
@@ -655,7 +655,7 @@ Connect-fail:
 | I8 | Простой бэка: live ≠ reload | Sender + единый corr + персист стека + warn-before-ok | РЕАЛИЗОВАНО |
 | I9 | UI пустой: `localhost`→`::1`, IPv6 Kestrel залип | proxy → `127.0.0.1`; prod: bind/health/proxy family | MITIGATION / prod OPEN |
 | I10 | После crash: break `active` + восстановление в Group `auto:` | Adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ** |
-| I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **OPEN** (B1+B2+connect-fail готово; лента OPEN) |
+| I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **OPEN** (B1+B2+connect-fail+лента готово; close-helper/docs хвост) |
 
 Остаток 7j: 7j.15/7j.16 + **I11 / J11b** ([todo.md](todo.md)); I10 — живая приёмка.
 NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).
