@@ -15,7 +15,8 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 
 **Upgrade объектной модели (Thread):** проблема — [issue.md](issue.md); проектирование —
 [to-threads.md](to-threads.md); персист атомов — [persistence.md](persistence.md) (V025 DONE).
-Опции дока (группировать / схлоп тиков) — [dock-settings.md](dock-settings.md).
+Опции дока (группировать / схлоп тиков) — [dock-settings.md](dock-settings.md);
+маркеры ★/⊘ и фильтр «Выбор» — [nc-marks.md](nc-marks.md).
 
 ## Мотивация
 
@@ -74,8 +75,9 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
   orphan recovering, Single без corr.
 - **11.10 UI NC: контейнеры.** Лента = Single + Thread header на одном уровне; header без
   severity-иконки, custom summary; expand/collapse стека Entry; subtle `[!]`/`[G]` сдвигает
-  контент Entry. Фильтры: статус нити (active / recovering / resolved) + «Выбор» (★ favorite /
-  ⦸ left, клиент). Бейдж непрочитанных — по контейнерам (см. to-threads §4).
+  контент Entry. Фильтры: статус нити (active / recovering / resolved) + «Выбор»
+  (★ Избранные include / ⊘ Скрыть спам exclude; см. [nc-marks.md](nc-marks.md)).
+  Бейдж непрочитанных — по контейнерам (см. to-threads §4).
 - **11.11 Backend hints + политика kind.** На Open писать `data.threadKindHint`
   (`incident`|`group` по горизонту расписания); на close — `data.closeOutcome`
   (`recovered`|`abandoned_schedule`|`abandoned_manual`). **Таблицы v1 не меняем:** колонка `data`
@@ -96,7 +98,7 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 - Тонкая маршрутизация по ролям (кто какие события видит) — грубо; тонко — вместе с phase 10.
 - Полноценный рантайм Module Federation с раздельными деплоями — задел в контракте, включаем когда
   появятся реально отдельные MFE-сборки (см. сравнение в [apply.md](apply.md)).
-- Серверное хранение меток ★/⦸ — v1 только клиент / `user_settings`.
+- Серверное хранение меток ★/⊘ — v1 только клиент / `user_settings`.
 
 > Персист плоского аудита (`notification`, V025, retention 90d) — **сделан** ([persistence.md](persistence.md));
 > прежний out-of-scope «только ring-buffer» устарел.

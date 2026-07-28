@@ -42,8 +42,8 @@ Entry extends Single { corr_uid }   — атом внутри Thread
 | `uid` / `id` | событие | стабильный id атома |
 | `ts`, `severity`, `sourceType`, `module`, `code`, `message`, `data?` | контракт | без изменений |
 | `status?` | lifecycle атома | для одиночных lifecycle-событий |
-| `isFavorite?` | клиент | ★, не в V025 v1 |
-| `isLeft?` | клиент | ⦸ «отложено / не смотрю» |
+| `isFavorite?` | клиент | ★, не в V025 v1; см. [nc-marks.md](nc-marks.md) |
+| `isLeft?` | клиент | ⊘ спам (поле `isLeft` — legacy-имя), не в V025 v1 |
 
 **Правило:** нет `correlationId` → всегда `Single`. Есть corr, но в проекции решено не группировать
 (whitelist кодов / политика) → можно оставить `Single` (исключения — в §5).
@@ -67,7 +67,7 @@ Entry extends Single { corr_uid }   — атом внутри Thread
 | `openedAt` | ISO | `ts` первого Entry (обычно open) |
 | `closedAt?` | ISO | terminal close |
 | `subject?` | string | префикс corr до uid (`connection:{id}:link`) |
-| `isFavorite?` / `isLeft?` | bool | метки на **контейнере** (★/⦸ в заголовке) |
+| `isFavorite?` / `isLeft?` | bool | агрегаты header: ★=any Entry, ⊘=all Entry ([nc-marks.md](nc-marks.md)) |
 | `header` | derived | title/summary для заголовка без severity-иконки |
 
 **Инвариант T1.** Все Entry одного Thread имеют один `corr_uid`.
@@ -153,8 +153,8 @@ Terminal outcomes:
 
 - Collapse Thread = скрыть весь стек Entry.
 - Заголовок Thread: summary (subject, kind badge Incident/Group, threadStatus, время
-  open→last / close), ★ / ⦸.
-- Entry: как нынешняя строка (severity icon, message, expand JSON).
+  open→last / close), ★ / ⊘ (bulk; см. [nc-marks.md](nc-marks.md)).
+- Entry: строка + свои ★ / ⊘ (severity icon, message, expand JSON).
 
 ### 4.2 Фильтры (дополнение к существующим)
 
@@ -162,11 +162,10 @@ Terminal outcomes:
 |--------|---------|
 | severity / sourceType / module / search | атомы и/или заголовок (search по Entry+header) |
 | thread status | только Thread: active / recovering / resolved |
-| «Выбор» | favorite / left (клиент) на Single и Thread |
+| «Выбор» | ★ include / ⊘ exclude (асимметрия) — [nc-marks.md](nc-marks.md) |
 
-Бейдж непрочитанных: по контейнерам (непрочитанный Thread = есть unread Entry или политика
-«header unread until collapsed+seen» — зафиксировать в 11.9; рекомендация: unread если любой
-Entry unread и нить не `isLeft`).
+Бейдж / unread Entry: непрочитан, если severity alert и не read и Entry не ⊘
+([nc-marks.md](nc-marks.md)).
 
 ### 4.3 Что не меняем в v1 UI
 
@@ -414,7 +413,7 @@ Retention: не hypertable; чистить orphan threads по `closed_at` + N �
 1. Спека сущностей Single / Entry / Thread / Incident / Group согласована (этот документ).
 2. Лента UI = контейнеры; Thread header без severity-иконки; Entry со стеком.
 3. Incident vs Group по горизонту на Open; Group не продолжает Incident.
-4. Фильтры threadStatus + Выбор (★/⦸).
+4. Фильтры threadStatus + Выбор (★/⊘) — [nc-marks.md](nc-marks.md).
 5. V025 audit не ломается; миграция thread-таблицы не обязательна для UI.
 6. Тесты проекции: lost→recovering→recovered; schedule abandon; orphan recovering; Single без corr.
 
