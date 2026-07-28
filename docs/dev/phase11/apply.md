@@ -120,9 +120,10 @@ throw: дубли WS / REST-бэклога штатны (реконнект, п�
 - **I1 — `resolved` терминален.** Рецидив *после* `resolved` = **новый инцидент с новым
   `correlationId`** (хаб снимает subject из `openIncidents` и повторный `Open` генерит новый uid).
   Флап допустим только `active ↔ underway`.
-- **I2 — новая строка только на смену статуса.** Дедуп подряд идущих одинаковых `(status, code)` в
-  рамках `correlationId`: строка добавляется, лишь когда статус реально изменился (иначе `active`
-  каждые 15 с забьёт ленту). Флап даёт `active → underway → active` = 3 осмысленные строки.
+- **I2 — фазовый тик обновляет строку на месте.** Ключ `(correlationId, code, status)`: повтор
+  того же тика (`recovering` / `reconnecting` / `connecting` / `connect_failed` / `*.progress`)
+  не плодит строк в UI; в БД аудит остаётся полным. Разные коды в одной нити схлопываются
+  независимо. Флап `active → underway → active` = разные фазы = отдельные строки.
 
 ### `correlationId` = `subject:uid` (per-occurrence)
 

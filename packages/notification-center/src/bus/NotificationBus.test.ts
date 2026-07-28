@@ -83,8 +83,95 @@ describe('NotificationBus', () => {
       const bus = createNotificationBus();
       bus.publish(evt({ id: 'a1', correlationId: 'c', code: 'connection.connect', status: 'underway' }));
       bus.publish(evt({ id: 'a2', correlationId: 'c', code: 'connection.connect', status: 'underway' }));
-      bus.publish(evt({ id: 'a3', correlationId: 'c', code: 'connection.connect_failed', status: 'underway' }));
+      bus.publish(evt({ id: 'a3', correlationId: 'c', code: 'connection.lost', status: 'active' }));
       expect(bus.events.map((e) => e.id)).toEqual(['a3', 'a2', 'a1']);
+    });
+
+    it('I2: connect_failed ticks collapse in place (same as reconnecting)', () => {
+      const bus = createNotificationBus();
+      const corr = 'connection:3:link:abcd';
+      bus.publish(
+        evt({
+          id: 'f1',
+          correlationId: corr,
+          code: 'connection.connect_failed',
+          severity: 'error',
+          status: 'underway',
+          message: 'попытка 1/5',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'f2',
+          correlationId: corr,
+          code: 'connection.connect_failed',
+          severity: 'error',
+          status: 'underway',
+          message: 'попытка 2/5',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'f3',
+          correlationId: corr,
+          code: 'connection.connect_failed',
+          severity: 'error',
+          status: 'underway',
+          message: 'не удалось подключить за 5 попыток',
+        }),
+      );
+      expect(bus.events.map((e) => e.id)).toEqual(['f1']);
+      expect(bus.events[0]?.message).toBe('не удалось подключить за 5 попыток');
+    });
+
+    it('I2: reconnecting and connect_failed collapse independently in one corr', () => {
+      const bus = createNotificationBus();
+      const corr = 'connection:3:link:abcd';
+      bus.publish(
+        evt({
+          id: 'r1',
+          correlationId: corr,
+          code: 'connection.reconnecting',
+          severity: 'warning',
+          status: 'underway',
+          message: 'попытка 1/5',
+          data: { sender: 'supervisor' },
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'f1',
+          correlationId: corr,
+          code: 'connection.connect_failed',
+          severity: 'error',
+          status: 'underway',
+          message: 'fail 1/5',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'r2',
+          correlationId: corr,
+          code: 'connection.reconnecting',
+          severity: 'warning',
+          status: 'underway',
+          message: 'попытка 2/5',
+          data: { sender: 'supervisor' },
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'f2',
+          correlationId: corr,
+          code: 'connection.connect_failed',
+          severity: 'error',
+          status: 'underway',
+          message: 'fail 2/5',
+        }),
+      );
+      expect(bus.events.map((e) => e.id).sort()).toEqual(['f1', 'r1'].sort());
+      expect(bus.events.find((e) => e.code === 'connection.reconnecting')?.message).toBe('попытка 2/5');
+      expect(bus.events.find((e) => e.code === 'connection.connect_failed')?.message).toBe('fail 2/5');
     });
 
     it('I2: repeated same (status, code) updates the row in place (progress tick)', () => {

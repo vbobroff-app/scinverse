@@ -30,13 +30,16 @@ function dataSender(evt: NotificationEvent): string | undefined {
 }
 
 /**
- * I2 whitelist: прогресс-тики схлопываются / обновляются на месте
- * («попытка 1/5»→«2/5», «4 c»→«19 c»). Остальное — discrete.
+ * I2 whitelist: фазовые тики схлопываются / обновляются на месте
+ * («попытка 1/5»→«2/5», fail 1/5→5/5, «4 c»→«19 c»). Остальное — discrete.
+ * Ключ фазы — (corr, code, status): разные коды в одной нити (reconnecting + connect_failed)
+ * живут параллельно и схлопываются независимо.
  */
 function isI2PhaseTick(evt: NotificationEvent): boolean {
   switch (evt.code) {
     case 'connection.recovering':
     case 'connection.connecting': // auto-серия «подключаю по расписанию, попытка k/5»
+    case 'connection.connect_failed': // Append fail ×N в link: — как тик попыток
     case 'backend.unavailable.progress':
       return true;
     case 'connection.reconnecting':
@@ -46,6 +49,11 @@ function isI2PhaseTick(evt: NotificationEvent): boolean {
       // Прочие `*.progress` (тики длительности).
       return evt.code.endsWith('.progress');
   }
+}
+
+/** Фаза I2 внутри нити: одна строка на (corr, code, status). */
+function i2PhaseKey(corr: string, code: string, status: NotificationStatus): string {
+  return `${corr}\u0000${code}\u0000${status}`;
 }
 
 /**
@@ -117,8 +125,8 @@ export class NotificationBus {
 
   /**
    * Пакетная подача (бэклог / другой контур). Новые сверху; дедуп по `id`.
-   * I2 только для прогресс-тиков ({@link isI2PhaseTick}): повтор того же `(corr, code, status)`
-   * обновляет строку на месте («4 c» → «19 c»). Остальные коды — каждая доставка = новая строка.
+   * I2 для фазовых тиков ({@link isI2PhaseTick}): повтор той же фазы `(corr, code, status)`
+   * обновляет строку на месте («4 c» → «19 c», fail 1/5 → 5/5). Остальные коды — новая строка.
    */
   publishMany(incoming: readonly NotificationEvent[]): void {
     if (incoming.length === 0) {
@@ -126,17 +134,17 @@ export class NotificationBus {
     }
     const current = this.eventsSubject.value;
     const seen = new Set(current.map((e) => e.id));
-    // Последний тик на correlationId — сид из буфера (newest-first: первый = последний).
-    const lastTickByCorr = new Map<string, { status: NotificationStatus; code: string }>();
+    // Сид фаз из буфера (newest-first: первый = актуальный тик фазы).
+    const knownPhases = new Set<string>();
     for (const e of current) {
-      if (e.correlationId && isI2PhaseTick(e) && !lastTickByCorr.has(e.correlationId)) {
-        lastTickByCorr.set(e.correlationId, { status: resolveStatus(e), code: e.code });
+      if (e.correlationId && isI2PhaseTick(e)) {
+        knownPhases.add(i2PhaseKey(e.correlationId, e.code, resolveStatus(e)));
       }
     }
     const additions: NotificationEvent[] = [];
     // Повтор с тем же id (adopt 500: client ts + stackSeq) — заменяем поля, не дропаем.
     const replacements = new Map<string, NotificationEvent>();
-    // Прогресс-обновления «на месте»: correlationId → последнее событие того же (status, code).
+    // Обновления «на месте» по ключу фазы.
     const updates = new Map<string, NotificationEvent>();
     for (const evt of incoming) {
       if (!evt?.id) {
@@ -147,15 +155,13 @@ export class NotificationBus {
         continue;
       }
       if (evt.correlationId && isI2PhaseTick(evt)) {
-        const status = resolveStatus(evt);
-        const prev = lastTickByCorr.get(evt.correlationId);
-        if (prev && prev.status === status && prev.code === evt.code) {
-          // I2: тик — обновляем строку на месте.
-          updates.set(evt.correlationId, evt);
+        const phase = i2PhaseKey(evt.correlationId, evt.code, resolveStatus(evt));
+        if (knownPhases.has(phase)) {
+          updates.set(phase, evt);
           seen.add(evt.id);
           continue;
         }
-        lastTickByCorr.set(evt.correlationId, { status, code: evt.code });
+        knownPhases.add(phase);
       }
       seen.add(evt.id);
       additions.push(evt);
@@ -169,15 +175,18 @@ export class NotificationBus {
       combined = combined.map((e) => replacements.get(e.id) ?? e);
     }
     if (updates.size > 0) {
-      // Обновляем первую (newest-first) строку-тик с совпадающими correlationId + code + status.
       const applied = new Set<string>();
       combined = combined.map((e) => {
-        if (!e.correlationId || !isI2PhaseTick(e) || applied.has(e.correlationId)) {
+        if (!e.correlationId || !isI2PhaseTick(e)) {
           return e;
         }
-        const u = updates.get(e.correlationId);
-        if (u && e.code === u.code && resolveStatus(e) === resolveStatus(u)) {
-          applied.add(e.correlationId);
+        const phase = i2PhaseKey(e.correlationId, e.code, resolveStatus(e));
+        if (applied.has(phase)) {
+          return e;
+        }
+        const u = updates.get(phase);
+        if (u) {
+          applied.add(phase);
           return { ...e, message: u.message, data: u.data, ts: u.ts };
         }
         return e;
@@ -206,7 +215,7 @@ export class NotificationBus {
         result.push(e);
         continue;
       }
-      const key = `${e.correlationId}\u0000${e.code}\u0000${resolveStatus(e)}`;
+      const key = i2PhaseKey(e.correlationId, e.code, resolveStatus(e));
       if (seenPhase.has(key)) {
         continue;
       }
