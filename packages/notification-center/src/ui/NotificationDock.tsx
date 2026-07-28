@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { NotificationBus } from '../bus/NotificationBus';
 import { filterItems } from '../filter/filterItems';
 import { formatTsUtc, type FormatTs } from '../format/formatTs';
@@ -149,7 +149,10 @@ export function NotificationDock({
   );
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** down = ниже кнопки; up = выше, если снизу не влезает (как фильтры). */
+  const [settingsPlacement, setSettingsPlacement] = useState<'down' | 'up'>('down');
   const settingsRef = useRef<HTMLDivElement>(null);
+  const settingsPopoverRef = useRef<HTMLDivElement>(null);
   const [filtersMenuOpen, setFiltersMenuOpen] = useState(false);
 
   const [height, setHeight] = useState(
@@ -180,6 +183,7 @@ export function NotificationDock({
 
   useEffect(() => {
     if (!settingsOpen) {
+      setSettingsPlacement('down');
       return;
     }
     const onDoc = (e: MouseEvent) => {
@@ -199,6 +203,42 @@ export function NotificationDock({
       document.removeEventListener('keydown', onKey);
     };
   }, [settingsOpen]);
+
+  // Flip: вниз по умолчанию; вверх, если снизу не хватает высоты меню (как DockFilters).
+  useLayoutEffect(() => {
+    if (!settingsOpen) {
+      return;
+    }
+    const wrap = settingsRef.current;
+    const pop = settingsPopoverRef.current;
+    const trigger = wrap?.querySelector('button');
+    if (!(trigger instanceof HTMLElement) || !pop) {
+      return;
+    }
+
+    const GAP = 6;
+    const PAD = 8;
+    const MAX = 420;
+
+    const place = () => {
+      const t = trigger.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - t.bottom - GAP - PAD;
+      const spaceAbove = t.top - GAP - PAD;
+      pop.style.maxHeight = `${MAX}px`;
+      const needed = Math.min(pop.scrollHeight, MAX);
+      const placement: 'down' | 'up' = spaceBelow >= needed ? 'down' : 'up';
+      setSettingsPlacement(placement);
+      const avail = placement === 'down' ? spaceBelow : Math.max(spaceAbove, 120);
+      pop.style.maxHeight = `${Math.max(120, Math.min(MAX, avail))}px`;
+    };
+
+    place();
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('resize', place);
+      pop.style.maxHeight = '';
+    };
+  }, [settingsOpen, settings]);
 
   const setExpanded = useCallback(
     (next: boolean | ((prev: boolean) => boolean)) => {
@@ -432,7 +472,8 @@ export function NotificationDock({
       className={[
         styles.dock,
         resizing ? styles.dockResizing : '',
-        filtersMenuOpen ? styles.dockMenuOpen : '',
+        // Как фильтры: снять overflow:hidden, иначе popover вверх обрезается.
+        filtersMenuOpen || settingsOpen ? styles.dockMenuOpen : '',
         className,
       ]
         .filter(Boolean)
@@ -547,7 +588,15 @@ export function NotificationDock({
               </button>
             </Tip>
             {settingsOpen && (
-              <div className={styles.settingsPopover} role="menu" aria-label="Настройки центра уведомлений">
+              <div
+                ref={settingsPopoverRef}
+                className={[
+                  styles.settingsPopover,
+                  settingsPlacement === 'up' ? styles.settingsPopoverUp : '',
+                ].filter(Boolean).join(' ')}
+                role="menu"
+                aria-label="Настройки центра уведомлений"
+              >
                 <div className={styles.settingsSection}>
                   <span className={styles.settingsSectionTitle}>Показывать</span>
                   {SHOW_TOGGLES.map((t) => (
