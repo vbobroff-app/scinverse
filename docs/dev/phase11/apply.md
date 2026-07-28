@@ -122,8 +122,9 @@ throw: дубли WS / REST-бэклога штатны (реконнект, п�
   Флап допустим только `active ↔ underway`.
 - **I2 — фазовый тик обновляет строку на месте.** Ключ `(correlationId, code, status)`: повтор
   того же тика (`recovering` / `reconnecting` / `connecting` / `connect_failed` / `*.progress`)
-  не плодит строк в UI; в БД аудит остаётся полным. Разные коды в одной нити схлопываются
-  независимо. Флап `active → underway → active` = разные фазы = отдельные строки.
+  не плодит строк в UI; в БД и raw-буфере шины аудит полный. Разные коды в одной нити
+  схлопываются независимо. Опция Settings **«Объединять прогресс-тики»**
+  (`collapsePhaseTicks`, default on) — [dock-settings.md](dock-settings.md).
 
 ### `correlationId` = `subject:uid` (per-occurrence)
 

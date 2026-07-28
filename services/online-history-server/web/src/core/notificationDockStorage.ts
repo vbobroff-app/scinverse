@@ -292,10 +292,16 @@ class NotificationDockStore {
   setSettings(settings: NotificationDockSettings): void {
     const next = normalizeDockSettings(settings);
     const enablingTray = next.sendToTray && !this.settings$.value.sendToTray;
+    const collapseChanged =
+      next.collapsePhaseTicks !== this.settings$.value.collapsePhaseTicks;
     this.settings$.next(next);
     this.persist();
     if (enablingTray) {
       void import('./notifications').then((m) => m.ensureTrayPermission());
+    }
+    if (collapseChanged) {
+      void import('./notifications').then((m) =>
+        m.notificationBus.setCollapsePhaseTicks(next.collapsePhaseTicks));
     }
   }
 

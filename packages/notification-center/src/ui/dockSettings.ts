@@ -8,6 +8,11 @@ export interface NotificationDockSettings {
   showStatusLogo: boolean;
   /** Текстовая метка типа (Info:/Warning:/ERROR:/…) за иконкой. Независима от {@link showStatusLogo}. */
   showType: boolean;
+  /**
+   * Объединять прогресс-тики I2 в ленте (`recovering` / `reconnecting` / `connect_failed`…).
+   * Default on. Спека — docs/dev/phase11/dock-settings.md.
+   */
+  collapsePhaseTicks: boolean;
   /** Дублировать новые уведомления в системный трей / Notification API. */
   sendToTray: boolean;
 }
@@ -17,6 +22,7 @@ export const EMPTY_DOCK_SETTINGS: NotificationDockSettings = {
   trackUnread: true,
   showStatusLogo: true,
   showType: true,
+  collapsePhaseTicks: true,
   sendToTray: false,
 };
 
@@ -28,6 +34,7 @@ export function normalizeDockSettings(
     trackUnread: value?.trackUnread !== false,
     showStatusLogo: value?.showStatusLogo !== false,
     showType: value?.showType !== false,
+    collapsePhaseTicks: value?.collapsePhaseTicks !== false,
     sendToTray: value?.sendToTray === true,
   };
 }

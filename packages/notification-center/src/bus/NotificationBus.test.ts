@@ -506,5 +506,40 @@ describe('NotificationBus', () => {
       expect(bus.events.map((e) => e.id)).toEqual(['c1']);
       expect(bus.events[0]?.message).toBe('попытка 3/5');
     });
+
+    it('Settings: collapsePhaseTicks off keeps all ticks; on restores fold from raw', () => {
+      const bus = createNotificationBus({ collapsePhaseTicks: false });
+      const corr = 'connection:3:link:abcd';
+      bus.publish(
+        evt({
+          id: 'f1',
+          correlationId: corr,
+          code: 'connection.connect_failed',
+          severity: 'error',
+          status: 'underway',
+          message: '1/5',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'f2',
+          correlationId: corr,
+          code: 'connection.connect_failed',
+          severity: 'error',
+          status: 'underway',
+          message: '2/5',
+        }),
+      );
+      expect(bus.events.map((e) => e.id)).toEqual(['f2', 'f1']);
+      expect(bus.rawEvents.map((e) => e.id)).toEqual(['f2', 'f1']);
+
+      bus.setCollapsePhaseTicks(true);
+      expect(bus.events.map((e) => e.id)).toEqual(['f1']);
+      expect(bus.events[0]?.message).toBe('2/5');
+      expect(bus.rawEvents.map((e) => e.id)).toEqual(['f2', 'f1']);
+
+      bus.setCollapsePhaseTicks(false);
+      expect(bus.events.map((e) => e.id)).toEqual(['f2', 'f1']);
+    });
   });
 });

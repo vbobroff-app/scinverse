@@ -81,6 +81,7 @@ type SettingsToggleKey =
   | 'trackUnread'
   | 'showStatusLogo'
   | 'showType'
+  | 'collapsePhaseTicks'
   | 'sendToTray';
 
 const SHOW_TOGGLES: { key: SettingsToggleKey; label: string }[] = [
@@ -88,6 +89,10 @@ const SHOW_TOGGLES: { key: SettingsToggleKey; label: string }[] = [
   { key: 'trackUnread', label: 'Учёт непрочитанных' },
   { key: 'showStatusLogo', label: 'Показывать логотип' },
   { key: 'showType', label: 'Показывать тип' },
+];
+
+const FEED_TOGGLES: { key: SettingsToggleKey; label: string }[] = [
+  { key: 'collapsePhaseTicks', label: 'Объединять прогресс-тики' },
 ];
 
 const ACTION_TOGGLES: { key: SettingsToggleKey; label: string }[] = [
@@ -259,6 +264,11 @@ export function NotificationDock({
 
   const showFiltersPanel = !hideFilters && settings.showFilters;
   const showUnreadUi = settings.trackUnread;
+
+  // Settings → шина: объединение прогресс-тиков (raw полный, лента — проекция).
+  useEffect(() => {
+    bus.setCollapsePhaseTicks(settings.collapsePhaseTicks);
+  }, [bus, settings.collapsePhaseTicks]);
 
   /** Быстрый фильтр с бейджа: создать плашку «Тип сообщения» и toggle галок. */
   const quickFilterSeverities = useCallback(
@@ -541,6 +551,19 @@ export function NotificationDock({
                 <div className={styles.settingsSection}>
                   <span className={styles.settingsSectionTitle}>Показывать</span>
                   {SHOW_TOGGLES.map((t) => (
+                    <label key={t.key} className={styles.settingsCheck}>
+                      <input
+                        type="checkbox"
+                        checked={settings[t.key]}
+                        onChange={() => toggleSetting(t.key)}
+                      />
+                      {t.label}
+                    </label>
+                  ))}
+                </div>
+                <div className={styles.settingsSection}>
+                  <span className={styles.settingsSectionTitle}>Лента</span>
+                  {FEED_TOGGLES.map((t) => (
                     <label key={t.key} className={styles.settingsCheck}>
                       <input
                         type="checkbox"

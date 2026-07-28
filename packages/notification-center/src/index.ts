@@ -42,7 +42,12 @@ export {
 
 export { createNotificationId } from './id';
 
-export { NotificationBus, createNotificationBus } from './bus/NotificationBus';
+export {
+  NotificationBus,
+  createNotificationBus,
+  collapsePhaseTicksView,
+  isI2PhaseTick,
+} from './bus/NotificationBus';
 export { notify, type NotifyInput } from './bus/notify';
 export { projectThreads, deriveSubject } from './bus/projectThreads';
 

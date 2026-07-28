@@ -35,39 +35,98 @@ function dataSender(evt: NotificationEvent): string | undefined {
  * Ключ фазы — (corr, code, status): разные коды в одной нити (reconnecting + connect_failed)
  * живут параллельно и схлопываются независимо.
  */
-function isI2PhaseTick(evt: NotificationEvent): boolean {
+export function isI2PhaseTick(evt: NotificationEvent): boolean {
   switch (evt.code) {
     case 'connection.recovering':
-    case 'connection.connecting': // auto-серия «подключаю по расписанию, попытка k/5»
-    case 'connection.connect_failed': // Append fail ×N в link: — как тик попыток
+    case 'connection.connecting':
+    case 'connection.connect_failed':
     case 'backend.unavailable.progress':
       return true;
     case 'connection.reconnecting':
-      // attempt k/5 супервизора — тик; «по команде оператора» (sender=user) — discrete.
       return dataSender(evt) !== 'user';
     default:
-      // Прочие `*.progress` (тики длительности).
       return evt.code.endsWith('.progress');
   }
 }
 
 /** Фаза I2 внутри нити: одна строка на (corr, code, status). */
-function i2PhaseKey(corr: string, code: string, status: NotificationStatus): string {
+export function i2PhaseKey(corr: string, code: string, status: NotificationStatus): string {
   return `${corr}\u0000${code}\u0000${status}`;
+}
+
+/**
+ * Проекция raw → лента с I2.
+ * Обход newest-first (порядок ленты не ломаем при равном ts); на фазу —
+ * id первого (oldest) тика, message/data/ts с новейшего.
+ */
+export function collapsePhaseTicksView(
+  eventsNewestFirst: readonly NotificationEvent[],
+): NotificationEvent[] {
+  const newestFirst = sortNewestFirstByTs(eventsNewestFirst);
+  const phaseTicks = new Map<string, NotificationEvent[]>();
+
+  for (const e of newestFirst) {
+    if (!e.correlationId || !isI2PhaseTick(e)) {
+      continue;
+    }
+    const phase = i2PhaseKey(e.correlationId, e.code, resolveStatus(e));
+    const list = phaseTicks.get(phase);
+    if (list) {
+      list.push(e);
+    } else {
+      phaseTicks.set(phase, [e]);
+    }
+  }
+
+  const foldedByPhase = new Map<string, NotificationEvent>();
+  for (const [phase, ticks] of phaseTicks) {
+    const newest = ticks[0]!;
+    const oldest = ticks[ticks.length - 1]!;
+    foldedByPhase.set(phase, {
+      ...oldest,
+      message: newest.message,
+      data: newest.data,
+      ts: newest.ts,
+    });
+  }
+
+  // Вставляем схлопнутую фазу на месте **oldest** тика (как in-place I2),
+  // чтобы обновление текста не поднимало строку над более новыми discrete-событиями.
+  const result: NotificationEvent[] = [];
+  for (const e of newestFirst) {
+    if (!e.correlationId || !isI2PhaseTick(e)) {
+      result.push(e);
+      continue;
+    }
+    const phase = i2PhaseKey(e.correlationId, e.code, resolveStatus(e));
+    const ticks = phaseTicks.get(phase)!;
+    const oldest = ticks[ticks.length - 1]!;
+    if (e.id !== oldest.id) {
+      continue;
+    }
+    result.push(foldedByPhase.get(phase)!);
+  }
+  return result;
 }
 
 /**
  * Framework-agnostic шина уведомлений.
  * Хост создаёт экземпляр (или держит singleton) и кормит события из любого источника
  * (локальные действия, WS, REST-бэклог, другой сервис).
+ *
+ * Raw-буфер всегда полный (как в БД/бэклоге). Лента (`events` / `events$`) — проекция:
+ * при {@link setCollapsePhaseTicks}(true) тики I2 объединяются (default).
  */
 export class NotificationBus {
   private readonly limit: number;
+  /** Полный audit (newest-first), без I2. */
+  private raw: NotificationEvent[] = [];
+  private collapsePhaseTicksEnabled: boolean;
   private readonly eventsSubject: BehaviorSubject<NotificationEvent[]>;
   private readonly readIds = new Set<string>();
 
   /**
-   * Плоский audit (newest-first по `ts`). Стабильная ссылка.
+   * Плоский audit для UI (newest-first). Стабильная ссылка.
    * Для UI контейнеров — `items$`; `stream$` сохраняем для совместимости.
    */
   readonly stream$: Observable<NotificationEvent[]>;
@@ -86,6 +145,7 @@ export class NotificationBus {
 
   constructor(options: NotificationBusOptions = {}) {
     this.limit = Math.max(1, options.limit ?? DEFAULT_LIMIT);
+    this.collapsePhaseTicksEnabled = options.collapsePhaseTicks !== false;
     this.eventsSubject = new BehaviorSubject<NotificationEvent[]>([]);
     this.stream$ = this.eventsSubject.asObservable();
     this.events$ = this.stream$;
@@ -100,9 +160,31 @@ export class NotificationBus {
     );
   }
 
-  /** Снимок плоского audit. */
+  /** Снимок ленты (с учётом схлопывания тиков). */
   get events(): NotificationEvent[] {
     return this.eventsSubject.value;
+  }
+
+  /** Снимок raw-аудита без I2 (для отладки / тестов). */
+  get rawEvents(): NotificationEvent[] {
+    return this.raw;
+  }
+
+  /** Сейчас включено ли объединение прогресс-тиков. */
+  get collapsePhaseTicks(): boolean {
+    return this.collapsePhaseTicksEnabled;
+  }
+
+  /**
+   * Settings «Объединять прогресс-тики». Default on.
+   * Переключение пересобирает ленту из raw без повторного hydrate.
+   */
+  setCollapsePhaseTicks(enabled: boolean): void {
+    if (this.collapsePhaseTicksEnabled === enabled) {
+      return;
+    }
+    this.collapsePhaseTicksEnabled = enabled;
+    this.emitDisplay();
   }
 
   /** Снимок проекции контейнеров Single | Thread. */
@@ -124,28 +206,16 @@ export class NotificationBus {
   }
 
   /**
-   * Пакетная подача (бэклог / другой контур). Новые сверху; дедуп по `id`.
-   * I2 для фазовых тиков ({@link isI2PhaseTick}): повтор той же фазы `(corr, code, status)`
-   * обновляет строку на месте («4 c» → «19 c», fail 1/5 → 5/5). Остальные коды — новая строка.
+   * Пакетная подача в **raw** (бэклог / WS). Дедуп по `id`, лимит кольца.
+   * I2 применяется только в проекции ленты, если {@link collapsePhaseTicks} включён.
    */
   publishMany(incoming: readonly NotificationEvent[]): void {
     if (incoming.length === 0) {
       return;
     }
-    const current = this.eventsSubject.value;
-    const seen = new Set(current.map((e) => e.id));
-    // Сид фаз из буфера (newest-first: первый = актуальный тик фазы).
-    const knownPhases = new Set<string>();
-    for (const e of current) {
-      if (e.correlationId && isI2PhaseTick(e)) {
-        knownPhases.add(i2PhaseKey(e.correlationId, e.code, resolveStatus(e)));
-      }
-    }
+    const seen = new Set(this.raw.map((e) => e.id));
     const additions: NotificationEvent[] = [];
-    // Повтор с тем же id (adopt 500: client ts + stackSeq) — заменяем поля, не дропаем.
     const replacements = new Map<string, NotificationEvent>();
-    // Обновления «на месте» по ключу фазы.
-    const updates = new Map<string, NotificationEvent>();
     for (const evt of incoming) {
       if (!evt?.id) {
         continue;
@@ -154,79 +224,23 @@ export class NotificationBus {
         replacements.set(evt.id, evt);
         continue;
       }
-      if (evt.correlationId && isI2PhaseTick(evt)) {
-        const phase = i2PhaseKey(evt.correlationId, evt.code, resolveStatus(evt));
-        if (knownPhases.has(phase)) {
-          updates.set(phase, evt);
-          seen.add(evt.id);
-          continue;
-        }
-        knownPhases.add(phase);
-      }
       seen.add(evt.id);
       additions.push(evt);
     }
-    if (additions.length === 0 && updates.size === 0 && replacements.size === 0) {
+    if (additions.length === 0 && replacements.size === 0) {
       return;
     }
-    // Сначала additions (новее по ingest), затем current — при равном `ts` стабильный sort сохранит это.
-    let combined = additions.length > 0 ? [...additions, ...current] : [...current];
+    let combined = additions.length > 0 ? [...additions, ...this.raw] : [...this.raw];
     if (replacements.size > 0) {
       combined = combined.map((e) => replacements.get(e.id) ?? e);
     }
-    if (updates.size > 0) {
-      const applied = new Set<string>();
-      combined = combined.map((e) => {
-        if (!e.correlationId || !isI2PhaseTick(e)) {
-          return e;
-        }
-        const phase = i2PhaseKey(e.correlationId, e.code, resolveStatus(e));
-        if (applied.has(phase)) {
-          return e;
-        }
-        const u = updates.get(phase);
-        if (u) {
-          applied.add(phase);
-          return { ...e, message: u.message, data: u.data, ts: u.ts };
-        }
-        return e;
-      });
-    }
-    // Newest-first по `ts`, не по порядку вставки. Иначе после reload backdated `open` (POST при resolve,
-    // ts = момент дропа) оказывается новее `warning` в буфере — warning «убегает» вниз стека
-    // (nc-availability.md §9.5: open+warning+resolve персистятся в разном insert-порядке).
-    combined = sortNewestFirstByTs(combined);
-    // Одна (новейшая) строка на тик-фазу; non-tick коды не трогаем.
-    combined = this.dedupIncidentPhases(combined);
-    const next = combined.slice(0, this.limit);
-    this.pruneReadIds(next);
-    this.eventsSubject.next(next);
-  }
-
-  /**
-   * Одна (новейшая) строка на `(correlationId, code, status)` только для I2-тиков.
-   * Open/resolve/FATAL/connect/… — не трогаем.
-   */
-  private dedupIncidentPhases(events: readonly NotificationEvent[]): NotificationEvent[] {
-    const seenPhase = new Set<string>();
-    const result: NotificationEvent[] = [];
-    for (const e of events) {
-      if (!e.correlationId || !isI2PhaseTick(e)) {
-        result.push(e);
-        continue;
-      }
-      const key = i2PhaseKey(e.correlationId, e.code, resolveStatus(e));
-      if (seenPhase.has(key)) {
-        continue;
-      }
-      seenPhase.add(key);
-      result.push(e);
-    }
-    return result;
+    this.raw = sortNewestFirstByTs(combined).slice(0, this.limit);
+    this.emitDisplay();
   }
 
   clear(): void {
     this.readIds.clear();
+    this.raw = [];
     this.eventsSubject.next([]);
   }
 
@@ -235,8 +249,7 @@ export class NotificationBus {
       return;
     }
     this.readIds.add(id);
-    // Новый массив — иначе React setState игнорирует тот же reference.
-    this.eventsSubject.next([...this.eventsSubject.value]);
+    this.emitDisplay();
   }
 
   markAllRead(): void {
@@ -248,7 +261,7 @@ export class NotificationBus {
       }
     }
     if (changed) {
-      this.eventsSubject.next([...this.eventsSubject.value]);
+      this.emitDisplay();
     }
   }
 
@@ -264,6 +277,14 @@ export class NotificationBus {
       }
     }
     return null;
+  }
+
+  private emitDisplay(): void {
+    const display = this.collapsePhaseTicksEnabled
+      ? collapsePhaseTicksView(this.raw)
+      : this.raw;
+    this.pruneReadIds(this.raw);
+    this.eventsSubject.next(display);
   }
 
   /**

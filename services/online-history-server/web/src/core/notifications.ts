@@ -37,7 +37,9 @@ function toLocalization(value: string | null | undefined): NotificationLocalizat
 }
 import { notificationDockStore } from './notificationDockStorage';
 
-export const notificationBus = createNotificationBus();
+export const notificationBus = createNotificationBus({
+  collapsePhaseTicks: notificationDockStore.settings$.value.collapsePhaseTicks,
+});
 
 /** Открыт ли док (колокольчик). Источник правды — notificationDockStore (+ localStorage). */
 export const notificationDockOpen$ = notificationDockStore.open$;

@@ -102,6 +102,8 @@ export interface NotificationFilter {
 export interface NotificationBusOptions {
   /** Максимум событий в ring-buffer (новые вытесняют старые). По умолчанию 1000. */
   limit?: number;
+  /** Объединять прогресс-тики I2 в ленте (Settings). Default `true`. Raw всегда полный. */
+  collapsePhaseTicks?: boolean;
 }
 
 /** Резолв interaction с учётом legacy sourceType. */
