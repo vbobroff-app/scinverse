@@ -170,7 +170,12 @@ Terminal outcomes:
 ### 4.3 Что не меняем в v1 UI
 
 - Цветовая модель border/фона по read + lifecycle атома — на **Entry** и на **Single**.
-- Thread header — нейтральный / по `threadStatus` (тонкая полоса), без маски severity open.
+- Thread: нейтральный фон панели; цвет — у статусной плашки `active`≈error /
+  `recovering`≈warning / `resolved`≈info (голубой), без левой полоски.
+  Иконка Incident (break/crash) моргает при `active`/`recovering`, статична при
+  `resolved`.   Иконка Group красятся по severity **последнего** Entry — приглушённый
+  tint как у фона строки, чуть светлее (~#566b84 / warning / #8e5b60 / #476455),
+  без моргания.
 
 ---
 

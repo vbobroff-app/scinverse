@@ -48,14 +48,14 @@ const STATUS_LABEL: Record<ThreadItem['threadStatus'], string> = {
   resolved: 'resolved',
 };
 
-function statusStripClass(status: ThreadItem['threadStatus']): string {
+function statusPaneClass(status: ThreadItem['threadStatus']): string {
   if (status === 'resolved') {
-    return styles.stripResolved;
+    return styles.statusResolved;
   }
   if (status === 'recovering') {
-    return styles.stripRecovering;
+    return styles.statusRecovering;
   }
-  return styles.stripActive;
+  return styles.statusActive;
 }
 
 export function ThreadBlock({
@@ -93,7 +93,7 @@ export function ThreadBlock({
   return (
     <div
       ref={ref}
-      className={[styles.thread, statusStripClass(thread.threadStatus)].filter(Boolean).join(' ')}
+      className={styles.thread}
       data-thread-uid={thread.uid}
     >
       <div className={styles.header}>
@@ -113,12 +113,22 @@ export function ThreadBlock({
 
         {kindBadge === 'incident' ? (
           isCrashThread(thread) ? (
-            <IncidentFlameIcon title="Incident (crash)" />
+            <IncidentFlameIcon
+              title="Incident (crash)"
+              className={
+                thread.threadStatus !== 'resolved' ? styles.incidentIconPulse : undefined
+              }
+            />
           ) : (
-            <BreakIncidentIcon title="Incident (break)" />
+            <BreakIncidentIcon
+              title="Incident (break)"
+              className={
+                thread.threadStatus !== 'resolved' ? styles.incidentIconPulse : undefined
+              }
+            />
           )
         ) : (
-          <GroupStackIcon title="Group" />
+          <GroupStackIcon title="Group" severity={newest?.severity} />
         )}
 
         <span className={styles.kindName}>{kindLabel}</span>
@@ -127,7 +137,10 @@ export function ThreadBlock({
           {timeLabel}
         </time>
 
-        <span className={styles.status} data-status={thread.threadStatus}>
+        <span
+          className={[styles.status, statusPaneClass(thread.threadStatus)].join(' ')}
+          data-status={thread.threadStatus}
+        >
           {STATUS_LABEL[thread.threadStatus]}
         </span>
 
