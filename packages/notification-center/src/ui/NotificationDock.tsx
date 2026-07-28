@@ -82,6 +82,7 @@ type SettingsToggleKey =
   | 'showStatusLogo'
   | 'showType'
   | 'collapsePhaseTicks'
+  | 'groupIntoThreads'
   | 'sendToTray';
 
 const SHOW_TOGGLES: { key: SettingsToggleKey; label: string }[] = [
@@ -92,6 +93,7 @@ const SHOW_TOGGLES: { key: SettingsToggleKey; label: string }[] = [
 ];
 
 const FEED_TOGGLES: { key: SettingsToggleKey; label: string }[] = [
+  { key: 'groupIntoThreads', label: 'Группировать' },
   { key: 'collapsePhaseTicks', label: 'Объединять прогресс-тики' },
 ];
 
@@ -119,7 +121,8 @@ export function NotificationDock({
   renderDateRange,
   renderDateField,
 }: NotificationDockProps) {
-  const items = useObservable(bus.items$, bus.items);
+  const threadedItems = useObservable(bus.items$, bus.items);
+  const events = useObservable(bus.events$, bus.events);
   const unreadAlerts = useObservable(bus.unreadAlertCount$, bus.unreadAlertCount);
   const unreadWarnings = useObservable(bus.unreadWarningCount$, bus.unreadWarningCount);
 
@@ -350,6 +353,14 @@ export function NotificationDock({
     [emitFilters, expanded, lastHeight, setExpanded],
   );
 
+  // Группировать off → каждое событие ленты как Single (newest-first уже в bus.events).
+  const items = useMemo((): NotificationItem[] => {
+    if (settings.groupIntoThreads) {
+      return threadedItems;
+    }
+    return events.map((e) => ({ ...e, itemKind: 'single' as const }));
+  }, [settings.groupIntoThreads, threadedItems, events]);
+
   const markedItems = useMemo((): NotificationItem[] => {
     return items.map((item) => {
       const uid = item.itemKind === 'thread' ? item.uid : item.id;
@@ -368,13 +379,17 @@ export function NotificationDock({
         interactions: filter.interactions,
         localizations: filter.localizations,
         statuses: filter.statuses,
-        threadStatuses: activeFilters.includes('threadStatus') ? filter.threadStatuses : undefined,
+        // Плоский режим — только status атома; «Статус нити» не применяем.
+        threadStatuses:
+          settings.groupIntoThreads && activeFilters.includes('threadStatus')
+            ? filter.threadStatuses
+            : undefined,
         choices: activeFilters.includes('choice') ? filter.choices : undefined,
         query: filter.query,
         range: activeFilters.includes('range') ? filter.range : undefined,
         tzOffsetMin,
       }),
-    [markedItems, filter, activeFilters, tzOffsetMin],
+    [markedItems, filter, activeFilters, tzOffsetMin, settings.groupIntoThreads],
   );
 
   const toggleThreadExpanded = useCallback((uid: string) => {
@@ -655,6 +670,7 @@ export function NotificationDock({
               renderDateRange={renderDateRange}
               renderDateField={renderDateField}
               total={visible.length}
+              groupIntoThreads={settings.groupIntoThreads}
             />
           )}
           <div className={styles.list} ref={listRef} onScroll={onListScroll}>

@@ -64,6 +64,11 @@ interface Props {
   /** Кастомный пикер одной даты (иначе native `<input type="date">`). */
   renderDateField?: (props: DockDateFieldProps) => ReactNode;
   total?: number;
+  /**
+   * Settings «Группировать». Off — скрыть фильтр «Статус нити» (плоский список, status атома).
+   * Default true.
+   */
+  groupIntoThreads?: boolean;
 }
 
 type OpenKey = 'add' | DockFilterKey | null;
@@ -187,8 +192,15 @@ export function DockFilters({
   renderDateRange,
   renderDateField,
   total,
+  groupIntoThreads = true,
 }: Props) {
   const value = normalizeDockFilter(valueProp);
+  const availableFilters = groupIntoThreads
+    ? AVAILABLE
+    : AVAILABLE.filter((f) => f.key !== 'threadStatus');
+  const visibleActiveFilters = groupIntoThreads
+    ? activeFilters
+    : activeFilters.filter((k) => k !== 'threadStatus');
   const [open, setOpen] = useState<OpenKey>(null);
   // Календарь «ввести даты» показываем только по явному клику, не автоматически при custom.
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -477,7 +489,7 @@ export function DockFilters({
           </Tip>
           {open === 'add' && (
             <div className={popoverClass()} role="menu" ref={popoverRef}>
-              {AVAILABLE.map((f) => {
+              {availableFilters.map((f) => {
                 const on = activeFilters.includes(f.key);
                 return (
                   <button
@@ -504,7 +516,7 @@ export function DockFilters({
           )}
         </div>
 
-        {activeFilters.map((key) => {
+        {visibleActiveFilters.map((key) => {
           if (key === 'range') {
             const summary = rangeSummary(value.range);
             const isOpen = open === 'range';

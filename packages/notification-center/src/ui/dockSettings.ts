@@ -13,6 +13,11 @@ export interface NotificationDockSettings {
    * Default on. Спека — docs/dev/phase11/dock-settings.md.
    */
   collapsePhaseTicks: boolean;
+  /**
+   * Группировать в Incident/Group (default on). Off — плоский список Single по `ts`.
+   * Спека — docs/dev/phase11/dock-settings.md.
+   */
+  groupIntoThreads: boolean;
   /** Дублировать новые уведомления в системный трей / Notification API. */
   sendToTray: boolean;
 }
@@ -23,6 +28,7 @@ export const EMPTY_DOCK_SETTINGS: NotificationDockSettings = {
   showStatusLogo: true,
   showType: true,
   collapsePhaseTicks: true,
+  groupIntoThreads: true,
   sendToTray: false,
 };
 
@@ -35,6 +41,7 @@ export function normalizeDockSettings(
     showStatusLogo: value?.showStatusLogo !== false,
     showType: value?.showType !== false,
     collapsePhaseTicks: value?.collapsePhaseTicks !== false,
+    groupIntoThreads: value?.groupIntoThreads !== false,
     sendToTray: value?.sendToTray === true,
   };
 }

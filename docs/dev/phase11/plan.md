@@ -15,7 +15,7 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 
 **Upgrade объектной модели (Thread):** проблема — [issue.md](issue.md); проектирование —
 [to-threads.md](to-threads.md); персист атомов — [persistence.md](persistence.md) (V025 DONE).
-Опции дока (схлоп тиков и др.) — [dock-settings.md](dock-settings.md).
+Опции дока (группировать / схлоп тиков) — [dock-settings.md](dock-settings.md).
 
 ## Мотивация
 
