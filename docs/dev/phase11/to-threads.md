@@ -391,7 +391,7 @@ Retention: не hypertable; чистить orphan threads по `closed_at` + N �
 
 **До этого триггера:** только вариант A (`notification` + `data`). Enum `incident|group` в hints держим стабильным, чтобы миграция B не ломала контракт.
 
-**Не повод для B:** клиентский expand Thread в NC, ★/⦸, фильтр статуса нити на шине — это всё проекция.
+**Не повод для B:** клиентский expand Thread в NC, ★/⊘, фильтр статуса нити на шине — это всё проекция.
 
 ---
 
@@ -427,5 +427,5 @@ Retention: не hypertable; чистить orphan threads по `closed_at` + N �
 | Q2 | sortKey ленты: `openedAt` vs `lastActivityAt` | `lastActivityAt` |
 | Q3 | unread на collapsed Thread | unread пока есть unread Entry |
 | Q4 | когда вводить таблицу `notification_thread` | после запроса «журнал инцидентов» на сервере |
-| Q5 | хранить ★/⦸ в БД | нет в v1; local / user_settings |
+| Q5 | хранить ★/⊘ в БД | нет в v1; local / user_settings ([nc-marks.md](nc-marks.md)) |
 | Q6 | после crash Host: break `active` + восстановление в `auto:` Group | **не Thread** — adopt на Host (**I10 КОД ГОТОВ**); [../phase7j/issue.md](../phase7j/issue.md) |
