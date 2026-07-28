@@ -49,7 +49,7 @@ UI пресетов захардкожен под MOEX; рынок (CME и др.
 | **J11a** | `break` + `abandoned_schedule` | **DONE** (`368bfb9`) |
 | **J11c** | `crash` + `abandoned_schedule` (клиент orchestrate + Host Release/ribbon) + optimistic ribbon overlay | **КОД ГОТОВ** (working tree 2026-07-27; закоммитить в чате phase11 или отдельно) |
 | **I11 / 7j.21** | Рассинхрон Manager↔Hub; единый close-break; атомарный Adopt; снять костыли `auto:`/лента | **OPEN** ([issue.md](issue.md) I11 · [plan.md](plan.md) §7j.21) |
-| **J11b** | `abandoned_manual` (ручной off при open break) — часть I11 close-break | TODO (блокер I11 B1) |
+| **J11b** | `abandoned_manual` (ручной off при open break) — часть I11 close-break | **КОД ГОТОВ** (I11 B1) |
 | **I10** | После crash/рестарта: adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ**; ужесточить Adopt в I11 (B2) |
 | **UI outage mask** | При crash open: тумблер «OHS недоступен» (жёлтый) + AUTO жёлтый | **КОД ГОТОВ** (`backendOutage$`) |
 | **I6 regress** | ConnectAsync без ре-подписки → recovered без сделок | **КОД ГОТОВ** |

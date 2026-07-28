@@ -694,14 +694,9 @@ public static class OhsEndpoints
                 return Results.NotFound(new { error = $"Подключение {id} не найдено" });
             }
 
-            // Оператор оборвал связь: закрываем открытый инцидент (если был), чтобы он не «висел» красным.
-            // Resolve — no-op при отсутствии инцидента, поэтому в штатном off лишней строки не будет.
+            // J11b / I11: close-break в Manager+Hub вместе (не голый Hub.Resolve — иначе _incidentSince висит).
             var label = ConnectionManager.ConnLabel(id, connection.Name);
-            notifications.Resolve(
-                ConnectionManager.LinkIncidentSubject(id),
-                "connection.closed",
-                $"{label}: инцидент связи закрыт (отключено оператором)",
-                data: new { connectionId = id });
+            await manager.TryAbandonIncidentByManualAsync(id, DateTimeOffset.UtcNow, ct).ConfigureAwait(false);
             notifications.Publish(
                 "connection.disconnect",
                 $"{label}: отключение по команде оператора",

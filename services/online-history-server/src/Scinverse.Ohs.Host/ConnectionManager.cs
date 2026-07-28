@@ -759,6 +759,22 @@ public sealed class ConnectionManager(
         }
     }
 
+    /// <summary>
+    /// I11: снять open break в Manager (<c>_incidentSince</c>/<c>_incidentOwner</c>).
+    /// Без этого Hub.Resolve оставляет Host в «open» → Progress/Append в пустоту.
+    /// </summary>
+    private bool TryTakeOpenBreak(long connectionId, out DateTimeOffset incidentStart, out string owner)
+    {
+        if (!_incidentSince.TryRemove(connectionId, out incidentStart))
+        {
+            owner = "supervisor";
+            return false;
+        }
+
+        owner = _incidentOwner.TryRemove(connectionId, out var incidentOwner) ? incidentOwner : "transaq";
+        return true;
+    }
+
     /// <summary>Закрывает открытый инцидент связи (<c>connection.recovered</c>, resolved) на момент
     /// <paramref name="atTs"/>, если он открыт (<c>_incidentSince</c>); иначе no-op. Общий путь для двух
     /// сценариев возврата в Live: тот же сеанс Degraded/Down→Live (self-recovery, из HandleLinkStateAsync) и
@@ -769,16 +785,13 @@ public sealed class ConnectionManager(
     private async Task CloseIncidentAsync(
         long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
     {
-        // TryRemove делает Resolve однократным (idempotent) и даёт длительность разрыва (I3).
-        if (!_incidentSince.TryRemove(connectionId, out var incidentStart))
+        // TryTake + Resolve: Manager и Hub закрываются вместе (I11).
+        if (!TryTakeOpenBreak(connectionId, out var incidentStart, out var owner))
         {
             return;
         }
 
         var label = await ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
-        // Кем восстановлена связь (7j.20): владелец на момент закрытия. TRANSAQ сам поднял (Degraded до
-        // handover) → «Восстановлено TRANSAQ»; иначе (Down/ping-fail/после handover) → супервизор.
-        var owner = _incidentOwner.TryRemove(connectionId, out var incidentOwner) ? incidentOwner : "transaq";
         var ownerLine = owner == "supervisor"
             ? "Восстановлено супервизором (переподключение)"
             : "Восстановлено TRANSAQ";
@@ -804,12 +817,10 @@ public sealed class ConnectionManager(
     public async Task<bool> TryAbandonIncidentByScheduleAsync(
         long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
     {
-        if (!_incidentSince.TryRemove(connectionId, out var incidentStart))
+        if (!TryTakeOpenBreak(connectionId, out var incidentStart, out _))
         {
             return false;
         }
-
-        _incidentOwner.TryRemove(connectionId, out _);
 
         var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
         if (sourceId is { } sid)
@@ -837,6 +848,49 @@ public sealed class ConnectionManager(
 
         logger.LogInformation(
             "Подключение {ConnectionId}: break-инцидент закрыт по окончании окна расписания (с {Start:o} по {End:o})",
+            connectionId, incidentStart, atTs);
+        return true;
+    }
+
+    /// <summary>
+    /// J11b / I11 B1: ручной off тумблера при открытом break — Manager+Hub вместе,
+    /// <c>closeOutcome=abandoned_manual</c>, маркер ленты <c>disconnected</c> (без green).
+    /// Нет open break → false (лишней NC-строки нет).
+    /// </summary>
+    public async Task<bool> TryAbandonIncidentByManualAsync(
+        long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
+    {
+        if (!TryTakeOpenBreak(connectionId, out var incidentStart, out _))
+        {
+            return false;
+        }
+
+        var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        if (sourceId is { } sid)
+        {
+            await linkLiveness
+                .InsertBoundaryMarkerAsync(sid, LinkCloseReason.Disconnected, atTs, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var label = await ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        notifications.Resolve(
+            LinkIncidentSubject(connectionId),
+            "connection.incident_closed",
+            $"{label}: инцидент закрыт (отключено оператором)",
+            severity: "warning",
+            data: new
+            {
+                connectionId,
+                kind = "break",
+                reason = "manual_off",
+                sender = "user",
+                result = $"Закрыто оператором; {FormatGapLine(incidentStart, atTs)}",
+                closeOutcome = NotificationThreadData.OutcomeAbandonedManual,
+            });
+
+        logger.LogInformation(
+            "Подключение {ConnectionId}: break-инцидент закрыт вручную (с {Start:o} по {End:o})",
             connectionId, incidentStart, atTs);
         return true;
     }

@@ -102,6 +102,7 @@ public static class NotificationThreadData
 
             var reason = TryGetString(data, "reason");
             if (string.Equals(reason, "manual", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "manual_off", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(reason, "abandoned_manual", StringComparison.OrdinalIgnoreCase))
             {
                 return OutcomeAbandonedManual;

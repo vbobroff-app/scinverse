@@ -169,6 +169,14 @@ function deriveCloseOutcome(
       return 'recovered';
     }
     if (terminal.code === 'connection.incident_closed') {
+      const reason = terminal.data?.reason;
+      if (
+        reason === 'manual_off' ||
+        reason === 'manual' ||
+        reason === 'abandoned_manual'
+      ) {
+        return 'abandoned_manual';
+      }
       return 'abandoned_schedule';
     }
   }

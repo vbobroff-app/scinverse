@@ -143,7 +143,7 @@ boot или следующего окна. (Овернайт с overlap — не
 |-------|--------|-------------------|-------------|-----|
 | **`recovered`** | снова `Live` / успешный connect | `t_ok` | **да** | `connection.recovered` · ok |
 | **`abandoned_schedule`** | спад `desired` при открытом **`break`** | `t_end` (маркер `scheduled`, `Abandoned`) | **нет** | `connection.incident_closed` · **warning** · resolved (см. ниже) |
-| **`abandoned_manual`** | ручной off / Auto off при открытом инциденте | `t_stop` | **нет** | TODO (тот же code, `reason=manual_off`) |
+| **`abandoned_manual`** | ручной off / Auto off при открытом инциденте | `t_stop` (маркер `disconnected`, `Abandoned`) | **нет** | `connection.incident_closed` · **warning** · resolved (`reason=manual_off`) |
 
 **NC timeout-close для `break` (реализовано):** супервизор на `desired true→false` →
 `TryAbandonIncidentByScheduleAsync`:
@@ -173,7 +173,8 @@ abandoned:     |red [yellow|red body]      |   ← обрыв без green («н
   (`368bfb9`).
 - **J11c `crash`:** клиент `abandonBackendOutageBySchedule` + Host `MarkCrashAbandonedByScheduleAsync`
   (Release + ribbon) + optimistic `overlayCrashOutageOnLink` — **КОД ГОТОВ** (working tree 2026-07-27).
-- **J11b `abandoned_manual`:** ещё не сделано.
+- **J11b `abandoned_manual`:** `TryAbandonIncidentByManualAsync` + clear `_incidentSince` (I11 B1) —
+  **КОД ГОТОВ** (2026-07-28).
 
 ### 1.3. Утро / рестарт бэка
 
@@ -496,7 +497,8 @@ abandoned:   |red [ yellow: TRANSAQ ][ red: supervisor ]      |  ← без gree
   (`sender=supervisor`, `reason=schedule_end`) + маркер `scheduled` / `Abandoned` (без green).
 - [x] **J11c. `crash` + `abandoned_schedule`** — клиент orchestrate close + Host Release/ribbon;
   optimistic Connection overlay на outage. (Закоммитить working tree.)
-- [ ] **J11b. `abandoned_manual`** — ручной off / Auto off при открытом инциденте. Клик→corr — §7.1 FUTURE.
+- [x] **J11b. `abandoned_manual`** — ручной off при открытом break: Manager+Hub close-break
+  (`TryAbandonIncidentByManualAsync`). Клик→corr — §7.1 FUTURE.
 
 ### Scope 7h — данные / запись (recording-лента, capture)
 

@@ -187,6 +187,22 @@ public sealed class NotificationHubTests
     }
 
     [Fact]
+    public void Resolve_enriches_closeOutcome_abandoned_manual_from_reason()
+    {
+        var hub = NewHub();
+        hub.Open("connection:3:link", "connection.lost", "down", severity: "error");
+        hub.Resolve(
+            "connection:3:link",
+            "connection.incident_closed",
+            "manual off",
+            severity: "warning",
+            data: new { reason = "manual_off" });
+
+        var closed = hub.List().Last(e => e.Code == "connection.incident_closed");
+        DataString(closed, "closeOutcome").Should().Be(NotificationThreadData.OutcomeAbandonedManual);
+    }
+
+    [Fact]
     public void Ingest_enriches_json_data_with_thread_hints()
     {
         var hub = NewHub();
