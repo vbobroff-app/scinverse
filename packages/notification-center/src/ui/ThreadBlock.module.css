@@ -170,6 +170,10 @@
   color: var(--color-accent, #4dabf7);
 }
 
+.markOnSpam {
+  color: var(--color-danger, #fa5252);
+}
+
 .entries {
   display: flex;
   flex-direction: column;

@@ -161,7 +161,7 @@ export function NotificationRow({
         {(onToggleFavorite || onToggleLeft) && (
           <span className={styles.marks}>
             {onToggleFavorite && (
-              <Tip content={isFavorite ? 'Снять избранное' : 'В избранное'}>
+              <Tip content={isFavorite ? 'Снять' : 'Отметить'}>
                 <button
                   type="button"
                   className={[styles.markBtn, isFavorite ? styles.markOn : ''].filter(Boolean).join(' ')}
@@ -177,12 +177,12 @@ export function NotificationRow({
               </Tip>
             )}
             {onToggleLeft && (
-              <Tip content={isLeft ? 'Показывать снова' : 'Скрывать спам'}>
+              <Tip content={isLeft ? 'Показывать' : 'В спам'}>
                 <button
                   type="button"
-                  className={[styles.markBtn, isLeft ? styles.markOn : ''].filter(Boolean).join(' ')}
+                  className={[styles.markBtn, isLeft ? styles.markOnSpam : ''].filter(Boolean).join(' ')}
                   aria-pressed={Boolean(isLeft)}
-                  aria-label="Скрывать спам"
+                  aria-label="Спам"
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggleLeft();

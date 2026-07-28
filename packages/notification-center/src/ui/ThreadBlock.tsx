@@ -172,9 +172,9 @@ export function ThreadBlock({
           >
             <button
               type="button"
-              className={[styles.markBtn, thread.isLeft ? styles.markOn : ''].filter(Boolean).join(' ')}
+              className={[styles.markBtn, thread.isLeft ? styles.markOnSpam : ''].filter(Boolean).join(' ')}
               aria-pressed={Boolean(thread.isLeft)}
-              aria-label="Скрывать спам (нить)"
+              aria-label="Спам (нить)"
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleLeft?.();

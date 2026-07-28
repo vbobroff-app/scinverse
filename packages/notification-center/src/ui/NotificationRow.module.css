@@ -168,6 +168,10 @@
   color: var(--color-accent, #4dabf7);
 }
 
+.markOnSpam {
+  color: var(--color-danger, #fa5252);
+}
+
 .message {
   flex: 1;
   min-width: 0;
