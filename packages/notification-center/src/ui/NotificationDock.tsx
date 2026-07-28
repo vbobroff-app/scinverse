@@ -344,10 +344,13 @@ export function NotificationDock({
     [emitFilters, expanded, lastHeight, setExpanded],
   );
 
-  /** Клик по Id инцидента: focus Thread (expand + query по corr). */
+  /** Клик по Id инцидента: query = corr (остальные фильтры/плашки не трогаем) + expand Thread. */
   const filterByIncident = useCallback(
     (correlationId: string) => {
-      emitFilters({ ...EMPTY_DOCK_FILTER, query: correlationId }, []);
+      emitFilters(
+        { ...filterRef.current, query: correlationId },
+        activeFiltersRef.current,
+      );
       setExpandedThreads((prev) => {
         const next = new Set(prev);
         next.add(correlationId);

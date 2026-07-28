@@ -75,6 +75,57 @@ describe('NotificationDock', () => {
     expect(last.activeFilters).toEqual(['severity']);
   });
 
+  it('corr click sets query without clearing other filters', () => {
+    Element.prototype.scrollIntoView = () => {};
+    const bus = createNotificationBus();
+    const seen: Array<{
+      filter: { query: string; severities: string[] };
+      activeFilters: string[];
+    }> = [];
+    const corr = 'connection:x:link:uid1';
+    notify.error(bus, {
+      id: 'e1',
+      module: 'm',
+      code: 'connection.lost',
+      message: 'Потеря связи',
+      correlationId: corr,
+      status: 'active',
+    });
+    const filters = {
+      activeFilters: ['severity' as const],
+      filter: {
+        severities: ['error' as const],
+        interactions: [],
+        localizations: [],
+        statuses: [],
+        threadStatuses: [],
+        choices: [],
+        range: { preset: 'all' as const },
+        query: '',
+      },
+    };
+
+    render(
+      <NotificationDock
+        bus={bus}
+        defaultExpanded
+        filters={filters}
+        onFiltersChange={(s) => seen.push(s)}
+      />,
+    );
+
+    expect(screen.getByText('Потеря связи')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Раскрыть нить/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Подробности/i }));
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`corr: ${corr}`) }));
+
+    expect(seen.length).toBeGreaterThan(0);
+    const last = seen[seen.length - 1]!;
+    expect(last.filter.query).toBe(corr);
+    expect(last.filter.severities).toEqual(['error']);
+    expect(last.activeFilters).toEqual(['severity']);
+  });
+
   it('фон-маска только по severity (типу)', () => {
     const bus = createNotificationBus();
     notify.error(bus, { id: 'e', module: 'm', code: 'c', message: 'Открытая ошибка' });

@@ -25,7 +25,7 @@ interface Props {
   onToggleFavorite?: () => void;
   onToggleLeft?: () => void;
   onOpen?: (event: NotificationEvent) => void;
-  /** Клик по Id инцидента (`correlationId`) — фильтрует ленту до этого инцидента. */
+  /** Клик по Id инцидента (`correlationId`) — подставляет corr в поиск, не сбрасывая остальные фильтры. */
   onFilterIncident?: (correlationId: string) => void;
 }
 
