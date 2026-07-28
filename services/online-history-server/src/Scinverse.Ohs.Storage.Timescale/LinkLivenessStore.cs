@@ -66,12 +66,12 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
             "INSERT INTO link_liveness (source_id, from_ts, to_ts, open) VALUES (@sourceId, @ts, @ts, true);",
             new { sourceId, ts = tsUtc }, transaction: tx, cancellationToken: cancellationToken));
 
-    public async Task CloseAsync(
+    public async Task<int> CloseAsync(
         short sourceId, LinkCloseReason reason, DateTimeOffset? atTs, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         // atTs (точное время события, напр. server_down) сдвигает to_ts вперёд (не назад — иначе период < 0).
-        await connection.ExecuteAsync(new CommandDefinition(
+        return await connection.ExecuteAsync(new CommandDefinition(
             """
             UPDATE link_liveness
             SET open = false,

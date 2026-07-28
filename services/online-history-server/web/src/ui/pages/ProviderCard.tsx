@@ -11,6 +11,7 @@ import styles from './ProviderCard.module.css';
 export function ProviderCard({ connection }: { connection: ConnectionDto }) {
   const store = useOhsStore();
   const showFilters = useBehavior(store.showFilters$);
+  const ohsUnavailable = useBehavior(store.backendOutage$);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
 
@@ -48,6 +49,7 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
         <div className={styles.headRight}>
           <ConnectionToggle
             status={connection.status}
+            ohsUnavailable={ohsUnavailable}
             onConnect={() => store.connect(connection.connectionId)}
             onDisconnect={() => store.disconnect(connection.connectionId)}
             onCancelConnect={() => store.cancelConnect()}

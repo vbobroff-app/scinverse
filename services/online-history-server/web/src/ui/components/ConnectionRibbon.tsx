@@ -21,8 +21,37 @@ interface Props {
 /** Не-инцидент (серое, без маркеров): отключил оператор / плановое по расписанию. Всё прочее = инцидент. */
 const GREY_CAUSES = new Set(['disconnected', 'scheduled']);
 
+/** Жёлтая фаза TRANSAQ (Degraded) — max T; дальше красное (супервизор). Совпадает с LinkRecoverGraceSeconds. */
+const DEGRADED_YELLOW_MAX_MS = 60_000;
+
 function isIncident(cause: string): boolean {
   return !GREY_CAUSES.has(cause);
+}
+
+/**
+ * Момент жёлтое→красное: `escalatedAt` с бэка, иначе для `degraded` без маркера —
+ * clamp from+60с (исторические дыры без handover-маркера не должны быть жёлтыми целиком).
+ */
+export function resolveEscalatedMs(
+  gap: CaptureGapDto,
+  fromMs: number,
+  toMs: number,
+  yellowMaxMs: number = DEGRADED_YELLOW_MAX_MS,
+): number | null {
+  if (gap.escalatedAt) {
+    const esc = Date.parse(gap.escalatedAt);
+    if (Number.isFinite(esc) && esc > fromMs && esc < toMs) {
+      return esc;
+    }
+  }
+  if (gap.cause !== 'degraded') {
+    return null;
+  }
+  const synthetic = fromMs + yellowMaxMs;
+  if (synthetic > fromMs && synthetic < toMs) {
+    return synthetic;
+  }
+  return null;
 }
 
 const CAUSE_LABEL: Record<string, string> = {
@@ -100,11 +129,9 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
         const from = Date.parse(gap.from);
         const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
         const label = CAUSE_LABEL[gap.cause] ?? gap.cause;
-        const escMs = gap.escalatedAt ? Date.parse(gap.escalatedAt) : null;
-        const hasHandover =
-          escMs !== null && isIncident(gap.cause) && escMs > from && escMs < to;
+        const escMs = resolveEscalatedMs(gap, from, to);
 
-        if (!hasHandover) {
+        if (escMs === null || !isIncident(gap.cause)) {
           const left = pct(from);
           return [
             <div

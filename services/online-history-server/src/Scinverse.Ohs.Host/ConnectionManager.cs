@@ -37,7 +37,7 @@ public sealed class ConnectionManager(
     public static string LinkIncidentSubject(long connectionId) => $"connection:{connectionId}:link";
 
     /// <summary>Порог тишины: нет данных от коннектора дольше — статус «ожидание» (waiting).</summary>
-    private static readonly TimeSpan IdleThreshold = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan _idleThreshold = TimeSpan.FromSeconds(5);
 
     /// <summary>Макс. разрыв keepalive связи: больше — интервал считается прерванным (краш процесса).</summary>
     internal static readonly TimeSpan LinkMaxGap = TimeSpan.FromSeconds(45);
@@ -82,6 +82,35 @@ public sealed class ConnectionManager(
         }
 
         _incidentOwner[connectionId] = string.IsNullOrWhiteSpace(owner) ? "supervisor" : owner;
+        return true;
+    }
+
+    /// <summary>
+    /// Первый fail connect при отсутствии open break → открыть <c>link:</c> Incident.
+    /// Все дальнейшие попытки (auto ×N / ручной тумблер ×25) пишут в этот же corr.
+    /// true — только что открыли; false — break уже был.
+    /// </summary>
+    public bool EnsureBreakIncidentOnConnectFailure(
+        long connectionId, DateTimeOffset atTs, string label)
+    {
+        if (!_incidentSince.TryAdd(connectionId, atTs))
+        {
+            return false;
+        }
+
+        _incidentOwner[connectionId] = "supervisor";
+        notifications.Open(
+            LinkIncidentSubject(connectionId),
+            "connection.lost",
+            $"{label}: не удалось установить связь",
+            severity: "error",
+            data: new
+            {
+                connectionId,
+                state = "Error",
+                sender = "supervisor",
+                threadKindHint = NotificationThreadData.KindIncident,
+            });
         return true;
     }
 
@@ -264,11 +293,14 @@ public sealed class ConnectionManager(
                 loggerFactory.CreateLogger<ConnectorSession>(),
                 onData: () => ReportActivity(connectionId),
                 onLinkState: change => HandleLinkStateAsync(connectionId, change));
-            await session.StartAsync(cancellationToken).ConfigureAwait(false);
-
+            // Сессию в словарь ДО StartAsync: иначе Live из канала (уже залитый в ConnectAsync) обрабатывается
+            // HandleLinkStateAsync при пустом _sessions → early-return → OnLinkLiveAsync не зовётся (I6-регресс
+            // на ручном/супервизорном Connect: «recovered» + зелёный тумблер, подписок нет, сделок нет).
             _sessions[connectionId] = session;
             _sourceIds[connectionId] = sourceId;
             connector = null;
+            await session.StartAsync(cancellationToken).ConfigureAwait(false);
+
             // Подключено, но данных ещё нет → «ожидание» (перейдёт в «active» при первой сделке).
             SetStatus(connectionId, "waiting");
             // Открываем интервал живости связи (лента Connection, 7h.8): связь есть — независимо от записи.
@@ -280,6 +312,9 @@ public sealed class ConnectionManager(
             // ConnectAsync). Свежая сессия НЕ даёт отдельного перехода в Live (рождается подключённой), поэтому
             // закрываем открытый инцидент здесь — иначе после handover он висел бы открытым (recovered терялся).
             await CloseIncidentAsync(connectionId, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+            // Ре-подписка записей: не полагаемся только на server_status Live (может уже быть consumed /
+            // не повториться). OnLinkLiveAsync идемпотентен (пропуск при active coverage).
+            await recordings.Value.OnLinkLiveAsync(connectionId, cancellationToken).ConfigureAwait(false);
             _firstTradePending[connectionId] = DateTimeOffset.UtcNow;
             var connectElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(connectStartedAt);
             logger.LogInformation(
@@ -327,6 +362,16 @@ public sealed class ConnectionManager(
         LinkCloseReason reason = LinkCloseReason.Disconnected)
     {
         var hasSource = _sourceIds.TryGetValue(connectionId, out var sourceId);
+        // Degraded (owner=transaq) → teardown без handover: иначе дыра остаётся вся жёлтой
+        // (нет нулевого маркера server_down → нет escalatedAt на ленте).
+        if (_incidentSince.ContainsKey(connectionId)
+            && _incidentOwner.TryGetValue(connectionId, out var owner)
+            && owner == "transaq")
+        {
+            await TransferBreakOwnerToSupervisorAsync(
+                    connectionId, DateTimeOffset.UtcNow, LinkCloseReason.ServerDown, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         if (_sessions.TryRemove(connectionId, out var session))
         {
@@ -339,6 +384,14 @@ public sealed class ConnectionManager(
         _linkStates.TryRemove(connectionId, out _);
         _linkSince.TryRemove(connectionId, out _);
         await liveness.Value.OnDisconnectedAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        // Сегменты записи закрыть здесь: иначе после reconnect OnLinkLive видел IsActive и
+        // пропускал Subscribe → зелёный тумблер без сделок.
+        var segmentStatus = reason is LinkCloseReason.Disconnected or LinkCloseReason.Scheduled
+            ? "stopped"
+            : "disconnected";
+        await recordings.Value
+            .OnLinkDownAsync(connectionId, segmentStatus, DateTimeOffset.UtcNow, cancellationToken)
+            .ConfigureAwait(false);
         // Закрываем живость связи с причиной: ручной дисконнект — 'disconnected' (серый, не разрыв);
         // плановое гашение по авто-расписанию — 'scheduled' (не путать с «отключением оператором»).
         if (hasSource)
@@ -387,11 +440,29 @@ public sealed class ConnectionManager(
         CancellationToken cancellationToken)
     {
         _incidentOwner[connectionId] = "supervisor";
-        if (_sourceIds.TryGetValue(connectionId, out var sourceId))
+        short? sourceId = null;
+        if (_sourceIds.TryGetValue(connectionId, out var liveSourceId))
+        {
+            sourceId = liveSourceId;
+        }
+        else
+        {
+            // Сессию могли снять раньше — маркер всё равно нужен для жёлтое→красное на ленте.
+            var connection = await connectionStore.GetAsync(connectionId, cancellationToken).ConfigureAwait(false);
+            sourceId = connection?.SourceId;
+        }
+
+        if (sourceId is { } sid)
         {
             await linkLiveness
-                .InsertBoundaryMarkerAsync(sourceId, reason, atTs, cancellationToken)
+                .InsertBoundaryMarkerAsync(sid, reason, atTs, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        else
+        {
+            logger.LogWarning(
+                "Подключение {ConnectionId}: handover без sourceId — маркер escalatedAt не записан",
+                connectionId);
         }
     }
 
@@ -832,7 +903,17 @@ public sealed class ConnectionManager(
             notifications.Open(subject, "connection.lost", message, severity: "error", data: lostData);
             if (_sourceIds.TryGetValue(connectionId, out var srcId))
             {
-                await linkLiveness.CloseAsync(srcId, reason, atTs, cancellationToken).ConfigureAwait(false);
+                var closed = await linkLiveness
+                    .CloseAsync(srcId, reason, atTs, cancellationToken)
+                    .ConfigureAwait(false);
+                // Уже закрыто как Degraded, а _incidentSince сбросили (рестарт/рассинхрон) —
+                // Close no-op; ставим маркер, иначе вся дыра останется жёлтой.
+                if (closed == 0)
+                {
+                    await linkLiveness
+                        .InsertBoundaryMarkerAsync(srcId, reason, atTs, cancellationToken)
+                        .ConfigureAwait(false);
+                }
             }
         }
         else
@@ -922,7 +1003,7 @@ public sealed class ConnectionManager(
     private void EnsureIdleMonitor() =>
         _idleMonitor ??= new Timer(_ => SweepIdle(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
 
-    /// <summary>Опрос активных сессий: active → waiting, если данных нет дольше <see cref="IdleThreshold"/>.</summary>
+    /// <summary>Опрос активных сессий: active → waiting, если данных нет дольше <see cref="_idleThreshold"/>.</summary>
     private void SweepIdle()
     {
         var now = DateTimeOffset.UtcNow;
@@ -934,7 +1015,7 @@ public sealed class ConnectionManager(
             }
 
             var last = _lastData.TryGetValue(connectionId, out var t) ? t : DateTimeOffset.MinValue;
-            if (now - last > IdleThreshold)
+            if (now - last > _idleThreshold)
             {
                 SetStatus(connectionId, "waiting");
             }

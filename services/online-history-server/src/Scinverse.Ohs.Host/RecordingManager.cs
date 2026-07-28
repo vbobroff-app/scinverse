@@ -117,6 +117,8 @@ public sealed class RecordingManager(
 
     /// <summary>
     /// Связь восстановлена (phase 7h.4): ре-подписка и новый сегмент для активных записей.
+    /// На новой сессии TRANSAQ подписок нет — <see cref="SubscribeTradesAsync"/> всегда, даже если
+    /// coverage ещё «active» (DisconnectAsync раньше мог не закрыть сегмент).
     /// </summary>
     public async Task OnLinkLiveAsync(long connectionId, CancellationToken cancellationToken)
     {
@@ -129,18 +131,23 @@ public sealed class RecordingManager(
 
         foreach (var recording in _recordings.Values.Where(r => r.ConnectionId == connectionId).ToList())
         {
-            if (coverage.IsActive(recording.Key))
-            {
-                continue;
-            }
-
             if (!registry.TryResolveById(recording.InstrumentId, out var instrument))
             {
                 logger.LogWarning("Ре-подписка: инструмент {InstrumentId} не найден", recording.InstrumentId);
                 continue;
             }
 
+            // Всегда: новая сессия без подписок (I6 / ручной reconnect).
             await connector.SubscribeTradesAsync([recording.Key], cancellationToken).ConfigureAwait(false);
+
+            if (coverage.IsActive(recording.Key))
+            {
+                logger.LogInformation(
+                    "Связь восстановлена — ре-подписка {Instrument} (сегмент {SegmentId} уже открыт)",
+                    recording.Key, recording.SegmentId);
+                continue;
+            }
+
             var (segmentId, startedAt) = await coverage
                 .OpenAsync(instrument, recording.SourceId, cancellationToken)
                 .ConfigureAwait(false);

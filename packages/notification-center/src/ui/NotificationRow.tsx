@@ -38,21 +38,23 @@ const SEVERITY_LABEL: Record<NotificationSeverity, string> = {
 };
 
 /**
- * Фон-маска (ось lifecycle × severity, ортогонально unread-рамке):
- * `resolved` — зелёная (перекрывает severity); иначе открытый `warning` — жёлтая,
- * `error`/`critical` — красная; `info`/`ok` без маски (нечего разрешать).
+ * Фон-маска только по типу (severity), не по lifecycle-status:
+ * info → голубая; warning → жёлтая; error/critical → красная; ok → зелёная.
  */
 function backgroundClass(event: NotificationEvent): string {
-  if (resolveStatus(event) === 'resolved') {
-    return styles.bgResolved;
+  switch (event.severity) {
+    case 'info':
+      return styles.bgInfo;
+    case 'warning':
+      return styles.bgWarning;
+    case 'error':
+    case 'critical':
+      return styles.bgAlert;
+    case 'ok':
+      return styles.bgOk;
+    default:
+      return '';
   }
-  if (event.severity === 'warning') {
-    return styles.bgWarning;
-  }
-  if (event.severity === 'error' || event.severity === 'critical') {
-    return styles.bgAlert;
-  }
-  return '';
 }
 
 function detailText(event: NotificationEvent): string | null {

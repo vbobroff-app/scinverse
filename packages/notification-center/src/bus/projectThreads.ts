@@ -20,7 +20,7 @@ const INCIDENT_OPEN_CODES = new Set([
   'connection.lost',
   'backend.unavailable',
   'connection.auto_error',
-  'connection.connect_failed',
+  // connect_failed — не open break: либо Append в link-corr, либо terminal Group connect:
 ]);
 
 const RECOVERING_CODES = new Set([

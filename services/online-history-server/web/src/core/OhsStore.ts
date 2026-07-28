@@ -260,6 +260,11 @@ export class OhsStore {
 
   /** Состояния расписаний соединений (connectionId → settings + правила), phase 7j v2. */
   readonly connectionSchedule$ = new BehaviorSubject<ReadonlyMap<number, ConnectionScheduleStateDto>>(new Map());
+  /**
+   * Crash-outage в фазе open: маска тумблеров «OHS недоступен» / AUTO жёлтый.
+   * grace — без маски (HMR); warning/resolved — маска снята, снова connection.status.
+   */
+  readonly backendOutage$ = new BehaviorSubject(false);
   readonly coverage$ = new BehaviorSubject<CoverageSegmentDto[]>([]);
   readonly window$ = new BehaviorSubject<CoverageWindow>(defaultWindow());
 
@@ -518,6 +523,15 @@ export class OhsStore {
     this.outageHoldInFlight = false;
   }
 
+  /** Синхронизирует фазу outage и флаг маски тумблеров (только open → true). */
+  private setOutagePhase(phase: 'none' | 'grace' | 'open' | 'warning'): void {
+    this.outagePhase = phase;
+    const mask = phase === 'open';
+    if (this.backendOutage$.value !== mask) {
+      this.backendOutage$.next(mask);
+    }
+  }
+
   private stopHoldRetry(): void {
     if (this.outageHoldTimer !== undefined) {
       clearInterval(this.outageHoldTimer);
@@ -591,7 +605,7 @@ export class OhsStore {
     this.pendingFatalCorr = null;
     this.pendingFatalAt = null;
     this.outageNeedsWarnBeforeOk = true;
-    this.outagePhase = 'grace';
+    this.setOutagePhase('grace');
     this.outageGraceTimer = setTimeout(() => {
       this.outageGraceTimer = undefined;
       if (this.outageStart === null || this.outageCorr === null) {
@@ -612,7 +626,7 @@ export class OhsStore {
 
   /** Фаза error: живые тики длительности. immediate — тик сразу (возврат из warning / после 500). */
   private startOutageProgress(immediate: boolean): void {
-    this.outagePhase = 'open';
+    this.setOutagePhase('open');
     // §9.2: hold с open (ретраи) — иначе 500 до WS-reconnect уходит под requestId.
     this.ensureHoldRetry();
     this.signalHoldRecovery();
@@ -654,7 +668,7 @@ export class OhsStore {
     if (this.outagePhase === 'grace') {
       this.clearOutageTimers();
       this.outageStart = null;
-      this.outagePhase = 'none';
+      this.setOutagePhase('none');
       this.outageCorr = null;
       this.outageNeedsWarnBeforeOk = false;
       this.pendingFatalCorr = null;
@@ -680,7 +694,7 @@ export class OhsStore {
       return;
     }
 
-    this.outagePhase = 'warning';
+    this.setOutagePhase('warning');
     this.outageNeedsWarnBeforeOk = false;
     void import('./notifications').then((m) => {
       // Live сразу; POST — в resolveOutage вместе с open+ok (иначе сирота recovering в БД).
@@ -862,7 +876,7 @@ export class OhsStore {
     const end = Date.now();
     this.clearOutageTimers();
     this.outageStart = null;
-    this.outagePhase = 'none';
+    this.setOutagePhase('none');
     this.outageHeldSignaled = false;
     this.outageHoldInFlight = false;
     this.outageNeedsWarnBeforeOk = false;
@@ -927,13 +941,13 @@ export class OhsStore {
     // Последний рубеж: никогда FATAL→OK без recovering в стеке.
     if (this.outageNeedsWarnBeforeOk) {
       // Сбросить в open, иначе ветка «уже warning» не эмитит warn → цикл settle.
-      this.outagePhase = 'open';
+      this.setOutagePhase('open');
       this.onBackendReachable();
       return;
     }
     this.clearOutageTimers();
     this.outageStart = null;
-    this.outagePhase = 'none';
+    this.setOutagePhase('none');
     this.outageHeldSignaled = false;
     this.outageHoldInFlight = false;
     this.outageNeedsWarnBeforeOk = false;

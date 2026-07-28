@@ -273,7 +273,7 @@ public static class OhsEndpoints
                     "connection.schedule.settings_failed",
                     $"{ScheduleWho(id, connection.Name)}: не удалось изменить автоподключение",
                     severity: "error", sourceType: "user",
-                    data: new { connectionId = id, lines = SettingsFailedUserLines });
+                    data: new { connectionId = id, lines = _settingsFailedUserLines });
                 notifications.Publish(
                     "connection.schedule.storage_error",
                     $"Расписание {id}: ошибка хранилища при сохранении настроек",
@@ -356,7 +356,7 @@ public static class OhsEndpoints
                     "connection.schedule.batch_failed",
                     $"{ScheduleWho(id, connection.Name)}: не удалось сохранить изменения",
                     severity: "error", sourceType: "user",
-                    data: new { connectionId = id, batchId, lines = BatchFailedUserLines },
+                    data: new { connectionId = id, batchId, lines = _batchFailedUserLines },
                     correlationId: batchId);
                 notifications.Publish(
                     "connection.schedule.storage_error",
@@ -543,6 +543,7 @@ public static class OhsEndpoints
             IConnectionStore store,
             ILinkLivenessStore linkLiveness,
             INotificationPublisher notifications,
+            RecordingSupervisor recordingSupervisor,
             CancellationToken ct) =>
         {
             var connection = await store.GetAsync(id, ct);
@@ -552,26 +553,72 @@ public static class OhsEndpoints
             }
 
             var label = ConnectionManager.ConnLabel(id, connection.Name);
+            var linkSubject = ConnectionManager.LinkIncidentSubject(id);
+            // Открытый break → вся ручная попытка в ТОТ ЖЕ link-corr (не новый connect: «инцидент»).
+            var breakOpen = manager.GetIncidentSince(id) is not null;
 
-            // Один топик на всю ручную попытку: команда оператора (user) + исполнение системой
-            // (connecting→connected/failed) под общим correlationId — единая нить в ленте.
+            if (breakOpen)
+            {
+                notifications.Append(
+                    linkSubject,
+                    "connection.connect",
+                    $"{label}: подключение по команде оператора",
+                    severity: "info",
+                    sourceType: "user",
+                    data: new { connectionId = id, sender = "user" });
+                notifications.Progress(
+                    linkSubject,
+                    "connection.reconnecting",
+                    $"{label}: восстановление связи по команде оператора…",
+                    severity: "warning",
+                    data: new { connectionId = id, owner = "supervisor", sender = "user" });
+
+                try
+                {
+                    var status = await manager.ConnectAsync(id, ct);
+                    // recovered пишет ConnectAsync → CloseIncidentAsync в link-corr.
+                    recordingSupervisor.Nudge();
+                    return Results.Ok(ToDto(connection, status));
+                }
+                catch (InvalidOperationException ex)
+                {
+                    var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, label, ex.Message);
+                    notifications.Append(
+                        linkSubject,
+                        "connection.connect_failed",
+                        failedMessage,
+                        severity: "error",
+                        data: failedData);
+                    return Results.BadRequest(new { error = ex.Message });
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, label, ex.Message);
+                    notifications.Append(
+                        linkSubject,
+                        "connection.connect_failed",
+                        failedMessage,
+                        severity: "error",
+                        data: failedData);
+                    throw;
+                }
+            }
+
+            // Нет open break — штатная Group connect: (намерение + connecting → connected|failed).
             var attempt = $"connection:{id}:connect:{Guid.NewGuid().ToString("N")[..8]}";
 
-            // Команда оператора (user) — дискретное намерение, отдельной строкой (симметрично disconnect).
             notifications.Publish(
                 "connection.connect",
                 $"{label}: подключение по команде оператора",
                 severity: "info", sourceType: "user", correlationId: attempt, data: new { connectionId = id });
 
-            // Далее — исполнение системой (system) как группа: connecting(жёлтый)→connected(зелёный)/failed(красный).
-            // «Предыдущее подключение» (QUIK-style) — до нового Heartbeat, иначе последним станет текущий сеанс.
             var previous = await linkLiveness.GetLastAsync(connection.SourceId, ct);
 
             notifications.Publish(
                 "connection.connecting",
                 $"{label}: устанавливаю связь…",
                 severity: "warning", sourceType: "system", status: "underway", correlationId: attempt,
-                data: new { connectionId = id });
+                data: new { connectionId = id, threadKindHint = NotificationThreadData.KindGroup });
 
             try
             {
@@ -581,15 +628,28 @@ public static class OhsEndpoints
                     $"{label}: связь установлена.",
                     severity: "ok", sourceType: "system", status: "resolved", correlationId: attempt,
                     data: ConnectionManager.FormatConnectedNotificationData(id, previous, sender: "backend"));
+                recordingSupervisor.Nudge();
                 return Results.Ok(ToDto(connection, status));
             }
             catch (InvalidOperationException ex)
             {
                 var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, label, ex.Message);
+                // Закрыть connect: Group, открыть link: Incident — все дальнейшие попытки (×N) в тот же corr.
                 notifications.Publish(
                     "connection.connect_failed",
                     failedMessage,
-                    severity: "error", sourceType: "system", correlationId: attempt, data: failedData);
+                    severity: "error",
+                    sourceType: "system",
+                    status: "resolved",
+                    correlationId: attempt,
+                    data: NotificationThreadData.WithHints(failedData, threadKindHint: NotificationThreadData.KindGroup));
+                manager.EnsureBreakIncidentOnConnectFailure(id, DateTimeOffset.UtcNow, label);
+                notifications.Append(
+                    linkSubject,
+                    "connection.connect_failed",
+                    failedMessage,
+                    severity: "error",
+                    data: failedData);
                 return Results.BadRequest(new { error = ex.Message });
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -598,7 +658,18 @@ public static class OhsEndpoints
                 notifications.Publish(
                     "connection.connect_failed",
                     failedMessage,
-                    severity: "error", sourceType: "system", correlationId: attempt, data: failedData);
+                    severity: "error",
+                    sourceType: "system",
+                    status: "resolved",
+                    correlationId: attempt,
+                    data: NotificationThreadData.WithHints(failedData, threadKindHint: NotificationThreadData.KindGroup));
+                manager.EnsureBreakIncidentOnConnectFailure(id, DateTimeOffset.UtcNow, label);
+                notifications.Append(
+                    linkSubject,
+                    "connection.connect_failed",
+                    failedMessage,
+                    severity: "error",
+                    data: failedData);
                 throw;
             }
         });
@@ -1066,13 +1137,13 @@ public static class OhsEndpoints
         throw new ArgumentException($"Некорректное время: {text}");
     }
 
-    private static readonly string[] BatchFailedUserLines =
+    private static readonly string[] _batchFailedUserLines =
     [
         "Изменения не применены — ошибка хранилища",
         "Повторите попытку; при повторной ошибке — обратитесь к администратору",
     ];
 
-    private static readonly string[] SettingsFailedUserLines =
+    private static readonly string[] _settingsFailedUserLines =
     [
         "Настройка не сохранена — ошибка хранилища",
         "Повторите попытку; при повторной ошибке — обратитесь к администратору",
@@ -1143,19 +1214,32 @@ public static class OhsEndpoints
             _ => "info",
         };
 
+        // User = active (намерение), system = resolved (факт применён) → Thread RESOLVED.
         notifications.Publish(
             userCode,
             headline,
             severity: userSeverity, sourceType: "user",
-            data: new { connectionId = id, batchId, kind, items, lines },
+            status: "active",
+            data: NotificationThreadData.WithHints(
+                new { connectionId = id, batchId, kind, items, lines },
+                threadKindHint: NotificationThreadData.KindGroup),
             correlationId: batchId);
 
         // System — техаудит: только id (имя опускаем, оно для user-ленты).
+        var systemHeadline = kind switch
+        {
+            "cleared" => $"Расписание {id}: сброшено batch ({n})",
+            "recreated" => $"Расписание {id}: пересоздано batch ({n})",
+            _ => $"Расписание {id}: изменено batch ({n})",
+        };
         notifications.Publish(
             "connection.schedule.batch",
-            $"Расписание {id}: batch ({n})",
+            systemHeadline,
             severity: "info", sourceType: "system",
-            data: new { connectionId = id, batchId, kind, items },
+            status: "resolved",
+            data: NotificationThreadData.WithHints(
+                new { connectionId = id, batchId, kind, items },
+                threadKindHint: NotificationThreadData.KindGroup),
             correlationId: batchId);
     }
 

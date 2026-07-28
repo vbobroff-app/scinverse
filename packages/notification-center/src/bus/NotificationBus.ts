@@ -24,27 +24,27 @@ function isWarning(evt: NotificationEvent): boolean {
   return evt.severity === 'warning';
 }
 
+function dataSender(evt: NotificationEvent): string | undefined {
+  const s = evt.data?.sender;
+  return typeof s === 'string' ? s : undefined;
+}
+
 /**
- * Discrete строки стека: НЕ upsert и НЕ dedup по (corr,code,status).
- * `connection.lost` — дискретно: Degraded и последующий Down оба видны в нити break
- * (иначе второй lost вытеснял первый после Progress→underway).
- * Тики `connection.recovering` / `reconnecting` — I2 схлопывание.
+ * I2 whitelist: прогресс-тики схлопываются / обновляются на месте
+ * («попытка 1/5»→«2/5», «4 c»→«19 c»). Остальное — discrete.
  */
-function isDiscreteStackRow(evt: NotificationEvent): boolean {
-  if (evt.severity === 'critical') {
-    return true;
-  }
+function isI2PhaseTick(evt: NotificationEvent): boolean {
   switch (evt.code) {
-    case 'backend.recovering':
-    case 'backend.unavailable':
-    case 'backend.recovered':
-    case 'backend.healthcheck.ok':
-    case 'connection.lost':
-    case 'connection.auto_error':
-    case 'connection.connect_failed':
+    case 'connection.recovering':
+    case 'connection.connecting': // auto-серия «подключаю по расписанию, попытка k/5»
+    case 'backend.unavailable.progress':
       return true;
+    case 'connection.reconnecting':
+      // attempt k/5 супервизора — тик; «по команде оператора» (sender=user) — discrete.
+      return dataSender(evt) !== 'user';
     default:
-      return false;
+      // Прочие `*.progress` (тики длительности).
+      return evt.code.endsWith('.progress');
   }
 }
 
@@ -117,10 +117,8 @@ export class NotificationBus {
 
   /**
    * Пакетная подача (бэклог / другой контур). Новые сверху; дедуп по `id`.
-   * I2 (lifecycle): для события с `correlationId` новая строка добавляется только на смену
-   * `(status, code)`. Подряд идущее с тем же `(status, code)` в рамках инцидента НЕ плодит строку, но
-   * **обновляет существующую на месте** (прогресс-тик: «4 c» → «19 c»): меняются `message`/`data`/`ts`,
-   * а `id`/позиция/состояние прочитанности сохраняются. Так одна строка «живёт» и обновляется без спама.
+   * I2 только для прогресс-тиков ({@link isI2PhaseTick}): повтор того же `(corr, code, status)`
+   * обновляет строку на месте («4 c» → «19 c»). Остальные коды — каждая доставка = новая строка.
    */
   publishMany(incoming: readonly NotificationEvent[]): void {
     if (incoming.length === 0) {
@@ -128,11 +126,11 @@ export class NotificationBus {
     }
     const current = this.eventsSubject.value;
     const seen = new Set(current.map((e) => e.id));
-    // Последний известный (status, code) на correlationId — сид из буфера (newest-first: первый = последний).
-    const lastByCorr = new Map<string, { status: NotificationStatus; code: string }>();
+    // Последний тик на correlationId — сид из буфера (newest-first: первый = последний).
+    const lastTickByCorr = new Map<string, { status: NotificationStatus; code: string }>();
     for (const e of current) {
-      if (e.correlationId && !lastByCorr.has(e.correlationId)) {
-        lastByCorr.set(e.correlationId, { status: resolveStatus(e), code: e.code });
+      if (e.correlationId && isI2PhaseTick(e) && !lastTickByCorr.has(e.correlationId)) {
+        lastTickByCorr.set(e.correlationId, { status: resolveStatus(e), code: e.code });
       }
     }
     const additions: NotificationEvent[] = [];
@@ -148,32 +146,33 @@ export class NotificationBus {
         replacements.set(evt.id, evt);
         continue;
       }
-      if (evt.correlationId && !isDiscreteStackRow(evt)) {
+      if (evt.correlationId && isI2PhaseTick(evt)) {
         const status = resolveStatus(evt);
-        const prev = lastByCorr.get(evt.correlationId);
+        const prev = lastTickByCorr.get(evt.correlationId);
         if (prev && prev.status === status && prev.code === evt.code) {
-          // I2: тик / повтор той же фазы — обновляем строку на месте.
+          // I2: тик — обновляем строку на месте.
           updates.set(evt.correlationId, evt);
           seen.add(evt.id);
           continue;
         }
-        lastByCorr.set(evt.correlationId, { status, code: evt.code });
-      } else if (evt.correlationId) {
-        lastByCorr.set(evt.correlationId, { status: resolveStatus(evt), code: evt.code });
+        lastTickByCorr.set(evt.correlationId, { status, code: evt.code });
       }
       seen.add(evt.id);
       additions.push(evt);
     }
-    if (additions.length === 0 && updates.size === 0) {
+    if (additions.length === 0 && updates.size === 0 && replacements.size === 0) {
       return;
     }
     // Сначала additions (новее по ingest), затем current — при равном `ts` стабильный sort сохранит это.
     let combined = additions.length > 0 ? [...additions, ...current] : [...current];
+    if (replacements.size > 0) {
+      combined = combined.map((e) => replacements.get(e.id) ?? e);
+    }
     if (updates.size > 0) {
-      // Обновляем первую (newest-first) строку с совпадающими correlationId + code + status.
+      // Обновляем первую (newest-first) строку-тик с совпадающими correlationId + code + status.
       const applied = new Set<string>();
       combined = combined.map((e) => {
-        if (!e.correlationId || applied.has(e.correlationId)) {
+        if (!e.correlationId || !isI2PhaseTick(e) || applied.has(e.correlationId)) {
           return e;
         }
         const u = updates.get(e.correlationId);
@@ -188,11 +187,7 @@ export class NotificationBus {
     // ts = момент дропа) оказывается новее `warning` в буфере — warning «убегает» вниз стека
     // (nc-availability.md §9.5: open+warning+resolve персистятся в разном insert-порядке).
     combined = sortNewestFirstByTs(combined);
-    // Инвариант фазы инцидента: в рамках correlationId — одна строка на (code, status). Возврат в фазу
-    // (напр. error→warning→фолд 500→error) добавляется новой строкой сверху, но прежняя (замершая) того же
-    // (code, status) не должна оставаться в стеке — иначе два ERROR с разным временем. Лента newest-first,
-    // поэтому оставляем первое (новейшее) вхождение фазы, прежние вытесняем. События без correlationId
-    // (одиночные) не трогаем.
+    // Одна (новейшая) строка на тик-фазу; non-tick коды не трогаем.
     combined = this.dedupIncidentPhases(combined);
     const next = combined.slice(0, this.limit);
     this.pruneReadIds(next);
@@ -200,14 +195,14 @@ export class NotificationBus {
   }
 
   /**
-   * Одна (новейшая) строка на `(correlationId, code, status)` для I2-фаз (тики и пр.).
-   * Discrete (`backend.recovering`, FATAL, open/resolve простоя) — не трогаем (nc-availability.md §9.4).
+   * Одна (новейшая) строка на `(correlationId, code, status)` только для I2-тиков.
+   * Open/resolve/FATAL/connect/… — не трогаем.
    */
   private dedupIncidentPhases(events: readonly NotificationEvent[]): NotificationEvent[] {
     const seenPhase = new Set<string>();
     const result: NotificationEvent[] = [];
     for (const e of events) {
-      if (!e.correlationId || isDiscreteStackRow(e)) {
+      if (!e.correlationId || !isI2PhaseTick(e)) {
         result.push(e);
         continue;
       }

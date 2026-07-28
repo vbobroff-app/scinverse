@@ -75,11 +75,19 @@ describe('NotificationDock', () => {
     expect(last.activeFilters).toEqual(['severity']);
   });
 
-  it('фон-маска по lifecycle × severity (без pill)', () => {
+  it('фон-маска только по severity (типу)', () => {
     const bus = createNotificationBus();
     notify.error(bus, { id: 'e', module: 'm', code: 'c', message: 'Открытая ошибка' });
+    notify.critical(bus, { id: 'f', module: 'm', code: 'c', message: 'Фатал' });
     notify.warn(bus, { id: 'w', module: 'm', code: 'c', message: 'Открытый ворнинг' });
     notify.info(bus, { id: 'i', module: 'm', code: 'c', message: 'Инфо' });
+    notify.info(bus, {
+      id: 'ir',
+      module: 'm',
+      code: 'connection.schedule.batch',
+      message: 'Инфо resolved',
+      status: 'resolved',
+    });
     notify.ok(bus, {
       id: 'r',
       module: 'm',
@@ -93,10 +101,11 @@ describe('NotificationDock', () => {
       screen.getByText(text).closest('div[class*="row"]')?.className ?? '';
 
     expect(bgOf('Открытая ошибка')).toContain('bgAlert');
+    expect(bgOf('Фатал')).toContain('bgAlert');
     expect(bgOf('Открытый ворнинг')).toContain('bgWarning');
-    expect(bgOf('Решено')).toContain('bgResolved');
-    // info без маски и без bg-класса.
-    expect(bgOf('Инфо')).not.toMatch(/bgAlert|bgWarning|bgResolved/);
+    expect(bgOf('Решено')).toContain('bgOk');
+    expect(bgOf('Инфо')).toContain('bgInfo');
+    expect(bgOf('Инфо resolved')).toContain('bgInfo');
   });
 
   it('status filter hides non-matching rows', () => {

@@ -1,10 +1,10 @@
 # Phase 7j — TODO (что осталось)
 
-**Обновлено:** 2026-07-27.
+**Обновлено:** 2026-07-28.
 
-Ядро фазы (**7j.17–7j.20** + **J11a/J11c**) по инцидентам связи / crash / NC-событиям — **сделано**.
-Новый фокус разработки NC Thread — **phase 11** ([../phase11/plan.md](../phase11/plan.md),
-handoff [`docs/promt.md`](../../promt.md) §8).
+Ядро фазы (**7j.17–7j.20** + **J11a/J11c**) по сценариям инцидентов — **сделано**.
+Текущий фокус зачистки продюсера break: **I11 / 7j.21** ([issue.md](issue.md) I11) + **J11b**.
+UI NC Thread — **phase 11** ([../phase11/plan.md](../phase11/plan.md)).
 
 ---
 
@@ -48,11 +48,13 @@ UI пресетов захардкожен под MOEX; рынок (CME и др.
 |---|-----|--------|
 | **J11a** | `break` + `abandoned_schedule` | **DONE** (`368bfb9`) |
 | **J11c** | `crash` + `abandoned_schedule` (клиент orchestrate + Host Release/ribbon) + optimistic ribbon overlay | **КОД ГОТОВ** (working tree 2026-07-27; закоммитить в чате phase11 или отдельно) |
-| **J11b** | `abandoned_manual` (ручной off / Auto off при открытом инциденте) | TODO |
-| **I10** | После crash/рестарта: adopt open break из V025; catch-up abandon вне окна; не плодить Group `auto:` | **КОД ГОТОВ** ([issue.md](issue.md) I10); живая приёмка |
+| **I11 / 7j.21** | Рассинхрон Manager↔Hub; единый close-break; атомарный Adopt; снять костыли `auto:`/лента | **OPEN** ([issue.md](issue.md) I11 · [plan.md](plan.md) §7j.21) |
+| **J11b** | `abandoned_manual` (ручной off при open break) — часть I11 close-break | TODO (блокер I11 B1) |
+| **I10** | После crash/рестарта: adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ**; ужесточить Adopt в I11 (B2) |
+| **UI outage mask** | При crash open: тумблер «OHS недоступен» (жёлтый) + AUTO жёлтый | **КОД ГОТОВ** (`backendOutage$`) |
+| **I6 regress** | ConnectAsync без ре-подписки → recovered без сделок | **КОД ГОТОВ** |
 | **J9 / J10** | per-connection grace / глобальный порог NC | ПЛАН, позже ([incident.md](incident.md) §8) |
 | **H1 / H2** | recording-ribbon бинарный под Degraded | → **7h** |
 | **I9 prod** | bind/health/proxy family после Vite | OPEN checklist ([issue.md](issue.md) I9) |
-| **Q** | FATAL crash **вне** горизонта — Group vs глушить | отложено → phase11 Thread policy |
 
 System-уведомления: JSON (`result`/`error_message`/`sender`); user schedule — `lines[]`.

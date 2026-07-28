@@ -7,6 +7,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- NU1900 = не достучались до api.nuget.org за vulnerability data (сеть/прокси).
+         Это не дыра в пакете; не валим сборку. Реальные NU1901–1904 остаются errors. -->
+    <WarningsNotAsErrors>NU1900</WarningsNotAsErrors>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest-minimum</AnalysisLevel>
     <Deterministic>true</Deterministic>

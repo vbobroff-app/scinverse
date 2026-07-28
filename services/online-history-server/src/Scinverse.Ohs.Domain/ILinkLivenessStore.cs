@@ -21,7 +21,8 @@ public interface ILinkLivenessStore
     /// время события, напр. <c>server_status=false</c>) — <c>to_ts</c> сдвигается на него (не назад); иначе
     /// остаётся на последнем keepalive. <c>to_ts</c> закрытого = начало «связь не жива».
     /// </summary>
-    Task CloseAsync(short sourceId, LinkCloseReason reason, DateTimeOffset? atTs, CancellationToken cancellationToken);
+    /// <returns>Число закрытых открытых интервалов (0 — уже закрыто / не было open).</returns>
+    Task<int> CloseAsync(short sourceId, LinkCloseReason reason, DateTimeOffset? atTs, CancellationToken cancellationToken);
 
     /// <summary>
     /// Самый свежий (по <c>from_ts</c>) интервал связи источника — «предыдущее подключение» (QUIK-style

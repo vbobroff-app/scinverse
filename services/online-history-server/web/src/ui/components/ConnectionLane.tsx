@@ -21,6 +21,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const sessions = useBehavior(store.sessions$);
   const tzOffsetMin = useBehavior(store.displayTz$).offsetMin;
   const connectionSchedules = useBehavior(store.connectionSchedule$);
+  const ohsUnavailable = useBehavior(store.backendOutage$);
   const now = useNow(1000);
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
@@ -35,6 +36,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
     autoEnabled: connSchedule?.settings.autoEnabled ?? false,
     connectionStatus: connection.status,
     inWindow: connInWindow,
+    ohsUnavailable,
   });
 
   const nowPct = useMemo(

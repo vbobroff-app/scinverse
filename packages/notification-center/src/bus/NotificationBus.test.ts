@@ -22,7 +22,8 @@ describe('NotificationBus', () => {
     bus.publish(evt({ id: 'a', message: 'dup' }));
     bus.publish(evt({ id: 'b', message: 'two' }));
     expect(bus.events.map((e) => e.id)).toEqual(['b', 'a']);
-    expect(bus.events[1]?.message).toBe('one');
+    // Повтор того же id — замена полей (adopt 500 / re-POST).
+    expect(bus.events[1]?.message).toBe('dup');
   });
 
   it('respects ring-buffer limit', () => {
@@ -78,12 +79,12 @@ describe('NotificationBus', () => {
       expect(bus.statusOf('conn:1:link')).toBe('resolved');
     });
 
-    it('I2: dedups repeated same (status, code) within a correlationId', () => {
+    it('non-tick codes are not I2-collapsed (each delivery keeps a row)', () => {
       const bus = createNotificationBus();
-      bus.publish(evt({ id: 'a1', correlationId: 'c', code: 'x', status: 'active' }));
-      bus.publish(evt({ id: 'a2', correlationId: 'c', code: 'x', status: 'active' }));
-      bus.publish(evt({ id: 'a3', correlationId: 'c', code: 'x', status: 'underway' }));
-      expect(bus.events.map((e) => e.id)).toEqual(['a3', 'a1']);
+      bus.publish(evt({ id: 'a1', correlationId: 'c', code: 'connection.connect', status: 'underway' }));
+      bus.publish(evt({ id: 'a2', correlationId: 'c', code: 'connection.connect', status: 'underway' }));
+      bus.publish(evt({ id: 'a3', correlationId: 'c', code: 'connection.connect_failed', status: 'underway' }));
+      expect(bus.events.map((e) => e.id)).toEqual(['a3', 'a2', 'a1']);
     });
 
     it('I2: repeated same (status, code) updates the row in place (progress tick)', () => {
@@ -121,14 +122,14 @@ describe('NotificationBus', () => {
       bus.publish(evt({ id: 'w1', correlationId: 'c', code: 'backend.recovering', status: 'underway', message: 'recovering' }));
       bus.publish(evt({ id: 'f1', correlationId: 'c', code: 'ohs.unhandled', severity: 'critical', status: 'active', message: '500' }));
       bus.publish(evt({ id: 'e2', correlationId: 'c', code: 'backend.unavailable.progress', status: 'underway', message: '57 c' }));
-      // Одна error-строка (новейшая), прежняя (замершая) вытеснена; прочие фазы сохранены.
+      // Тик: in-place update (id первой строки, текст последнего тика); прочие фазы сохранены.
       const errors = bus.events.filter((e) => e.code === 'backend.unavailable.progress');
-      expect(errors.map((e) => e.id)).toEqual(['e2']);
+      expect(errors.map((e) => e.id)).toEqual(['e1']);
       expect(errors[0]?.message).toBe('57 c');
       expect(bus.events.map((e) => e.code)).toEqual([
-        'backend.unavailable.progress',
         'ohs.unhandled',
         'backend.recovering',
+        'backend.unavailable.progress',
       ]);
     });
 
@@ -263,14 +264,14 @@ describe('NotificationBus', () => {
 
     it('re-open (→ active) re-alerts via a fresh unread row', () => {
       const bus = createNotificationBus();
-      // Не-discrete код: I2 дедуп по (corr,code,status). connection.lost — discrete (Degraded+Down).
       notify.error(bus, { module: 'm', code: 'connection.schedule_error', message: 'down', id: 'e1', correlationId: 'c', status: 'active' });
       bus.markAllRead();
       expect(bus.unreadAlertCount).toBe(0);
       notify.error(bus, { module: 'm', code: 'connection.schedule_error', message: 'down again', id: 'e2', correlationId: 'c', status: 'active' });
-      // Тот же статус того же кода — I2 дедуп: строка не добавляется, ре-алерта нет.
-      expect(bus.unreadAlertCount).toBe(0);
+      // Non-tick: вторая ошибка — новая строка и снова unread.
+      expect(bus.unreadAlertCount).toBe(1);
       notify.info(bus, { module: 'm', code: 'connection.recovered', message: 'up', id: 'e3', correlationId: 'c', status: 'resolved' });
+      expect(bus.unreadAlertCount).toBe(0);
       notify.error(bus, { module: 'm', code: 'connection.schedule_error', message: 'flap', id: 'e4', correlationId: 'c', status: 'active' });
       expect(bus.statusOf('c')).toBe('active');
       expect(bus.unreadAlertCount).toBe(1);
@@ -297,6 +298,126 @@ describe('NotificationBus', () => {
       });
       expect(bus.events.map((e) => e.id)).toEqual(['d2', 'd1']);
       expect(bus.unreadAlertCount).toBe(1);
+    });
+
+    it('discrete: each operator connect attempt keeps its info+warn (no I2 collapse)', () => {
+      const bus = createNotificationBus();
+      const corr = 'connection:3:link:abcd';
+      bus.publish(
+        evt({
+          id: 'i1',
+          correlationId: corr,
+          code: 'connection.connect',
+          severity: 'info',
+          status: 'underway',
+          message: 'cmd 1',
+          data: { sender: 'user' },
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'w1',
+          correlationId: corr,
+          code: 'connection.reconnecting',
+          severity: 'warning',
+          status: 'underway',
+          message: 'restore 1',
+          data: { sender: 'user' },
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'f1',
+          correlationId: corr,
+          code: 'connection.connect_failed',
+          severity: 'error',
+          status: 'underway',
+          message: 'fail 1',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'i2',
+          correlationId: corr,
+          code: 'connection.connect',
+          severity: 'info',
+          status: 'underway',
+          message: 'cmd 2',
+          data: { sender: 'user' },
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'w2',
+          correlationId: corr,
+          code: 'connection.reconnecting',
+          severity: 'warning',
+          status: 'underway',
+          message: 'restore 2',
+          data: { sender: 'user' },
+        }),
+      );
+      expect(bus.events.map((e) => e.id)).toEqual(['w2', 'i2', 'f1', 'w1', 'i1']);
+    });
+
+    it('I2: supervisor reconnecting ticks still collapse in place', () => {
+      const bus = createNotificationBus();
+      bus.publish(
+        evt({
+          id: 'r1',
+          correlationId: 'c',
+          code: 'connection.reconnecting',
+          status: 'underway',
+          message: 'попытка 1/5',
+          data: { sender: 'supervisor' },
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'r2',
+          correlationId: 'c',
+          code: 'connection.reconnecting',
+          status: 'underway',
+          message: 'попытка 2/5',
+          data: { sender: 'supervisor' },
+        }),
+      );
+      expect(bus.events.map((e) => e.id)).toEqual(['r1']);
+      expect(bus.events[0]?.message).toBe('попытка 2/5');
+    });
+
+    it('I2: auto connecting ticks (попытка k/5) collapse in place', () => {
+      const bus = createNotificationBus();
+      const corr = 'connection:3:auto:abcd';
+      bus.publish(
+        evt({
+          id: 'c1',
+          correlationId: corr,
+          code: 'connection.connecting',
+          status: 'underway',
+          message: 'попытка 1/5',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'c2',
+          correlationId: corr,
+          code: 'connection.connecting',
+          status: 'underway',
+          message: 'попытка 2/5',
+        }),
+      );
+      bus.publish(
+        evt({
+          id: 'c3',
+          correlationId: corr,
+          code: 'connection.connecting',
+          status: 'underway',
+          message: 'попытка 3/5',
+        }),
+      );
+      expect(bus.events.map((e) => e.id)).toEqual(['c1']);
+      expect(bus.events[0]?.message).toBe('попытка 3/5');
     });
   });
 });

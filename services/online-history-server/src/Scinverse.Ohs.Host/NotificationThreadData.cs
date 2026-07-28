@@ -79,9 +79,12 @@ public static class NotificationThreadData
         return JsonSerializer.SerializeToElement(enriched);
     }
 
+    /// <summary>
+    /// Коды, которые без hint открывают Incident. <c>connect_failed</c> — нет: это провал попытки
+    /// (Group <c>connect:</c> или Append в open break), не новый break.
+    /// </summary>
     public static bool IsOpenCode(string code) =>
-        code is "connection.lost" or "backend.unavailable"
-            or "connection.auto_error" or "connection.connect_failed";
+        code is "connection.lost" or "backend.unavailable" or "connection.auto_error";
 
     public static string? InferCloseOutcome(string code, object? data)
     {

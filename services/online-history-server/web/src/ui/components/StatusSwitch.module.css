@@ -104,6 +104,18 @@
   animation: pulse 0.9s ease-in-out infinite;
 }
 
+/* OHS/WS недоступен (crash-outage open) — жёлтый, кнопка посередине; не off и не синий. */
+.unreachable {
+  background: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.unreachable .knob {
+  transform: translate(13px, -50%);
+  background-color: color-mix(in srgb, var(--color-warning) 40%, white);
+  animation: pulse 0.9s ease-in-out infinite;
+}
+
 /* Ошибка — красный, кнопка слева. */
 .error {
   background: var(--color-error);
@@ -148,7 +160,8 @@
   font-size: 9px;
 }
 
-.stacked .connecting .knob {
+.stacked .connecting .knob,
+.stacked .unreachable .knob {
   transform: translate(9px, -50%);
 }
 

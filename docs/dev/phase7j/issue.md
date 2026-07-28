@@ -543,7 +543,103 @@ Host ожил
 
 **Связано.** [incident.md](incident.md) §1.3 (утро/рестарт — дополнить adopt); J11a/J11c;
 [auto-connect.md](auto-connect.md) (серия `auto:` только если open break нет);
-I2 (recovered после реконнекта — частный случай при живой памяти; I10 = то же после wipe памяти).
+I2 (recovered после реконнекта — частный случай при живой памяти; I10 = то же после wipe памяти);
+**I11** (рассинхрон Manager↔Hub после adopt / manual close).
+
+---
+
+## I11. Рассинхрон Manager ↔ Hub: NC «молчит», костыли вокруг `link:` / `auto:` / ленты
+
+**Статус:** OPEN (2026-07-28). Код I10 / fold fail→`link:` / paint-fallback ленты **не снимают** корневой
+рассинхрон двух «мозгов». Цель — убрать костыли, а не наращивать.
+
+### Симптом
+
+Два независимых состояния «open break»:
+
+| Мозг | Где | Что помнит |
+|------|-----|------------|
+| **Manager** | `_incidentSince` / `_incidentOwner` | «инцидент open с t0» → ветки connect/Progress |
+| **Hub** | `_openIncidents[subject]` | corr + status → `Progress`/`Append`/`Resolve` реально пишут |
+
+Пока совпадают — один `connection:{id}:link:{uid}`, попытки (auto ×N / ручные ×∞) в ту же нить,
+закрытие (`recovered` / `abandoned_*`) гасит **оба**. Когда расходятся — Host пишет в пустоту
+(Hub no-op), `EnsureBreak` не может открыть заново (`TryAdd` fails), NC «молчит», лента без
+`escalatedAt` остаётся вся жёлтой.
+
+### Реальные баги (чёрная дыра)
+
+**B1. Ручной disconnect (J11b не доделан).**  
+`POST …/disconnect`: Hub `Resolve(connection.closed)`, а `_incidentSince` **не** `TryRemove`.  
+Дальше `breakOpen=true` → `Progress`/`Append` no-op. В todo: **J11b** `abandoned_manual` — TODO.
+
+**B2. I10 Adopt не атомарный.**  
+`TryAdoptOpenBreakFromAuditAsync`: сначала `AdoptOpenIncident` (Manager), потом `Hub.Adopt`.  
+Hub отказал → log + return, Manager уже open → та же чёрная дыра.
+
+### Костыли / шум (не «убивают», но плодят баги)
+
+| Костыль | Где | Зачем появился |
+|---------|-----|----------------|
+| `status=resolved` на `connect_failed` Group | Supervisor / `POST connect` | закрыть throwaway `auto:`/`connect:` до Open `link:` |
+| `fails > 0` ≈ `incidentOpen` | Supervisor | не чеканить второй `auto:` после 1-го fail |
+| Dual/triple write на 1-й fail | auto + manual | Group close + Open lost (+ Append fail) |
+| Throwaway Group `auto:`/`connect:` | kickoff / 1-й ручной | Group только до первого fail |
+| `threadKindHint` overrides | data | `connect_failed` сам не Open-код |
+| Paint-fallback `from+60s` без `escalatedAt` | `ConnectionRibbon` | исторические дыры без маркера handover |
+| Transfer на любом teardown при `owner=transaq` | `DisconnectAsync` | подпорка маркера ленты, не модель close |
+
+### Асимметрии (дизайн, не баг)
+
+- Auto стоп на ×5, ручной — ×∞ в тот же `link:`.
+- Docs `auto-connect.md` ещё местами описывают `connecting×N → failed` в одном `auto:` — код эскалирует
+  в `link:` с 1-го fail (обновить при зачистке).
+
+### Что уже чисто (не ломать)
+
+- Live break: Open → Progress → Resolve / schedule abandon (`TryAbandonIncidentByScheduleAsync`).
+- Handover: `DisconnectAsync` **намеренно** не снимает `_incidentSince` (инцидент продолжается).
+- После первого fail (Manager=Hub sync) повторные попытки → один `link:` corr — **целевая модель**.
+
+### Целевая модель (без костылей)
+
+```text
+один close-break helper (Manager + Hub вместе):
+  recovered | abandoned_schedule | abandoned_manual
+  → TryRemove(_incidentSince/_incidentOwner) + Hub.Resolve(code, closeOutcome)
+  всегда в одном месте
+
+Adopt:
+  Hub.Adopt сначала (или rollback Manager, если Hub отказал)
+
+Connect-fail:
+  нет open break → Open link: (Incident); дальнейшие попытки только Append/Progress в link:
+  без throwaway Group и без fails>0-прокси
+
+Лента:
+  escalatedAt только из реального маркера link_liveness (InsertBoundaryMarker);
+  frontend synthetic 60s — снять после того, как маркеры пишутся всегда
+```
+
+### Следствия для компонентов
+
+| Компонент | Что сделать |
+|-----------|-------------|
+| `ConnectionManager` | Единый `CloseBreakAsync` / аналог: clear memory + Resolve; J11b зовёт его с `abandoned_manual` |
+| `OhsEndpoints` disconnect | Не голый `Hub.Resolve` — через helper Manager |
+| `ConnectionSupervisor` I10 | Adopt атомарно; убрать `fails > 0` proxy после sync |
+| `ConnectionSupervisor` / connect fail | Один путь эскалации в `link:` без Group-`resolved` хака (или явный короткий Group только на success-kickoff) |
+| `ConnectionRibbon` | Убрать synthetic escalatedAt после приёмки маркеров |
+| Docs | [auto-connect.md](auto-connect.md), [incident.md](incident.md) §1.2 — `abandoned_manual`; этот I11 |
+
+### Не делать
+
+- Новые paint-/NC-подпорки «поверх» рассинхрона.
+- Вливать crash в `link:` corr.
+- Снимать `_incidentSince` в `DisconnectAsync` на пути **handover** (инцидент должен жить).
+
+**Связано.** J11b; I10; [incident.md](incident.md) §1.2; [todo.md](todo.md); Thread UI —
+[../phase11/plan.md](../phase11/plan.md) (проекция честна только при sync продюсера).
 
 ---
 
@@ -561,8 +657,10 @@ I2 (recovered после реконнекта — частный случай п
 | I8 | Простой бэка: live ≠ reload | Sender + единый corr + персист стека + warn-before-ok | РЕАЛИЗОВАНО |
 | I9 | UI пустой: `localhost`→`::1`, IPv6 Kestrel залип | proxy → `127.0.0.1`; prod: bind/health/proxy family | MITIGATION / prod OPEN |
 | I10 | После crash: break `active` + восстановление в Group `auto:` | Adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ** |
+| I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **OPEN** |
 
-Остаток 7j: 7j.15/7j.16 + J11b ([todo.md](todo.md)); I10 — живая приёмка. NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).
+Остаток 7j: 7j.15/7j.16 + **I11 / J11b** ([todo.md](todo.md)); I10 — живая приёмка.
+NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).
 Gate Admin Front + NC — 11→12 ([../plan.md](../plan.md)).
 
 **Вне scope 7j (уровень данных).** Задержка ~3 мин до «первых данных» после connect (зелёный `waiting`

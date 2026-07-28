@@ -295,22 +295,17 @@ public sealed class ConnectionSupervisor(
 
         var scheduleLabel = await connections.ResolveLabelAsync(connectionId, cancellationToken)
             .ConfigureAwait(false);
-        // correlationId авто-серии: один сеанс connecting×N → connected/failed сворачивается в ленте.
-        var corr = _autoCorr.GetOrAdd(
-            connectionId, id => $"connection:{id}:auto:{Guid.NewGuid().ToString("N")[..8]}");
-
-        // 7j.20 J3/J6: если по подключению ОТКРЫТ инцидент связи — реконнект ведём ПОД ФЛАГОМ восстановления
-        // (единая нить инцидента: reconnecting×N → recovered), БЕЗ штатной auto-серии «подключаю по расписанию»/
-        // «связь установлена», иначе двойной нарратив (auto:connected vs link:incident). recovered испустит
-        // ConnectAsync при успехе (связь снова жива). Штатная серия — только для планового подключения (нет инцидента).
-        var incidentOpen = connections.GetIncidentSince(connectionId) is not null;
+        // Open break ИЛИ уже были fail в этой серии → всё в link: (один corr на все попытки).
+        // auto: Group — только чистый kickoff (fails==0 и нет инцидента) до первого fail/успеха.
+        var incidentOpen = connections.GetIncidentSince(connectionId) is not null
+            || fails > 0;
+        var linkSubject = ConnectionManager.LinkIncidentSubject(connectionId);
+        string? corr = null;
 
         if (incidentOpen)
         {
-            // Нить инцидента: прогресс восстановления супервизором (плечо ②). owner=supervisor, severity=warning
-            // (underway остаётся «жёлтым, ещё не решено» — маска фона в ленте).
             notifications.Progress(
-                ConnectionManager.LinkIncidentSubject(connectionId),
+                linkSubject,
                 "connection.reconnecting",
                 $"{scheduleLabel}: восстановление связи, попытка {fails + 1}/{MaxConnectAttempts}",
                 severity: "warning",
@@ -324,13 +319,21 @@ public sealed class ConnectionSupervisor(
         }
         else
         {
+            corr = _autoCorr.GetOrAdd(
+                connectionId, id => $"connection:{id}:auto:{Guid.NewGuid().ToString("N")[..8]}");
             notifications.Publish(
                 "connection.connecting",
                 $"{scheduleLabel}: подключаю по расписанию, попытка {fails + 1}/{MaxConnectAttempts}…",
                 severity: "warning",
                 status: "underway",
                 correlationId: corr,
-                data: new { connectionId, attempt = fails + 1, sender = "supervisor" });
+                data: new
+                {
+                    connectionId,
+                    attempt = fails + 1,
+                    sender = "supervisor",
+                    threadKindHint = NotificationThreadData.KindGroup,
+                });
         }
 
         // «Предыдущее подключение» — до нового Heartbeat. При инциденте детали идут в recovered, не сюда.
@@ -378,6 +381,27 @@ public sealed class ConnectionSupervisor(
                 "ConnectionSupervisor: connect fail {ConnectionId} ({Attempt}/{Max})",
                 connectionId, nextFails, MaxConnectAttempts);
 
+            // Первый fail без break → открыть link: Incident; закрыть auto: Group если была.
+            // Дальше auto ×N и ручные попытки пишут в этот же corr (не плодим auto:/connect:).
+            if (connections.EnsureBreakIncidentOnConnectFailure(connectionId, nowUtc, scheduleLabel)
+                && !incidentOpen
+                && corr is not null)
+            {
+                notifications.Publish(
+                    "connection.connect_failed",
+                    $"{scheduleLabel}: не удалось подключиться",
+                    severity: "error",
+                    status: "resolved",
+                    correlationId: corr,
+                    data: new
+                    {
+                        connectionId,
+                        sender = "supervisor",
+                        threadKindHint = NotificationThreadData.KindGroup,
+                    });
+                _autoCorr.TryRemove(connectionId, out _);
+            }
+
             if (nextFails >= MaxConnectAttempts)
             {
                 _autoCorr.TryRemove(connectionId, out _);
@@ -389,24 +413,12 @@ public sealed class ConnectionSupervisor(
                     error_message = ConnectionManager.ExtractTransaqErrorMessage(ex.Message),
                     sender = "supervisor",
                 };
-                if (incidentOpen)
-                {
-                    notifications.Append(
-                        ConnectionManager.LinkIncidentSubject(connectionId),
-                        "connection.connect_failed",
-                        $"{scheduleLabel}: не удалось подключить за {MaxConnectAttempts} попыток",
-                        severity: "error",
-                        data: failData);
-                }
-                else
-                {
-                    notifications.Publish(
-                        "connection.connect_failed",
-                        $"{scheduleLabel}: не удалось подключить за {MaxConnectAttempts} попыток",
-                        severity: "error",
-                        correlationId: corr,
-                        data: failData);
-                }
+                notifications.Append(
+                    linkSubject,
+                    "connection.connect_failed",
+                    $"{scheduleLabel}: не удалось подключить за {MaxConnectAttempts} попыток",
+                    severity: "error",
+                    data: failData);
             }
         }
     }

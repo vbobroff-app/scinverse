@@ -121,5 +121,10 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 
 **Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
 
+**Продюсер break (не UI):** честная Thread-проекция break зависит от sync Host
+(`_incidentSince` ↔ Hub). Рассинхрон и зачистка костылей — **phase 7j I11 / 7j.21**
+([../phase7j/issue.md](../phase7j/issue.md) I11, [../phase7j/plan.md](../phase7j/plan.md)).
+Phase 11 здесь не расширяем подпорками.
+
 Детали — в [apply.md](apply.md), Thread — [to-threads.md](to-threads.md), статус — в
 [report.md](report.md).

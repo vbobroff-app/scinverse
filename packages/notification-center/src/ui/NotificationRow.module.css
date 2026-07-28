@@ -27,8 +27,8 @@
 }
 
 /*
- * Фон-маска = ось lifecycle × severity (независимо от unread-рамки):
- * открытый warning → жёлтая, открытый error/critical → красная, resolved → зелёная.
+ * Фон-маска = только severity (тип сообщения):
+ * info → голубая; warning → жёлтая; error/critical → красная; ok → зелёная.
  */
 .bgWarning {
   background: color-mix(in srgb, var(--color-warning, #d29922) 12%, var(--color-bg-input, #2c2e33));
@@ -38,7 +38,11 @@
   background: color-mix(in srgb, var(--color-error, #ff6b6b) 12%, var(--color-bg-input, #2c2e33));
 }
 
-.bgResolved {
+.bgInfo {
+  background: color-mix(in srgb, var(--color-accent, #4dabf7) 12%, var(--color-bg-input, #2c2e33));
+}
+
+.bgOk {
   background: color-mix(in srgb, var(--color-success, #51cf66) 12%, var(--color-bg-input, #2c2e33));
 }
 

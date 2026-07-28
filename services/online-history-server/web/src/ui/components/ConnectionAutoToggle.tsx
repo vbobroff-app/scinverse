@@ -1,6 +1,9 @@
 import { StatusSwitch, type SwitchPhase } from './StatusSwitch';
 
-export type ConnectionAutoPhase = Extract<SwitchPhase, 'off' | 'waiting' | 'active' | 'connecting' | 'error'>;
+export type ConnectionAutoPhase = Extract<
+  SwitchPhase,
+  'off' | 'waiting' | 'active' | 'connecting' | 'error' | 'unreachable'
+>;
 
 interface Props {
   phase: ConnectionAutoPhase;
@@ -15,6 +18,7 @@ const TITLE: Record<ConnectionAutoPhase, string> = {
   active: 'Auto: связь поднята по расписанию',
   connecting: 'Auto: подключаю / жду связи',
   error: 'Auto: не удалось подключить (см. уведомления)',
+  unreachable: 'Auto: OHS недоступен — намерение сохранено',
 };
 
 /** Auto соединения (phase 7j): управляет верхним тумблером связи по окну. */
@@ -25,8 +29,9 @@ export function ConnectionAutoToggle({ phase, disabled, onEnable, onDisable }: P
       label="Auto"
       title={disabled ? 'Сначала утвердите расписание' : TITLE[phase]}
       layout="stacked"
+      disabled={disabled || phase === 'unreachable'}
       onToggle={() => {
-        if (disabled) {
+        if (disabled || phase === 'unreachable') {
           return;
         }
         if (phase === 'off') {
@@ -43,9 +48,14 @@ export function connectionAutoPhase(args: {
   autoEnabled: boolean;
   connectionStatus: string;
   inWindow: boolean;
+  /** Crash-outage open: жёлтый, Auto on не снимаем. */
+  ohsUnavailable?: boolean;
 }): ConnectionAutoPhase {
   if (!args.autoEnabled) {
     return 'off';
+  }
+  if (args.ohsUnavailable) {
+    return 'unreachable';
   }
   if (args.connectionStatus === 'error') {
     return 'error';
