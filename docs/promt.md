@@ -30,7 +30,7 @@ scinverse/
 ├─ docs/architecture/c4/         # C4 PlantUML to-be (NC, dual front, Keycloak)
 ├─ tools/plantuml/               # Local plantuml.jar (gitignore) + README
 ├─ packages/notification-center/ # NC UI-пакет (шина, dock) — to-be → отдельный сервис/MFE
-├─ db/Scinverse.Db.Migrator/     # DbUp (SQL-first, V001…V027+)
+├─ db/Scinverse.Db.Migrator/     # DbUp (SQL-first, V001…V028+)
 └─ services/online-history-server/
    ├─ src/                       # backend (.NET 8)
    │  ├─ Scinverse.Ohs.Domain            # домен (InstrumentKey, schedule, link_liveness, …)
@@ -138,7 +138,7 @@ scinverse/
 
 ## 5. Как запустить (локально)
 
-- **БД:** TimescaleDB из `docker-compose`, миграции DbUp (**до V027**).
+- **БД:** TimescaleDB из `docker-compose`, миграции DbUp (**до V028**).
 - **Backend:** VS или `dotnet run` (`Scinverse.Ohs.Host`); секреты — `appsettings.Local.json`.
 - **Frontend:** `services/online-history-server/web` → `pnpm install`, `pnpm dev --port 5174`
   (прокси `/api` + `/ws`). Тесты: `pnpm exec vitest run`, `pnpm exec tsc --noEmit`.

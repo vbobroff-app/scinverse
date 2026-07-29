@@ -46,6 +46,7 @@ builder.Services.AddSingleton<IFuturesAssetClassStore, FuturesAssetClassStore>()
 builder.Services.AddSingleton<IMarketScheduleStore, MarketScheduleStore>();
 builder.Services.AddSingleton<IExternalServiceStore, ExternalServiceStore>();
 builder.Services.AddSingleton<INotificationStore, NotificationStore>();
+builder.Services.AddSingleton<IIncidentStore, IncidentStore>();
 builder.Services.AddSingleton<ITradeWriter, TimescaleTradeWriter>();
 builder.Services.AddSingleton<IDerivativeSpecParser, MoexFortsSpecParser>();
 builder.Services.AddSingleton<IInstrumentRegistry, InstrumentRegistry>();

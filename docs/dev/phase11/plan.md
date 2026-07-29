@@ -133,7 +133,7 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 
 **Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
 
-**Далее:** **11.13a** миграция OHS `incident` + store —
+**Далее:** **11.13b** writer → UPSERT `incident` —
 [incident-journal.md](incident-journal.md) §12 (handoff [`docs/promt.md`](../../promt.md) §8).
 
 **Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 код готов**

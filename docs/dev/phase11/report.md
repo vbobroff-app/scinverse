@@ -2,9 +2,8 @@
 
 Актуальный статус фазы 11. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
-**Текущий статус:** `IN PROGRESS` — база + Thread + тесты **DONE**; **11.13 DESIGN AGREED**
-(`incident` + `link_liveness` в **OHS**; atoms/`notification` → NC на gate 11→12);
-следующий шаг **11.13a** — миграция OHS. [incident-journal.md](incident-journal.md) §12.
+**Текущий статус:** `IN PROGRESS` — Thread **DONE**; **11.13a DONE** (V028 + store);
+следующий шаг **11.13b** writer. [incident-journal.md](incident-journal.md) §12.
 **Обновлено:** 2026-07-29.
 
 ## Статус задач
@@ -24,7 +23,7 @@
 | 11.10 | UI NC: контейнеры, expand Thread, фильтры статуса нити + Выбор | DONE | `ThreadBlock`, `filterItems`; ★/⊘ per-Entry + [nc-marks.md](nc-marks.md) |
 | 11.11 | Backend `threadKindHint` / `closeOutcome` в колонке `data` | DONE | Hub enrich + ConnectionManager + client crash; таблицы не меняли |
 | 11.12 | Регрессия Thread (7j break/crash + hydrate V025) | DONE | `threadRegression.test.ts` + web `notifications.thread.test.ts` |
-| 11.13 | Журнал инцидентов (`incident` в **OHS**, ribbon←OHS; atoms→NC later) | DESIGN AGREED → 11.13a | [incident-journal.md](incident-journal.md) §12 |
+| 11.13 | Журнал инцидентов (`incident` в **OHS**) | **11.13a DONE** → 11.13b | [incident-journal.md](incident-journal.md) §12 |
 
 ## Решение
 
@@ -54,9 +53,10 @@
 | 2026-07-28 | Dock Settings: `collapsePhaseTicks` / `groupIntoThreads` ([dock-settings.md](dock-settings.md)); маркеры ★/⊘ на каждом Entry, header any/all bulk; фильтр «Выбор» асимметричный (★ include / ⊘ exclude, spam wins); tip Отметить/Снять, В спам/Показывать; ⊘ красный | [nc-marks.md](nc-marks.md); NC vitest — зелёные |
 | 2026-07-29 | 11.7: CloseBreak abandon schedule/manual + Adopt/Forget protocol (unit); ApiTest disconnect-while-down → `abandoned_manual`; dock tail/pause; чеклист 11.7 приведён к факту (без серверных GET-фильтров / без тестов несуществующего ILogger-sink) | unit + ApiTests + NC vitest |
 | 2026-07-29 | Старт **11.13**: журнал; wiki Incident vs notify; [incident-journal.md](incident-journal.md); handoff `promt.md` §8 | docs |
-| 2026-07-29 | **DESIGN AGREED (финал):** `link_liveness`+`incident` в OHS; `notification`/пакет → NC MFE (gate); план 11.13a–f = миграция OHS + writer + API + UI + ribbon | docs |
+| 2026-07-29 | **DESIGN AGREED (финал):** `link_liveness`+`incident` в OHS; atoms → NC (gate); план 11.13a–f | docs |
+| 2026-07-29 | **11.13a:** `V028__incident_journal.sql`, `IIncidentStore`/`IncidentStore`, DI, 6 integration tests | код + tests |
 
 ## Итог
 
-Лента NC v1 (mock Hub+V025 в OHS) — **готова**. Журнал эпизодов — таблица **`incident` в OHS**;
-старт **11.13a**. Вынос atoms/пакета в отдельный NC — **gate 11→12**.
+Лента NC v1 — **готова**. Журнал: таблица **`incident` в OHS** — **11.13a DONE**; дальше
+**11.13b** writer. Вынос atoms/пакета в NC — **gate 11→12**.

@@ -1,7 +1,7 @@
 # Phase 11 — Журнал инцидентов (11.13)
 
-**Статус:** `DESIGN AGREED` (2026-07-29) → дальше план реализации (§12).  
-Код ещё не начат.
+**Статус:** `DESIGN AGREED` · **11.13a DONE** (миграция V028 + store + tests, 2026-07-29).  
+Дальше — **11.13b** writer.
 
 **Связано:** [plan.md](plan.md) §11.13 · [to-threads.md](to-threads.md) ·
 [persistence.md](persistence.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
@@ -174,7 +174,7 @@ Incident
   payload           jsonb?      прочий контекст
 
   -- module=connection (NULL иначе)
-  connection_id     int?
+  connection_id     long?
   source_id         smallint?
   escalated_at      timestamptz?  handover → жёлтое|красное
   subtype           text?         degraded|down|host_unavailable|exception_500|…
@@ -204,7 +204,7 @@ CREATE TABLE IF NOT EXISTS incident (
                       CHECK (severity IN ('ok','info','warning','error','critical')),
   title             text NOT NULL DEFAULT '',
   last_activity_at  timestamptz NOT NULL,
-  connection_id     int NULL,
+  connection_id     bigint NULL,   -- как connector_connection
   source_id         smallint NULL,
   escalated_at      timestamptz NULL,
   subtype           text NULL,
@@ -310,7 +310,7 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 - [x] Поля §6 и слои §3–§4 согласованы.
 - [x] **OHS:** `link_liveness` + `incident`; **NC:** поток `notification` / MFE.
 - [x] Writer §7 (OHS) и API §8 намечены.
-- [ ] Plan §12 принят → старт **11.13a**.
+- [x] Plan §12 принят → **11.13a DONE**.
 
 ---
 
@@ -320,7 +320,7 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 
 | Шаг | Что | Критерий |
 |-----|-----|----------|
-| **11.13a** | Миграция OHS `V028__incident_journal.sql` + `IIncidentStore` | DbUp + integration tests |
+| **11.13a** | Миграция OHS `V028__incident_journal.sql` + `IIncidentStore` | **DONE** — DbUp + 6 integration tests |
 | **11.13b** | Writer: Open/handover/close/Adopt → UPSERT `incident`; crash-path (J8) | строки пишутся; Adopt без дублей |
 | **11.13c** | OHS API `GET /api/incidents` (+ окно для ribbon) | список/фильтры |
 | **11.13d** | UI экран журнала в Admin Front (OHS web) | tsc/eslint |
