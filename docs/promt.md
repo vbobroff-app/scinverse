@@ -174,8 +174,8 @@ scinverse/
   **код готов**; очередь: 7j.15/16; хвост **I12 OPEN** (пул Npgsql / orphan FATAL после recover —
   RxJS sync coverage). См. [todo](./dev/phase7j/todo.md) · [issue I12](./dev/phase7j/issue.md).
 - **phase 11 лента Thread** (11.1–11.12, ★/⊘, dock settings, тесты 11.7) — **DONE**.
-- **11.13 журнал DONE; H1/J8/backfill-recent DONE.** **I2 OPEN** — fan-out OHS→journal+NC
-  ([phase11/issue.md](./dev/phase11/issue.md) I2). Дальше: I2 → gate 11→12 / I12.
+- **11.13 журнал DONE; H1/J8/backfill-recent DONE.** **I2 RESOLVED** — fan-out OHS→journal+NC
+  ([phase11/issue.md](./dev/phase11/issue.md) I2). Дальше: gate 11→12 / I12.
 
 **To-be:** `notification`/пакет → отдельный NC (MFE, своя БД) на **gate 11→12**;
 `link_liveness` + `incident` остаются в OHS. Admin/Product + Keycloak — C4.
@@ -216,7 +216,7 @@ scinverse/
 | **OHS Host** | NotificationHub + PersistWriter → V025. CloseBreak / Adopt / Forget. Auto×5 → Append `connect_failed` **status=active** + Single `connection.auto_stopped`; `GET /connections/needs-operator`. |
 | **Admin web** | Монолит `web`; Vite → `:5080`. После `backend.recovered` → needs-operator → Single `connection.operator_action_needed`. |
 | **NC package** | Thread `items$`, dock, ★/⊘ — **DONE**. Сорт: при равном ts Single над **open** Thread; **resolved** Thread над Single. |
-| **phase11** | 11.1–11.13 **DONE**; **I2 OPEN** (fan-out journal↔NC). |
+| **phase11** | 11.1–11.13 **DONE**; **I2 RESOLVED** (fan-out journal↔NC). |
 | **7j** | Инциденты код готов; **I12 OPEN** (не блокер журнала); очередь 7j.15/16. |
 
 ### Модель (кратко)

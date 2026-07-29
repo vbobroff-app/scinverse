@@ -1,6 +1,6 @@
 # Phase 11 — Issues: объектная модель NC (Thread / Incident / Group)
 
-Статус: **I1 RESOLVED** (11.8–11.12) · **I2 OPEN** (fan-out журнал↔NC). Обновлено: 2026-07-29.
+Статус: **I1 RESOLVED** (11.8–11.12) · **I2 RESOLVED** (fan-out журнал↔NC). Обновлено: 2026-07-29.
 
 Связано: [plan.md](plan.md), [to-threads.md](to-threads.md), [persistence.md](persistence.md),
 журнал инцидентов — [incident-journal.md](incident-journal.md),
@@ -11,7 +11,7 @@
 
 ## I2. Рассинхрон эпизода: NC Thread ≠ строка `incident` (гант)
 
-**Статус:** OPEN · 2026-07-29.
+**Статус:** RESOLVED · 2026-07-29.
 
 ### Симптом
 
@@ -72,21 +72,20 @@ OHS ─ IncidentStep ─┤
 Частичные паллиативы уже в коде (последовательный mock-POST, retry resolve) — недостаточны без
 единого fan-out.
 
-**Прогресс:** step1–3 — фасад; break Manager/Supervisor; crash ingest + manual resolve (+ SkipJournal
-для жёсткого store.Resolve). Приёмка I2 / регрессия parallel crash — добить тестами.
+**Сделано:** `IncidentStep` + `IncidentFanOut`; break/crash/manual через фасад; регрессия
+recovered-before-open + parallel crash (unit + ApiTest).
 
 ### Критерий приёмки I2
 
-- Один и тот же эпизод: `incident.(status, close_outcome, opened_at, closed_at)` согласован с
-  Thread NC (`threadStatus` / `closeOutcome` / границы summary) для break и crash.
-- NC off / сбой атомов → журнал и гант полные; док пустеет, домен жив.
-- Нет пути «атом resolved в Hub, строка journal active» после успешного terminal-шага домена.
-- Регрессия: unit/ApiTest на fan-out open→recover (в т.ч. бывший parallel crash batch).
+- [x] Один и тот же эпизод: `incident` согласован с NC Thread для break и crash (fan-out + roundtrip).
+- [x] NC off / без NcCode → журнал пишется (journal-only steps).
+- [x] После terminal-шага нет «Hub resolved / journal active» (retry + terminal INSERT).
+- [x] Регрессия parallel crash batch (unit + `Crash_parallel_unavailable_and_recovered_*`).
 
 ### Связано
 
-[incident-journal.md](incident-journal.md) · handoff / чат 2026-07-29 · паллиатив commit
-`fix(ohs): sync crash journal close with NC recover order`.
+[incident-journal.md](incident-journal.md) · handoff / чат 2026-07-29 · паллиатив
+`fix(ohs): sync crash journal close with NC recover order` · fan-out commits I2 step1–3.
 
 ---
 

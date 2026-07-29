@@ -1,7 +1,7 @@
 # Phase 11 — Журнал инцидентов (11.13)
 
-**Статус:** `DESIGN AGREED` · **11.13a–f DONE** · **H1/J8 DONE** · **I2 OPEN** (fan-out).  
-Журнал OHS v1 есть; гарантия «одна информация в journal и NC» — [issue.md](issue.md) **I2**.
+**Статус:** `DESIGN AGREED` · **11.13a–f DONE** · **H1/J8 DONE** · **I2 RESOLVED** (fan-out).
+Журнал OHS v1; запись эпизода — [issue.md](issue.md) **I2** / §7.
 
 **Связано:** [plan.md](plan.md) §11.13 · [issue.md](issue.md) I2 · [to-threads.md](to-threads.md) ·
 [persistence.md](persistence.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
@@ -340,7 +340,7 @@ As-is: атомы → Hub/V025; to-be gate 11→12 — Publisher → серви�
 | J6 | `duration_ms` | **только API** |
 | J7 | `resolved_by` | **закрыт** → `payload.resolvedBy` на POST resolve |
 | J8 | Crash → JournalRegistrator | **закрыт** — ingest/recover/abandon; ribbon без double-paint; connectionId в data |
-| J9 | Fan-out journal↔NC (одна информация) | **I2 step1–3** — фасад + break/crash/manual; приёмка/регрессия — OPEN |
+| J9 | Fan-out journal↔NC (одна информация) | **закрыт → I2 RESOLVED** — фасад + break/crash/manual + регрессия |
 
 ---
 
@@ -368,6 +368,6 @@ As-is: атомы → Hub/V025; to-be gate 11→12 — Publisher → серви�
 
 **Вне scope 11.13:** вынос NC-сервиса / перенос V025 (gate 11→12), WebGL, Keycloak, 7j.15/16, I12.
 
-**Порядок:** a → b → c → (d ∥ e) → f. **I2:** docs ✓ → фасад ✓ → break ✓ → crash ✓ → тесты.
+**Порядок:** a → b → c → (d ∥ e) → f. **I2:** docs ✓ → фасад ✓ → break ✓ → crash ✓ → тесты ✓.
 
 **Коммиты:** `feat(ohs-11): …` / `docs(11): …` — только по просьбе пользователя.

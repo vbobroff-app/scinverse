@@ -2,7 +2,7 @@
 
 Актуальный статус фазы 11. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
-**Текущий статус:** `IN PROGRESS` — Thread **DONE**; **11.13a–f DONE**; **I2 OPEN** (fan-out
+**Текущий статус:** `IN PROGRESS` — Thread **DONE**; **11.13a–f DONE**; **I2 RESOLVED** (fan-out
 journal↔NC). [issue.md](issue.md) I2 · [incident-journal.md](incident-journal.md) §7.
 **Обновлено:** 2026-07-29.
 
@@ -64,8 +64,9 @@ journal↔NC). [issue.md](issue.md) I2 · [incident-journal.md](incident-journal
 | 2026-07-29 | **I2 step1:** `IncidentStep` + `IncidentFanOut` (+ DI, unit open→resolve/crash) | код; callers → step2 |
 | 2026-07-29 | **I2 step2:** break open/recovering/handover/resolve/adopt → fan-out | Manager/Supervisor |
 | 2026-07-29 | **I2 step3:** crash ingest + manual resolve + connect recovering → fan-out | OhsEndpoints |
+| 2026-07-29 | **I2 RESOLVED:** регрессия parallel crash (unit+ApiTest); критерии приёмки | [issue.md](issue.md) I2 |
 
 ## Итог
 
-Лента NC v1 — **готова**. Журнал OHS **11.13a–f DONE**. **I2** — единый fan-out (OPEN).
+Лента NC v1 — **готова**. Журнал OHS **11.13a–f DONE**. **I2 fan-out — RESOLVED**.
 Вынос atoms/пакета в NC — **gate 11→12**.

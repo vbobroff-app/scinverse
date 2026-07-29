@@ -133,6 +133,82 @@ public sealed class IncidentFanOutTests
     }
 
     [Fact]
+    public async Task Recovered_before_crash_open_leaves_journal_resolved()
+    {
+        var hub = new NotificationHub(new WebSocketBroadcaster());
+        var store = new MemIncidentStore();
+        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
+        const string subject = "ohs.backend.outage";
+        const string corr = "ohs.backend.outage:race01";
+        var tOpen = DateTimeOffset.Parse("2026-07-29T16:00:00Z");
+        var tClose = tOpen.AddMinutes(2);
+
+        // Бывший parallel batch: recovered раньше unavailable → journal всё равно terminal.
+        await fanOut.ApplyAsync(
+            new IncidentStep(
+                IncidentStepKind.Resolve,
+                subject,
+                tClose,
+                CorrUid: corr,
+                CloseOutcome: NotificationThreadData.OutcomeRecovered,
+                Severity: "ok",
+                Title: "Система восстановлена"),
+            CancellationToken.None);
+
+        await fanOut.ApplyAsync(
+            new IncidentStep(
+                IncidentStepKind.CrashOpen,
+                subject,
+                tOpen,
+                CorrUid: corr,
+                ConnectionId: 2,
+                Title: "Система недоступна"),
+            CancellationToken.None);
+
+        store.ByCorr[corr].Status.Should().Be("resolved");
+        store.ByCorr[corr].CloseOutcome.Should().Be(NotificationThreadData.OutcomeRecovered);
+        store.ByCorr[corr].ClosedAt.Should().Be(tClose);
+    }
+
+    [Fact]
+    public async Task Parallel_crash_open_and_resolve_converges_to_resolved()
+    {
+        var hub = new NotificationHub(new WebSocketBroadcaster());
+        var store = new MemIncidentStore();
+        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
+        const string subject = "ohs.backend.outage";
+        const string corr = "ohs.backend.outage:race02";
+        var tOpen = DateTimeOffset.Parse("2026-07-29T16:10:00Z");
+        var tClose = tOpen.AddMinutes(1);
+
+        await Task.WhenAll(
+            fanOut.ApplyAsync(
+                new IncidentStep(
+                    IncidentStepKind.CrashOpen,
+                    subject,
+                    tOpen,
+                    CorrUid: corr,
+                    ConnectionId: 3,
+                    Title: "down"),
+                CancellationToken.None),
+            fanOut.ApplyAsync(
+                new IncidentStep(
+                    IncidentStepKind.Resolve,
+                    subject,
+                    tClose,
+                    CorrUid: corr,
+                    CloseOutcome: NotificationThreadData.OutcomeRecovered,
+                    Severity: "ok"),
+                CancellationToken.None));
+
+        store.ByCorr.Should().ContainKey(corr);
+        store.ByCorr[corr].Status.Should().Be("resolved");
+        store.ByCorr[corr].CloseOutcome.Should().Be(NotificationThreadData.OutcomeRecovered);
+    }
+
+    [Fact]
     public async Task Crash_open_after_ingest_is_journal_only_when_no_nc_code()
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());
@@ -244,59 +320,79 @@ public sealed class IncidentFanOutTests
 
     private sealed class MemIncidentStore : IIncidentStore
     {
+        private readonly object _gate = new();
         public Dictionary<string, Incident> ByCorr { get; } = new(StringComparer.Ordinal);
 
         public Task<bool> OpenAsync(Incident incident, CancellationToken cancellationToken)
         {
-            if (ByCorr.ContainsKey(incident.CorrUid))
+            lock (_gate)
             {
-                return Task.FromResult(false);
-            }
+                if (ByCorr.ContainsKey(incident.CorrUid))
+                {
+                    return Task.FromResult(false);
+                }
 
-            ByCorr[incident.CorrUid] = incident;
-            return Task.FromResult(true);
+                ByCorr[incident.CorrUid] = incident;
+                return Task.FromResult(true);
+            }
         }
 
         public Task<bool> UpdateOpenAsync(Incident incident, CancellationToken cancellationToken)
         {
-            if (!ByCorr.TryGetValue(incident.CorrUid, out var existing) || existing.Status == "resolved")
+            lock (_gate)
             {
-                return Task.FromResult(false);
-            }
+                if (!ByCorr.TryGetValue(incident.CorrUid, out var existing) || existing.Status == "resolved")
+                {
+                    return Task.FromResult(false);
+                }
 
-            ByCorr[incident.CorrUid] = incident;
-            return Task.FromResult(true);
+                ByCorr[incident.CorrUid] = incident;
+                return Task.FromResult(true);
+            }
         }
 
         public Task<bool> ResolveAsync(
             string corrUid, DateTimeOffset closedAt, string closeOutcome, string? title, string? severity,
             string? resolvedBy, CancellationToken cancellationToken)
         {
-            if (!ByCorr.TryGetValue(corrUid, out var existing) || existing.Status == "resolved")
+            lock (_gate)
             {
-                return Task.FromResult(false);
-            }
+                if (!ByCorr.TryGetValue(corrUid, out var existing) || existing.Status == "resolved")
+                {
+                    return Task.FromResult(false);
+                }
 
-            ByCorr[corrUid] = existing with
-            {
-                Status = "resolved",
-                ClosedAt = closedAt,
-                CloseOutcome = closeOutcome,
-                Title = title ?? existing.Title,
-                Severity = severity ?? existing.Severity,
-                LastActivityAt = closedAt,
-            };
-            return Task.FromResult(true);
+                ByCorr[corrUid] = existing with
+                {
+                    Status = "resolved",
+                    ClosedAt = closedAt,
+                    CloseOutcome = closeOutcome,
+                    Title = title ?? existing.Title,
+                    Severity = severity ?? existing.Severity,
+                    LastActivityAt = closedAt,
+                };
+                return Task.FromResult(true);
+            }
         }
 
         public Task<bool> AnnotateResolvedByAsync(
             string corrUid, string resolvedBy, CancellationToken cancellationToken) =>
             Task.FromResult(false);
 
-        public Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken) =>
-            Task.FromResult(ByCorr.TryGetValue(corrUid, out var i) ? i : null);
+        public Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                return Task.FromResult(ByCorr.TryGetValue(corrUid, out var i) ? i : null);
+            }
+        }
 
-        public Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<Incident>>(ByCorr.Values.ToList());
+        public Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                return Task.FromResult<IReadOnlyList<Incident>>(ByCorr.Values.ToList());
+            }
+        }
     }
 }

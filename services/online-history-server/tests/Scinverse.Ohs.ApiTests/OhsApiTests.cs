@@ -492,6 +492,67 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         closed.CloseOutcome.Should().Be("recovered");
     }
 
+    [Fact]
+    public async Task Crash_parallel_unavailable_and_recovered_leaves_journal_resolved()
+    {
+        using var http = factory.CreateClient();
+        var api = CreateApi();
+        var openedAt = DateTimeOffset.UtcNow.AddMinutes(-3);
+        var closedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+        const string corr = "ohs.backend.outage:i2parallel01";
+
+        var openBody = new
+        {
+            id = Guid.NewGuid().ToString("N"),
+            ts = openedAt,
+            code = "backend.unavailable",
+            message = "Сервер OHS недоступен",
+            severity = "critical",
+            sourceType = "system",
+            module = "ohs.host",
+            status = "active",
+            correlationId = corr,
+            data = new { sender = "client", kind = "crash", connectionId = 88L },
+        };
+        var closeBody = new
+        {
+            id = Guid.NewGuid().ToString("N"),
+            ts = closedAt,
+            code = "backend.recovered",
+            message = "Система восстановлена",
+            severity = "ok",
+            sourceType = "system",
+            module = "ohs.host",
+            status = "resolved",
+            correlationId = corr,
+            data = new { sender = "client", closeOutcome = "recovered" },
+        };
+
+        var openTask = http.PostAsJsonAsync("/api/notifications", openBody);
+        var closeTask = http.PostAsJsonAsync("/api/notifications", closeBody);
+        using var openRes = await openTask;
+        using var closeRes = await closeTask;
+        openRes.EnsureSuccessStatusCode();
+        closeRes.EnsureSuccessStatusCode();
+
+        IncidentDto? row = null;
+        for (var i = 0; i < 20; i++)
+        {
+            row = await api.GetIncidentAsync(corr);
+            if (row is { Status: "resolved" })
+            {
+                break;
+            }
+
+            await Task.Delay(50);
+        }
+
+        row.Should().NotBeNull();
+        row!.Type.Should().Be("crash");
+        row.Status.Should().Be("resolved");
+        row.CloseOutcome.Should().Be("recovered");
+    }
+
     private static async Task<IReadOnlyList<NotificationRow>> GetNotificationsAsync(HttpClient http)
     {
         var rows = await http.GetFromJsonAsync<List<NotificationRow>>(
