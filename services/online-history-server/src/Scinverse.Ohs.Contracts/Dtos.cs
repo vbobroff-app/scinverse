@@ -479,3 +479,13 @@ public sealed record ResolveIncidentRequest(string? ResolvedBy);
 
 /// <summary>Итог <c>POST /api/incidents/backfill-open</c> — open break из V025 → journal.</summary>
 public sealed record BackfillOpenIncidentsResultDto(int Adopted, int Skipped, int Failed);
+
+/// <summary>
+/// Итог <c>POST /api/incidents/backfill-recent</c> — gaps link_liveness за вчера+сегодня (МСК) → journal.
+/// </summary>
+public sealed record BackfillRecentIncidentsResultDto(
+    int Inserted,
+    int Skipped,
+    int Failed,
+    DateTimeOffset From,
+    DateTimeOffset To);

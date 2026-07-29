@@ -134,4 +134,8 @@ public interface IOhsApi
     /// <summary>POST /api/incidents/backfill-open — open V025 link → journal (J4 forward+adopt).</summary>
     Task<BackfillOpenIncidentsResultDto> BackfillOpenIncidentsAsync(
         CancellationToken cancellationToken = default);
+
+    /// <summary>POST /api/incidents/backfill-recent — gaps вчера+сегодня (МСК) → journal.</summary>
+    Task<BackfillRecentIncidentsResultDto> BackfillRecentIncidentsAsync(
+        CancellationToken cancellationToken = default);
 }

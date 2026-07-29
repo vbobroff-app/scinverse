@@ -29,6 +29,7 @@ export function IncidentsSection() {
   const [connectionId, setConnectionId] = useState('');
   const [selected, setSelected] = useState<IncidentDto | null>(null);
   const [resolving, setResolving] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
 
   const reload = useCallback(() => {
     setError(null);
@@ -73,9 +74,38 @@ export function IncidentsSection() {
             <h1 className={styles.title}>Журнал инцидентов</h1>
             <p className={styles.sub}>Эпизоды связи (break/crash) из OHS · не лента NC</p>
           </div>
-          <button type="button" className={styles.refresh} onClick={() => reload()}>
-            Обновить
-          </button>
+          <div className={styles.headerActions}>
+            <button
+              type="button"
+              className={styles.refresh}
+              disabled={backfilling}
+              title="Gaps link_liveness за вчера и сегодня (МСК) → журнал"
+              onClick={() => {
+                setBackfilling(true);
+                setError(null);
+                OhsApi.backfillRecentIncidents().subscribe({
+                  next: (r) => {
+                    setBackfilling(false);
+                    if (r.failed > 0) {
+                      setError(
+                        `Backfill: +${r.inserted}, пропуск ${r.skipped}, ошибок ${r.failed}`,
+                      );
+                    }
+                    reload();
+                  },
+                  error: (err: unknown) => {
+                    setBackfilling(false);
+                    setError(err instanceof Error ? err.message : 'Backfill не удался');
+                  },
+                });
+              }}
+            >
+              {backfilling ? 'Подтягиваю…' : 'Подтянуть 2 дня'}
+            </button>
+            <button type="button" className={styles.refresh} onClick={() => reload()}>
+              Обновить
+            </button>
+          </div>
         </header>
 
         <div className={styles.filters}>

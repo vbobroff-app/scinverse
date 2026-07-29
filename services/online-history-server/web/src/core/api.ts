@@ -26,6 +26,7 @@ import type {
   ExternalServiceDto,
   FuturesAssetClassDto,
   BackfillOpenIncidentsResultDto,
+  BackfillRecentIncidentsResultDto,
   IncidentDto,
   IncidentQueryParams,
   IntegrationProbeResultDto,
@@ -189,6 +190,7 @@ export const OhsApi = {
     post<IncidentDto>(`/incidents/${encodeURIComponent(corrUid)}/resolve`, body),
 
   backfillOpenIncidents: () => post<BackfillOpenIncidentsResultDto>('/incidents/backfill-open'),
+  backfillRecentIncidents: () => post<BackfillRecentIncidentsResultDto>('/incidents/backfill-recent'),
 
   // Mock-POST внешнего NC (7j.20): публикуем уже сформированное уведомление (возможно с backdated ts).
   postNotification: (dto: NotificationDto) => post<void>('/notifications', dto),

@@ -398,6 +398,40 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
     }
 
     [Fact]
+    public async Task Backfill_recent_imports_link_gaps_for_yesterday_today_idempotently()
+    {
+        var api = CreateApi();
+        var synthetic = (await api.GetConnectionsAsync()).First(c => c.Kind == "synthetic");
+        await using var scope = factory.Services.CreateAsyncScope();
+        var link = scope.ServiceProvider.GetRequiredService<ILinkLivenessStore>();
+        var maxGap = TimeSpan.FromSeconds(45);
+        var t0 = DateTimeOffset.UtcNow.AddHours(-6);
+
+        await link.HeartbeatAsync(synthetic.SourceId, t0, maxGap, CancellationToken.None);
+        await link.CloseAsync(
+            synthetic.SourceId, LinkCloseReason.ServerDown, t0.AddMinutes(1), CancellationToken.None);
+        await link.HeartbeatAsync(synthetic.SourceId, t0.AddMinutes(5), maxGap, CancellationToken.None);
+
+        var first = await api.BackfillRecentIncidentsAsync();
+        first.Inserted.Should().BeGreaterThanOrEqualTo(1);
+        first.From.Should().BeBefore(first.To);
+
+        var list = await api.GetIncidentsAsync(new IncidentQueryParams
+        {
+            Module = "connection",
+            ConnectionId = synthetic.ConnectionId,
+            Limit = 200,
+        });
+        list.Should().Contain(i =>
+            i.Type == "break"
+            && i.Payload != null
+            && i.Payload.Contains("gap_backfill", StringComparison.Ordinal));
+
+        var second = await api.BackfillRecentIncidentsAsync();
+        second.Inserted.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Crash_notification_roundtrip_writes_and_resolves_journal_incident()
     {
         using var http = factory.CreateClient();

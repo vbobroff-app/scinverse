@@ -398,6 +398,14 @@ export interface BackfillOpenIncidentsResultDto {
   failed: number;
 }
 
+export interface BackfillRecentIncidentsResultDto {
+  inserted: number;
+  skipped: number;
+  failed: number;
+  from: string;
+  to: string;
+}
+
 export interface ConnectionDto {
   connectionId: number;
   sourceId: number;

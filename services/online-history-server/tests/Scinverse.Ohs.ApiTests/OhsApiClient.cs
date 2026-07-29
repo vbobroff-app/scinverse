@@ -251,6 +251,10 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
         CancellationToken cancellationToken = default) =>
         PostAsync<BackfillOpenIncidentsResultDto>("/api/incidents/backfill-open", cancellationToken);
 
+    public Task<BackfillRecentIncidentsResultDto> BackfillRecentIncidentsAsync(
+        CancellationToken cancellationToken = default) =>
+        PostAsync<BackfillRecentIncidentsResultDto>("/api/incidents/backfill-recent", cancellationToken);
+
     private static string BuildIncidentsQuery(IncidentQueryParams query)
     {
         var parts = new List<string>();

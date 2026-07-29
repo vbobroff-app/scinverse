@@ -580,6 +580,86 @@ public static class OhsEndpoints
             return Results.Ok(new BackfillOpenIncidentsResultDto(adopted, skipped, failed));
         });
 
+        // J4 scoped: gaps link_liveness за вчера+сегодня (МСК) → incident (идемпотентно).
+        api.MapPost("/incidents/backfill-recent", async (
+            IConnectionStore connections,
+            ILinkLivenessStore linkLiveness,
+            IIncidentStore store,
+            TimeProvider time,
+            CancellationToken ct) =>
+        {
+            var (fromUtc, toUtc) = IncidentRecentBackfill.WindowUtc(time.GetUtcNow());
+            var inserted = 0;
+            var skipped = 0;
+            var failed = 0;
+
+            foreach (var connection in await connections.ListAsync(ct).ConfigureAwait(false))
+            {
+                IReadOnlyList<LinkGap> gaps;
+                IReadOnlyList<Incident> existing;
+                try
+                {
+                    gaps = await linkLiveness
+                        .QueryGapsAsync([connection.SourceId], fromUtc, toUtc, ct)
+                        .ConfigureAwait(false);
+                    existing = await store
+                        .QueryAsync(
+                            new IncidentQuery
+                            {
+                                Module = "connection",
+                                ConnectionId = connection.ConnectionId,
+                                From = fromUtc,
+                                To = toUtc,
+                                Limit = 1000,
+                            },
+                            ct)
+                        .ConfigureAwait(false);
+                }
+                catch
+                {
+                    failed++;
+                    continue;
+                }
+
+                foreach (var gap in gaps)
+                {
+                    var mapped = IncidentRecentBackfill.TryMap(
+                        connection.ConnectionId, gap, fromUtc, toUtc);
+                    if (mapped is null)
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    if (IncidentRecentBackfill.OverlapsExisting(existing, gap))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    try
+                    {
+                        var wrote = await store.OpenAsync(mapped, ct).ConfigureAwait(false);
+                        if (wrote)
+                        {
+                            inserted++;
+                            existing = [.. existing, mapped];
+                        }
+                        else
+                        {
+                            skipped++;
+                        }
+                    }
+                    catch
+                    {
+                        failed++;
+                    }
+                }
+            }
+
+            return Results.Ok(new BackfillRecentIncidentsResultDto(inserted, skipped, failed, fromUtc, toUtc));
+        });
+
         api.MapGet("/connections/{id:long}/incidents", async (
             long id,
             DateTimeOffset? from,
