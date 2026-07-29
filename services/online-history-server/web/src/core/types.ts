@@ -363,6 +363,14 @@ export interface ConnectionDto {
   status: string;
 }
 
+/** GET /connections/needs-operator — Auto×N stop + open break в окне расписания. */
+export interface ConnectionNeedsOperatorDto {
+  connectionId: number;
+  label: string;
+  reason: string;
+  attempts: number;
+}
+
 export interface UpsertConnectionRequest {
   sourceId: number;
   name: string;

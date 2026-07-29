@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Scinverse.Ohs.Connectors.Transaq;
+using Scinverse.Ohs.Contracts;
 using Scinverse.Ohs.Domain;
 
 namespace Scinverse.Ohs.Host;
@@ -389,13 +390,108 @@ public sealed class ConnectionSupervisor(
             var failMessage = nextFails >= MaxConnectAttempts
                 ? $"{scheduleLabel}: не удалось подключить за {MaxConnectAttempts} попыток"
                 : $"{scheduleLabel}: не удалось подключиться (попытка {nextFails}/{MaxConnectAttempts})";
+            // Финальный ×5: status=active (Auto стоп, ждём оператора) — не underway/RECOVERING.
             notifications.Append(
                 linkSubject,
                 "connection.connect_failed",
                 failMessage,
                 severity: "error",
-                data: failData);
+                data: failData,
+                status: nextFails >= MaxConnectAttempts ? "active" : null);
+
+            // Single WARN вне link: — Auto стоп, нужен оператор (не засоряет break-corr).
+            if (nextFails == MaxConnectAttempts)
+            {
+                notifications.Publish(
+                    "connection.auto_stopped",
+                    $"{scheduleLabel}: Auto остановлен после {MaxConnectAttempts} попыток — требуется подключение оператором",
+                    severity: "warning",
+                    data: new
+                    {
+                        connectionId,
+                        attempts = nextFails,
+                        sender = "supervisor",
+                        reason = "max_connect_attempts",
+                    });
+            }
         }
+    }
+
+    /// <summary>Auto исчерпал ×N для connection (in-memory; после рестарта Host — false).</summary>
+    public bool IsAutoConnectExhausted(long connectionId) =>
+        _failCounts.GetValueOrDefault(connectionId) >= MaxConnectAttempts;
+
+    /// <summary>
+    /// Нужно действие оператора: Auto ×N исчерпан, break open, окно desired, связь не поднята.
+    /// Для клиента после <c>backend.recovered</c> (сон ПК / outage без рестарта Host).
+    /// </summary>
+    public async Task<IReadOnlyList<ConnectionNeedsOperatorDto>> ListNeedsOperatorAsync(
+        CancellationToken cancellationToken)
+    {
+        var states = await schedule.ListAutoEnabledAsync(cancellationToken).ConfigureAwait(false);
+        if (states.Count == 0)
+        {
+            return [];
+        }
+
+        var nowUtc = time.GetUtcNow();
+        var result = new List<ConnectionNeedsOperatorDto>();
+        foreach (var state in states)
+        {
+            var connectionId = state.Settings.ConnectionId;
+            if (!IsAutoConnectExhausted(connectionId))
+            {
+                continue;
+            }
+
+            if (connections.GetIncidentSince(connectionId) is null)
+            {
+                continue;
+            }
+
+            if (IsConnected(connectionId))
+            {
+                continue;
+            }
+
+            if (!await IsDesiredAsync(state, nowUtc, cancellationToken).ConfigureAwait(false))
+            {
+                continue;
+            }
+
+            var label = await connections.ResolveLabelAsync(connectionId, cancellationToken)
+                .ConfigureAwait(false);
+            result.Add(new ConnectionNeedsOperatorDto(
+                connectionId,
+                label,
+                "auto_exhausted",
+                MaxConnectAttempts));
+        }
+
+        return result;
+    }
+
+    private async Task<bool> IsDesiredAsync(
+        ConnectionScheduleState state, DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        var settings = state.Settings;
+        var local = ToLocal(nowUtc, settings.Tz);
+        var localTime = TimeOnly.FromDateTime(local.DateTime);
+        var localDate = DateOnly.FromDateTime(local.DateTime);
+        var tradingByDay = new Dictionary<DateOnly, bool>();
+        foreach (var openDay in new[] { localDate.AddDays(-1), localDate })
+        {
+            var session = await ResolveSessionAsync(settings.Engine, openDay, nowUtc, cancellationToken)
+                .ConfigureAwait(false);
+            tradingByDay[openDay] = session is not null;
+        }
+
+        return ConnectionScheduleResolver.IsConnectDesired(
+            state.LiveRules,
+            settings.Engine,
+            localDate,
+            localTime,
+            (_, day) => tradingByDay.GetValueOrDefault(day));
     }
 
     /// <summary>

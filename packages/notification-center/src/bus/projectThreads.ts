@@ -42,7 +42,9 @@ const TERMINAL_CLOSE_CODES = new Set([
  * - без correlationId → Single;
  * - с corr → один Thread (Entry[] по ts asc);
  * - orphan recovering без open — Thread из имеющихся Entry, без фейкового open;
- * - sortKey ленты = lastActivityAt (newest-first).
+ * - sortKey ленты = lastActivityAt (newest-first);
+ *   при равном времени: Single над open Thread (active/recovering);
+ *   resolved Thread над Single (после close Incident «перетекает» вверх).
  */
 export function projectThreads(events: readonly NotificationEvent[]): NotificationItem[] {
   const singles: SingleItem[] = [];
@@ -296,10 +298,30 @@ function sortItemsByLastActivity(items: readonly NotificationItem[]): Notificati
       if (b.ms !== a.ms) {
         return b.ms - a.ms;
       }
+      // Equal time: open Incident → Single сверху; resolved Incident → Thread сверху (перетекает вверх).
+      const singleThread = singleVsThreadOrder(a.item, b.item);
+      if (singleThread !== 0) {
+        return singleThread;
+      }
       if (a.id !== b.id) {
         return a.id < b.id ? -1 : 1;
       }
       return a.index - b.index;
     })
     .map(({ item }) => item);
+}
+
+/** -1 = a выше b; +1 = b выше a; 0 = не пара Single/Thread. */
+function singleVsThreadOrder(a: NotificationItem, b: NotificationItem): number {
+  const aThread = a.itemKind === 'thread' ? a : null;
+  const bThread = b.itemKind === 'thread' ? b : null;
+  const aSingle = a.itemKind === 'single';
+  const bSingle = b.itemKind === 'single';
+  if (aSingle && bThread) {
+    return bThread.threadStatus === 'resolved' ? 1 : -1;
+  }
+  if (bSingle && aThread) {
+    return aThread.threadStatus === 'resolved' ? -1 : 1;
+  }
+  return 0;
 }

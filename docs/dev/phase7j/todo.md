@@ -1,6 +1,6 @@
 # Phase 7j — TODO (что осталось)
 
-**Обновлено:** 2026-07-28.
+**Обновлено:** 2026-07-29.
 
 Ядро фазы (**7j.17–7j.20** + **J11a/b/c** + **I10/I11**) по сценариям инцидентов — **код готов**.
 Остаток 7j (не инциденты): **7j.15** / **7j.16**. NC лента Thread — **phase 11 DONE**;
@@ -56,5 +56,6 @@ UI пресетов захардкожен под MOEX; рынок (CME и др.
 | **J9 / J10** | per-connection grace / глобальный порог NC | ПЛАН, позже ([incident.md](incident.md) §8) |
 | **H1 / H2** | recording-ribbon бинарный под Degraded | → **7h** |
 | **I9 prod** | bind/health/proxy family после Vite | OPEN checklist ([issue.md](issue.md) I9) |
+| **I12** | Pool exhausted → пачка 500; orphan ACTIVE FATAL после recover | **OPEN** ([issue.md](issue.md) I12): RxJS sync refresh; смежно coverage 7h |
 
 System-уведомления: JSON (`result`/`error_message`/`sender`); user schedule — `lines[]`.

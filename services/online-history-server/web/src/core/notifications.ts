@@ -11,7 +11,7 @@ import type {
   NotificationSourceType,
   NotificationStatus,
 } from '@scinverse/notification-center';
-import type { NotificationDto } from './types';
+import type { ConnectionNeedsOperatorDto, NotificationDto } from './types';
 
 const KNOWN_STATUSES: readonly NotificationStatus[] = ['active', 'underway', 'resolved'];
 
@@ -483,6 +483,47 @@ export function healthCheckOk(correlationId: string): NotificationDto {
     message,
     status: 'resolved',
     correlationId,
+    data,
+    interaction: 'system',
+    localization: 'internal',
+  };
+}
+
+/**
+ * Single INFO после backend.recovered: Auto×N стоп при open break (не в link-corr).
+ * Локальная шина + DTO для mock-POST.
+ */
+export function publishOperatorActionNeeded(row: ConnectionNeedsOperatorDto): NotificationDto {
+  const id = guidN();
+  const ts = new Date().toISOString();
+  const attempts = row.attempts > 0 ? row.attempts : 5;
+  const message =
+    `${row.label}: Auto был остановлен после ${attempts} попыток — требуется подключение оператором`;
+  const data = {
+    connectionId: row.connectionId,
+    attempts,
+    reason: row.reason,
+    sender: 'client',
+  };
+  notify.info(notificationBus, {
+    id,
+    ts,
+    module: 'ohs.connection',
+    code: 'connection.operator_action_needed',
+    message,
+    sourceType: 'system',
+    interaction: 'system',
+    localization: 'internal',
+    data,
+  });
+  return {
+    id,
+    ts,
+    severity: 'info',
+    sourceType: 'system',
+    module: 'ohs.connection',
+    code: 'connection.operator_action_needed',
+    message,
     data,
     interaction: 'system',
     localization: 'internal',

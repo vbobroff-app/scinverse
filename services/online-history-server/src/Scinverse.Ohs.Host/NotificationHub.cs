@@ -139,7 +139,8 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         string sourceType = "system",
         string module = "ohs.connection",
         object? data = null,
-        NotificationActor? actor = null)
+        NotificationActor? actor = null,
+        string? status = null)
     {
         NotificationDto? evt;
         lock (_gate)
@@ -149,10 +150,16 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
                 return false;
             }
 
-            // Status хаба не трогаем (остаётся active|underway); строка — в ту же corr-нить.
+            var stamp = open.Status;
+            if (status is "active" or "underway")
+            {
+                stamp = status;
+                _openIncidents[subject] = (open.CorrelationId, stamp);
+            }
+
             evt = EnqueueLocked(
                 code, message, severity, sourceType, module,
-                open.Status, open.CorrelationId, data, actor, subject);
+                stamp, open.CorrelationId, data, actor, subject);
         }
 
         Dispatch(evt);

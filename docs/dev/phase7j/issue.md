@@ -1,11 +1,11 @@
 # Phase 7j — Issues: инциденты связи и точность разрыва
 
 Статус: **I1–I8 РЕАЛИЗОВАНО** · **I9** — mitigation в vite; prod-checklist OPEN ·
-**I10** — КОД ГОТОВ (adopt open break после crash / рестарта Host).
+**I10/I11** — КОД ГОТОВ · **I12** — OPEN (пул Npgsql / orphan ACTIVE 500).
 Диагностика I1–I5 — живой тест 23.07.2026; I6/I7 — 24.07.2026; I8 — 25–26.07.2026
 ([nc-availability.md](nc-availability.md)); I9 — 26.07.2026 (после рестарта Host);
-I10 — 27.07.2026 (Thread UI + вложенный crash).
-Часть сценариев принята на Finam id=3. Инцидентный контур 7j закрыт (кроме J11b + **I10**);
+I10 — 27.07.2026 (Thread UI + вложенный crash); I12 — 29.07.2026 (после recover + coverage).
+Часть сценариев принята на Finam id=3. Инцидентный контур 7j: хвост **I12**;
 остаток фазы — **7j.15/7j.16** ([todo.md](todo.md)); UI NC Thread → **phase 11**.
 
 Связано: [auto-connect.md](auto-connect.md), [error-handling.md](error-handling.md), [report.md](report.md),
@@ -637,6 +637,69 @@ Connect-fail: Open link: + Append (Group auto:/connect: только после 
 
 ---
 
+## I12. После recover: пул Npgsql exhausted → пачка `ohs.unhandled` (500); orphan ACTIVE FATAL
+
+**Статус:** OPEN (2026-07-29). Живой эпизод после outage/рестарта Host.
+
+**Почему 7j, не 7h.** Триггер — залп coverage/liveness API (территория ленты 7h), но
+**симптом и пробел контракта** — в NC/исключениях: `ohs.unhandled`, health-probe §9.3 (I8),
+orphan `ACTIVE` FATAL. Инфра-корень (пул) фиксируем здесь же; throttle coverage — смежный
+хвост 7h ([../phase7h/issue.md](../phase7h/issue.md) — ссылка ниже).
+
+### Симптом (МСК, 29.07.2026)
+
+| Время | Событие |
+|-------|---------|
+| ~10:03 | `backend.unavailable` (клиент потерял Host) |
+| ~10:04 | recover + Auto connect по расписанию — **связь ок** |
+| **10:07:59** | три FATAL `ohs.unhandled` одним тиком |
+| 10:08:01 | один corr закрыт health-probe → Group `RESOLVED` («Проверка работоспособности…») |
+| — | **два других FATAL остаются `ACTIVE`** при уже живом бэке |
+
+`data.result` у FATAL (не лимит сообщений NC):
+
+```text
+GET  /api/coverage
+POST /api/coverage/link
+POST /api/coverage/activity
+→ Npgsql.NpgsqlException: The connection pool has been exhausted
+   (Max Pool Size=100, Timeout=15 seconds)
+```
+
+«100» = **Max Pool Size** соединений Host→Postgres, не лимит уведомлений в ленте.
+
+### Что произошло (проще)
+
+1. После оживления UI разом дергает несколько тяжёлых coverage-запросов к БД.
+2. Пул соединений занят / не успевает отдать слот за 15 с → Npgsql кидает исключение.
+3. `GlobalExceptionHandler` → 500 + `ohs.unhandled` (critical) с **отдельным** `corr = requestId`
+   на каждый запрос (вне открытого outage-hold).
+4. Пул **сам** освобождается, когда висящие запросы заканчиваются/таймаутятся (~секунды) —
+   бэк снова отвечает; отдельной «кнопки разлип» нет.
+5. Клиентский health-probe (§9.3 / I8) закрывает **только последний** одиночный 500 → один
+   Group `RESOLVED`; остальные corr остаются `ACTIVE` в журнале (хвост, не «пул всё ещё мёртв»).
+
+### Разрыв с I8 §9.3
+
+I8 обещал: «одиночный 500 → health-probe … **висящих FATAL нет**».  
+Для **пачки** параллельных 500 это не выполняется: N `requestId`-нитей, probe знает одну.
+
+### Направления фикса (не делать всё сразу)
+
+| Слой | Что |
+|------|-----|
+| **A. Инфра / Host** | Найти утечку/долгие hold соединений; при необходимости поднять `Timeout` / `Max Pool Size`; логировать pool stats при exhausted |
+| **B. Клиент 7h (основной)** | Синхронизация и обработка refresh ленты **средствами RxJS** (уже в стеке web): один pipeline на `coverage` / `link` / `activity` / `liveness` — `switchMap`/`exhaustMap`/`concatMap`, debounce после recover, без параллельного залпа. Точка: `OhsStore.refreshLiveness` + подписчики coverage |
+| **C. NC / I8 хвост** | При пачке single-500 без outage: закрывать **все** недавние orphan `ohs.unhandled` одним health-ok **или** фолдить пачку под один corr |
+
+**Затрагивает.** `OhsStore` (RxJS refresh), `GlobalExceptionHandler`, `probeHealthAfterFatal` / §9.3,
+Npgsql connection string / `NpgsqlDataSource`.
+
+**Связано.** I8 ([nc-availability.md](nc-availability.md) §9.3); coverage-лента →
+[../phase7h/issue.md](../phase7h/issue.md) (заметка I12); [todo.md](todo.md).
+
+---
+
 ## Сводка решений
 
 | # | Проблема | Решение | Статус |
@@ -652,8 +715,9 @@ Connect-fail: Open link: + Append (Group auto:/connect: только после 
 | I9 | UI пустой: `localhost`→`::1`, IPv6 Kestrel залип | proxy → `127.0.0.1`; prod: bind/health/proxy family | MITIGATION / prod OPEN |
 | I10 | После crash: break `active` + восстановление в Group `auto:` | Adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ** |
 | I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **КОД ГОТОВ** (живая приёмка) |
+| I12 | Pool exhausted → пачка 500; orphan ACTIVE FATAL | RxJS sync refresh coverage; pool; close-all single 500 | **OPEN** |
 
-Остаток 7j: 7j.15/7j.16 ([todo.md](todo.md)); I10/I11 — живая приёмка.
+Остаток 7j: 7j.15/7j.16 ([todo.md](todo.md)); I12 OPEN; I10/I11 — живая приёмка.
 NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).
 Gate Admin Front + NC — 11→12 ([../plan.md](../plan.md)).
 

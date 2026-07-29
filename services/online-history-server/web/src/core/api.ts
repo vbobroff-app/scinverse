@@ -8,6 +8,7 @@ import type {
   MarketScheduleExceptionDto,
   ConnectionCredentialsRequest,
   ConnectionDto,
+  ConnectionNeedsOperatorDto,
   ConnectionScheduleStateDto,
   ConnectionScheduleRuleDto,
   ConnectionScheduleSettingsDto,
@@ -96,6 +97,10 @@ export const OhsApi = {
 
   getSources: () => getJSON<SourceDto[]>('/sources'),
   getConnections: () => getJSON<ConnectionDto[]>('/connections'),
+
+  /** Auto исчерпал попытки при open break в окне — нужно ручное подключение. */
+  getConnectionsNeedsOperator: () =>
+    getJSON<ConnectionNeedsOperatorDto[]>('/connections/needs-operator'),
   getRecordings: () => getJSON<RecordingDto[]>('/recordings'),
 
   getCoverage: (from: string, to: string) =>

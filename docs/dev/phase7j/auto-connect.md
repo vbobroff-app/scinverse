@@ -103,7 +103,9 @@
 | **Успешный** kickoff (нет open break) | `connecting` → `connected` | warning→**ok** | короткая Group после успеха | `connection:{id}:auto:{uid}` |
 | 1-й fail (нет open break) | `connection.lost` Open + `connect_failed` Append | error | эскалация в Incident | `connection:{id}:link:{uid}` |
 | Повтор N/max при open break | `connection.reconnecting` Progress | warning | попытка восстановления | тот же `link:` |
-| Исчерпаны попытки | `connection.connect_failed` Append | error | `… не удалось подключить за {max} попыток` | тот же `link:` |
+| Исчерпаны попытки | `connection.connect_failed` Append (**status=active**) | error | `… не удалось подключить за {max} попыток` | тот же `link:` (badge ACTIVE, не RECOVERING) |
+| Auto стоп ×max (нужен оператор) | `connection.auto_stopped` **Single** | warning | `… Auto остановлен после {max} попыток — требуется подключение оператором` | — (не `link:`) |
+| Напоминание после recover бэка (клиент) | `connection.operator_action_needed` **Single** | info | `… Auto был остановлен после {max} попыток — требуется подключение оператором` | —; `GET /connections/needs-operator` |
 | **Сбой тика** (плановый disconnect, чтение расписания, резолвер и т.п.) | `connection.auto_error` | error | `Подключение {id} («{name}»): сбой авто-управления связью — {суть}` | — (дедуп по сигнатуре) |
 
 Прим. (I11): Group `auto:` **не** создаётся до fail и **не** закрывается через `resolved` на

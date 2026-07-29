@@ -252,6 +252,16 @@ public sealed record ConnectionDto(
     bool Enabled,
     string Status);
 
+/// <summary>
+/// Connection, где Auto исчерпал попытки при открытом break и окне расписания —
+/// нужно ручное подключение (GET /connections/needs-operator).
+/// </summary>
+public sealed record ConnectionNeedsOperatorDto(
+    long ConnectionId,
+    string Label,
+    string Reason,
+    int Attempts);
+
 /// <summary>Создание/обновление подключения.</summary>
 public sealed record UpsertConnectionRequest(
     short SourceId,

@@ -471,6 +471,12 @@ public static class OhsEndpoints
             return connections.Select(c => ToDto(c, manager.GetStatus(c.ConnectionId))).ToList();
         });
 
+        // После outage/сна: клиент спрашивает, есть ли Auto×N stop + open break в окне → Single INFO.
+        api.MapGet("/connections/needs-operator", async (
+            ConnectionSupervisor supervisor,
+            CancellationToken ct) =>
+            await supervisor.ListNeedsOperatorAsync(ct).ConfigureAwait(false));
+
         api.MapPost("/connections", async (UpsertConnectionRequest request, IConnectionStore store, ConnectionManager manager, CancellationToken ct) =>
         {
             var connection = await store.UpsertAsync(

@@ -190,6 +190,86 @@ describe('projectThreads', () => {
     ]);
   });
 
+  it('open Incident: at equal ts Single WARN above Thread; resolved Thread rises above Single', () => {
+    const corr = 'connection:3:link:c4e5b051';
+    const ts = '2026-07-29T08:16:48.000Z';
+    const warnId = 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
+    const openItems = projectThreads([
+      evt({
+        id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        correlationId: corr,
+        code: 'connection.connect_failed',
+        status: 'active',
+        severity: 'error',
+        message: 'fail ×5',
+        ts,
+      }),
+      evt({
+        id: warnId,
+        code: 'connection.auto_stopped',
+        severity: 'warning',
+        message: 'Auto stopped',
+        ts,
+      }),
+    ]);
+    expect(openItems.map((i) => (isThreadItem(i) ? i.uid : i.id))).toEqual([warnId, corr]);
+    expect(threadOf(openItems, corr).threadStatus).toBe('active');
+
+    // Resolve позже → lastActivityAt новее → Incident выше WARN.
+    const resolvedLater = projectThreads([
+      evt({
+        id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        correlationId: corr,
+        code: 'connection.connect_failed',
+        status: 'active',
+        severity: 'error',
+        ts,
+      }),
+      evt({
+        id: warnId,
+        code: 'connection.auto_stopped',
+        severity: 'warning',
+        ts,
+      }),
+      evt({
+        id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        correlationId: corr,
+        code: 'connection.recovered',
+        status: 'resolved',
+        severity: 'ok',
+        ts: '2026-07-29T08:20:00.000Z',
+      }),
+    ]);
+    expect(resolvedLater.map((i) => (isThreadItem(i) ? i.uid : i.id))).toEqual([corr, warnId]);
+
+    // Resolve в ту же секунду, что WARN → tie-break: resolved Thread над Single.
+    const resolvedSameTs = projectThreads([
+      evt({
+        id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        correlationId: corr,
+        code: 'connection.lost',
+        status: 'active',
+        severity: 'error',
+        ts,
+      }),
+      evt({
+        id: warnId,
+        code: 'connection.auto_stopped',
+        severity: 'warning',
+        ts,
+      }),
+      evt({
+        id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        correlationId: corr,
+        code: 'connection.recovered',
+        status: 'resolved',
+        severity: 'ok',
+        ts,
+      }),
+    ]);
+    expect(resolvedSameTs.map((i) => (isThreadItem(i) ? i.uid : i.id))).toEqual([corr, warnId]);
+  });
+
   it('Group and Incident with different corr stay two threads', () => {
     const items = projectThreads([
       evt({

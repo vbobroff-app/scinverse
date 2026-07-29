@@ -5,6 +5,7 @@ import {
   hydrateServerBacklog,
   notificationBus,
   openBackendOutage,
+  publishOperatorActionNeeded,
   resolveBackendOutage,
 } from './notifications';
 import type { NotificationDto } from './types';
@@ -91,5 +92,22 @@ describe('11.12 notifications Thread hints + hydrate', () => {
     expect(thread[0]!.threadKind).toBe('incident');
     expect(thread[0]!.threadStatus).toBe('resolved');
     expect(thread[0]!.closeOutcome).toBe('recovered');
+  });
+
+  it('publishOperatorActionNeeded is Single INFO without correlationId', () => {
+    const dto = publishOperatorActionNeeded({
+      connectionId: 3,
+      label: 'Подключение 3 («Finam»)',
+      reason: 'auto_exhausted',
+      attempts: 5,
+    });
+    expect(dto.code).toBe('connection.operator_action_needed');
+    expect(dto.severity).toBe('info');
+    expect(dto.correlationId).toBeUndefined();
+    expect(dto.message).toContain('Auto был остановлен после 5 попыток');
+    expect(notificationBus.events.some((e) => e.code === 'connection.operator_action_needed')).toBe(
+      true,
+    );
+    expect(notificationBus.items.filter(isThreadItem)).toHaveLength(0);
   });
 });

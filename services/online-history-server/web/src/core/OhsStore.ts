@@ -969,6 +969,18 @@ export class OhsStore {
           error: (err) => console.error('postNotification', err),
         });
       }
+      // После OK recover: спросить бэк про Auto×N stop + open break → Single INFO (не link-corr).
+      this.api.getConnectionsNeedsOperator().subscribe({
+        next: (rows) => {
+          for (const row of rows) {
+            const dto = m.publishOperatorActionNeeded(row);
+            this.api.postNotification(dto).subscribe({
+              error: (err) => console.error('postNotification', err),
+            });
+          }
+        },
+        error: (err) => console.error('getConnectionsNeedsOperator', err),
+      });
     });
     // Снимаем оптимистичный overlay — серверная геометрия после recover.
     this.refreshLiveness();

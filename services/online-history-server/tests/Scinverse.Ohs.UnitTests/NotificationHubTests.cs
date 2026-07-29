@@ -63,6 +63,24 @@ public sealed class NotificationHubTests
     }
 
     [Fact]
+    public void Append_withStatusActive_stampsRowAndHub()
+    {
+        var hub = NewHub();
+        const string subject = "connection:3:link";
+        hub.Open(subject, "connection.lost", "lost", severity: "error").Should().BeTrue();
+        hub.Progress(subject, "connection.reconnecting", "1/5").Should().BeTrue();
+        hub.Append(subject, "connection.connect_failed", "×5", severity: "error", status: "active")
+            .Should().BeTrue();
+
+        var list = hub.List();
+        var last = list[list.Count - 1];
+        last.Code.Should().Be("connection.connect_failed");
+        last.Status.Should().Be("active");
+        // Hub снова active → следующий Progress допустим.
+        hub.Progress(subject, "connection.reconnecting", "manual").Should().BeTrue();
+    }
+
+    [Fact]
     public void Progress_withoutOpenIncident_isNoop()
     {
         var hub = NewHub();

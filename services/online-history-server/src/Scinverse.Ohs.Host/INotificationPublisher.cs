@@ -50,8 +50,10 @@ public interface INotificationPublisher
         NotificationActor? actor = null);
 
     /// <summary>
-    /// Дописать строку в открытый инцидент (тот же <c>correlationId</c>), не меняя status хаба.
-    /// Для эскалации Degraded→Down, connect_failed / auto_error внутри break-нити. Нет открытого — false.
+    /// Дописать строку в открытый инцидент (тот же <c>correlationId</c>).
+    /// По умолчанию status строки = status хаба (не меняя хаб). Опц. <paramref name="status"/> —
+    /// штамп на строке и обновление хаба (<c>active</c>/<c>underway</c>), напр. финальный ×5 fail → active.
+    /// Нет открытого — false.
     /// </summary>
     bool Append(
         string subject,
@@ -61,7 +63,8 @@ public interface INotificationPublisher
         string sourceType = "system",
         string module = "ohs.connection",
         object? data = null,
-        NotificationActor? actor = null);
+        NotificationActor? actor = null,
+        string? status = null);
 
     /// <summary>Закрыть инцидент по <paramref name="subject"/> (resolved, терминальный).</summary>
     bool Resolve(
