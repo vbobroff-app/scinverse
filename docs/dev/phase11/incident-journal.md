@@ -281,7 +281,7 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 | `GET /api/incidents/{corr}` | деталь |
 | `GET /api/connections/{id}/incidents?from&to` (или поле в `/coverage/link`) | окно для ribbon |
 | `POST /api/incidents/{corr}/resolve` | ручное → `abandoned_manual` |
-| `POST /api/incidents/backfill-recent` | gaps `link_liveness` вчера+сегодня (МСК) → journal |
+| `POST /api/incidents/backfill-recent` | разово: gaps вчера+сегодня (МСК) → journal (без кнопки в UI) |
 | `GET /coverage/link` | **intervals** (liveness); gaps для инцидентов — deprecate |
 
 ### NC (лента уведомлений) — **не** владелец `incident`

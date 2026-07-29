@@ -24,13 +24,6 @@
   gap: var(--spacing-md);
 }
 
-.headerActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-sm);
-  align-items: center;
-}
-
 .title {
   margin: 0;
   font-size: 1.15rem;
