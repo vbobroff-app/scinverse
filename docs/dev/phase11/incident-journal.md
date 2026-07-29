@@ -1,135 +1,334 @@
-# Phase 11 — Журнал инцидентов (проектирование, 11.13)
+# Phase 11 — Журнал инцидентов (11.13)
 
-**Статус:** `DESIGN` (старт 2026-07-29). Реализация кода ещё не начата.  
-**Связано:** [plan.md](plan.md) §11.13 · [to-threads.md](to-threads.md) §6 (переходный эскиз) ·
-[persistence.md](persistence.md) (V025 атомы в OHS) · продуктовое определение —
-[`docs/wiki-readme/incident.md`](../../wiki-readme/incident.md) · to-be NC —
-[`docs/architecture/c4/arch.md`](../../architecture/c4/arch.md) · OHS-продюсер break/crash —
-[../phase7j/incident.md](../phase7j/incident.md).
+**Статус:** `DESIGN AGREED` (2026-07-29) → дальше план реализации (§12).  
+Код ещё не начат.
 
-Handoff нового чата — [`docs/promt.md`](../../promt.md) §8.
+**Связано:** [plan.md](plan.md) §11.13 · [to-threads.md](to-threads.md) ·
+[persistence.md](persistence.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
+продюсер [../phase7j/incident.md](../phase7j/incident.md) · handoff [`promt.md`](../../promt.md) §8.
 
-**Не путать с phase 7h:** [`../phase7h/incident.md`](../phase7h/incident.md) — устаревший канон
-«инцидент = дыра захвата»; помечен SUPERSEDED. Геометрию Connection-ганта в чате журнала **не
-трогаем**. Следующий этап после журнала — связка **журнал NC ↔ Connection-гант** (клик по 1px /
-легенда → corr; см. [../phase7j/incident.md](../phase7j/incident.md) §7.1); тогда же переработать
-термины 7h.
+**Не путать с phase 7h:** [`../phase7h/incident.md`](../phase7h/incident.md) — SUPERSEDED
+как канон платформенного «инцидента». `link_liveness` остаётся слоем **живости**.
 
 ---
 
-## 1. Зачем отдельный документ
+## 1. Зачем
 
-Лента NC (Thread UI, проекция `items$`, hints в `data`) — **DONE** (11.8–11.12).  
-Следующий этап — **first-class журнал инцидентов**: список нитей с пагинацией/фильтрами, не
-пересборка `GROUP BY correlation_id` по hypertable атомов.
+Лента NC (Thread над V025) — **DONE**. Нужен first-class **журнал инцидентов**:
 
-Эскиз «производная `notification_thread` рядом с V025» в [to-threads.md](to-threads.md) §6.3 —
-**переходный / MVP-в-монолите**. Целевая модель ниже (NC со своей БД) — предмет этого документа.
+- одна строка на эпизод (`corr`), без `GROUP BY` по hypertable атомов;
+- экран списка + фильтры + (позже) ручное resolve;
+- **источник верхнего слоя Connection-ribbon** (цветные отрезки + 1px маркеры) вместо
+  производных gaps из `link_liveness`.
 
 ---
 
-## 2. Продуктовое определение (якорь)
+## 2. Продуктовое определение
 
-Из [`wiki-readme/incident.md`](../../wiki-readme/incident.md):
+> Инцидент — нарушение работы **во время работы** (горизонт расписания или живой коннектор).  
+> Сбой вне горизонта — только уведомление / Group в ленте NC, **не** строка журнала.
 
-> Инциденты — нарушение работы системы, с которыми мы сталкиваемся **во время работы**.  
-> Для создания инцидента нужно **рабочее время в рамках расписания** или **работающий запущенный
-> коннектор**.  
-> **Инцидент в нерабочее время — это только уведомление о сбое** (не строка журнала инцидентов).
-
-Следствия для модели:
-
-| Ситуация | В журнале инцидентов? | В ленте NC |
-|----------|------------------------|------------|
-| Сбой в горизонте / при живом коннекторе | **да** → `Incident` | Thread + audit |
-| Сбой вне горизонта (нет «рабочего» контекста) | **нет** | уведомление / `Group` |
+| Ситуация | Журнал | Лента NC |
+|----------|--------|----------|
+| Сбой в горизонте / при живом коннекторе | **да** | Thread Incident |
+| Сбой вне горизонта | **нет** | Group / notify |
 | Single без corr | нет | Single |
 
-Совпадает с политикой Incident vs Group из [to-threads.md](to-threads.md) (горизонт на Open).
+---
+
+## 3. Слои Connection-ленты
+
+```text
+низ:   link_liveness      — голубые отрезки «связь жива» (schedule-bounded)
+верх:  incident (journal) — цветные эпизоды + маркеры поверх
+         ├── break  (низ подслоя)  — жёлтое / красное сплошное + 1px
+         └── crash  (верх подслоя) — красная штриховка + 1px; paint поверх break
+```
+
+- Вложенность `crash` ⊆ `break` **не валидируем в схеме** — бэк/клиент уже так открывают;
+  UI только красит crash сверху.
+- Плановый stop / ручной off **без** предшествующего инцидента — не в журнале
+  (серое / отсутствие голубого).
+- Перспектива: тумблеры слоёв «только живность» / «только инциденты».
+
+### 3.1. As-is (до переключения ribbon)
+
+Сейчас верхний слой строится из gaps `link_liveness` (`POST /coverage/link`):
+
+```text
+intervals → голубое
+gaps      → тело + маркеры  (QueryGapsAsync + CoalesceOwnerPhases)
+```
+
+Код: `ConnectionRibbon.tsx`, `LinkLivenessStore.CoalesceOwnerPhases`,
+`overlayCrashOutageOnLink` (оптимистичный crash на клиенте).
+
+### 3.2. To-be (OHS DB)
+
+```text
+intervals ← link_liveness     (OHS Timescale)  — голубое
+incidents ← incident          (OHS Timescale)  — break + crash поверх
+```
+
+Обе таблицы — **в OHS**. Gaps из liveness больше не источник истины по инцидентам.
 
 ---
 
-## 3. Архитектурные инварианты (зафиксировано для проектирования)
+## 4. Контракт отрисовки (зафиксировано по текущему UI)
 
-1. **NC — отдельный сервис + своя БД + отдельная машина** (failure domain; C4). Не размещать
-   журнал на том же хосте, что TRANSAQ / Timescale PRIMARY OHS.
-2. **Инциденты модульные.** Каждый модуль-продюсер определяет *объект* инцидента и свои виды
-   (OHS сегодня: break / crash — [phase7j/incident.md](../phase7j/incident.md)). NC не выдумывает
-   семантику модуля; хранит/индексирует/отдаёт журнал и ленту.
-3. **Атомы уведомлений** и **строка журнала инцидента** — разные сущности:
-   - атомы = audit событий (сейчас V025 в OHS; to-be — store NC или dual-write по контракту ingest);
-   - журнал = одна строка на `corr` / нить с `kind=incident` (и опционально отдельный список Group).
-4. **OHS остаётся продюсером**, не владельцем журнала платформы. Mock `NotificationHub` в Host —
-   переходный; to-be: OHS → NC ingest API/шина.
+### 4.1. Break
+
+```text
+recovered:   |red [ yellow | red body ] green|
+abandoned:   |red [ yellow | red body ]      |   ← клип, без green
+             ↑ opened_at                      ↑ closed_at
+```
+
+| Элемент | Правило |
+|---------|---------|
+| Красный 1px старт | всегда на `opened_at`; тултип «Потеря связи · HH:mm» |
+| Жёлтое тело | owner TRANSAQ: `[opened_at, escalated_at)` или всё тело, если Live до handover |
+| Красное сплошное | owner supervisor: `[escalated_at, closed_at??now]` или всё тело, если сразу Down |
+| Зелёный 1px | только `close_outcome = recovered` на `closed_at` |
+| Клип без green | `abandoned_schedule` / `abandoned_manual`: тело до `closed_at` (конец **desired**-окна / manual), маркера закрытия нет |
+
+Клип — не «календарные сутки», а спад `desired` расписания соединения (или manual off).
+
+### 4.2. Handover break: yellow → 0px → red (as-is механика → to-be поле)
+
+As-is в `link_liveness`:
+
+1. Уход из Live → close `degraded` → жёлтая дыра; открытого UP нет.
+2. Handover (grace T или Degraded→Down) → `InsertBoundaryMarkerAsync`: нулевой интервал
+   `[t, t]`, `close_reason=server_down` (не «жив», только засечка).
+3. `CoalesceOwnerPhases` склеивает стык встык в **одну** дыру; граница → `EscalatedAt`
+   (простой = весь `[From, To]`; фаза owner — только раскраска).
+4. Маркер `scheduled`/`disconnected` на стыке — **не** handover → `Abandoned=true`.
+
+To-be в журнале: при handover UPDATE `escalated_at`, `owner=supervisor`, `subtype=down`.
+Нулевые строки в `link_liveness` для раскраски ribbon **больше не нужны** (могут остаться
+для истории живости / recovery).
+
+Потолок жёлтого = T (`LinkRecoverGraceSeconds`); early Down → жёлтое короче T.
+Сразу Down → красное с 0 c, `escalated_at = null`.
+
+### 4.3. Crash
+
+| Что | Правило |
+|-----|---------|
+| Вид | `type=crash`, отдельный `corr` (`ohs.backend.outage:…`) |
+| Тело | красная **штриховка** на `[opened_at, closed_at??now]` |
+| Paint | **поверх** break (z-order); вложенность схемой не проверяем |
+| Старт 1px | `opened_at` |
+| Green | только `recovered` |
+| Abandon | `abandoned_*` → клип без green |
+| Детект host_unavailable | клиент (дроп WS); оптимистичная геометрия до прихода API |
 
 ---
 
-## 4. Scope проектирования (11.13) — что решить в спеке
+## 5. Архитектурные решения
 
-Пока **только дизайн** (без обязательной миграции в этом чате, если не согласован DDL):
+| # | Решение |
+|---|---------|
+| A1 | **`link_liveness` + `incident` — в OHS Timescale** (геометрия связи / журнал эпизодов). |
+| A2 | **Поток уведомлений (atoms / лента Thread) — отдельный сервис NC** (своё репо, свой хост, своя БД). C4 failure domain. |
+| A3 | OHS **владеет** журналом инцидентов и **публикует** уведомления в NC (как и другие сервисы). |
+| A4 | Front с NC взаимодействует **сам** (MFE); с OHS — **сам** (control-plane / coverage / incidents API). |
+| A5 | Одна таблица `incident` (дискриминатор `module`); v1 — `module=connection`. |
+| A6 | В журнале **только Incident** (не Group, не Single). |
+| A7 | Одна строка = один `corr_uid` = один эпизод. |
+| A8 | Общий контракт + connection-колонки + `payload` jsonb. |
 
-1. **Контракт инцидента платформы** — поля строки журнала (`corr`, `module`, `subject`,
-   `thread_kind`, status, outcomes, opened/closed, severity_peak, title, …); что обязательно
-   шлёт продюсер на Open/Progress/Close.
-2. **Граница Incident vs notify** — кодификация wiki-правила (горизонт / живой коннектор) на
-   стороне продюсера; NC доверяет `threadKindHint` / явному флагу.
-3. **Схема БД NC** — таблицы журнала (+ связь с атомами, если атомы тоже переезжают в NC);
-   индексы под список `kind=incident&status&module&opened_at`.
-4. **Ingest / writer** — кто UPSERT'ит журнал при Open/Progress/Resolve; идемпотентность;
-   Adopt после рестарта продюсера.
-5. **API** — `GET` списка нитей (журнал), детали нити + стек Entry; пагинация.
-6. **UI** — экран «Журнал инцидентов» в NC (не путать с нижним доком-лентой).
-7. **Переход от монолита** — что остаётся в OHS V025 на время; dual-write vs cutover; backfill.
+```text
+OHS Timescale
+  ├── link_liveness   ← голубой слой ribbon
+  └── incident        ← цветной слой ribbon + экран журнала (OHS API)
 
-**Вне scope 11.13 (пока):** полный Module Federation runtime, Keycloak-роли на журнал (phase 10),
-WebGL (phase 12), доработка 7j.15/16, **переработка phase7h/incident** и UI-связка журнал↔гант
-(отдельный чат после утверждения журнала).
+OHS / другие сервисы  ──publish notify──▶  NC (отдельный сервис + БД)
+                                              └── atoms / Thread UI (док)
 
----
+Admin Front ──OHS──▶ liveness + incidents (ribbon, журнал эпизодов)
+Admin Front ──MFE──▶ NC (лента уведомлений)
+```
 
-## 5. Что уже есть (не ломать)
-
-| Контур | Состояние |
-|--------|-----------|
-| Thread UI / проекция | 11.8–11.12 DONE (`items$`, Incident/Group) |
-| Hints в атомах | `data.threadKindHint`, `data.closeOutcome` |
-| OHS audit | V025 `notification` hypertable |
-| Продюсер OHS | lost→recovering→recovered / abandon_*; I10 Adopt; I11 CloseBreak |
-| ★/⊘, dock settings | клиент NC; не в журнале v1 |
-| Тесты 11.7 | DONE (в т.ч. abandon_manual ApiTest, CloseBreak unit) |
+As-is: mock Hub + V025 atoms в OHS — переходный; atoms уедут в NC.  
+**Журнал `incident` проектируем и делаем в OHS** (рядом с `link_liveness`).
 
 ---
 
-## 6. Связь с to-threads §6
+## 6. Объектная модель / поля таблицы
+
+```text
+Incident
+  corr_uid          text PK     = correlationId NC (subject:uid)
+  module            text        connection | api | writer | …
+  type              text        у connection: break | crash
+  status            text        active | recovering | resolved
+  close_outcome     text?       recovered | abandoned_schedule | abandoned_manual
+  opened_at         timestamptz старт → красный 1px
+  closed_at         timestamptz? конец; null пока open
+  subject           text        префикс без uid
+  severity          text        ok|info|warning|error|critical
+  title             text        заголовок списка
+  last_activity_at  timestamptz
+  payload           jsonb?      прочий контекст
+
+  -- module=connection (NULL иначе)
+  connection_id     int?
+  source_id         smallint?
+  escalated_at      timestamptz?  handover → жёлтое|красное
+  subtype           text?         degraded|down|host_unavailable|exception_500|…
+  owner             text?         transaq|supervisor|admin
+```
+
+`duration_ms` — только в API: `(closed_at ?? now) − opened_at`.  
+`abandoned` на ленте = `close_outcome IN (abandoned_schedule, abandoned_manual)`.
+
+### 6.1. DDL-эскиз (**OHS** `db/migrations`)
+
+```sql
+-- V028__incident_journal.sql (OHS Timescale)
+CREATE TABLE IF NOT EXISTS incident (
+  corr_uid          text PRIMARY KEY,
+  module            text NOT NULL,
+  type              text NOT NULL,
+  status            text NOT NULL
+                      CHECK (status IN ('active', 'recovering', 'resolved')),
+  close_outcome     text NULL
+                      CHECK (close_outcome IN (
+                        'recovered', 'abandoned_schedule', 'abandoned_manual')),
+  opened_at         timestamptz NOT NULL,
+  closed_at         timestamptz NULL,
+  subject           text NOT NULL,
+  severity          text NOT NULL
+                      CHECK (severity IN ('ok','info','warning','error','critical')),
+  title             text NOT NULL DEFAULT '',
+  last_activity_at  timestamptz NOT NULL,
+  connection_id     int NULL,
+  source_id         smallint NULL,
+  escalated_at      timestamptz NULL,
+  subtype           text NULL,
+  owner             text NULL,
+  payload           jsonb NULL,
+  CHECK (closed_at IS NULL OR closed_at >= opened_at),
+  CHECK (
+    (status = 'resolved' AND closed_at IS NOT NULL AND close_outcome IS NOT NULL)
+    OR (status <> 'resolved' AND closed_at IS NULL AND close_outcome IS NULL)
+  )
+);
+
+CREATE INDEX ix_incident_journal
+  ON incident (module, status, opened_at DESC);
+CREATE INDEX ix_incident_connection_window
+  ON incident (connection_id, opened_at DESC)
+  WHERE module = 'connection' AND connection_id IS NOT NULL;
+CREATE INDEX ix_incident_open
+  ON incident (module, status)
+  WHERE status IN ('active', 'recovering');
+```
+
+Не hypertable. Retention — отдельно (resolved старше N дней).
+
+---
+
+## 7. Writer журнала (**в OHS**)
+
+`ConnectionManager` / Supervisor / CloseBreak / Adopt / crash-path пишут **локально**
+в таблицу `incident` (те же точки, что сейчас Open/Progress/Resolve в Hub):
+
+| Событие | Журнал OHS |
+|---------|------------|
+| Open Incident | INSERT `status=active`, `opened_at`, type/module/… |
+| Handover (break) | UPDATE `escalated_at`, `owner=supervisor`, `subtype=down` |
+| Recovering | UPDATE `status=recovering` |
+| Recovered | UPDATE `resolved` + `close_outcome=recovered` + `closed_at` |
+| Abandon schedule/manual | UPDATE `resolved` + `abandoned_*` + `closed_at` |
+| Adopt после рестарта | строка есть → UPDATE, не новый INSERT |
+
+PK = `corr_uid` (идемпотентность). Group/Single → **не** в `incident`.
+
+Параллельно OHS **публикует** notify-атомы в NC (as-is: Hub + V025; to-be: NC Publisher →
+сервис NC). `corr_uid` связывает строку журнала OHS и нить в ленте NC.
+
+---
+
+## 8. API / UI
+
+### OHS (журнал + ribbon)
+
+| API (OHS) | Назначение |
+|-----------|------------|
+| `GET /api/incidents?module&status&type&from&to&connectionId` | журнал, пагинация |
+| `GET /api/incidents/{corr}` | деталь |
+| `GET /api/connections/{id}/incidents?from&to` (или поле в `/coverage/link`) | окно для ribbon |
+| `POST /api/incidents/{corr}/resolve` | ручное → `abandoned_manual` |
+| `GET /coverage/link` | **intervals** (liveness); gaps для инцидентов — deprecate |
+
+### NC (лента уведомлений) — **не** владелец `incident`
+
+| Контур | Роль |
+|--------|------|
+| As-is | `packages/notification-center` + Hub/V025 в OHS (mock) |
+| To-be (gate 11→12) | отдельный сервис/репо; V025 atoms → БД NC; пакет → **MFE** |
+| UI | док Thread; Front ходит в NC сам |
+
+Экран «Журнал инцидентов» (список эпизодов) — **Admin Front ← OHS API**.  
+Док уведомлений — **NC MFE**.
+
+---
+
+## 9. Связь с документами
 
 | Документ | Роль |
 |----------|------|
-| [to-threads.md](to-threads.md) §6.0–6.2 | **как сейчас:** проекция над V025, без таблицы журнала |
-| [to-threads.md](to-threads.md) §6.3 SQL-эскиз | **устаревающий целевой набросок «таблица в OHS»** — использовать только как черновик полей |
-| **этот файл** | **целевое проектирование:** журнал в БД NC, модульные инциденты |
-
-После утверждения схемы здесь — обновить §6.3–6.5 в to-threads ссылкой «см. incident-journal.md»
-и пометить OHS-эскиз deprecated.
-
----
-
-## 7. Открытые вопросы (старт чата)
-
-| # | Вопрос |
-|---|--------|
-| J1 | Атомы to-be только в NC или OHS V025 остаётся audit hot-path с репликацией в NC? |
-| J2 | Имя/модель: `incident` vs generic `notification_thread` (incident+group)? |
-| J3 | Обязателен ли Group в той же таблице журнала или только Incident? |
-| J4 | Backfill из V025 при cutover — полный / окно / только open? |
-| J5 | Модульный реестр видов инцидентов (OHS break/crash, …) — код vs конфиг? |
+| to-threads §6.0–6.2 | as-is Thread над V025 |
+| to-threads §6.3 | черновик полей → канон §6 здесь (**таблица в OHS**) |
+| phase7j/incident.md | продюсер break/crash, owner, исходы |
+| persistence.md / nc-availability §8 | atoms V025 → переезд в NC (отдельно от журнала) |
+| plan.md gate 11→12 / C4 arch | вынос NC MFE + Admin Front |
+| этот файл | канон журнала **`incident` в OHS** + контракт ленты |
 
 ---
 
-## 8. Критерий готовности проектирования
+## 10. Открытые вопросы
 
-1. Согласованы продуктовое определение (wiki) и контракт Open→журнал.  
-2. Есть DDL-эскиз **для БД NC** (не обязан быть накатан).  
-3. Описан путь OHS (и будущих модулей) → ingest.  
-4. API списка журнала + отличие от `GET /api/notifications`.  
-5. План перехода с монолита без ломки ленты NC v1.  
-6. `plan.md` / `report.md` / `promt.md` §8 обновлены под следующий шаг реализации.
+| # | Вопрос | Статус |
+|---|--------|--------|
+| J1 | Cutover V025 atoms → БД NC | **согласовано направление** (gate 11→12); не блокер 11.13a |
+| J2 | Имя таблицы | **закрыт → `incident`** |
+| J3 | Group в таблице? | **закрыт → нет** |
+| J4 | Backfill истории | открыт: окно из gaps+V025 / только forward |
+| J5 | Реестр types | код v1: connection `break`\|`crash` |
+| J6 | `duration_ms` | **только API** |
+| J7 | `resolved_by` | с POST resolve |
+| J8 | Crash-writer: кто INSERT в `incident` при client-led outage? | открыт → 11.13b |
+
+---
+
+## 11. Критерий готовности DESIGN
+
+- [x] Поля §6 и слои §3–§4 согласованы.
+- [x] **OHS:** `link_liveness` + `incident`; **NC:** поток `notification` / MFE.
+- [x] Writer §7 (OHS) и API §8 намечены.
+- [ ] Plan §12 принят → старт **11.13a**.
+
+---
+
+## 12. План реализации (после DESIGN)
+
+Фаза **11.13** — журнал в **OHS**. Вынос NC (atoms + MFE) — **gate 11→12**, не блокирует a–f.
+
+| Шаг | Что | Критерий |
+|-----|-----|----------|
+| **11.13a** | Миграция OHS `V028__incident_journal.sql` + `IIncidentStore` | DbUp + integration tests |
+| **11.13b** | Writer: Open/handover/close/Adopt → UPSERT `incident`; crash-path (J8) | строки пишутся; Adopt без дублей |
+| **11.13c** | OHS API `GET /api/incidents` (+ окно для ribbon) | список/фильтры |
+| **11.13d** | UI экран журнала в Admin Front (OHS web) | tsc/eslint |
+| **11.13e** | Ribbon: incidents←`incident`, liveness←`link_liveness` | паритет yellow\|red / hatch / abandon |
+| **11.13f** | Ручное resolve + backfill/регрессия 7j | оператор закрывает; сценарии |
+
+**Вне scope 11.13:** вынос NC-сервиса / перенос V025 (gate 11→12), WebGL, Keycloak, 7j.15/16, I12.
+
+**Порядок:** a → b → c → (d ∥ e) → f.
+
+**Коммиты:** `feat(ohs-11): …` / `docs(11): …` — только по просьбе пользователя.

@@ -4,8 +4,8 @@
 
 Проблема: [issue.md](issue.md). Персист атомов: [persistence.md](persistence.md) (V025).
 Домен инцидентов связи: [../phase7j/incident.md](../phase7j/incident.md).
-**Журнал инцидентов (next, 11.13):** целевая спека — [incident-journal.md](incident-journal.md)
-(БД NC); §6.3 ниже — переходный эскиз «таблица в OHS», не финальный to-be.
+**Журнал инцидентов (11.13):** канон — [incident-journal.md](incident-journal.md)
+(таблица `incident` в **OHS**; atoms/`notification` → NC на gate 11→12). §6.3 — черновик полей.
 
 ---
 
@@ -309,10 +309,9 @@ Thread **не** хранится отдельной строкой; восста
 
 ### 6.3 Вариант B — производная таблица «журнал нитей» (переходный эскиз)
 
-> **2026-07-29:** целевой журнал живёт в **БД NC** (отдельный сервис/машина), инциденты
-> **модульные**. Актуальная спека — [incident-journal.md](incident-journal.md).  
-> Ниже — исторический набросок «производная таблица рядом с V025 в OHS»: полезен как черновик
-> полей/индексов, **не** как место деплоя схемы.
+> **2026-07-29:** целевой журнал — таблица `incident` в **OHS** (рядом с `link_liveness`).
+> Поток atoms (`notification`) — в **NC** (gate 11→12). Канон —
+> [incident-journal.md](incident-journal.md). Ниже — исторический набросок полей.
 
 Когда понадобится серверный **журнал инцидентов** (пагинация, фильтры, метрики без скана
 атомов) — first-class строки нитей (одна строка = один Thread / Incident).
@@ -389,7 +388,7 @@ Retention: не hypertable; чистить orphan threads по `closed_at` + N �
 |------|-----|
 | 11.8–11.10 (модель + UI) | **A** — без новой таблицы; hint/outcome в `data` jsonb |
 | 11.11 | hints в `data` (обязательно); **задел контракта** `thread_kind ∈ {incident,group}` |
-| **когда заводим серверный журнал** | **B′** — схема журнала в **БД NC** ([incident-journal.md](incident-journal.md)); не обязательный ALTER OHS V025 |
+| **когда заводим серверный журнал** | **B′** — таблица `incident` в **OHS** ([incident-journal.md](incident-journal.md)); V025 atoms без ALTER; cutover atoms → NC на gate |
 
 ### 6.5 Когда именно разумно заводить журнал (B′)
 
@@ -398,8 +397,8 @@ Retention: не hypertable; чистить orphan threads по `closed_at` + N �
 **Триггер (выполнен — стартуем проектирование 11.13):** нужен экран/API **«Журнал инцидентов»**
 и/или серверные фильтры по нитям без `GROUP BY` по hypertable атомов.
 
-**До cutover журнала в NC:** лента остаётся на варианте A (`notification` + `data` в OHS).
-Enum `incident|group` в hints держим стабильным.
+**До cutover atoms в NC:** лента остаётся на варианте A (`notification` + `data` в OHS).
+Журнал эпизодов (`incident`) — отдельно в OHS (11.13). Enum `incident|group` в hints стабилен.
 
 **Не повод трогать V025:** клиентский expand Thread, ★/⊘, фильтр статуса нити на шине.
 
@@ -436,6 +435,6 @@ Enum `incident|group` в hints держим стабильным.
 | Q1 | FATAL crash **вне** горизонта — открывать Group в NC или глушить? | Group (audit), не Incident; продукт уточнит |
 | Q2 | sortKey ленты: `openedAt` vs `lastActivityAt` | `lastActivityAt` |
 | Q3 | unread на collapsed Thread | unread пока есть unread Entry |
-| Q4 | где журнал / схема | **БД NC** — [incident-journal.md](incident-journal.md); не OHS V025 «навсегда» |
+| Q4 | где журнал / схема | **`incident` в OHS** — [incident-journal.md](incident-journal.md); atoms → NC (gate) |
 | Q5 | хранить ★/⊘ в БД | нет в v1; local / user_settings ([nc-marks.md](nc-marks.md)) |
 | Q6 | после crash Host: break `active` + восстановление в `auto:` Group | **не Thread** — adopt на Host (**I10 КОД ГОТОВ**); [../phase7j/issue.md](../phase7j/issue.md) |

@@ -4,7 +4,7 @@
 
 Ядро фазы (**7j.17–7j.20** + **J11a/b/c** + **I10/I11**) по сценариям инцидентов — **код готов**.
 Остаток 7j (не инциденты): **7j.15** / **7j.16**. NC лента Thread — **phase 11 DONE**;
-журнал инцидентов (БД NC) — **11.13** ([../phase11/incident-journal.md](../phase11/incident-journal.md)).
+журнал инцидентов — **11.13** таблица `incident` в **OHS** (atoms → NC на gate) — [../phase11/incident-journal.md](../phase11/incident-journal.md).
 
 ---
 

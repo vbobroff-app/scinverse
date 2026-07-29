@@ -3,7 +3,7 @@
 > **SUPERSEDED (2026-07-29) как канон «что такое инцидент».**  
 > Платформенное определение — [`wiki-readme/incident.md`](../../wiki-readme/incident.md).  
 > Connection break/crash / лента Connection — [`phase7j/incident.md`](../phase7j/incident.md).  
-> Журнал инцидентов (БД NC) — [`phase11/incident-journal.md`](../phase11/incident-journal.md).  
+> Журнал инцидентов (`incident` в OHS) — [`phase11/incident-journal.md`](../phase11/incident-journal.md).  
 > Этот файл сохраняет ценность для **геометрии захвата** (`capture_liveness`, дыры подложки,
 > backfill-кандидаты). Не использовать как спеку журнала NC или Connection-ribbon v2.
 > Связка журнал ↔ Connection-гант — **после 11.13** (переработка ссылок/терминов здесь).

@@ -92,11 +92,11 @@ scinverse/
 | 7g | Слой сделок на Ганте: присутствие торгов по бакетам (лесенка), app-кэш `V008`, `/coverage/activity` | DONE | [phase7g](./dev/phase7g/plan.md) |
 | **7h** | **Честная подложка: recovery (`V009`), живость (`V010`/`V011`), автомат связи + пинг, красная разметка разрывов** | **DONE** | [phase7h/report](./dev/phase7h/report.md), [incident](./dev/phase7h/incident.md) |
 | 7i | «Управление записью»: полуавтомат Auto + Supervisor (MOEX) | IN PROGRESS | [phase7i/apply](./dev/phase7i/apply.md) |
-| **7j** | Расписание + инциденты v2 + abandon schedule | **инциденты ГОТОВЫ**; очередь 7j.15/16 + J11b | [report](./dev/phase7j/report.md) · [todo](./dev/phase7j/todo.md) · [incident](./dev/phase7j/incident.md) |
+| **7j** | Расписание + инциденты v2 + abandon | **инциденты ГОТОВЫ**; очередь 7j.15/16 · **I12 OPEN** | [report](./dev/phase7j/report.md) · [todo](./dev/phase7j/todo.md) · [I12](./dev/phase7j/issue.md#i12-после-recover-пул-npgsql-exhausted--пачка-ohsunhandled-500-orphan-active-fatal) |
 | 8 | CI/CD | TODO | — |
 | 9 | Импорт QScalp `.qsh` | TODO | — |
 | 10 | Keycloak + `user_settings` | PLANNED · **обязателен на gate 11→12** | [phase10](./dev/phase10/plan.md) |
-| **11** | **NC:** лента Thread DONE; фокус **11.13 журнал инцидентов (DESIGN)** | **АКТИВНЫЙ ФОКУС** | [incident-journal](./dev/phase11/incident-journal.md) · [plan](./dev/phase11/plan.md) · [to-threads](./dev/phase11/to-threads.md) |
+| **11** | **NC:** лента DONE; **11.13 журнал `incident` в OHS → 11.13a** | **АКТИВНЫЙ ФОКУС** | [incident-journal](./dev/phase11/incident-journal.md) · [plan](./dev/phase11/plan.md) · [to-threads](./dev/phase11/to-threads.md) |
 | **11→12** | **Gate:** вынос Admin Front + NC (MFE, Keycloak) по to-be C4 | FUTURE | [dev/plan.md](./dev/plan.md) §gate · [arch](./architecture/c4/arch.md) |
 | 12 | Гант WebGL2 + LOD — **только после gate** | FUTURE | [phase12](./dev/phase12/plan.md) |
 
@@ -170,14 +170,15 @@ scinverse/
 
 **OHS MVP** (монолит Host + admin web + пакет NC) — активная разработка.
 
-- **7j инциденты** (связь break/crash, abandon, CloseBreak/Adopt) — **код готов**
-  (очередь не-инцидентов: 7j.15/16). См. [phase7j/todo.md](./dev/phase7j/todo.md).
+- **7j инциденты** (связь break/crash, abandon, CloseBreak/Adopt, Auto×5 operator Singles) —
+  **код готов**; очередь: 7j.15/16; хвост **I12 OPEN** (пул Npgsql / orphan FATAL после recover —
+  RxJS sync coverage). См. [todo](./dev/phase7j/todo.md) · [issue I12](./dev/phase7j/issue.md).
 - **phase 11 лента Thread** (11.1–11.12, ★/⊘, dock settings, тесты 11.7) — **DONE**.
-- **Активный фокус — 11.13:** проектирование **журнала инцидентов** в NC
-  ([incident-journal.md](./dev/phase11/incident-journal.md)).
+- **Активный фокус — 11.13:** журнал `incident` в **OHS** — DESIGN AGREED; старт **11.13a**
+  (миграция OHS) — [incident-journal.md](./dev/phase11/incident-journal.md) §12.
 
-**To-be:** отдельный NC (своя БД, отдельная машина) + Admin/Product Front (MFE) + Keycloak — C4;
-до WebGL — **gate 11→12**. Журнал проектируем сразу под NC DB, не как вечную таблицу в OHS.
+**To-be:** `notification`/пакет → отдельный NC (MFE, своя БД) на **gate 11→12**;
+`link_liveness` + `incident` остаются в OHS. Admin/Product + Keycloak — C4.
 
 ---
 
@@ -185,17 +186,17 @@ scinverse/
 
 ### Задача чата
 
-**Спроектировать** (DESIGN first) first-class **журнал инцидентов** для Notification Center:
+**DESIGN AGREED** — канон [incident-journal.md](./dev/phase11/incident-journal.md).
+Дальше — **§12** (старт **11.13a** миграция `incident` в **OHS**).
 
-- NC — **отдельный сервис + своя БД + отдельная машина** (C4 failure domain).
-- Инциденты **модульные**: объект/виды задаёт модуль-продюсер (OHS сегодня: break/crash).
-- Продуктовое определение Incident vs «только уведомление» —
-  [`wiki-readme/incident.md`](./wiki-readme/incident.md).
-- Не реализовывать «производную `notification_thread` в OHS V025» как целевую схему
-  (эскиз to-threads §6.3 — переходный черновик полей).
+- **OHS DB:** `link_liveness` + `incident` (ribbon + журнал эпизодов).
+- **NC (to-be / gate 11→12):** поток `notification` (сейчас V025) + пакет → MFE/сервис;
+  Front и OHS ходят в NC самостоятельно.
+- Инциденты модульные (`module`); connection: `break` / `crash`.
+- Ribbon: liveness + incidents ← **OHS**.
+- Wiki: [`wiki-readme/incident.md`](./wiki-readme/incident.md).
 
-Код миграций/API — только после согласованной спеки в
-[incident-journal.md](./dev/phase11/incident-journal.md). Не смешивать с 7j.15/16 и WebGL (12).
+Не смешивать с 7j.15/16, I12 и WebGL (12).
 
 ### Прочитай первым (порядок)
 
@@ -212,31 +213,31 @@ scinverse/
 
 | Контур | Состояние |
 |--------|-----------|
-| **OHS Host** | NotificationHub + PersistWriter → `notification` (V025). CloseBreak / Adopt / Forget. |
-| **Admin web** | Монолит `services/online-history-server/web`; Vite → `:5080`. |
-| **NC package** | Thread `items$`, dock, ★/⊘, filters, tail/pause — **DONE**. |
-| **phase11** | 11.1–11.12 + 11.7 **DONE**; **11.13 DESIGN** (журнал). |
-| **7j** | Инциденты код готов; очередь 7j.15/16 (не блокер журнала). |
+| **OHS Host** | NotificationHub + PersistWriter → V025. CloseBreak / Adopt / Forget. Auto×5 → Append `connect_failed` **status=active** + Single `connection.auto_stopped`; `GET /connections/needs-operator`. |
+| **Admin web** | Монолит `web`; Vite → `:5080`. После `backend.recovered` → needs-operator → Single `connection.operator_action_needed`. |
+| **NC package** | Thread `items$`, dock, ★/⊘ — **DONE**. Сорт: при равном ts Single над **open** Thread; **resolved** Thread над Single. |
+| **phase11** | 11.1–11.12 + 11.7 **DONE**; **11.13 DESIGN AGREED** → **11.13a**. |
+| **7j** | Инциденты код готов; **I12 OPEN** (не блокер журнала); очередь 7j.15/16. |
 
 ### Модель (кратко)
 
 ```text
-Лента NC (DONE):  NotificationItem = Single | Thread(Incident|Group)  // проекция над атомами
-Журнал (DESIGN):  first-class строки в БД NC; фильтр журнала ≈ kind=incident
-Продюсер:         модуль решает Incident vs notify (горизонт / живой коннектор)
+OHS DB:     link_liveness + incident
+NC (to-be): notification atoms + MFE UI (пакет @scinverse/notification-center)
+OHS → NC:   publish notify (as-is Hub/V025 mock)
+Admin:      ribbon/журнал←OHS · док ленты←NC (MFE)
 ```
 
-- Атомы сейчас: OHS V025 + hints `threadKindHint` / `closeOutcome`.
-- Журнал to-be: **не** обязан жить в той же БД, что Timescale OHS.
-- Group / вне горизонта → лента/audit, **не** раздувать журнал инцидентов.
+- Group / вне горизонта → лента NC, не таблица `incident`.
 
-### План работ чата (порядок)
+### План работ (порядок) — [incident-journal §12](./dev/phase11/incident-journal.md)
 
-1. Дописать [incident-journal.md](./dev/phase11/incident-journal.md): контракт строки журнала,
-   граница Incident, DDL-эскиз **БД NC**, ingest, API, UI экрана, cutover с монолита.
-2. Закрыть открытые вопросы J1–J5 в том же файле (или явно отложить).
-3. Синхронизировать to-threads §6 / plan / report после решений.
-4. **Только потом** — реализация (миграция NC / stub API / UI) отдельным коммитом/чатом.
+1. **11.13a** миграция OHS `incident` + store  
+2. **11.13b** writer (open/handover/close/Adopt)  
+3. **11.13c** GET `/api/incidents`  
+4. **11.13d** UI журнала · **11.13e** ribbon←`incident`  
+5. **11.13f** resolve / backfill  
+(Вынос NC/V025 — gate 11→12, не этот список.)
 
 ### Инварианты (не ломать)
 
@@ -244,10 +245,21 @@ scinverse/
 - Incident vs Group: вид на Open по горизонту; Group **не** продолжает Incident (новый corr).
 - System → короткий message + JSON (`result` / `error_message` + `sender`); user schedule → `lines[]`.
 - ★/⊘ — клиент v1; не колонки журнала в первой итерации.
-- Не тащить в этот чат WebGL, 7j.15/16 market-profile, полный Keycloak.
-- **`phase7h/incident.md` — SUPERSEDED** как канон «инцидент» (это про дыры `capture_liveness` /
-  подложку записи). Канон: wiki + 7j + этот журнал. Геометрию Connection-ганта здесь не трогать;
-  связка **журнал ↔ гант** — следующим этапом после 11.13 (тогда же переработать термины 7h).
+- **I10:** после **рестарта процесса** Host — Adopt open break из V025 → connect в `link:` (не Group `auto:`).
+  `backend.recovered` на клиенте ≠ рестарт Host (сон ПК: fails×5 могут остаться в памяти).
+- **Auto×5:** Incident остаётся open; Single WARN `connection.auto_stopped` (не в `link:`);
+  финальный `connect_failed` — `status=active` (badge ACTIVE, не RECOVERING).
+- Не тащить в этот чат WebGL, 7j.15/16, **I12** (отдельный хвост), полный Keycloak.
+- **`phase7h/incident.md` — SUPERSEDED** как канон «инцидент» (дыры `capture_liveness` / подложка).
+  Канон: wiki + 7j + этот журнал. Геометрию Connection-ганта здесь не трогать;
+  связка **журнал ↔ гант** — после 11.13.
+
+### Вне scope этого чата (уже зафиксировано / другой хвост)
+
+| Тема | Где |
+|------|-----|
+| I12 pool exhausted + orphan ACTIVE 500; RxJS sync coverage | [phase7j/issue.md I12](./dev/phase7j/issue.md) |
+| Auto×5 operator Singles + sort WARN/Incident | коммит `4d921c4`; `ConnectionSupervisor`, `projectThreads` |
 
 ### Ключевые файлы
 

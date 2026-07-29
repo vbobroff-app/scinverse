@@ -1,6 +1,6 @@
 # Инциденты
 
-> Проектирование **журнала инцидентов** (платформенный NC, своя БД) —
+> Проектирование **журнала инцидентов** (таблица `incident` в OHS; лента notify → NC) —
 > [`docs/dev/phase11/incident-journal.md`](../dev/phase11/incident-journal.md).  
 > OHS break/crash (продюсер) — [`docs/dev/phase7j/incident.md`](../dev/phase7j/incident.md).
 

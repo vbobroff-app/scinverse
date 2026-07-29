@@ -10,8 +10,9 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 транспорт системных/внешних событий; необязательно — `user_settings` (phase 10) для персистенции
 состояния панели/фильтров. Влияет на все модули фронта и на серверное логирование.
 
-**Фокус сейчас:** **11.13** — проектирование **журнала инцидентов** в NC (своя БД, отдельная машина) —
-[incident-journal.md](incident-journal.md). Лента Thread 11.8–11.12 и тесты 11.7 — **DONE**.
+**Фокус сейчас:** **11.13** — журнал инцидентов: DESIGN AGREED → план
+([incident-journal.md](incident-journal.md) §12). Таблица `incident` в **OHS** (рядом с
+`link_liveness`); поток `notification` / пакет → NC MFE (gate 11→12). Thread 11.8–11.12 — **DONE**.
 
 **Ядро UI/шины:** пакет [`packages/notification-center`](../../../packages/notification-center)
 (`@scinverse/notification-center`) — без привязки к OHS.
@@ -93,17 +94,14 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 - **11.12 Регрессия + приёмка Thread.** Пакет + OHS web + backend: сценарии break/crash из
   phase 7j отображаются как Incident/Group; Group не продолжает Incident; плоский audit V025
   и hydrate не ломаются; tsc/vitest/`dotnet` зелёные.
-- **11.13 Журнал инцидентов (DESIGN).** First-class журнал нитей в **БД NC** (не производная
-  таблица в OHS Timescale): модульные инциденты, ingest от продюсеров, API списка, экран журнала.
-  Определение Incident — [wiki-readme/incident.md](../../wiki-readme/incident.md); спека —
-  [incident-journal.md](incident-journal.md). Эскиз «таблица рядом с V025» в to-threads §6.3 —
-  переходный, не целевой.
+- **11.13 Журнал инцидентов.** Таблица `incident` в **OHS Timescale**; writer + API + UI журнала
+  в Admin; ribbon: liveness + incidents ← OHS. Лента atoms — as-is V025 / to-be NC
+  ([gate 11→12](../plan.md)). Канон — [incident-journal.md](incident-journal.md).
 
 ## Вне области (out of scope)
 
-- Менять схему OHS `notification` ради UI Thread — не нужно: колонка `data` покрывает модель
-  ([to-threads.md](to-threads.md) §6.0). Журнал инцидентов проектируем в **БД NC** (11.13), не как
-  обязательный ALTER V025.
+- Менять схему OHS `notification` ради UI Thread — не нужно. Журнал — новая таблица `incident` в OHS
+  (не ALTER V025). Перенос atoms в NC — gate 11→12.
 - Пуш-уведомления (email/telegram/desktop) и правила-алерты — позже.
 - Тонкая маршрутизация по ролям (кто какие события видит) — грубо; тонко — вместе с phase 10.
 - Полноценный рантайм Module Federation с раздельными деплоями — задел в контракте / gate 11→12;
@@ -135,8 +133,8 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 
 **Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
 
-**Далее:** **11.13** проектирование журнала — [incident-journal.md](incident-journal.md)
-(handoff [`docs/promt.md`](../../promt.md) §8).
+**Далее:** **11.13a** миграция OHS `incident` + store —
+[incident-journal.md](incident-journal.md) §12 (handoff [`docs/promt.md`](../../promt.md) §8).
 
 **Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 код готов**
 ([../phase7j/issue.md](../phase7j/issue.md)); живая приёмка / хвосты 7j.15–16 — не блокер 11.13.
