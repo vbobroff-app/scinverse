@@ -38,7 +38,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   { id: 'providers', label: 'Провайдеры', group: 'top', ready: true },
   { id: 'integrations', label: 'Интеграции', group: 'top', ready: true },
   { id: 'news', label: 'Новости', group: 'top', ready: false },
-  { id: 'messages', label: 'Сообщения', group: 'top', ready: false },
+  { id: 'messages', label: 'Журнал инцидентов', group: 'top', ready: true },
   { id: 'help', label: 'Помощь', group: 'bottom', ready: false },
   { id: 'notifications', label: 'Центр уведомлений', group: 'bottom', ready: true },
   { id: 'user', label: 'Пользователь', group: 'bottom', ready: false },

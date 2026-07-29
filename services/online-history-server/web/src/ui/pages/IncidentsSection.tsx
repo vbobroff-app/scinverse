@@ -1,0 +1,231 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createOffsetFormatTs, formatTsUtc } from '@scinverse/notification-center';
+import { OhsApi } from '../../core/api';
+import type { IncidentDto } from '../../core/types';
+import { useOhsStore } from '../context';
+import { useBehavior } from '../hooks/useObservable';
+import styles from './IncidentsSection.module.css';
+
+type StatusFilter = '' | 'active' | 'recovering' | 'resolved';
+type TypeFilter = '' | 'break' | 'crash';
+
+/**
+ * Журнал инцидентов (phase 11.13d): список эпизодов из OHS `GET /api/incidents`.
+ * Не путать с доком NC (атомы notify) — здесь таблица `incident`.
+ */
+export function IncidentsSection() {
+  const store = useOhsStore();
+  const tz = useBehavior(store.displayTz$);
+  const formatTs = useMemo(
+    () => (tz.offsetMin === 0 ? formatTsUtc : createOffsetFormatTs(tz.offsetMin)),
+    [tz.offsetMin],
+  );
+
+  const [items, setItems] = useState<IncidentDto[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<StatusFilter>('');
+  const [type, setType] = useState<TypeFilter>('');
+  const [connectionId, setConnectionId] = useState('');
+  const [selected, setSelected] = useState<IncidentDto | null>(null);
+
+  const reload = useCallback(() => {
+    setError(null);
+    const conn = connectionId.trim() === '' ? undefined : Number(connectionId);
+    if (connectionId.trim() !== '' && !Number.isFinite(conn)) {
+      setError('connectionId — число');
+      setLoaded(true);
+      return () => undefined;
+    }
+
+    const sub = OhsApi.getIncidents({
+      module: 'connection',
+      status: status || undefined,
+      type: type || undefined,
+      connectionId: conn,
+      limit: 200,
+    }).subscribe({
+      next: (list) => {
+        setItems(list);
+        setLoaded(true);
+        setSelected((cur) =>
+          cur && list.some((i) => i.corrUid === cur.corrUid)
+            ? (list.find((i) => i.corrUid === cur.corrUid) ?? null)
+            : null,
+        );
+      },
+      error: (err: unknown) => {
+        setLoaded(true);
+        setError(err instanceof Error ? err.message : 'Не удалось загрузить журнал');
+      },
+    });
+    return () => sub.unsubscribe();
+  }, [status, type, connectionId]);
+
+  useEffect(() => reload(), [reload]);
+
+  return (
+    <div className={styles.layout}>
+      <div className={styles.main}>
+        <header className={styles.header}>
+          <div>
+            <h1 className={styles.title}>Журнал инцидентов</h1>
+            <p className={styles.sub}>Эпизоды связи (break/crash) из OHS · не лента NC</p>
+          </div>
+          <button type="button" className={styles.refresh} onClick={() => reload()}>
+            Обновить
+          </button>
+        </header>
+
+        <div className={styles.filters}>
+          <label className={styles.filter}>
+            Статус
+            <select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
+              <option value="">Все</option>
+              <option value="active">active</option>
+              <option value="recovering">recovering</option>
+              <option value="resolved">resolved</option>
+            </select>
+          </label>
+          <label className={styles.filter}>
+            Тип
+            <select value={type} onChange={(e) => setType(e.target.value as TypeFilter)}>
+              <option value="">Все</option>
+              <option value="break">break</option>
+              <option value="crash">crash</option>
+            </select>
+          </label>
+          <label className={styles.filter}>
+            Connection
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="id"
+              value={connectionId}
+              onChange={(e) => setConnectionId(e.target.value)}
+            />
+          </label>
+        </div>
+
+        {error ? <div className={styles.error}>{error}</div> : null}
+
+        <div className={styles.tableWrap}>
+          {!loaded ? (
+            <div className={styles.empty}>Загрузка…</div>
+          ) : items.length === 0 ? (
+            <div className={styles.empty}>Нет инцидентов по фильтру</div>
+          ) : (
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Открыт</th>
+                  <th>Статус</th>
+                  <th>Тип</th>
+                  <th>Conn</th>
+                  <th>Заголовок</th>
+                  <th>Длит.</th>
+                  <th>Исход</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((row) => (
+                  <tr
+                    key={row.corrUid}
+                    className={selected?.corrUid === row.corrUid ? styles.rowActive : undefined}
+                    onClick={() => setSelected(row)}
+                  >
+                    <td className={styles.mono}>{formatTs(row.openedAt)}</td>
+                    <td>
+                      <span className={statusClass(row.status)}>{row.status}</span>
+                    </td>
+                    <td>{row.type}</td>
+                    <td>{row.connectionId ?? '—'}</td>
+                    <td className={styles.titleCell}>{row.title || row.subject}</td>
+                    <td className={styles.mono}>{formatDurationMs(row.durationMs)}</td>
+                    <td>{row.closeOutcome ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      <aside className={styles.detail}>
+        {selected ? (
+          <IncidentDetail incident={selected} formatTs={formatTs} />
+        ) : (
+          <div className={styles.detailEmpty}>Выбери строку — детали corr / owner / escalate</div>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+function IncidentDetail({
+  incident,
+  formatTs,
+}: {
+  incident: IncidentDto;
+  formatTs: (iso: string) => string;
+}) {
+  return (
+    <div className={styles.detailBody}>
+      <h2 className={styles.detailTitle}>{incident.title || incident.type}</h2>
+      <dl className={styles.dl}>
+        <dt>corr</dt>
+        <dd className={styles.mono}>{incident.corrUid}</dd>
+        <dt>subject</dt>
+        <dd className={styles.mono}>{incident.subject}</dd>
+        <dt>module / type</dt>
+        <dd>
+          {incident.module} · {incident.type}
+          {incident.subtype ? ` · ${incident.subtype}` : ''}
+        </dd>
+        <dt>status</dt>
+        <dd>
+          <span className={statusClass(incident.status)}>{incident.status}</span>
+          {incident.closeOutcome ? ` → ${incident.closeOutcome}` : ''}
+        </dd>
+        <dt>severity</dt>
+        <dd>{incident.severity}</dd>
+        <dt>owner</dt>
+        <dd>{incident.owner ?? '—'}</dd>
+        <dt>opened</dt>
+        <dd className={styles.mono}>{formatTs(incident.openedAt)}</dd>
+        <dt>escalated</dt>
+        <dd className={styles.mono}>
+          {incident.escalatedAt ? formatTs(incident.escalatedAt) : '—'}
+        </dd>
+        <dt>closed</dt>
+        <dd className={styles.mono}>
+          {incident.closedAt ? formatTs(incident.closedAt) : '—'}
+        </dd>
+        <dt>duration</dt>
+        <dd className={styles.mono}>{formatDurationMs(incident.durationMs)}</dd>
+        <dt>connection / source</dt>
+        <dd>
+          {incident.connectionId ?? '—'} / {incident.sourceId ?? '—'}
+        </dd>
+      </dl>
+    </div>
+  );
+}
+
+function statusClass(status: string): string {
+  if (status === 'active') return styles.badgeActive;
+  if (status === 'recovering') return styles.badgeRecovering;
+  if (status === 'resolved') return styles.badgeResolved;
+  return styles.badge;
+}
+
+/** Чистая функция для тестов: HH:MM:SS или Nd HH:MM:SS. */
+export function formatDurationMs(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const hms = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return days > 0 ? `${days}d ${hms}` : hms;
+}

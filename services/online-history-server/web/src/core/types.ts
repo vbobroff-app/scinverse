@@ -353,6 +353,39 @@ export interface NotificationDto {
   actorLabel?: string | null;
 }
 
+/** Строка журнала инцидентов (GET /api/incidents, phase 11.13). */
+export interface IncidentDto {
+  corrUid: string;
+  module: string;
+  type: string;
+  status: string;
+  closeOutcome?: string | null;
+  openedAt: string;
+  closedAt?: string | null;
+  subject: string;
+  severity: string;
+  title: string;
+  lastActivityAt: string;
+  connectionId?: number | null;
+  sourceId?: number | null;
+  escalatedAt?: string | null;
+  subtype?: string | null;
+  owner?: string | null;
+  payload?: string | null;
+  /** (closedAt ?? now) − openedAt, мс. */
+  durationMs: number;
+}
+
+export interface IncidentQueryParams {
+  module?: string;
+  status?: string;
+  type?: string;
+  connectionId?: number;
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
 export interface ConnectionDto {
   connectionId: number;
   sourceId: number;

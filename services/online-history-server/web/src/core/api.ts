@@ -25,6 +25,8 @@ import type {
   ExternalScheduleDto,
   ExternalServiceDto,
   FuturesAssetClassDto,
+  IncidentDto,
+  IncidentQueryParams,
   IntegrationProbeResultDto,
   InstrumentGroupDto,
   InstrumentPage,
@@ -150,6 +152,36 @@ export const OhsApi = {
     getJSON<ConnectionScheduleRuleDto[]>(`/connections/${connectionId}/schedule/history`),
 
   getNotifications: (limit = 100) => getJSON<NotificationDto[]>(`/notifications?limit=${limit}`),
+
+  getIncidents: (params: IncidentQueryParams = {}) => {
+    const search = new URLSearchParams();
+    if (params.module) search.set('module', params.module);
+    if (params.status) search.set('status', params.status);
+    if (params.type) search.set('type', params.type);
+    if (params.connectionId != null) search.set('connectionId', String(params.connectionId));
+    if (params.from) search.set('from', params.from);
+    if (params.to) search.set('to', params.to);
+    search.set('limit', String(params.limit ?? 100));
+    const q = search.toString();
+    return getJSON<IncidentDto[]>(`/incidents${q ? `?${q}` : ''}`);
+  },
+
+  getIncident: (corrUid: string) =>
+    getJSON<IncidentDto>(`/incidents/${encodeURIComponent(corrUid)}`),
+
+  getConnectionIncidents: (
+    connectionId: number,
+    params: { from?: string; to?: string; limit?: number } = {},
+  ) => {
+    const search = new URLSearchParams();
+    if (params.from) search.set('from', params.from);
+    if (params.to) search.set('to', params.to);
+    if (params.limit != null) search.set('limit', String(params.limit));
+    const q = search.toString();
+    return getJSON<IncidentDto[]>(
+      `/connections/${connectionId}/incidents${q ? `?${q}` : ''}`,
+    );
+  },
 
   // Mock-POST внешнего NC (7j.20): публикуем уже сформированное уведомление (возможно с backdated ts).
   postNotification: (dto: NotificationDto) => post<void>('/notifications', dto),

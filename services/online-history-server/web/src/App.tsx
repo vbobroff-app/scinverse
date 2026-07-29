@@ -6,6 +6,7 @@ import { NotificationCenterHost } from './ui/components/NotificationCenterHost';
 import { ProvidersSection } from './ui/pages/ProvidersSection';
 import { ExchangesSection } from './ui/pages/ExchangesSection';
 import { IntegrationsSection } from './ui/pages/IntegrationsSection';
+import { IncidentsSection } from './ui/pages/IncidentsSection';
 import { PlaceholderSection } from './ui/pages/PlaceholderSection';
 import { NAV_ICONS } from './ui/navigation';
 import { navSection, type NavSectionId } from './core/navigation';
@@ -14,7 +15,6 @@ import styles from './App.module.css';
 /** Заглушки-заделы: краткое описание будущих разделов (реальный контент появится в своих фазах). */
 const PLACEHOLDER_TEXT: Partial<Record<NavSectionId, string>> = {
   news: 'Лента новостей и торговых событий с бирж (MOEX ISS). Phase 7c.',
-  messages: 'Внутренние сообщения и системные уведомления сервиса. Phase 11.',
   help: 'Справка по админке: горячие клавиши, документация, статус сервисов.',
   user: 'Профиль, роли и настройки пользователя. Phase 10 (auth).',
 };
@@ -55,6 +55,9 @@ function SectionContent({ section }: { section: NavSectionId }) {
   }
   if (section === 'integrations') {
     return <IntegrationsSection />;
+  }
+  if (section === 'messages') {
+    return <IncidentsSection />;
   }
   const meta = navSection(section);
   return (
