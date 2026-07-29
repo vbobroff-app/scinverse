@@ -72,6 +72,9 @@ OHS ─ IncidentStep ─┤
 Частичные паллиативы уже в коде (последовательный mock-POST, retry resolve) — недостаточны без
 единого fan-out.
 
+**Прогресс:** step1 — `IncidentStep` + `IIncidentFanOut` / `IncidentFanOut` (+ DI, unit). Callers
+ещё на раздельных путях (step2 break, step3 crash/manual).
+
 ### Критерий приёмки I2
 
 - Один и тот же эпизод: `incident.(status, close_outcome, opened_at, closed_at)` согласован с

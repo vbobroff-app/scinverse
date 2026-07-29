@@ -61,6 +61,7 @@ journal↔NC). [issue.md](issue.md) I2 · [incident-journal.md](incident-journal
 | 2026-07-29 | **11.13e:** Connection←`incident` + Recording binary merge; legacy gaps fallback | web + vitest |
 | 2026-07-29 | **11.13f:** POST resolve/backfill-open; UI «Закрыть»; J8 crash ingest; resolvedBy | код + ApiTest |
 | 2026-07-29 | **I2 OPEN:** рассинхрон NC Thread ≠ `incident`; канон fan-out OHS→journal+NC (§7 journal) | [issue.md](issue.md) I2 |
+| 2026-07-29 | **I2 step1:** `IncidentStep` + `IncidentFanOut` (+ DI, unit open→resolve/crash) | код; callers → step2 |
 
 ## Итог
 
