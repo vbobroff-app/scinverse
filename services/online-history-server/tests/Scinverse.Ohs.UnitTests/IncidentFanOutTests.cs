@@ -133,6 +133,83 @@ public sealed class IncidentFanOutTests
     }
 
     [Fact]
+    public async Task Crash_open_after_ingest_is_journal_only_when_no_nc_code()
+    {
+        var hub = new NotificationHub(new WebSocketBroadcaster());
+        var store = new MemIncidentStore();
+        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
+        const string subject = "ohs.backend.outage";
+        const string corr = "ohs.backend.outage:deadbeef";
+        var t0 = DateTimeOffset.Parse("2026-07-29T14:00:00Z");
+
+        // Как POST /notifications: NC уже Ingest'нут клиентом; fan-out только journal.
+        hub.Ingest(
+            Guid.NewGuid().ToString("N"),
+            t0,
+            "backend.unavailable",
+            "Система недоступна",
+            severity: "critical",
+            status: "active",
+            correlationId: corr);
+
+        await fanOut.ApplyAsync(
+            new IncidentStep(
+                IncidentStepKind.CrashOpen,
+                subject,
+                t0,
+                CorrUid: corr,
+                ConnectionId: 1,
+                Title: "Система недоступна"),
+            CancellationToken.None);
+
+        store.ByCorr[corr].Type.Should().Be("crash");
+        store.ByCorr[corr].Status.Should().Be("active");
+        // Ingest не сеет Hub open-map; без NcCode fan-out не зовёт Open — один атом в ring.
+        hub.List(10).Should().ContainSingle(e => e.CorrelationId == corr && e.Code == "backend.unavailable");
+        hub.TryGetOpenCorrelationId(subject, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Resolve_skip_journal_emits_nc_only()
+    {
+        var hub = new NotificationHub(new WebSocketBroadcaster());
+        var store = new MemIncidentStore();
+        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
+        const string subject = "connection:1:link";
+        var t0 = DateTimeOffset.Parse("2026-07-29T15:00:00Z");
+
+        var corr = await fanOut.ApplyAsync(
+            new IncidentStep(
+                IncidentStepKind.Open,
+                subject,
+                t0,
+                ConnectionId: 1,
+                Owner: "supervisor",
+                Subtype: "down",
+                NcCode: "connection.lost",
+                NcMessage: "lost"),
+            CancellationToken.None);
+
+        await fanOut.ApplyAsync(
+            new IncidentStep(
+                IncidentStepKind.Resolve,
+                subject,
+                t0.AddMinutes(1),
+                CorrUid: corr,
+                CloseOutcome: NotificationThreadData.OutcomeAbandonedManual,
+                NcCode: "connection.incident_closed",
+                NcMessage: "closed",
+                NcSeverity: "warning",
+                SkipJournal: true),
+            CancellationToken.None);
+
+        store.ByCorr[corr!].Status.Should().Be("active", "SkipJournal не трогает incident");
+        hub.TryGetOpenCorrelationId(subject, out _).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Journal_only_handover_skips_nc_when_no_code()
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());

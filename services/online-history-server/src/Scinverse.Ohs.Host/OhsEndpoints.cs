@@ -442,6 +442,7 @@ public static class OhsEndpoints
             IIncidentStore store,
             ConnectionManager manager,
             INotificationPublisher notifications,
+            IIncidentFanOut fanOut,
             TimeProvider time,
             CancellationToken ct) =>
         {
@@ -471,6 +472,7 @@ public static class OhsEndpoints
                     ConnectionManager.LinkIncidentSubject(connId), out var openCorr)
                 && string.Equals(openCorr, corr, StringComparison.Ordinal))
             {
+                // Manager → fan-out Resolve (journal+NC); затем annotate resolvedBy.
                 closedViaManager = await manager
                     .TryAbandonIncidentByManualAsync(connId, now, ct)
                     .ConfigureAwait(false);
@@ -482,7 +484,7 @@ public static class OhsEndpoints
 
             if (!closedViaManager)
             {
-                // Напрямую в store (не через JournalRegistrator.SafeAsync) — ошибка БД = 500, не silent no-op.
+                // Журнал напрямую (не SafeAsync) — ошибка БД = 500; NC — fan-out SkipJournal.
                 var ok = await store
                     .ResolveAsync(
                         corr,
@@ -500,23 +502,34 @@ public static class OhsEndpoints
 
                 if (!string.IsNullOrWhiteSpace(row.Subject))
                 {
-                    notifications.Resolve(
-                        row.Subject,
-                        "connection.incident_closed",
-                        string.IsNullOrWhiteSpace(row.Title)
-                            ? "Инцидент закрыт вручную (журнал)"
-                            : $"{row.Title}: закрыт вручную",
-                        severity: "warning",
-                        data: new
-                        {
-                            connectionId = row.ConnectionId,
-                            kind = row.Type,
-                            reason = "manual_journal",
-                            sender = "user",
-                            closeOutcome = NotificationThreadData.OutcomeAbandonedManual,
-                            resolvedBy,
-                        },
-                        actor: NotificationHub.Superuser);
+                    await fanOut
+                        .ApplyAsync(
+                            new IncidentStep(
+                                IncidentStepKind.Resolve,
+                                row.Subject!,
+                                now,
+                                CorrUid: corr,
+                                ConnectionId: row.ConnectionId,
+                                CloseOutcome: NotificationThreadData.OutcomeAbandonedManual,
+                                Severity: "warning",
+                                ResolvedBy: resolvedBy,
+                                NcCode: "connection.incident_closed",
+                                NcMessage: string.IsNullOrWhiteSpace(row.Title)
+                                    ? "Инцидент закрыт вручную (журнал)"
+                                    : $"{row.Title}: закрыт вручную",
+                                NcSeverity: "warning",
+                                NcData: new
+                                {
+                                    connectionId = row.ConnectionId,
+                                    kind = row.Type,
+                                    reason = "manual_journal",
+                                    sender = "user",
+                                    closeOutcome = NotificationThreadData.OutcomeAbandonedManual,
+                                    resolvedBy,
+                                },
+                                SkipJournal: true),
+                            ct)
+                        .ConfigureAwait(false);
                 }
             }
 
@@ -700,7 +713,7 @@ public static class OhsEndpoints
             NotificationHub hub,
             ClientRecoveryGate recoveryGate,
             ConnectionManager connections,
-            IJournalRegistrator journal,
+            IIncidentFanOut fanOut,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(req.Id)
@@ -717,6 +730,7 @@ public static class OhsEndpoints
                 return Results.BadRequest(new { error = "id должен быть Guid в формате N (32 hex без дефисов)" });
             }
 
+            // NC atom — Ingest (клиентский corr/ts). Journal — fan-out без NcCode (без второго Open).
             hub.Ingest(
                 req.Id,
                 req.Ts,
@@ -729,33 +743,40 @@ public static class OhsEndpoints
                 status: req.Status,
                 correlationId: req.CorrelationId);
 
-            // 11.13f / J8: client-led crash → строка журнала (type=crash).
+            // 11.13f / J8 / I2: client-led crash → journal type=crash (тот же corr).
             if (string.Equals(req.Code, "backend.unavailable", StringComparison.Ordinal)
                 && req.Status is "active" or null or ""
                 && !string.IsNullOrWhiteSpace(req.CorrelationId))
             {
-                await journal
-                    .RegisterCrashOpenAsync(
-                        req.CorrelationId!,
-                        req.Ts,
-                        TryGetDataConnectionId(req.Data),
-                        req.Message,
+                var crashCorr = req.CorrelationId!;
+                await fanOut
+                    .ApplyAsync(
+                        new IncidentStep(
+                            IncidentStepKind.CrashOpen,
+                            SubjectFromCorrelationId(crashCorr),
+                            req.Ts,
+                            CorrUid: crashCorr,
+                            ConnectionId: TryGetDataConnectionId(req.Data),
+                            Title: req.Message),
                         ct)
                     .ConfigureAwait(false);
 
                 // Гонка: recovered уже в хабе (parallel POST) — сразу закрыть журнал.
                 var recovered = hub.List(200).FirstOrDefault(e =>
-                    string.Equals(e.CorrelationId, req.CorrelationId, StringComparison.Ordinal)
+                    string.Equals(e.CorrelationId, crashCorr, StringComparison.Ordinal)
                     && string.Equals(e.Code, "backend.recovered", StringComparison.Ordinal));
                 if (recovered is not null)
                 {
-                    await journal
-                        .RegisterBreakResolvedAsync(
-                            req.CorrelationId!,
-                            recovered.Ts,
-                            NotificationThreadData.OutcomeRecovered,
-                            title: recovered.Message,
-                            severity: "ok",
+                    await fanOut
+                        .ApplyAsync(
+                            new IncidentStep(
+                                IncidentStepKind.Resolve,
+                                SubjectFromCorrelationId(crashCorr),
+                                recovered.Ts,
+                                CorrUid: crashCorr,
+                                CloseOutcome: NotificationThreadData.OutcomeRecovered,
+                                Title: recovered.Message,
+                                Severity: "ok"),
                             ct)
                         .ConfigureAwait(false);
                 }
@@ -771,13 +792,16 @@ public static class OhsEndpoints
                 recoveryGate.ClearActiveIncident();
                 if (!string.IsNullOrWhiteSpace(req.CorrelationId))
                 {
-                    await journal
-                        .RegisterBreakResolvedAsync(
-                            req.CorrelationId!,
-                            req.Ts,
-                            NotificationThreadData.OutcomeRecovered,
-                            title: null,
-                            severity: "ok",
+                    var crashCorr = req.CorrelationId!;
+                    await fanOut
+                        .ApplyAsync(
+                            new IncidentStep(
+                                IncidentStepKind.Resolve,
+                                SubjectFromCorrelationId(crashCorr),
+                                req.Ts,
+                                CorrUid: crashCorr,
+                                CloseOutcome: NotificationThreadData.OutcomeRecovered,
+                                Severity: "ok"),
                             ct)
                         .ConfigureAwait(false);
                 }
@@ -796,13 +820,16 @@ public static class OhsEndpoints
 
                 if (!string.IsNullOrWhiteSpace(req.CorrelationId))
                 {
-                    await journal
-                        .RegisterBreakResolvedAsync(
-                            req.CorrelationId!,
-                            req.Ts,
-                            NotificationThreadData.OutcomeAbandonedSchedule,
-                            title: null,
-                            severity: "warning",
+                    var crashCorr = req.CorrelationId!;
+                    await fanOut
+                        .ApplyAsync(
+                            new IncidentStep(
+                                IncidentStepKind.Resolve,
+                                SubjectFromCorrelationId(crashCorr),
+                                req.Ts,
+                                CorrUid: crashCorr,
+                                CloseOutcome: NotificationThreadData.OutcomeAbandonedSchedule,
+                                Severity: "warning"),
                             ct)
                         .ConfigureAwait(false);
                 }
@@ -900,7 +927,7 @@ public static class OhsEndpoints
             IConnectionStore store,
             ILinkLivenessStore linkLiveness,
             INotificationPublisher notifications,
-            IJournalRegistrator journal,
+            IIncidentFanOut fanOut,
             RecordingSupervisor recordingSupervisor,
             CancellationToken ct) =>
         {
@@ -924,19 +951,19 @@ public static class OhsEndpoints
                     severity: "info",
                     sourceType: "user",
                     data: new { connectionId = id, sender = "user" });
-                notifications.Progress(
-                    linkSubject,
-                    "connection.reconnecting",
-                    $"{label}: восстановление связи по команде оператора…",
-                    severity: "warning",
-                    data: new { connectionId = id, owner = "supervisor", sender = "user" });
-                if (notifications.TryGetOpenCorrelationId(linkSubject, out var reconnectCorr)
-                    && reconnectCorr is not null)
-                {
-                    await journal
-                        .RegisterBreakRecoveringAsync(reconnectCorr, DateTimeOffset.UtcNow, ct)
-                        .ConfigureAwait(false);
-                }
+                await fanOut
+                    .ApplyAsync(
+                        new IncidentStep(
+                            IncidentStepKind.Recovering,
+                            linkSubject,
+                            DateTimeOffset.UtcNow,
+                            ConnectionId: id,
+                            NcCode: "connection.reconnecting",
+                            NcMessage: $"{label}: восстановление связи по команде оператора…",
+                            NcSeverity: "warning",
+                            NcData: new { connectionId = id, owner = "supervisor", sender = "user" }),
+                        ct)
+                    .ConfigureAwait(false);
 
                 try
                 {
@@ -1699,6 +1726,13 @@ public static class OhsEndpoints
         LinkCloseReason.Degraded => "degraded",
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
+
+    /// <summary>corr = subject:uid → subject (для fan-out после client Ingest).</summary>
+    private static string SubjectFromCorrelationId(string correlationId)
+    {
+        var i = correlationId.LastIndexOf(':');
+        return i > 0 ? correlationId[..i] : correlationId;
+    }
 
     private static bool IsCrashScheduleEnd(JsonElement? data)
     {

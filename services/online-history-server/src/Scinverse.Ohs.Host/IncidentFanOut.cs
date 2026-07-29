@@ -43,7 +43,7 @@ public sealed class IncidentFanOut(
     {
         EmitNcOpen(step);
         var corr = ResolveCorr(step);
-        if (corr is null || step.ConnectionId is not { } connectionId)
+        if (step.SkipJournal || corr is null || step.ConnectionId is not { } connectionId)
         {
             return corr;
         }
@@ -66,9 +66,9 @@ public sealed class IncidentFanOut(
     {
         EmitNcOpen(step);
         var corr = ResolveCorr(step);
-        if (corr is null)
+        if (step.SkipJournal || corr is null)
         {
-            return null;
+            return corr;
         }
 
         await journal
@@ -86,9 +86,9 @@ public sealed class IncidentFanOut(
     {
         EmitNcProgress(step);
         var corr = ResolveCorr(step);
-        if (corr is null)
+        if (step.SkipJournal || corr is null)
         {
-            return null;
+            return corr;
         }
 
         await journal.RegisterBreakHandoverAsync(corr, step.At, cancellationToken).ConfigureAwait(false);
@@ -99,9 +99,9 @@ public sealed class IncidentFanOut(
     {
         EmitNcProgress(step);
         var corr = ResolveCorr(step);
-        if (corr is null)
+        if (step.SkipJournal || corr is null)
         {
-            return null;
+            return corr;
         }
 
         await journal.RegisterBreakRecoveringAsync(corr, step.At, cancellationToken).ConfigureAwait(false);
@@ -113,9 +113,9 @@ public sealed class IncidentFanOut(
         // Corr снимаем до Hub.Resolve — после terminal open в памяти хаба уже нет.
         var corr = ResolveCorr(step);
         EmitNcResolve(step);
-        if (corr is null)
+        if (step.SkipJournal || corr is null)
         {
-            return null;
+            return corr;
         }
 
         await journal
@@ -149,7 +149,7 @@ public sealed class IncidentFanOut(
             logger.LogWarning(ex, "IncidentFanOut Adopt NC failed for {CorrUid}", corr);
         }
 
-        if (step.ConnectionId is { } connectionId)
+        if (!step.SkipJournal && step.ConnectionId is { } connectionId)
         {
             await journal
                 .EnsureBreakAdoptedAsync(

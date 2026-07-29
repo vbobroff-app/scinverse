@@ -270,7 +270,7 @@ OHS ─ IncidentStep ─┤
 ### 7.1. JournalRegistrator / fan-out (**в OHS**) — as-is → to-be
 
 > As-is: `JournalRegistrator` (только `incident`). **I2:** `IncidentStep` + `IncidentFanOut` —
-> break open/recovering/handover/resolve/adopt через фасад (step1–2); crash/manual resolve → step3.  
+> break + crash ingest + manual resolve через фасад; crash NC остаётся `hub.Ingest` (клиентский corr).  
 > Не путать с **TradeWriter** / Recording-лентой.
 
 | Событие | Журнал OHS | NC (атомы) |
@@ -340,7 +340,7 @@ As-is: атомы → Hub/V025; to-be gate 11→12 — Publisher → серви�
 | J6 | `duration_ms` | **только API** |
 | J7 | `resolved_by` | **закрыт** → `payload.resolvedBy` на POST resolve |
 | J8 | Crash → JournalRegistrator | **закрыт** — ingest/recover/abandon; ribbon без double-paint; connectionId в data |
-| J9 | Fan-out journal↔NC (одна информация) | **OPEN → I2** — единый `IncidentStep` / фасад; см. [issue.md](issue.md) I2 |
+| J9 | Fan-out journal↔NC (одна информация) | **I2 step1–3** — фасад + break/crash/manual; приёмка/регрессия — OPEN |
 
 ---
 
@@ -368,6 +368,6 @@ As-is: атомы → Hub/V025; to-be gate 11→12 — Publisher → серви�
 
 **Вне scope 11.13:** вынос NC-сервиса / перенос V025 (gate 11→12), WebGL, Keycloak, 7j.15/16, I12.
 
-**Порядок:** a → b → c → (d ∥ e) → f. **I2:** docs ✓ → фасад ✓ → break ✓ → crash → тесты.
+**Порядок:** a → b → c → (d ∥ e) → f. **I2:** docs ✓ → фасад ✓ → break ✓ → crash ✓ → тесты.
 
 **Коммиты:** `feat(ohs-11): …` / `docs(11): …` — только по просьбе пользователя.

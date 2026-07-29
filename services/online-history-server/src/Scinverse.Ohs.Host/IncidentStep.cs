@@ -36,4 +36,9 @@ public sealed record IncidentStep(
     string? NcCode = null,
     string? NcMessage = null,
     string? NcSeverity = null,
-    object? NcData = null);
+    object? NcData = null,
+    /// <summary>
+    /// true — не писать journal (NC уже/отдельно; напр. manual resolve после жёсткого
+    /// <c>IIncidentStore.ResolveAsync</c>, когда SafeAsync недопустим).
+    /// </summary>
+    bool SkipJournal = false);

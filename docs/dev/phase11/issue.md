@@ -72,8 +72,8 @@ OHS ─ IncidentStep ─┤
 Частичные паллиативы уже в коде (последовательный mock-POST, retry resolve) — недостаточны без
 единого fan-out.
 
-**Прогресс:** step1 — фасад (+ DI, unit). step2 — break Manager/Supervisor через fan-out.
-step3 — crash ingest + manual resolve.
+**Прогресс:** step1–3 — фасад; break Manager/Supervisor; crash ingest + manual resolve (+ SkipJournal
+для жёсткого store.Resolve). Приёмка I2 / регрессия parallel crash — добить тестами.
 
 ### Критерий приёмки I2
 
