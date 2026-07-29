@@ -2,8 +2,8 @@
 
 Актуальный статус фазы 11. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
-**Текущий статус:** `IN PROGRESS` — Thread **DONE**; **11.13a–f DONE** (журнал OHS v1).
-Gate 11→12 / хвосты. [incident-journal.md](incident-journal.md) §12.
+**Текущий статус:** `IN PROGRESS` — Thread **DONE**; **11.13a–f DONE**; **I2 OPEN** (fan-out
+journal↔NC). [issue.md](issue.md) I2 · [incident-journal.md](incident-journal.md) §7.
 **Обновлено:** 2026-07-29.
 
 ## Статус задач
@@ -60,8 +60,9 @@ Gate 11→12 / хвосты. [incident-journal.md](incident-journal.md) §12.
 | 2026-07-29 | **11.13d:** Admin UI «Журнал инцидентов» (nav `messages`) + `OhsApi.getIncidents` | web + vitest |
 | 2026-07-29 | **11.13e:** Connection←`incident` + Recording binary merge; legacy gaps fallback | web + vitest |
 | 2026-07-29 | **11.13f:** POST resolve/backfill-open; UI «Закрыть»; J8 crash ingest; resolvedBy | код + ApiTest |
+| 2026-07-29 | **I2 OPEN:** рассинхрон NC Thread ≠ `incident`; канон fan-out OHS→journal+NC (§7 journal) | [issue.md](issue.md) I2 |
 
 ## Итог
 
-Лента NC v1 — **готова**. Журнал OHS **11.13a–f DONE**.
+Лента NC v1 — **готова**. Журнал OHS **11.13a–f DONE**. **I2** — единый fan-out (OPEN).
 Вынос atoms/пакета в NC — **gate 11→12**.

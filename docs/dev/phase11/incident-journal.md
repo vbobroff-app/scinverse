@@ -1,9 +1,9 @@
 # Phase 11 — Журнал инцидентов (11.13)
 
-**Статус:** `DESIGN AGREED` · **11.13a–f DONE** (2026-07-29) · **H1/J8 DONE**.  
-Журнал OHS v1 закрыт; дальше — gate 11→12 / хвосты (I12, full backfill, …).
+**Статус:** `DESIGN AGREED` · **11.13a–f DONE** · **H1/J8 DONE** · **I2 OPEN** (fan-out).  
+Журнал OHS v1 есть; гарантия «одна информация в journal и NC» — [issue.md](issue.md) **I2**.
 
-**Связано:** [plan.md](plan.md) §11.13 · [to-threads.md](to-threads.md) ·
+**Связано:** [plan.md](plan.md) §11.13 · [issue.md](issue.md) I2 · [to-threads.md](to-threads.md) ·
 [persistence.md](persistence.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
 продюсер [../phase7j/incident.md](../phase7j/incident.md) · handoff [`promt.md`](../../promt.md) §8.
 
@@ -247,27 +247,45 @@ CREATE INDEX ix_incident_open
 
 ---
 
-## 7. JournalRegistrator (**в OHS**)
+## 7. Запись эпизода: OHS → journal + NC (fan-out)
 
-> **Имя:** `JournalRegistrator` — регистрация строк журнала инцидентов.  
-> Не путать с **TradeWriter** / writer сделок и с Recording-лентой.
+### 7.0. Инвариант (I2)
 
-`ConnectionManager` / Supervisor / CloseBreak / Adopt / crash-path → **JournalRegistrator**
-пишет **локально** в `incident` (те же точки, что Open/Progress/Resolve в Hub):
+**Источник факта — домен OHS** (обрыв, crash, abandon, recover, ручной resolve).  
+NC только уведомляет; журнал — компактные границы эпизода для ганта. Оба получают **одну и ту же**
+информацию по эпизоду (`corr`, границы, исход), разными формами:
 
-| Событие | Журнал OHS |
-|---------|------------|
-| Open Incident | INSERT `status=active`, `opened_at`, type/module/… |
-| Handover (break) | UPDATE `escalated_at`, `owner=supervisor`, `subtype=down` |
-| Recovering | UPDATE `status=recovering` |
-| Recovered | UPDATE `resolved` + `close_outcome=recovered` + `closed_at` |
-| Abandon schedule/manual | UPDATE `resolved` + `abandoned_*` + `closed_at` |
-| Adopt после рестарта | строка есть → UPDATE, не новый INSERT |
+```text
+                ┌─► incident          границы (open / closed_at / close_outcome)
+OHS ─ IncidentStep ─┤
+                └─► notification+Hub  стек атомов → NC Thread (тот же corr / ts / outcome)
+```
+
+- Не строить `incident` SELECT’ом из `notification` (NC вторичен; без NC гант/журнал живы).
+- Не два независимых write-path (`Hub.*` и `JournalRegistrator` из разных мест) — **один фасад
+  fan-out** из одного DTO шага (`IncidentStep`).
+- Форма: журнал = начало/конец (+ исход); NC = полный стек Entry. **Результат по эпизоду единый.**
+- Дефект и приёмка — [issue.md](issue.md) **I2**.
+
+### 7.1. JournalRegistrator / fan-out (**в OHS**) — as-is → to-be
+
+> As-is имя: `JournalRegistrator` (только `incident`). To-be: тот же слой или наследник —
+> **fan-out** (journal + Hub) из одного `IncidentStep`.  
+> Не путать с **TradeWriter** / Recording-лентой.
+
+| Событие | Журнал OHS | NC (атомы) |
+|---------|------------|------------|
+| Open Incident | INSERT `active`, `opened_at`, type/… | `connection.lost` / `backend.unavailable` … |
+| Handover (break) | UPDATE `escalated_at`, owner/subtype | (маркер/данные в progress — по 7j) |
+| Recovering | UPDATE `recovering` | progress / recovering atom |
+| Recovered | UPDATE `resolved` + `recovered` + `closed_at` | `*.recovered` |
+| Abandon schedule/manual | UPDATE `abandoned_*` + `closed_at` | `incident_closed` / manual close |
+| Adopt после рестарта | строка есть → UPDATE | adopt / без нового corr |
 
 PK = `corr_uid` (идемпотентность). Group/Single → **не** в `incident`.
 
-Параллельно OHS **публикует** notify-атомы в NC (as-is: Hub + V025; to-be: NC Publisher →
-сервис NC). `corr_uid` связывает строку журнала OHS и нить в ленте NC.
+As-is: атомы → Hub/V025; to-be gate 11→12 — Publisher → сервис NC. Связь нити и строки —
+`corr_uid` = `correlationId`.
 
 ---
 
@@ -322,6 +340,7 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 | J6 | `duration_ms` | **только API** |
 | J7 | `resolved_by` | **закрыт** → `payload.resolvedBy` на POST resolve |
 | J8 | Crash → JournalRegistrator | **закрыт** — ingest/recover/abandon; ribbon без double-paint; connectionId в data |
+| J9 | Fan-out journal↔NC (одна информация) | **OPEN → I2** — единый `IncidentStep` / фасад; см. [issue.md](issue.md) I2 |
 
 ---
 
@@ -349,6 +368,7 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 
 **Вне scope 11.13:** вынос NC-сервиса / перенос V025 (gate 11→12), WebGL, Keycloak, 7j.15/16, I12.
 
-**Порядок:** a → b → c → (d ∥ e) → f.
+**Порядок:** a → b → c → (d ∥ e) → f. **Далее (I2 / J9):** docs → fan-out фасад → break → crash →
+тесты (см. issue I2).
 
 **Коммиты:** `feat(ohs-11): …` / `docs(11): …` — только по просьбе пользователя.

@@ -134,7 +134,8 @@ Thread 11.8–11.12 — **DONE**. Канон — [incident-journal.md](incident-
 
 **Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
 
-**11.13 журнал — DONE.** Далее по roadmap: gate 11→12 / 7j хвосты (не блокер журнала).
+**11.13 журнал — DONE.** **I2 OPEN** — единый fan-out OHS→`incident`+NC ([issue.md](issue.md) I2,
+[incident-journal.md](incident-journal.md) §7). Далее: gate 11→12 / 7j хвосты.
 
 **Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 код готов**
 ([../phase7j/issue.md](../phase7j/issue.md)); живая приёмка / хвосты 7j.15–16 — не блокер 11.13.
