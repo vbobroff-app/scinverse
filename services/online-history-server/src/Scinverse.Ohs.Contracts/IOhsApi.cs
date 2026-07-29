@@ -109,4 +109,19 @@ public interface IOhsApi
     /// <summary>GET /api/exchanges/{engine}/schedule?on= — действующее на дату расписание движка (market_schedule).</summary>
     Task<MarketScheduleDto?> GetMarketScheduleAsync(
         string engine, DateOnly? on = null, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/incidents?module=&amp;status=&amp;type=&amp;connectionId=&amp;from=&amp;to=&amp;limit=</summary>
+    Task<IReadOnlyList<IncidentDto>> GetIncidentsAsync(
+        IncidentQueryParams query, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/incidents/{corrUid}</summary>
+    Task<IncidentDto?> GetIncidentAsync(string corrUid, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/connections/{id}/incidents?from=&amp;to=&amp;limit= — окно для Connection-ribbon.</summary>
+    Task<IReadOnlyList<IncidentDto>> GetConnectionIncidentsAsync(
+        long connectionId,
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        int? limit = null,
+        CancellationToken cancellationToken = default);
 }

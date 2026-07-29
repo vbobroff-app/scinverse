@@ -394,6 +394,69 @@ public static class OhsEndpoints
         api.MapGet("/notifications", (NotificationHub hub, int? limit) =>
             hub.List(limit is > 0 and <= 500 ? limit : 100));
 
+        // Журнал инцидентов (phase 11.13c). Не NC-лента: строки таблицы incident в OHS.
+        api.MapGet("/incidents", async (
+            string? module,
+            string? status,
+            string? type,
+            long? connectionId,
+            DateTimeOffset? from,
+            DateTimeOffset? to,
+            int? limit,
+            IIncidentStore store,
+            TimeProvider time,
+            CancellationToken ct) =>
+        {
+            var rows = await store.QueryAsync(
+                new IncidentQuery
+                {
+                    Module = module,
+                    Status = status,
+                    Type = type,
+                    ConnectionId = connectionId,
+                    From = from,
+                    To = to,
+                    Limit = limit ?? 100,
+                },
+                ct).ConfigureAwait(false);
+            var now = time.GetUtcNow();
+            return rows.Select(i => ToIncidentDto(i, now)).ToList();
+        });
+
+        api.MapGet("/incidents/{corrUid}", async (
+            string corrUid,
+            IIncidentStore store,
+            TimeProvider time,
+            CancellationToken ct) =>
+        {
+            var row = await store.GetAsync(Uri.UnescapeDataString(corrUid), ct).ConfigureAwait(false);
+            return row is null
+                ? Results.NotFound()
+                : Results.Ok(ToIncidentDto(row, time.GetUtcNow()));
+        });
+
+        api.MapGet("/connections/{id:long}/incidents", async (
+            long id,
+            DateTimeOffset? from,
+            DateTimeOffset? to,
+            int? limit,
+            IIncidentStore store,
+            TimeProvider time,
+            CancellationToken ct) =>
+        {
+            var rows = await store.QueryAsync(
+                new IncidentQuery
+                {
+                    ConnectionId = id,
+                    From = from,
+                    To = to,
+                    Limit = limit ?? 500,
+                },
+                ct).ConfigureAwait(false);
+            var now = time.GetUtcNow();
+            return rows.Select(i => ToIncidentDto(i, now)).ToList();
+        });
+
         // Heads-up барьеру старта супервизора (7j.20): клиент на реконнекте WS сообщает «у меня открыт
         // инцидент простоя — держи Auto, пока не пришлю backend.recovered» + corr этого инцидента (§9.2),
         // чтобы `ohs.unhandled` во время recovery штамповался в ту же нить. Ничего не персистит.
@@ -1281,6 +1344,32 @@ public static class OhsEndpoints
     private static ConnectionDto ToDto(ConnectorConnection connection, string status) => new(
         connection.ConnectionId, connection.SourceId, connection.Name, connection.Kind, connection.Settings,
         connection.Enabled, status);
+
+    /// <summary>DTO журнала: <c>durationMs = (closedAt ?? now) − openedAt</c>.</summary>
+    public static IncidentDto ToIncidentDto(Incident incident, DateTimeOffset nowUtc)
+    {
+        var end = incident.ClosedAt ?? nowUtc;
+        var durationMs = Math.Max(0, (long)(end - incident.OpenedAt).TotalMilliseconds);
+        return new IncidentDto(
+            incident.CorrUid,
+            incident.Module,
+            incident.Type,
+            incident.Status,
+            incident.CloseOutcome,
+            incident.OpenedAt,
+            incident.ClosedAt,
+            incident.Subject,
+            incident.Severity,
+            incident.Title,
+            incident.LastActivityAt,
+            incident.ConnectionId,
+            incident.SourceId,
+            incident.EscalatedAt,
+            incident.Subtype,
+            incident.Owner,
+            incident.Payload,
+            durationMs);
+    }
 
     private static ExternalServiceDto ToDto(ExternalService service) => new(
         service.ServiceId, service.Name, service.Adapter, service.Transport,

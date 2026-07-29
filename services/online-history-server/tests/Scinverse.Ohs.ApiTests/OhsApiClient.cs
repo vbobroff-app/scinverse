@@ -193,6 +193,88 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
             $"/api/exchanges/{Uri.EscapeDataString(engine)}/schedule{query}", Json, cancellationToken);
     }
 
+    public Task<IReadOnlyList<IncidentDto>> GetIncidentsAsync(
+        IncidentQueryParams query, CancellationToken cancellationToken = default) =>
+        GetListAsync<IncidentDto>("/api/incidents" + BuildIncidentsQuery(query), cancellationToken);
+
+    public async Task<IncidentDto?> GetIncidentAsync(
+        string corrUid, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.GetAsync(
+            $"/api/incidents/{Uri.EscapeDataString(corrUid)}", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return await ReadAsync<IncidentDto>(response, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<IncidentDto>> GetConnectionIncidentsAsync(
+        long connectionId,
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        int? limit = null,
+        CancellationToken cancellationToken = default)
+    {
+        var parts = new List<string>();
+        if (from is { } f)
+        {
+            parts.Add($"from={Encode(f)}");
+        }
+
+        if (to is { } t)
+        {
+            parts.Add($"to={Encode(t)}");
+        }
+
+        if (limit is { } lim)
+        {
+            parts.Add($"limit={lim}");
+        }
+
+        var q = parts.Count > 0 ? "?" + string.Join('&', parts) : string.Empty;
+        return GetListAsync<IncidentDto>($"/api/connections/{connectionId}/incidents{q}", cancellationToken);
+    }
+
+    private static string BuildIncidentsQuery(IncidentQueryParams query)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(query.Module))
+        {
+            parts.Add($"module={Uri.EscapeDataString(query.Module)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Status))
+        {
+            parts.Add($"status={Uri.EscapeDataString(query.Status)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Type))
+        {
+            parts.Add($"type={Uri.EscapeDataString(query.Type)}");
+        }
+
+        if (query.ConnectionId is { } connectionId)
+        {
+            parts.Add($"connectionId={connectionId}");
+        }
+
+        if (query.From is { } from)
+        {
+            parts.Add($"from={Encode(from)}");
+        }
+
+        if (query.To is { } to)
+        {
+            parts.Add($"to={Encode(to)}");
+        }
+
+        parts.Add($"limit={query.Limit}");
+        return parts.Count > 0 ? "?" + string.Join('&', parts) : string.Empty;
+    }
+
     private async Task<IReadOnlyList<T>> GetListAsync<T>(string uri, CancellationToken cancellationToken)
     {
         var result = await http.GetFromJsonAsync<List<T>>(uri, Json, cancellationToken);

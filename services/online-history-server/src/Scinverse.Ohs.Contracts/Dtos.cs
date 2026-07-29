@@ -435,3 +435,39 @@ public sealed record MarketScheduleExceptionDto(
     string? Source,
     bool Resolved,
     string? Note);
+
+/// <summary>
+/// Строка журнала инцидентов (phase 11.13c). <see cref="DurationMs"/> — только API:
+/// <c>(closedAt ?? now) − openedAt</c>.
+/// </summary>
+public sealed record IncidentDto(
+    string CorrUid,
+    string Module,
+    string Type,
+    string Status,
+    string? CloseOutcome,
+    DateTimeOffset OpenedAt,
+    DateTimeOffset? ClosedAt,
+    string Subject,
+    string Severity,
+    string Title,
+    DateTimeOffset LastActivityAt,
+    long? ConnectionId,
+    short? SourceId,
+    DateTimeOffset? EscalatedAt,
+    string? Subtype,
+    string? Owner,
+    string? Payload,
+    long DurationMs);
+
+/// <summary>Query-параметры <c>GET /api/incidents</c>.</summary>
+public sealed class IncidentQueryParams
+{
+    public string? Module { get; init; }
+    public string? Status { get; init; }
+    public string? Type { get; init; }
+    public long? ConnectionId { get; init; }
+    public DateTimeOffset? From { get; init; }
+    public DateTimeOffset? To { get; init; }
+    public int Limit { get; init; } = 100;
+}

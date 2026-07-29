@@ -4,7 +4,9 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using Scinverse.Ohs.Contracts;
+using Scinverse.Ohs.Domain;
 
 namespace Scinverse.Ohs.ApiTests;
 
@@ -280,6 +282,81 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         notes.Should().NotContain(
             n => n.Code == "connection.recovered" && n.CorrelationId == closed.CorrelationId,
             "не должны успеть закрыть тот же corr как recovered");
+    }
+
+    [Fact]
+    public async Task Incidents_api_lists_filters_and_returns_detail_with_duration()
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IIncidentStore>();
+        var t0 = new DateTimeOffset(2026, 7, 29, 8, 0, 0, TimeSpan.Zero);
+        var t1 = t0.AddMinutes(5);
+        const string corrA = "connection:41:link:api11c01";
+        const string corrB = "connection:42:link:api11c02";
+
+        await store.OpenAsync(
+            new Incident
+            {
+                CorrUid = corrA,
+                Module = "connection",
+                Type = "break",
+                Status = "active",
+                OpenedAt = t0,
+                Subject = "connection:41:link",
+                Severity = "error",
+                Title = "a",
+                LastActivityAt = t0,
+                ConnectionId = 41,
+                SourceId = 1,
+                Subtype = "down",
+                Owner = "supervisor",
+            },
+            CancellationToken.None);
+        await store.OpenAsync(
+            new Incident
+            {
+                CorrUid = corrB,
+                Module = "connection",
+                Type = "break",
+                Status = "active",
+                OpenedAt = t0.AddHours(1),
+                Subject = "connection:42:link",
+                Severity = "error",
+                Title = "b",
+                LastActivityAt = t0.AddHours(1),
+                ConnectionId = 42,
+                SourceId = 1,
+                Subtype = "degraded",
+                Owner = "transaq",
+            },
+            CancellationToken.None);
+        await store.ResolveAsync(
+            corrA, t1, "recovered", title: null, severity: "ok", CancellationToken.None);
+
+        var api = CreateApi();
+        var all = await api.GetIncidentsAsync(new IncidentQueryParams { Module = "connection", Limit = 50 });
+        all.Should().Contain(i => i.CorrUid == corrA);
+        all.Should().Contain(i => i.CorrUid == corrB);
+
+        var filtered = await api.GetIncidentsAsync(new IncidentQueryParams
+        {
+            ConnectionId = 41,
+            Status = "resolved",
+        });
+        filtered.Should().ContainSingle(i => i.CorrUid == corrA);
+        filtered[0].CloseOutcome.Should().Be("recovered");
+        filtered[0].DurationMs.Should().Be((long)TimeSpan.FromMinutes(5).TotalMilliseconds);
+
+        var detail = await api.GetIncidentAsync(corrA);
+        detail.Should().NotBeNull();
+        detail!.Status.Should().Be("resolved");
+        detail.DurationMs.Should().Be(filtered[0].DurationMs);
+
+        var window = await api.GetConnectionIncidentsAsync(
+            41, from: t0.AddMinutes(-1), to: t1.AddMinutes(1));
+        window.Should().ContainSingle(i => i.CorrUid == corrA);
+
+        (await api.GetIncidentAsync("connection:0:link:missing")).Should().BeNull();
     }
 
     private static async Task<IReadOnlyList<NotificationRow>> GetNotificationsAsync(HttpClient http)
