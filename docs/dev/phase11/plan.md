@@ -63,9 +63,10 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
   `<NotificationDock />` и публикует свои `user`-события через шину; чёткий publisher-API и хелперы
   (`notify.info/warn/error/critical`). Персистенция состояния панели (открыта/высота/фильтры) —
   локально, при наличии phase 10 — в `user_settings`.
-- **11.7 Тесты.** Ядро: publish/stream, буфер/лимит, дедуп, маппинг WS→событие (vitest). UI: рендер
-  ленты, фильтрация по уровню/типу, tail/пауза, бейдж непрочитанных. Backend: ring-buffer +
-  `GET /api/notifications` (фильтры), `ILogger`-sink → notification.
+- **11.7 Тесты.** Ядро: publish/stream, буфер/лимит, дедуп, hydrate DTO→шина (vitest). UI: рендер
+  ленты, фильтрация, tail/пауза, бейдж. Backend: Hub + ring/`GET /api/notifications` (limit),
+  CloseBreak abandon/recovered, Adopt/Forget. Фильтры severity/sourceType — на клиенте (не на GET).
+  `ILogger`-sink → notification — вместе с фичей (пока out of scope).
 - **11.8 Объектная модель Thread (контракт TS).** Типы `NotificationItem = Single | Thread`,
   `Entry`, специализации `Incident` / `Group`; поля `threadKind`, `threadStatus`, `closeOutcome`;
   инварианты T1/T2. Спека — [to-threads.md](to-threads.md); мотивация — [issue.md](issue.md).
@@ -120,7 +121,7 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 
 ## Порядок
 
-**База (DONE / PARTIAL):** 11.1 → 11.3 → 11.4 → 11.5 → 11.2 → 11.6 → 11.7 (partial) + persistence V025.
+**База (DONE):** 11.1 → 11.3 → 11.4 → 11.5 → 11.2 → 11.6 → 11.7 + persistence V025.
 
 **Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
 

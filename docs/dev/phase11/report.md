@@ -2,9 +2,9 @@
 
 Актуальный статус фазы 11. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
-**Текущий статус:** `IN PROGRESS` (база 11.1–11.6 DONE; **Thread 11.8–11.12 DONE**;
-док Settings + ★/⊘ — DONE).
-**Обновлено:** 2026-07-28. Handoff нового чата — [`docs/promt.md`](../../promt.md) §8.
+**Текущий статус:** `IN PROGRESS` (база 11.1–11.7 DONE; **Thread 11.8–11.12 DONE**;
+док Settings + ★/⊘ — DONE). Остаток фазы: MFE-задел / `ILogger`-sink по мере нужды.
+**Обновлено:** 2026-07-29. Handoff нового чата — [`docs/promt.md`](../../promt.md) §8.
 
 ## Статус задач
 
@@ -17,7 +17,7 @@
 | 11.4 | UI: нижний док `NotificationDock` (tail, раскрытие, resize) | DONE | виртуализация — follow-up |
 | 11.5 | Фильтры (уровень/тип/модуль/поиск) + бейдж непрочитанных | DONE | в доке пакета |
 | 11.6 | Встраивание в OHS web + персистенция состояния | DONE | док + колокольчик; WS `notification`→шина; бэклог `GET /api/notifications` на старте; демо-seed только в dev |
-| 11.7 | Тесты | PARTIAL | vitest пакета + OHS web + backend unit; ApiTests connect/drop; Thread — 11.12 |
+| 11.7 | Тесты | DONE | пакет (bus/Thread/filters/marks/tail); web hydrate; Hub+CloseBreak/Adopt unit; ApiTests connect/drop/abandoned_manual; GET — `limit` (фильтры на клиенте); `ILogger`-sink — с фичей |
 | 11.8 | Объектная модель Thread (TS): Single / Entry / Thread / Incident / Group | DONE | `types.ts` + guards / `readThreadKindHint` |
 | 11.9 | Проекция `events → items` в шине + тесты | DONE | `projectThreads` + `items$` / `events$` |
 | 11.10 | UI NC: контейнеры, expand Thread, фильтры статуса нити + Выбор | DONE | `ThreadBlock`, `filterItems`; ★/⊘ per-Entry + [nc-marks.md](nc-marks.md) |
@@ -50,10 +50,11 @@
 | 2026-07-18 | Разделение «команда/исполнение» в connect: ведущее `connection.connect` (info, **user**) «по команде оператора» + исполнение системой `connection.connecting`(warning/underway)→`connection.connected`(ok/resolved)/`connection.connect_failed`(error), все **system**; коды успеха/ошибки согласованы с авто-путём `ConnectionSupervisor`; ApiTest обновлён | unit 115 + ApiTests 3 зелёные; live: 4-строчный цикл user→system→system→user подтверждён |
 | 2026-07-27 | Thread upgrade 11.8–11.12: типы Single/Entry/Thread; проекция `items$`; UI контейнеры + фильтры threadStatus/Выбор; hints в `data` jsonb (без миграций); регрессия break/crash + hydrate | NC vitest + web vitest + Host unit — зелёные |
 | 2026-07-28 | Dock Settings: `collapsePhaseTicks` / `groupIntoThreads` ([dock-settings.md](dock-settings.md)); маркеры ★/⊘ на каждом Entry, header any/all bulk; фильтр «Выбор» асимметричный (★ include / ⊘ exclude, spam wins); tip Отметить/Снять, В спам/Показывать; ⊘ красный | [nc-marks.md](nc-marks.md); NC vitest — зелёные |
+| 2026-07-29 | 11.7: CloseBreak abandon schedule/manual + Adopt/Forget protocol (unit); ApiTest disconnect-while-down → `abandoned_manual`; dock tail/pause; чеклист 11.7 приведён к факту (без серверных GET-фильтров / без тестов несуществующего ILogger-sink) | unit + ApiTests + NC vitest |
 
 ## Итог
 
 Thread v1 (проекция над плоским V025): лента контейнеров Single|Thread, Incident vs Group по
 `data.threadKindHint` / горизонту, closeOutcome на close. First-class `notification_thread` — только
-когда понадобится серверный журнал (§6.5 to-threads). Остаток фазы 11: довести 11.7 / MFE-задел по
-мере необходимости; gate 11→12 — отдельно.
+когда понадобится серверный журнал (§6.5 to-threads). Остаток фазы 11: MFE-задел / `ILogger`-sink
+по мере необходимости; gate 11→12 — отдельно.

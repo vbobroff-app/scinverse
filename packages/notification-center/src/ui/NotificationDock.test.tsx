@@ -38,6 +38,17 @@ describe('NotificationDock', () => {
     });
   });
 
+  it('scroll away pauses live-tail; Следить resumes', () => {
+    const bus = createNotificationBus();
+    render(<NotificationDock bus={bus} defaultExpanded />);
+    const list = screen.getByLabelText('Лента уведомлений');
+    Object.defineProperty(list, 'scrollTop', { configurable: true, writable: true, value: 20 });
+    fireEvent.scroll(list);
+    expect(screen.getByRole('button', { name: 'Следить' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Следить' }));
+    expect(screen.queryByRole('button', { name: 'Следить' })).toBeNull();
+  });
+
   it('controlled filters: изменение зовёт onFiltersChange', () => {
     const bus = createNotificationBus();
     const seen: unknown[] = [];

@@ -697,7 +697,12 @@ export function NotificationDock({
               groupIntoThreads={settings.groupIntoThreads}
             />
           )}
-          <div className={styles.list} ref={listRef} onScroll={onListScroll}>
+          <div
+            className={styles.list}
+            ref={listRef}
+            onScroll={onListScroll}
+            aria-label="Лента уведомлений"
+          >
             {visible.length === 0 ? (
               <div className={styles.empty}>Нет уведомлений</div>
             ) : (

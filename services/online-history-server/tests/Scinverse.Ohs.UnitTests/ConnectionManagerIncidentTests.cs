@@ -1,0 +1,218 @@
+using System.Text.Json;
+using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using Scinverse.Ohs.Connectors.Transaq;
+using Scinverse.Ohs.Domain;
+using Scinverse.Ohs.Host;
+
+namespace Scinverse.Ohs.UnitTests;
+
+/// <summary>
+/// Close-break / Adopt на публичном API <see cref="ConnectionManager"/> + реальный
+/// <see cref="NotificationHub"/> (I10/I11). Без reflection и без debug-эндпоинтов.
+/// </summary>
+public sealed class ConnectionManagerIncidentTests
+{
+    private const long ConnId = 7;
+
+    [Fact]
+    public void AdoptOpenIncident_and_ClearAdoptedIncident_toggle_memory()
+    {
+        var (manager, _, _) = CreateSut();
+        var since = DateTimeOffset.Parse("2026-07-28T10:00:00Z");
+
+        manager.AdoptOpenIncident(ConnId, since, owner: "supervisor").Should().BeTrue();
+        manager.GetIncidentSince(ConnId).Should().Be(since);
+        manager.AdoptOpenIncident(ConnId, since).Should().BeFalse("повторный Adopt — no-op");
+
+        manager.ClearAdoptedIncident(ConnId).Should().BeTrue();
+        manager.GetIncidentSince(ConnId).Should().BeNull();
+        manager.ClearAdoptedIncident(ConnId).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task EnsureBreak_then_abandon_schedule_resolves_hub_and_clears_manager()
+    {
+        var (manager, hub, link) = CreateSut();
+        var since = DateTimeOffset.Parse("2026-07-28T10:00:00Z");
+        var end = since.AddMinutes(3);
+
+        manager.EnsureBreakIncidentOnConnectFailure(ConnId, since, "Подключение 7 («t»)").Should().BeTrue();
+        manager.EnsureBreakIncidentOnConnectFailure(ConnId, since, "x").Should().BeFalse();
+
+        (await manager.TryAbandonIncidentByScheduleAsync(ConnId, end, CancellationToken.None))
+            .Should().BeTrue();
+        (await manager.TryAbandonIncidentByScheduleAsync(ConnId, end, CancellationToken.None))
+            .Should().BeFalse("уже закрыто");
+
+        manager.GetIncidentSince(ConnId).Should().BeNull();
+        var closed = hub.List().Last(e => e.Code == "connection.incident_closed");
+        closed.Status.Should().Be("resolved");
+        closed.Severity.Should().Be("warning");
+        DataString(closed, "closeOutcome").Should().Be(NotificationThreadData.OutcomeAbandonedSchedule);
+        DataString(closed, "reason").Should().Be("schedule_end");
+        link.Markers.Should().ContainSingle(m =>
+            m.SourceId == 1 && m.Reason == LinkCloseReason.Scheduled && m.At == end);
+    }
+
+    [Fact]
+    public async Task EnsureBreak_then_abandon_manual_writes_disconnected_marker()
+    {
+        var (manager, hub, link) = CreateSut();
+        var since = DateTimeOffset.Parse("2026-07-28T11:00:00Z");
+        var end = since.AddMinutes(1);
+
+        manager.EnsureBreakIncidentOnConnectFailure(ConnId, since, "Подключение 7").Should().BeTrue();
+        (await manager.TryAbandonIncidentByManualAsync(ConnId, end, CancellationToken.None))
+            .Should().BeTrue();
+
+        manager.GetIncidentSince(ConnId).Should().BeNull();
+        var closed = hub.List().Last(e => e.Code == "connection.incident_closed");
+        DataString(closed, "closeOutcome").Should().Be(NotificationThreadData.OutcomeAbandonedManual);
+        DataString(closed, "reason").Should().Be("manual_off");
+        link.Markers.Should().ContainSingle(m => m.Reason == LinkCloseReason.Disconnected && m.At == end);
+    }
+
+    [Fact]
+    public void Adopt_protocol_Hub_then_Manager_Forget_on_Manager_reject()
+    {
+        // I11 B2 — тот же порядок, что ConnectionSupervisor.TryAdoptOpenBreakFromAuditAsync.
+        var (manager, hub, _) = CreateSut();
+        var subject = ConnectionManager.LinkIncidentSubject(ConnId);
+        const string corr = "connection:7:link:abcd1234";
+        var since = DateTimeOffset.Parse("2026-07-28T12:00:00Z");
+
+        manager.AdoptOpenIncident(ConnId, since).Should().BeTrue("память Manager уже занята");
+        hub.Adopt(subject, corr, "active").Should().BeTrue();
+        manager.AdoptOpenIncident(ConnId, since).Should().BeFalse("Manager отказал");
+
+        hub.Forget(subject, corr).Should().BeTrue("откат Hub без NC-строки");
+        hub.List().Should().BeEmpty();
+        hub.Progress(subject, "connection.reconnecting", "x").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Adopt_protocol_success_allows_Progress_on_same_corr()
+    {
+        var (manager, hub, _) = CreateSut();
+        var subject = ConnectionManager.LinkIncidentSubject(ConnId);
+        const string corr = "connection:7:link:eeeeffff";
+        var since = DateTimeOffset.Parse("2026-07-28T13:00:00Z");
+
+        hub.Adopt(subject, corr, "underway").Should().BeTrue();
+        manager.AdoptOpenIncident(ConnId, since, owner: "supervisor").Should().BeTrue();
+
+        hub.Progress(subject, "connection.reconnecting", "попытка 1/5").Should().BeTrue();
+        hub.List().Should().ContainSingle(e =>
+            e.Code == "connection.reconnecting" && e.CorrelationId == corr);
+    }
+
+    private static (ConnectionManager Manager, NotificationHub Hub, RecordingLinkLiveness Link) CreateSut()
+    {
+        var hub = new NotificationHub(new WebSocketBroadcaster());
+        var link = new RecordingLinkLiveness();
+        var store = new FakeConnectionStore(new ConnectorConnection
+        {
+            ConnectionId = ConnId,
+            SourceId = 1,
+            Name = "t",
+            Kind = "synthetic",
+            Settings = "{}",
+            Enabled = true,
+        });
+
+        var manager = new ConnectionManager(
+            store,
+            factory: null!,
+            credentials: null!,
+            parser: null!,
+            registry: null!,
+            sourceStore: null!,
+            normalizer: null!,
+            batcher: null!,
+            coverageTracker: null!,
+            broadcaster: new WebSocketBroadcaster(),
+            liveness: new Lazy<ILivenessWriter>(() => throw new InvalidOperationException("unused")),
+            recordings: new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
+            linkLiveness: link,
+            notifications: hub,
+            transaqDefaults: new TransaqConnectorOptions(),
+            options: new OhsOptions { LinkRecoverGraceSeconds = 3600 },
+            loggerFactory: NullLoggerFactory.Instance,
+            logger: NullLogger<ConnectionManager>.Instance);
+
+        return (manager, hub, link);
+    }
+
+    private static string? DataString(NotificationDto evt, string key)
+    {
+        if (evt.Data is not { } data || data.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return data.TryGetProperty(key, out var p) && p.ValueKind == JsonValueKind.String
+            ? p.GetString()
+            : null;
+    }
+
+    private sealed class FakeConnectionStore(ConnectorConnection row) : IConnectionStore
+    {
+        public Task<IReadOnlyList<ConnectorConnection>> ListAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ConnectorConnection>>([row]);
+
+        public Task<ConnectorConnection?> GetAsync(long connectionId, CancellationToken cancellationToken) =>
+            Task.FromResult(connectionId == row.ConnectionId ? row : null);
+
+        public Task<ConnectorConnection> UpsertAsync(
+            short sourceId, string name, string kind, string settings, bool enabled, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ConnectorConnection?> UpdateAsync(
+            long connectionId, short sourceId, string name, string kind, string settings, bool enabled,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<bool> DeleteAsync(long connectionId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task SetEnabledAsync(long connectionId, bool enabled, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class RecordingLinkLiveness : ILinkLivenessStore
+    {
+        public List<(short SourceId, LinkCloseReason Reason, DateTimeOffset At)> Markers { get; } = [];
+
+        public Task InsertBoundaryMarkerAsync(
+            short sourceId, LinkCloseReason reason, DateTimeOffset atTs, CancellationToken cancellationToken)
+        {
+            Markers.Add((sourceId, reason, atTs));
+            return Task.CompletedTask;
+        }
+
+        public Task HeartbeatAsync(
+            short sourceId, DateTimeOffset ts, TimeSpan maxGap, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task<int> CloseAsync(
+            short sourceId, LinkCloseReason reason, DateTimeOffset? atTs, CancellationToken cancellationToken) =>
+            Task.FromResult(0);
+
+        public Task<LinkInterval?> GetLastAsync(short sourceId, CancellationToken cancellationToken) =>
+            Task.FromResult<LinkInterval?>(null);
+
+        public Task<IReadOnlyList<LinkInterval>> QueryAsync(
+            IReadOnlyCollection<short> sourceIds, DateTimeOffset from, DateTimeOffset to,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LinkInterval>>([]);
+
+        public Task<IReadOnlyList<LinkGap>> QueryGapsAsync(
+            IReadOnlyCollection<short> sourceIds, DateTimeOffset from, DateTimeOffset to,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LinkGap>>([]);
+
+        public Task<int> RecoverOpenIntervalsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(0);
+    }
+}

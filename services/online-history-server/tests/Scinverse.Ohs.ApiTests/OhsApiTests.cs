@@ -247,6 +247,41 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         }
     }
 
+    [Fact]
+    public async Task Disconnect_while_link_down_emits_abandoned_manual()
+    {
+        var api = CreateApi();
+        var client = new OhsApiClient(factory.CreateClient());
+        var http = factory.CreateClient();
+        var synthetic = (await api.GetConnectionsAsync()).First(c => c.Kind == "synthetic");
+        await api.ConnectConnectionAsync(synthetic.ConnectionId);
+
+        (await client.DebugDropAsync(synthetic.ConnectionId, seconds: 30)).Should().BeTrue();
+        (await PollConnectionStatusAsync(synthetic.ConnectionId, "disconnected", TimeSpan.FromSeconds(5)))
+            .Should().BeTrue("обрыв должен открыть break до recover");
+
+        // Пока synthetic ещё down — disconnect закрывает break как abandoned_manual (J11b / I11).
+        await api.DisconnectConnectionAsync(synthetic.ConnectionId);
+
+        var closed = await PollNotificationAsync(
+            http,
+            n => n.Code == "connection.incident_closed" && n.Status == "resolved",
+            TimeSpan.FromSeconds(5));
+        closed.Should().NotBeNull("ручной off при open break пишет incident_closed");
+        closed!.Severity.Should().Be("warning");
+        closed.CorrelationId.Should().StartWith($"connection:{synthetic.ConnectionId}:link:");
+        NotificationDataString(closed, "closeOutcome").Should().Be("abandoned_manual");
+        NotificationDataString(closed, "reason").Should().Be("manual_off");
+
+        var notes = await GetNotificationsAsync(http);
+        notes.Should().Contain(
+            n => n.Code == "connection.disconnect" && n.SourceType == "user",
+            "команда оператора остаётся отдельным user-событием");
+        notes.Should().NotContain(
+            n => n.Code == "connection.recovered" && n.CorrelationId == closed.CorrelationId,
+            "не должны успеть закрыть тот же corr как recovered");
+    }
+
     private static async Task<IReadOnlyList<NotificationRow>> GetNotificationsAsync(HttpClient http)
     {
         var rows = await http.GetFromJsonAsync<List<NotificationRow>>(
@@ -272,8 +307,25 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         return null;
     }
 
+    private static string? NotificationDataString(NotificationRow row, string key)
+    {
+        if (row.Data is not { } data || data.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return data.TryGetProperty(key, out var p) && p.ValueKind == JsonValueKind.String
+            ? p.GetString()
+            : null;
+    }
+
     private sealed record NotificationRow(
-        string Code, string Severity, string SourceType, string? Status, string? CorrelationId);
+        string Code,
+        string Severity,
+        string SourceType,
+        string? Status,
+        string? CorrelationId,
+        JsonElement? Data);
 
     private async Task<bool> PollConnectionStatusAsync(
         long connectionId, string expected, TimeSpan timeout)
