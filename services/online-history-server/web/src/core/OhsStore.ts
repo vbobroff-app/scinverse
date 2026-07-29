@@ -931,24 +931,29 @@ export class OhsStore {
     if (batch === null || batch.length === 0) {
       return;
     }
-    let left = batch.length;
-    let failed = false;
-    for (const dto of batch) {
-      this.api.postNotification(dto).subscribe({
-        next: () => {
-          left -= 1;
-          if (left === 0 && !failed) {
-            this.pendingOutagePersist = null;
-            // J8: журнал crash уже в БД — подтянуть incidents, снять optimistic overlap.
-            this.refreshLiveness();
-          }
-        },
+    // Строго по порядку: иначе recovered раньше open → journal остаётся active.
+    this.postNotificationsSequential(batch, () => {
+      this.pendingOutagePersist = null;
+      this.refreshLiveness();
+    });
+  }
+
+  /** Последовательный mock-POST (open → … → close) — журнал и Hub видят один порядок. */
+  private postNotificationsSequential(batch: NotificationDto[], onDone: () => void): void {
+    const run = (i: number) => {
+      if (i >= batch.length) {
+        onDone();
+        return;
+      }
+      this.api.postNotification(batch[i]).subscribe({
+        next: () => run(i + 1),
         error: (err) => {
-          failed = true;
           console.error('postNotification', err);
+          onDone();
         },
       });
-    }
+    };
+    run(0);
   }
 
   /** Закрытие: ok + mock-POST open+resolve. Вызывать только из warning после warn (§9.2). */
@@ -979,27 +984,11 @@ export class OhsStore {
     const end = Date.now();
     void import('./notifications').then((m) => {
       const batch = m.resolveBackendOutage(start, end, corr, recovering);
-      let left = batch.length;
-      let failed = false;
-      for (const dto of batch) {
-        this.api.postNotification(dto).subscribe({
-          next: () => {
-            left -= 1;
-            if (left === 0 && !failed) {
-              // J8: после open+recover в журнале — incidents вместо optimistic interrupted.
-              this.refreshLiveness();
-            }
-          },
-          error: (err) => {
-            failed = true;
-            console.error('postNotification', err);
-            // Геометрия link всё равно нужна после recover.
-            this.refreshLiveness();
-          },
-        });
-      }
       if (batch.length === 0) {
         this.refreshLiveness();
+      } else {
+        // open → recovering → recovered строго по порядку (журнал + NC).
+        this.postNotificationsSequential(batch, () => this.refreshLiveness());
       }
       // После OK recover: спросить бэк про Auto×N stop + open break → Single INFO (не link-corr).
       this.api.getConnectionsNeedsOperator().subscribe({

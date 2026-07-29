@@ -742,6 +742,23 @@ public static class OhsEndpoints
                         req.Message,
                         ct)
                     .ConfigureAwait(false);
+
+                // Гонка: recovered уже в хабе (parallel POST) — сразу закрыть журнал.
+                var recovered = hub.List(200).FirstOrDefault(e =>
+                    string.Equals(e.CorrelationId, req.CorrelationId, StringComparison.Ordinal)
+                    && string.Equals(e.Code, "backend.recovered", StringComparison.Ordinal));
+                if (recovered is not null)
+                {
+                    await journal
+                        .RegisterBreakResolvedAsync(
+                            req.CorrelationId!,
+                            recovered.Ts,
+                            NotificationThreadData.OutcomeRecovered,
+                            title: recovered.Message,
+                            severity: "ok",
+                            ct)
+                        .ConfigureAwait(false);
+                }
             }
 
             // 7j.20: recover клиента снимает стартовый барьер супервизора — Auto-реконнект пойдёт только

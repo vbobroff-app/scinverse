@@ -102,8 +102,51 @@ public sealed class JournalRegistrator(
         SafeAsync(
             corrUid,
             "resolve",
-            () => store.ResolveAsync(
-                corrUid, closedAt, closeOutcome, title, severity, resolvedBy, cancellationToken));
+            async () =>
+            {
+                if (await store
+                        .ResolveAsync(
+                            corrUid, closedAt, closeOutcome, title, severity, resolvedBy, cancellationToken)
+                        .ConfigureAwait(false))
+                {
+                    return true;
+                }
+
+                // Гонка parallel mock-POST: recovered раньше unavailable — ждём open, иначе terminal INSERT.
+                for (var i = 0; i < 10; i++)
+                {
+                    await Task.Delay(30, cancellationToken).ConfigureAwait(false);
+                    if (await store
+                            .ResolveAsync(
+                                corrUid, closedAt, closeOutcome, title, severity, resolvedBy, cancellationToken)
+                            .ConfigureAwait(false))
+                    {
+                        return true;
+                    }
+                }
+
+                var isCrash = corrUid.StartsWith("ohs.backend.outage:", StringComparison.Ordinal);
+                return await store
+                    .OpenAsync(
+                        new Incident
+                        {
+                            CorrUid = corrUid,
+                            Module = "connection",
+                            Type = isCrash ? "crash" : "break",
+                            Status = "resolved",
+                            CloseOutcome = closeOutcome,
+                            OpenedAt = closedAt,
+                            ClosedAt = closedAt,
+                            Subject = SubjectFromCorr(corrUid),
+                            Severity = severity ?? (isCrash ? "ok" : "error"),
+                            Title = title ?? (isCrash ? "Система восстановлена" : "Связь восстановлена"),
+                            LastActivityAt = closedAt,
+                            Subtype = isCrash ? "host_unavailable" : "down",
+                            Owner = isCrash ? "admin" : "supervisor",
+                        },
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            });
 
     /// <summary>Open crash (client-led outage / J8) — module=connection, type=crash.</summary>
     public Task RegisterCrashOpenAsync(

@@ -68,7 +68,7 @@
   background-color: rgba(220, 53, 69, 0.55);
 }
 
-/* Потеря связи — красный вертикальный маркер (1px) в начале инцидента. */
+/* Маркеры 1px — всегда поверх тел инцидентов (z тел ≤ 3). */
 .startMarker {
   position: absolute;
   top: 0;
@@ -78,7 +78,7 @@
   background: #dc3545;
   box-shadow: 0 0 3px rgba(220, 53, 69, 0.9);
   pointer-events: auto;
-  z-index: 6;
+  z-index: 20;
 }
 
 /* Связь восстановлена — зелёный вертикальный маркер (1px) на конце инцидента. */
@@ -91,7 +91,7 @@
   background: #2e9e6b;
   box-shadow: 0 0 3px rgba(46, 158, 107, 0.9);
   pointer-events: auto;
-  z-index: 6;
+  z-index: 20;
 }
 
 @keyframes connPulse {

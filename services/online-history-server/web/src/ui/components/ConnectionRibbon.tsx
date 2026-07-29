@@ -175,19 +175,20 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             );
           })}
 
+          {/* Маркеры после тел — слой сверху (z-index 20). */}
           {journalPaint!.markers.map((m, i) =>
             m.kind === 'start' ? (
               <span
                 key={`is${m.corrUid}-${i}`}
                 className={styles.startMarker}
-                style={{ left: `${pct(m.atMs)}%` }}
+                style={{ left: `${pct(m.atMs)}%`, zIndex: 20 }}
                 title={`${m.label} · ${hhmm(m.atMs, tzOffsetMin)}`}
               />
             ) : (
               <span
                 key={`ir${m.corrUid}-${i}`}
                 className={styles.recover}
-                style={{ left: `${pct(m.atMs)}%` }}
+                style={{ left: `${pct(m.atMs)}%`, zIndex: 20 }}
                 title={`${m.label} · ${hhmm(m.atMs, tzOffsetMin)}`}
               />
             ),
@@ -198,7 +199,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
               <span
                 key={`crash-s${i}`}
                 className={styles.startMarker}
-                style={{ left: `${pct(Date.parse(gap.from))}%` }}
+                style={{ left: `${pct(Date.parse(gap.from))}%`, zIndex: 20 }}
                 title={`Потеря связи · ${hhmm(Date.parse(gap.from), tzOffsetMin)}`}
               />
             ))}
@@ -246,7 +247,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
               <span
                 key={`s${i}`}
                 className={styles.startMarker}
-                style={{ left: `${pct(Date.parse(gap.from))}%` }}
+                style={{ left: `${pct(Date.parse(gap.from))}%`, zIndex: 20 }}
                 title={`Потеря связи · ${hhmm(Date.parse(gap.from), tzOffsetMin)}`}
               />
             ) : null,
@@ -257,7 +258,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
               <span
                 key={`r${i}`}
                 className={styles.recover}
-                style={{ left: `${pct(Date.parse(gap.to))}%` }}
+                style={{ left: `${pct(Date.parse(gap.to))}%`, zIndex: 20 }}
                 title={`Связь восстановлена · ${hhmm(Date.parse(gap.to), tzOffsetMin)}`}
               />
             ) : null,
