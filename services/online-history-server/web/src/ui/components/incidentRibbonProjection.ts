@@ -180,6 +180,31 @@ export interface MergedRedSpan {
 }
 
 /**
+ * J8: optimistic `interrupted` gap не нужен, если в журнале уже есть пересекающийся crash.
+ */
+export function journalHasOverlappingCrash(
+  incidents: readonly IncidentDto[],
+  gapFromMs: number,
+  gapToMs: number,
+  nowMs: number,
+): boolean {
+  for (const incident of incidents) {
+    if (incident.type !== 'crash') {
+      continue;
+    }
+    const fromMs = Date.parse(incident.openedAt);
+    if (!Number.isFinite(fromMs)) {
+      continue;
+    }
+    const toMs = episodeEndMs(incident, nowMs);
+    if (fromMs < gapToMs && toMs > gapFromMs) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Recording-лента: бинарная проекция журнала — merge перекрытий, без type/owner/маркеров.
  */
 export function mergeIncidentReds(

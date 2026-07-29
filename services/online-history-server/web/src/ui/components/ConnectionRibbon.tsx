@@ -5,6 +5,7 @@ import { makeProjector } from '../../core/sessionProjection';
 import type { CaptureGapDto, IncidentDto, LivenessIntervalDto, SessionDto } from '../../core/types';
 import { DEFAULT_LINK_RECOVER_GRACE_SEC, resolveEscalatedMs } from './connectionRibbonGaps';
 import {
+  journalHasOverlappingCrash,
   projectConnectionIncidents,
   type IncidentRibbonKind,
 } from './incidentRibbonProjection';
@@ -17,8 +18,8 @@ interface Props {
   intervals?: LivenessIntervalDto[];
   /**
    * Периоды «связь не жива» из link_liveness.
-   * При загруженном журнале (`incidents != null`) — только серое + optimistic crash;
-   * иначе полный as-is (gaps = источник инцидентов).
+   * При загруженном журнале (`incidents != null`) — серое + optimistic crash
+   * (только если нет пересекающегося journal crash); иначе полный as-is.
    */
   gaps?: CaptureGapDto[];
   /** Журнал `incident` (11.13e). `null`/`undefined` → legacy gaps. */
@@ -71,7 +72,7 @@ function kindClass(kind: IncidentRibbonKind): string {
 
 /**
  * Лента Connection: голубое ← link_liveness; цветные эпизоды ← журнал `incident` (11.13e).
- * Gaps liveness — серое (и legacy / optimistic crash, пока J8).
+ * Gaps liveness — серое; optimistic crash — пока в журнале нет пересекающегося crash (J8).
  */
 export const ConnectionRibbon = memo(function ConnectionRibbon({
   window,
@@ -93,6 +94,17 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   const journalPaint = useJournal
     ? projectConnectionIncidents(incidents, liveEdgeMs, graceSec)
     : null;
+  const journalList = incidents ?? [];
+  const optimisticCrashGaps = useJournal
+    ? gaps?.filter((g) => {
+        if (g.cause !== 'interrupted') {
+          return false;
+        }
+        const from = Date.parse(g.from);
+        const to = g.to ? Date.parse(g.to) : liveEdgeMs;
+        return !journalHasOverlappingCrash(journalList, from, to, liveEdgeMs);
+      })
+    : undefined;
 
   return (
     <div className={styles.track}>
@@ -132,10 +144,8 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
               );
             })}
 
-          {/* Optimistic client crash (J8) — interrupted gap, пока нет строки crash в журнале. */}
-          {gaps
-            ?.filter((g) => g.cause === 'interrupted')
-            .map((gap, i) => {
+          {/* Optimistic client crash (J8) — только если journal ещё без пересекающегося crash. */}
+          {optimisticCrashGaps?.map((gap, i) => {
               const from = Date.parse(gap.from);
               const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
               const left = pct(from);
@@ -184,9 +194,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           )}
 
           {/* Стартовый 1px для optimistic crash gap. */}
-          {gaps
-            ?.filter((g) => g.cause === 'interrupted')
-            .map((gap, i) => (
+          {optimisticCrashGaps?.map((gap, i) => (
               <span
                 key={`crash-s${i}`}
                 className={styles.startMarker}

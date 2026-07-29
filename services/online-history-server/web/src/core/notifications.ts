@@ -324,6 +324,8 @@ interface OutageThread {
   openTs: string;
   /** Incident vs Group по горизонту desired на Open (phase 11.11). */
   threadKindHint: 'incident' | 'group';
+  /** Connection для journal crash (J8); может отсутствовать без Auto-расписания. */
+  connectionId?: number;
 }
 const outageThreads = new Map<string, OutageThread>();
 
@@ -372,10 +374,18 @@ export function openBackendOutage(
   startMs: number,
   correlationId: string,
   threadKindHint: 'incident' | 'group' = 'incident',
+  connectionId?: number,
 ): void {
   const startIso = new Date(startMs).toISOString();
   const openId = guidN();
-  outageThreads.set(correlationId, { correlationId, startMs, openId, openTs: startIso, threadKindHint });
+  outageThreads.set(correlationId, {
+    correlationId,
+    startMs,
+    openId,
+    openTs: startIso,
+    threadKindHint,
+    connectionId,
+  });
   notify.critical(notificationBus, {
     id: openId,
     ts: startIso,
@@ -387,7 +397,12 @@ export function openBackendOutage(
     localization: 'internal',
     status: 'active',
     correlationId,
-    data: { sender: 'client', kind: 'crash', threadKindHint },
+    data: {
+      sender: 'client',
+      kind: 'crash',
+      threadKindHint,
+      ...(connectionId != null ? { connectionId } : {}),
+    },
   });
 }
 
@@ -575,6 +590,12 @@ export function resolveBackendOutage(
     data: resolveData,
   });
 
+  const openData = {
+    sender: 'client' as const,
+    kind: 'crash' as const,
+    threadKindHint: thread.threadKindHint,
+    ...(thread.connectionId != null ? { connectionId: thread.connectionId } : {}),
+  };
   const openDto: NotificationDto = {
     id: thread.openId,
     ts: thread.openTs,
@@ -585,7 +606,7 @@ export function resolveBackendOutage(
     message: 'Сервер OHS недоступен, жду восстановления',
     status: 'active',
     correlationId: thread.correlationId,
-    data: { sender: 'client', kind: 'crash', threadKindHint: thread.threadKindHint },
+    data: openData,
     interaction: 'system',
     localization: 'internal',
   };
@@ -690,7 +711,12 @@ export function abandonBackendOutageBySchedule(
     message: 'Сервер OHS недоступен, жду восстановления',
     status: 'active',
     correlationId: thread.correlationId,
-    data: { sender: 'client', kind: 'crash', threadKindHint: thread.threadKindHint },
+    data: {
+      sender: 'client',
+      kind: 'crash',
+      threadKindHint: thread.threadKindHint,
+      connectionId,
+    },
     interaction: 'system',
     localization: 'internal',
   };

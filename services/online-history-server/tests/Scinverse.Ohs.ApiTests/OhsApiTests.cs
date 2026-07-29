@@ -397,6 +397,67 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         again.ResolvedBy.Should().Be("operator-b");
     }
 
+    [Fact]
+    public async Task Crash_notification_roundtrip_writes_and_resolves_journal_incident()
+    {
+        using var http = factory.CreateClient();
+        var api = CreateApi();
+        var openedAt = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var closedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+        const string corr = "ohs.backend.outage:j8apitest01";
+        var openId = Guid.NewGuid().ToString("N");
+        var closeId = Guid.NewGuid().ToString("N");
+
+        using (var openRes = await http.PostAsJsonAsync(
+                   "/api/notifications",
+                   new
+                   {
+                       id = openId,
+                       ts = openedAt,
+                       code = "backend.unavailable",
+                       message = "Сервер OHS недоступен, жду восстановления",
+                       severity = "critical",
+                       sourceType = "system",
+                       module = "ohs.host",
+                       status = "active",
+                       correlationId = corr,
+                       data = new { sender = "client", kind = "crash", connectionId = 77L },
+                   }))
+        {
+            openRes.EnsureSuccessStatusCode();
+        }
+
+        var openRow = await api.GetIncidentAsync(corr);
+        openRow.Should().NotBeNull();
+        openRow!.Type.Should().Be("crash");
+        openRow.Status.Should().Be("active");
+        openRow.ConnectionId.Should().Be(77);
+
+        using (var closeRes = await http.PostAsJsonAsync(
+                   "/api/notifications",
+                   new
+                   {
+                       id = closeId,
+                       ts = closedAt,
+                       code = "backend.recovered",
+                       message = "Система восстановлена",
+                       severity = "ok",
+                       sourceType = "system",
+                       module = "ohs.host",
+                       status = "resolved",
+                       correlationId = corr,
+                       data = new { sender = "client", closeOutcome = "recovered" },
+                   }))
+        {
+            closeRes.EnsureSuccessStatusCode();
+        }
+
+        var closed = await api.GetIncidentAsync(corr);
+        closed.Should().NotBeNull();
+        closed!.Status.Should().Be("resolved");
+        closed.CloseOutcome.Should().Be("recovered");
+    }
+
     private static async Task<IReadOnlyList<NotificationRow>> GetNotificationsAsync(HttpClient http)
     {
         var rows = await http.GetFromJsonAsync<List<NotificationRow>>(

@@ -174,7 +174,7 @@ scinverse/
   **код готов**; очередь: 7j.15/16; хвост **I12 OPEN** (пул Npgsql / orphan FATAL после recover —
   RxJS sync coverage). См. [todo](./dev/phase7j/todo.md) · [issue I12](./dev/phase7j/issue.md).
 - **phase 11 лента Thread** (11.1–11.12, ★/⊘, dock settings, тесты 11.7) — **DONE**.
-- **11.13 журнал `incident` в OHS — DONE (a–f).** Дальше: gate **11→12** / 7j хвосты.
+- **11.13 журнал `incident` в OHS — DONE (a–f); H1 + J8 crash journal — DONE.** Дальше: gate **11→12** / I12 / full backfill.
 
 **To-be:** `notification`/пакет → отдельный NC (MFE, своя БД) на **gate 11→12**;
 `link_liveness` + `incident` остаются в OHS. Admin/Product + Keycloak — C4.

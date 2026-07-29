@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { IncidentDto } from '../../core/types';
 import {
+  journalHasOverlappingCrash,
   mergeIncidentReds,
   projectConnectionIncidents,
   resolveIncidentEscalatedMs,
@@ -151,5 +152,46 @@ describe('mergeIncidentReds', () => {
         toMs: now,
       },
     ]);
+  });
+});
+
+describe('journalHasOverlappingCrash', () => {
+  const now = Date.parse('2026-07-29T12:00:00.000Z');
+
+  it('J8: suppresses optimistic when journal crash overlaps gap', () => {
+    const incidents = [
+      breakIncident({
+        corrUid: 'c1',
+        type: 'crash',
+        openedAt: '2026-07-29T10:00:00.000Z',
+        closedAt: '2026-07-29T10:10:00.000Z',
+      }),
+    ];
+    expect(
+      journalHasOverlappingCrash(
+        incidents,
+        Date.parse('2026-07-29T10:05:00.000Z'),
+        Date.parse('2026-07-29T10:08:00.000Z'),
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  it('J8: keeps optimistic when only break in journal', () => {
+    const incidents = [
+      breakIncident({
+        corrUid: 'b1',
+        openedAt: '2026-07-29T10:00:00.000Z',
+        closedAt: '2026-07-29T10:10:00.000Z',
+      }),
+    ];
+    expect(
+      journalHasOverlappingCrash(
+        incidents,
+        Date.parse('2026-07-29T10:05:00.000Z'),
+        Date.parse('2026-07-29T10:08:00.000Z'),
+        now,
+      ),
+    ).toBe(false);
   });
 });

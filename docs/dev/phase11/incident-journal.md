@@ -1,7 +1,7 @@
 # Phase 11 — Журнал инцидентов (11.13)
 
-**Статус:** `DESIGN AGREED` · **11.13a–f DONE** (2026-07-29).  
-Журнал OHS v1 закрыт; дальше — gate 11→12 / хвосты J8 live.
+**Статус:** `DESIGN AGREED` · **11.13a–f DONE** (2026-07-29) · **H1/J8 DONE**.  
+Журнал OHS v1 закрыт; дальше — gate 11→12 / хвосты (I12, full backfill, …).
 
 **Связано:** [plan.md](plan.md) §11.13 · [to-threads.md](to-threads.md) ·
 [persistence.md](persistence.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
@@ -84,7 +84,7 @@ incident       → Connection: break/crash + маркеры (полная сем
 ```
 
 Legacy fallback: если `incidents` ещё не загружены — Connection красит gaps as-is.
-Optimistic client crash (J8) — `interrupted` gap, пока нет строки crash в журнале.
+Optimistic client crash (J8) — `interrupted` gap, пока в журнале нет пересекающегося crash.
 
 Код: `incidentRibbonProjection.ts`, `ConnectionRibbon.tsx`, `CoverageTrack.tsx`, `OhsStore.refreshLiveness`.
 
@@ -320,7 +320,7 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 | J5 | Реестр types | код v1: connection `break`\|`crash` |
 | J6 | `duration_ms` | **только API** |
 | J7 | `resolved_by` | **закрыт** → `payload.resolvedBy` на POST resolve |
-| J8 | Crash → JournalRegistrator | **частично:** ingest `backend.unavailable` → crash open; recover/abandon close |
+| J8 | Crash → JournalRegistrator | **закрыт** — ingest/recover/abandon; ribbon без double-paint; connectionId в data |
 
 ---
 

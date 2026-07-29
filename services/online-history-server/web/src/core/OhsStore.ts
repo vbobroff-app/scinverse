@@ -633,7 +633,9 @@ export class OhsStore {
       });
       // 11.11: Incident в горизонте desired, иначе Group (не журнал инцидентов).
       const threadKindHint = horizon?.desired === false ? 'group' : 'incident';
-      void import('./notifications').then((m) => m.openBackendOutage(start, corr, threadKindHint));
+      void import('./notifications').then((m) =>
+        m.openBackendOutage(start, corr, threadKindHint, horizon?.connectionId),
+      );
       this.startOutageProgress(false);
     }, BACKEND_OUTAGE_GRACE_MS);
   }
@@ -937,6 +939,8 @@ export class OhsStore {
           left -= 1;
           if (left === 0 && !failed) {
             this.pendingOutagePersist = null;
+            // J8: журнал crash уже в БД — подтянуть incidents, снять optimistic overlap.
+            this.refreshLiveness();
           }
         },
         error: (err) => {
@@ -974,10 +978,28 @@ export class OhsStore {
     this.pendingRecoveringDto = null;
     const end = Date.now();
     void import('./notifications').then((m) => {
-      for (const dto of m.resolveBackendOutage(start, end, corr, recovering)) {
+      const batch = m.resolveBackendOutage(start, end, corr, recovering);
+      let left = batch.length;
+      let failed = false;
+      for (const dto of batch) {
         this.api.postNotification(dto).subscribe({
-          error: (err) => console.error('postNotification', err),
+          next: () => {
+            left -= 1;
+            if (left === 0 && !failed) {
+              // J8: после open+recover в журнале — incidents вместо optimistic interrupted.
+              this.refreshLiveness();
+            }
+          },
+          error: (err) => {
+            failed = true;
+            console.error('postNotification', err);
+            // Геометрия link всё равно нужна после recover.
+            this.refreshLiveness();
+          },
         });
+      }
+      if (batch.length === 0) {
+        this.refreshLiveness();
       }
       // После OK recover: спросить бэк про Auto×N stop + open break → Single INFO (не link-corr).
       this.api.getConnectionsNeedsOperator().subscribe({
@@ -992,8 +1014,6 @@ export class OhsStore {
         error: (err) => console.error('getConnectionsNeedsOperator', err),
       });
     });
-    // Снимаем оптимистичный overlay — серверная геометрия после recover.
-    this.refreshLiveness();
   }
 
   /** Переключает активный раздел верхнего уровня (левый рейл). */
