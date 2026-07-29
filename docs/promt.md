@@ -245,6 +245,9 @@ scinverse/
 - System → короткий message + JSON (`result` / `error_message` + `sender`); user schedule → `lines[]`.
 - ★/⊘ — клиент v1; не колонки журнала в первой итерации.
 - Не тащить в этот чат WebGL, 7j.15/16 market-profile, полный Keycloak.
+- **`phase7h/incident.md` — SUPERSEDED** как канон «инцидент» (это про дыры `capture_liveness` /
+  подложку записи). Канон: wiki + 7j + этот журнал. Геометрию Connection-ганта здесь не трогать;
+  связка **журнал ↔ гант** — следующим этапом после 11.13 (тогда же переработать термины 7h).
 
 ### Ключевые файлы
 

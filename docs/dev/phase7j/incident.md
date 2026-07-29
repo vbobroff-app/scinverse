@@ -409,14 +409,16 @@ abandoned:   |red [ yellow: TRANSAQ ][ red: supervisor ]      |  ← без gree
 
 Файлы: `web/src/ui/components/ConnectionRibbon.tsx` + `.module.css`.
 
-### 7.1. Перспектива: клик по маркеру → фильтр NC по `correlationId`
+### 7.1. Перспектива: клик по маркеру → фильтр NC / журнал по `correlationId`
 
-**Статус: FUTURE** (не блокирует текущий MVP; удобно после WebGL / когда ленту можно растягивать и
-попадать в короткие инциденты мышкой).
+**Статус: FUTURE** — после **phase 11.13** (журнал инцидентов в БД NC) и удобнее после WebGL /
+когда ленту можно растягивать. Не блокирует MVP. Канон «инцидент» — wiki + этот файл; не
+[../phase7h/incident.md](../phase7h/incident.md) (SUPERSEDED, только геометрия захвата).
 
-Идея: клик (или double-click) по красному/зелёному 1px-маркеру на Connection-ленте открывает NC и
-ставит фильтр по `correlationId` нити этого инцидента — оператор сразу видит стек
+Идея: клик (или double-click) по красному/зелёному 1px-маркеру на Connection-ленте открывает NC /
+журнал и ставит фильтр по `correlationId` нити — оператор сразу видит стек
 `lost → recovering/reconnecting → recovered|abandoned` без ручного поиска.
+Спека журнала: [../phase11/incident-journal.md](../phase11/incident-journal.md).
 
 Задел:
 

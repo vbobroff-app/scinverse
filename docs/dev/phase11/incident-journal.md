@@ -9,6 +9,12 @@
 
 Handoff нового чата — [`docs/promt.md`](../../promt.md) §8.
 
+**Не путать с phase 7h:** [`../phase7h/incident.md`](../phase7h/incident.md) — устаревший канон
+«инцидент = дыра захвата»; помечен SUPERSEDED. Геометрию Connection-ганта в чате журнала **не
+трогаем**. Следующий этап после журнала — связка **журнал NC ↔ Connection-гант** (клик по 1px /
+легенда → corr; см. [../phase7j/incident.md](../phase7j/incident.md) §7.1); тогда же переработать
+термины 7h.
+
 ---
 
 ## 1. Зачем отдельный документ
@@ -76,7 +82,8 @@ Handoff нового чата — [`docs/promt.md`](../../promt.md) §8.
 7. **Переход от монолита** — что остаётся в OHS V025 на время; dual-write vs cutover; backfill.
 
 **Вне scope 11.13 (пока):** полный Module Federation runtime, Keycloak-роли на журнал (phase 10),
-WebGL (phase 12), доработка 7j.15/16.
+WebGL (phase 12), доработка 7j.15/16, **переработка phase7h/incident** и UI-связка журнал↔гант
+(отдельный чат после утверждения журнала).
 
 ---
 
