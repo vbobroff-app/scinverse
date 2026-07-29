@@ -2,7 +2,9 @@
 
 > Проектирование **журнала инцидентов** (таблица `incident` в OHS; лента notify → NC) —
 > [`docs/dev/phase11/incident-journal.md`](../dev/phase11/incident-journal.md).  
-> OHS break/crash (продюсер) — [`docs/dev/phase7j/incident.md`](../dev/phase7j/incident.md).
+> Connection-лента = полная семантика; Recording-лента = **бинарная проекция** журнала
+> (red без маркеров/type). Регистрация строк — **JournalRegistrator** (не TradeWriter).
+> OHS break/crash — [`docs/dev/phase7j/incident.md`](../dev/phase7j/incident.md).
 
 ### Определение
 

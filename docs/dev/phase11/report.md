@@ -3,7 +3,7 @@
 Актуальный статус фазы 11. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
 **Текущий статус:** `IN PROGRESS` — Thread **DONE**; **11.13a DONE** (V028 + store);
-следующий шаг **11.13b** writer. [incident-journal.md](incident-journal.md) §12.
+следующий шаг **11.13b** JournalRegistrator. [incident-journal.md](incident-journal.md) §12.
 **Обновлено:** 2026-07-29.
 
 ## Статус задач
@@ -59,4 +59,4 @@
 ## Итог
 
 Лента NC v1 — **готова**. Журнал: таблица **`incident` в OHS** — **11.13a DONE**; дальше
-**11.13b** writer. Вынос atoms/пакета в NC — **gate 11→12**.
+**11.13b** JournalRegistrator. Вынос atoms/пакета в NC — **gate 11→12**.

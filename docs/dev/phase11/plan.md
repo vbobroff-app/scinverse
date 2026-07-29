@@ -94,9 +94,10 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 - **11.12 Регрессия + приёмка Thread.** Пакет + OHS web + backend: сценарии break/crash из
   phase 7j отображаются как Incident/Group; Group не продолжает Incident; плоский audit V025
   и hydrate не ломаются; tsc/vitest/`dotnet` зелёные.
-- **11.13 Журнал инцидентов.** Таблица `incident` в **OHS Timescale**; writer + API + UI журнала
-  в Admin; ribbon: liveness + incidents ← OHS. Лента atoms — as-is V025 / to-be NC
-  ([gate 11→12](../plan.md)). Канон — [incident-journal.md](incident-journal.md).
+- **11.13 Журнал инцидентов.** Таблица `incident` в **OHS Timescale**; **JournalRegistrator**
+  (не TradeWriter) + API + UI; Connection-ribbon + Recording (**бинарная проекция**).
+  Atoms — as-is V025 / to-be NC ([gate 11→12](../plan.md)). Канон —
+  [incident-journal.md](incident-journal.md) §3.
 
 ## Вне области (out of scope)
 
@@ -133,8 +134,8 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 
 **Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
 
-**Далее:** **11.13b** writer → UPSERT `incident` —
-[incident-journal.md](incident-journal.md) §12 (handoff [`docs/promt.md`](../../promt.md) §8).
+**Далее:** **11.13b** JournalRegistrator (UPSERT строк `incident`; writer = сделки) —
+[incident-journal.md](incident-journal.md) §12.
 
 **Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 код готов**
 ([../phase7j/issue.md](../phase7j/issue.md)); живая приёмка / хвосты 7j.15–16 — не блокер 11.13.

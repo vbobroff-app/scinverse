@@ -233,7 +233,7 @@ Admin:      ribbon/журнал←OHS · док ленты←NC (MFE)
 ### План работ (порядок) — [incident-journal §12](./dev/phase11/incident-journal.md)
 
 1. **11.13a** миграция OHS `incident` + store  
-2. **11.13b** writer (open/handover/close/Adopt)  
+2. **11.13b** JournalRegistrator (open/handover/close/Adopt → `incident`)  
 3. **11.13c** GET `/api/incidents`  
 4. **11.13d** UI журнала · **11.13e** ribbon←`incident`  
 5. **11.13f** resolve / backfill  

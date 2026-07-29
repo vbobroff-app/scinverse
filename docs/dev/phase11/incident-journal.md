@@ -1,7 +1,7 @@
 # Phase 11 — Журнал инцидентов (11.13)
 
 **Статус:** `DESIGN AGREED` · **11.13a DONE** (миграция V028 + store + tests, 2026-07-29).  
-Дальше — **11.13b** writer.
+Дальше — **11.13b** JournalRegistrator.
 
 **Связано:** [plan.md](plan.md) §11.13 · [to-threads.md](to-threads.md) ·
 [persistence.md](persistence.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
@@ -36,7 +36,11 @@
 
 ---
 
-## 3. Слои Connection-ленты
+## 3. Слои визуализации (две ленты ← один журнал)
+
+Таблица **`incident`** — единственный источник истины по эпизодам. Две **разные проекции**:
+
+### 3.0. Connection-лента (диагностика: где / почему / кто чинит)
 
 ```text
 низ:   link_liveness      — голубые отрезки «связь жива» (schedule-bounded)
@@ -51,26 +55,48 @@
   (серое / отсутствие голубого).
 - Перспектива: тумблеры слоёв «только живность» / «только инциденты».
 
+### 3.0b. Recording-лента (полнота данных: шли / не шли)
+
+**Бинарная проекция** того же журнала `incident` (не отдельная таблица причин):
+
+```text
+[ blue / данные есть ][ ─────── red ─────── ][ blue ]
+                         данных нет
+```
+
+| Правило | Решение |
+|---------|---------|
+| Маркеры 1px (red/green) | **нет** |
+| break vs crash / owner / escalatedAt | **нет** — для записи без разницы |
+| Перекрывающиеся эпизоды | **merge** в один red-интервал |
+| Зачем | показать дыру для восстановления данных; детали — в журнале |
+
+Восстановление данных опирается на границы эпизодов в **`incident`** (или на склеенную
+проекцию), не на раскраску Connection-ленты. См. также [phase7j/incident.md](../phase7j/incident.md)
+§7 Recording + **H2**.
+
 ### 3.1. As-is (до переключения ribbon)
 
-Сейчас верхний слой строится из gaps `link_liveness` (`POST /coverage/link`):
+Сейчас Connection верхний слой — gaps `link_liveness` (`POST /coverage/link`):
 
 ```text
 intervals → голубое
 gaps      → тело + маркеры  (QueryGapsAsync + CoalesceOwnerPhases)
 ```
 
-Код: `ConnectionRibbon.tsx`, `LinkLivenessStore.CoalesceOwnerPhases`,
-`overlayCrashOutageOnLink` (оптимистичный crash на клиенте).
+Recording — честная подложка / gaps capture (7h), ещё не проекция `incident`.
+
+Код: `ConnectionRibbon.tsx`, `CoverageTrack.tsx`, `LinkLivenessStore.CoalesceOwnerPhases`.
 
 ### 3.2. To-be (OHS DB)
 
 ```text
-intervals ← link_liveness     (OHS Timescale)  — голубое
-incidents ← incident          (OHS Timescale)  — break + crash поверх
+link_liveness  → Connection: голубое
+incident       → Connection: break/crash + маркеры (полная семантика)
+               → Recording:  бинарный red (merge), без type/owner/маркеров
 ```
 
-Обе таблицы — **в OHS**. Gaps из liveness больше не источник истины по инцидентам.
+Обе таблицы — **в OHS**. Gaps liveness больше не источник истины по инцидентам.
 
 ---
 
@@ -231,10 +257,13 @@ CREATE INDEX ix_incident_open
 
 ---
 
-## 7. Writer журнала (**в OHS**)
+## 7. JournalRegistrator (**в OHS**)
 
-`ConnectionManager` / Supervisor / CloseBreak / Adopt / crash-path пишут **локально**
-в таблицу `incident` (те же точки, что сейчас Open/Progress/Resolve в Hub):
+> **Имя:** `JournalRegistrator` — регистрация строк журнала инцидентов.  
+> Не путать с **TradeWriter** / writer сделок и с Recording-лентой.
+
+`ConnectionManager` / Supervisor / CloseBreak / Adopt / crash-path → **JournalRegistrator**
+пишет **локально** в `incident` (те же точки, что Open/Progress/Resolve в Hub):
 
 | Событие | Журнал OHS |
 |---------|------------|
@@ -301,7 +330,7 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 | J5 | Реестр types | код v1: connection `break`\|`crash` |
 | J6 | `duration_ms` | **только API** |
 | J7 | `resolved_by` | с POST resolve |
-| J8 | Crash-writer: кто INSERT в `incident` при client-led outage? | открыт → 11.13b |
+| J8 | Crash → JournalRegistrator: кто INSERT при client-led outage? | открыт → 11.13b |
 
 ---
 
@@ -309,7 +338,7 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 
 - [x] Поля §6 и слои §3–§4 согласованы.
 - [x] **OHS:** `link_liveness` + `incident`; **NC:** поток `notification` / MFE.
-- [x] Writer §7 (OHS) и API §8 намечены.
+- [x] JournalRegistrator §7 (OHS) и API §8 намечены.
 - [x] Plan §12 принят → **11.13a DONE**.
 
 ---
@@ -321,10 +350,10 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 | Шаг | Что | Критерий |
 |-----|-----|----------|
 | **11.13a** | Миграция OHS `V028__incident_journal.sql` + `IIncidentStore` | **DONE** — DbUp + 6 integration tests |
-| **11.13b** | Writer: Open/handover/close/Adopt → UPSERT `incident`; crash-path (J8) | строки пишутся; Adopt без дублей |
+| **11.13b** | **JournalRegistrator**: Open/handover/close/Adopt → UPSERT `incident` (не TradeWriter / не recording-лента); crash J8 | строки пишутся; Adopt без дублей |
 | **11.13c** | OHS API `GET /api/incidents` (+ окно для ribbon) | список/фильтры |
 | **11.13d** | UI экран журнала в Admin Front (OHS web) | tsc/eslint |
-| **11.13e** | Ribbon: incidents←`incident`, liveness←`link_liveness` | паритет yellow\|red / hatch / abandon |
+| **11.13e** | Connection-ribbon←`incident` (+ liveness); Recording←бинарная проекция (merge, без type) | паритет J7 + H2 |
 | **11.13f** | Ручное resolve + backfill/регрессия 7j | оператор закрывает; сценарии |
 
 **Вне scope 11.13:** вынос NC-сервиса / перенос V025 (gate 11→12), WebGL, Keycloak, 7j.15/16, I12.

@@ -434,15 +434,19 @@ abandoned:   |red [ yellow: TRANSAQ ][ red: supervisor ]      |  ← без gree
 
 ### Recording-лента оператора (полнота данных: есть/нет)
 
-Ей **не важно**, из-за чего и чья ответственность — важно только «данные шли или нет». Сплошной красный на
-всём инциденте, без полосок и владельцев (та же ось, что для writer):
+Ей **не важно**, из-за чего и чья ответственность — важно только «данные шли или нет».
+**To-be источник:** бинарная **проекция** журнала [`incident`](../phase11/incident-journal.md)
+(не gaps `link_liveness` / не type break\|crash). Сплошной красный, **без маркеров**, без
+owner/escalatedAt; перекрывающиеся эпизоды (в т.ч. crash внутри break) — **merge** в один red.
+Детали дыры и восстановление данных — по строкам журнала.
 
 ```text
 [ blue ][ ─────── red ─────── ][ blue ]
  данные      данных нет          данные
 ```
 
-Файлы: `web/src/ui/components/CoverageTrack.tsx` + `coverageGeometry.ts` (7h).
+As-is файлы: `web/src/ui/components/CoverageTrack.tsx` + `coverageGeometry.ts` (7h).
+Канон проекции — [phase11/incident-journal.md](../phase11/incident-journal.md) §3.0b.
 
 ---
 
@@ -513,10 +517,11 @@ abandoned:   |red [ yellow: TRANSAQ ][ red: supervisor ]      |  ← без gree
 ### Scope 7h — данные / запись (recording-лента, capture)
 
 - [ ] **H1. `Degraded` = дыра в записи.** Раз Degraded теперь потеря данных — recording-путь
-  (`capture_liveness` / `CoverageTrack`) должен давать **красное** и на Degraded (сейчас Degraded там
-  «живой» и красного не даёт).
-- [ ] **H2. Recording-лента = бинарная.** Сплошной красный на всём инциденте без причин/владельцев
-  (`[blue][red][blue]`), в отличие от connection-ленты.
+  должен давать **красное** и на Degraded (сейчас Degraded там «живой» и красного не даёт).
+  To-be: красное из проекции `incident`, не из «живности» capture.
+- [ ] **H2. Recording-лента = бинарная проекция `incident`.** Сплошной red без маркеров /
+  break\|crash / owner; merge overlap (`[blue][red][blue]`). Не путать с Connection-лентой (J7).
+  Спека — [../phase11/incident-journal.md](../phase11/incident-journal.md) §3.0b.
 - [ ] **H3. (Отдельно, DEFERRED)** 3-мин задержка «первых данных» — см.
   [../phase7h/startup-latency.md](../phase7h/startup-latency.md). Не входит в эту модель.
 
