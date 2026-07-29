@@ -162,7 +162,6 @@
 .marks {
   flex: none;
   display: inline-flex;
-  gap: 2px;
 }
 
 .markBtn {
@@ -187,8 +186,12 @@
   color: var(--color-accent, #4dabf7);
 }
 
+.markSpam {
+  font-size: 14px;
+}
+
 .markOnSpam {
-  color: var(--color-danger, #fa5252);
+  color: var(--color-error, #ff6b6b);
 }
 
 .entries {

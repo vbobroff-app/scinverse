@@ -180,7 +180,7 @@ export function NotificationRow({
               <Tip content={isLeft ? 'Показывать' : 'В спам'}>
                 <button
                   type="button"
-                  className={[styles.markBtn, isLeft ? styles.markOnSpam : ''].filter(Boolean).join(' ')}
+                  className={[styles.markBtn, styles.markSpam, isLeft ? styles.markOnSpam : ''].filter(Boolean).join(' ')}
                   aria-pressed={Boolean(isLeft)}
                   aria-label="Спам"
                   onClick={(e) => {
