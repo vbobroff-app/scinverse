@@ -584,7 +584,7 @@ I2 (recovered после реконнекта — частный случай п
 | Dual/triple write на 1-й fail | auto + manual | **СНЯТ** — EnsureBreak + Append в `link:` |
 | Throwaway Group `auto:`/`connect:` на fail | kickoff / 1-й ручной | **СНЯТ** — короткий Group только после **успешного** connect |
 | `threadKindHint` overrides | data | частично нужен для Group на success; Open `link:` — KindIncident |
-| Paint-fallback `from+60s` без `escalatedAt` | `ConnectionRibbon` | **СНЯТ** — только API `escalatedAt` |
+| Paint invent `from+60` без T/маркера | `ConnectionRibbon` | **заменён** — clamp `from+T` для `degraded` без `escalatedAt` (T с API); бэк catch-up marker на close |
 | Transfer на любом teardown при `owner=transaq` | `DisconnectAsync` | **СНЯТ** — маркер только grace / Degraded→Down |
 
 ### Асимметрии (дизайн, не баг)
@@ -603,12 +603,16 @@ I2 (recovered после реконнекта — частный случай п
 
 ```text
 CloseBreakAsync(outcome):
-  TryTakeOpenBreak → [маркер scheduled|disconnected] → Hub.Resolve(closeOutcome)
+  TryTakeOpenBreak
+  → [catch-up ServerDown @ since+T if owner=transaq && elapsed≥T]
+  → [маркер scheduled|disconnected]
+  → Hub.Resolve(closeOutcome)
   recovered | abandoned_schedule | abandoned_manual
 
 Adopt: Hub.Adopt → Manager; fail Manager → Hub.Forget
 Connect-fail: Open link: + Append (Group auto:/connect: только после успеха)
-Лента: escalatedAt только из InsertBoundaryMarker (grace / Degraded→Down)
+Лента: escalatedAt из InsertBoundaryMarker (grace / Degraded→Down / catch-up);
+       UI clamp from+T если degraded без маркера (жёлтое ≤ T)
 ```
 
 ### Чеклист компонентов
@@ -619,12 +623,12 @@ Connect-fail: Open link: + Append (Group auto:/connect: только после 
 | `OhsEndpoints` disconnect | **ГОТОВ** — `TryAbandonIncidentByManualAsync` |
 | Adopt атомарно + без `fails>0` | **ГОТОВ** |
 | Connect-fail без throwaway Group | **ГОТОВ** |
-| Ribbon без synthetic `from+60s` | **ГОТОВ** |
+| Ribbon жёлтое ≤ T (`escalatedAt` / clamp) | **ГОТОВ** |
 | Docs `auto-connect` / `incident` §1.2 | **ГОТОВ** (хвост — живая приёмка) |
 
 ### Не делать
 
-- Новые paint-/NC-подпорки «поверх» рассинхрона.
+- Invent фиксированных `+60s` без `LinkRecoverGraceSeconds` / без причины на бэке.
 - Вливать crash в `link:` corr.
 - Снимать `_incidentSince` в `DisconnectAsync` на пути **handover** (инцидент должен жить).
 

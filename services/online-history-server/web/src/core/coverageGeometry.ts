@@ -215,6 +215,7 @@ export function gapIntersectsSegment(
 export interface LinkLivenessSnapshot {
   intervals: LivenessIntervalDto[];
   gaps: CaptureGapDto[];
+  linkRecoverGraceSeconds?: number;
 }
 
 /**

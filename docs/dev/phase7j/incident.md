@@ -235,8 +235,16 @@ Crash-corr не сливать с link-corr; вложенность только
 
 ## 3. Владение и решение инцидента (ownership + handover)
 
-Один инцидент на всё событие; владелец меняется по ходу. `t` = **дедлайн передачи владения**
+Один инцидент на всё событие; владелец меняется по ходу. `T` = **дедлайн передачи владения**
 (конфиг `LinkRecoverGraceSeconds`, дефолт **60 c**).
+
+**Инвариант ленты Connection:** жёлтое (owner TRANSAQ) длится **`t ≤ T`**, где T =
+`LinkRecoverGraceSeconds` — **максимум**, не фиксированная длина.
+- Degraded→Down / Error раньше grace → `escalatedAt = t < T` (сдал раньше).
+- grace без Live → `escalatedAt = since+T`.
+- Live до T → `escalatedAt=null`, жёлтое короче T (норма).
+Gap &gt; T без маркера — дефект; Host catch-up на close → boundary `since+T`; UI clamp потолком T
+(`linkRecoverGraceSeconds` в `/coverage/link`).
 
 ### Плечи (топология)
 

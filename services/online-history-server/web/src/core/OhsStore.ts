@@ -88,6 +88,8 @@ export interface LivenessState {
 export interface LinkLivenessState {
   intervals: LivenessIntervalDto[];
   gaps: CaptureGapDto[];
+  /** T (сек) для clamp жёлтой фазы; с `/coverage/link`. */
+  linkRecoverGraceSeconds?: number;
 }
 
 /** Контекст запроса слоя сделок: какие инструменты и по какому источнику сейчас видно. */
@@ -616,7 +618,10 @@ export class OhsStore {
       const horizon = this.resolveOutageScheduleHorizon();
       this.outageScheduleDesired = horizon?.desired ?? null;
       // Лента Connection: сразу красный маркер + ползущая штриховка (API во время простоя молчит).
-      this.link$.next(overlayCrashOutageOnLink(this.link$.value, start));
+      this.link$.next({
+        ...overlayCrashOutageOnLink(this.link$.value, start),
+        linkRecoverGraceSeconds: this.link$.value.linkRecoverGraceSeconds,
+      });
       // 11.11: Incident в горизонте desired, иначе Group (не журнал инцидентов).
       const threadKindHint = horizon?.desired === false ? 'group' : 'incident';
       void import('./notifications').then((m) => m.openBackendOutage(start, corr, threadKindHint));
@@ -891,6 +896,7 @@ export class OhsStore {
           ? { ...g, to: new Date(end).toISOString(), abandoned: true }
           : g,
       ),
+      linkRecoverGraceSeconds: this.link$.value.linkRecoverGraceSeconds,
     });
 
     void import('./notifications').then((m) => {
@@ -1704,7 +1710,7 @@ export class OhsStore {
     const sourceId = this.livenessSourceId;
     if (sourceId === null) {
       this.liveness$.next({ intervals: [], gaps: [] });
-      this.link$.next({ intervals: [], gaps: [] });
+      this.link$.next({ intervals: [], gaps: [], linkRecoverGraceSeconds: undefined });
       return;
     }
     const { from, to } = this.window$.value;
@@ -1721,13 +1727,21 @@ export class OhsStore {
     this.api.getLinkLiveness({ from, to, sourceId }).subscribe({
       next: (dto) => {
         // Во время открытого crash не затираем оптимистичную штриховку ответом «до дропа».
+        const grace = dto.linkRecoverGraceSeconds;
         if (this.outagePhase === 'open' || this.outagePhase === 'warning') {
           if (this.outageStart !== null) {
-            this.link$.next(overlayCrashOutageOnLink(dto, this.outageStart));
+            this.link$.next({
+              ...overlayCrashOutageOnLink(dto, this.outageStart),
+              linkRecoverGraceSeconds: grace,
+            });
             return;
           }
         }
-        this.link$.next({ intervals: dto.intervals, gaps: dto.gaps });
+        this.link$.next({
+          intervals: dto.intervals,
+          gaps: dto.gaps,
+          linkRecoverGraceSeconds: grace,
+        });
       },
       error: (err) => console.error('getLinkLiveness', err),
     });

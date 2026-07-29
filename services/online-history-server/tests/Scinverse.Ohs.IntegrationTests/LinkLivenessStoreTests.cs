@@ -212,6 +212,31 @@ public sealed class LinkLivenessStoreTests : IClassFixture<TimescaleFixture>, IA
     }
 
     [Fact]
+    public async Task CatchUpMarker_AfterLongDegraded_ThenLive_SetsEscalatedAtAtT()
+    {
+        // Live после ~33 мин Degraded без grace-tick: catch-up boundary на since+T → жёлтое ≤ T.
+        var t0 = new DateTimeOffset(2026, 7, 28, 6, 44, 49, TimeSpan.Zero);
+        var grace = TimeSpan.FromSeconds(60);
+        var liveAt = t0.AddMinutes(33);
+
+        await _store.HeartbeatAsync(TransaqSource, t0.AddMinutes(-5), MaxGap, CancellationToken.None);
+        await _store.CloseAsync(TransaqSource, LinkCloseReason.Degraded, t0, CancellationToken.None);
+        await _store.InsertBoundaryMarkerAsync(
+            TransaqSource, LinkCloseReason.ServerDown, t0.Add(grace), CancellationToken.None);
+        await _store.HeartbeatAsync(TransaqSource, liveAt, MaxGap, CancellationToken.None);
+
+        var gaps = await _store.QueryGapsAsync(
+            new[] { TransaqSource }, t0.AddMinutes(-1), liveAt.AddMinutes(1), CancellationToken.None);
+
+        gaps.Should().ContainSingle();
+        gaps[0].From.Should().Be(t0);
+        gaps[0].To.Should().Be(liveAt);
+        gaps[0].Cause.Should().Be(LinkCloseReason.Degraded);
+        gaps[0].EscalatedAt.Should().Be(t0.Add(grace));
+        gaps[0].EscalatedCause.Should().Be(LinkCloseReason.ServerDown);
+    }
+
+    [Fact]
     public async Task NaturalDownAfterDegraded_ThenScheduleEnd_SplitsYellowThenRed_Abandoned()
     {
         // Кейс hard-down→timeout: Degraded → Down (~40 с) → schedule_end. Без маркера server_down

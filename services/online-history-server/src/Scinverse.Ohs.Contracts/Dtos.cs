@@ -137,10 +137,12 @@ public sealed record CaptureLivenessDto(
 /// Жизненный цикл связи + периоды «связь не жива» на подключение (source) — лента Connection (phase 7h.8).
 /// <c>Intervals</c> = «связь жива» (зелёное), <c>Gaps</c> = «не жива»; причина <c>disconnected</c> — серая,
 /// <c>server_down/ping_failed/interrupted</c> — красная.
+/// <paramref name="LinkRecoverGraceSeconds"/> — T (owner TRANSAQ / жёлтое ≤ T); для safety-clamp ленты.
 /// </summary>
 public sealed record LinkLivenessDto(
     IReadOnlyList<LivenessIntervalDto> Intervals,
-    IReadOnlyList<CaptureGapDto> Gaps);
+    IReadOnlyList<CaptureGapDto> Gaps,
+    double LinkRecoverGraceSeconds = 60);
 
 /// <summary>Активная запись.</summary>
 public sealed record RecordingDto(

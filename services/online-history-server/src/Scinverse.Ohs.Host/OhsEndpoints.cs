@@ -144,16 +144,21 @@ public static class OhsEndpoints
 
         // Лента Connection (phase 7h.8): жизненный цикл связи независимо от записи.
         api.MapPost("/coverage/link", async (
-            LivenessQueryRequest request, ILinkLivenessStore store, CancellationToken ct) =>
+            LivenessQueryRequest request,
+            ILinkLivenessStore store,
+            OhsOptions ohsOptions,
+            CancellationToken ct) =>
         {
             var ids = new[] { request.SourceId };
             var intervals = await store.QueryAsync(ids, request.From, request.To, ct);
             var gaps = await store.QueryGapsAsync(ids, request.From, request.To, ct);
+            var grace = ohsOptions.LinkRecoverGraceSeconds > 0 ? ohsOptions.LinkRecoverGraceSeconds : 60;
             return new LinkLivenessDto(
                 intervals.Select(i => new LivenessIntervalDto(
                     i.From, i.To, i.Open, i.CloseReason is null ? null : ToLinkReasonDto(i.CloseReason.Value))).ToList(),
                 gaps.Select(g => new CaptureGapDto(
-                    g.From, g.To, ToLinkReasonDto(g.Cause), g.EscalatedAt, g.Abandoned)).ToList());
+                    g.From, g.To, ToLinkReasonDto(g.Cause), g.EscalatedAt, g.Abandoned)).ToList(),
+                grace);
         });
 
         api.MapGet("/recordings", (RecordingManager recordings) =>

@@ -3,7 +3,7 @@ import type { CoverageWindow } from '../../core/OhsStore';
 import { livenessEndMs } from '../../core/coverageGeometry';
 import { makeProjector } from '../../core/sessionProjection';
 import type { CaptureGapDto, LivenessIntervalDto, SessionDto } from '../../core/types';
-import { resolveEscalatedMs } from './connectionRibbonGaps';
+import { DEFAULT_LINK_RECOVER_GRACE_SEC, resolveEscalatedMs } from './connectionRibbonGaps';
 import styles from './ConnectionRibbon.module.css';
 
 interface Props {
@@ -17,6 +17,8 @@ interface Props {
   nowMs?: number;
   /** Смещение отображаемого ТЗ от UTC (мин) — для подписи времени в тултипах. */
   tzOffsetMin?: number;
+  /** T = LinkRecoverGraceSeconds (жёлтое ≤ T). С API `/coverage/link`. */
+  linkRecoverGraceSeconds?: number;
 }
 
 /** Не-инцидент (серое, без маркеров): отключил оператор / плановое по расписанию. Всё прочее = инцидент. */
@@ -69,11 +71,14 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   gaps,
   nowMs,
   tzOffsetMin = 180,
+  linkRecoverGraceSeconds = DEFAULT_LINK_RECOVER_GRACE_SEC,
 }: Props) {
   const windowFromMs = Date.parse(window.from);
   const windowToMs = Date.parse(window.to);
   const liveEdgeMs = Math.min(nowMs ?? windowToMs, windowToMs);
   const pct = makeProjector(windowFromMs, windowToMs, sessions);
+  const graceSec =
+    linkRecoverGraceSeconds > 0 ? linkRecoverGraceSeconds : DEFAULT_LINK_RECOVER_GRACE_SEC;
 
   return (
     <div className={styles.track}>
@@ -101,7 +106,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
         const from = Date.parse(gap.from);
         const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
         const label = CAUSE_LABEL[gap.cause] ?? gap.cause;
-        const escMs = resolveEscalatedMs(gap, from, to);
+        const escMs = resolveEscalatedMs(gap, from, to, graceSec);
 
         if (escMs === null || !isIncident(gap.cause)) {
           const left = pct(from);

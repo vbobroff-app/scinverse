@@ -225,6 +225,8 @@ export interface CaptureLivenessDto {
 export interface LinkLivenessDto {
   intervals: LivenessIntervalDto[];
   gaps: CaptureGapDto[];
+  /** T — окно owner TRANSAQ (жёлтое ≤ T), сек. С Host `OhsOptions.LinkRecoverGraceSeconds`. */
+  linkRecoverGraceSeconds?: number;
 }
 
 export interface RecordingDto {

@@ -29,6 +29,7 @@ public sealed class ConnectionManager(
     ILinkLivenessStore linkLiveness,
     INotificationPublisher notifications,
     TransaqConnectorOptions transaqDefaults,
+    OhsOptions options,
     ILoggerFactory loggerFactory,
     ILogger<ConnectionManager> logger) : IDisposable
 {
@@ -41,6 +42,10 @@ public sealed class ConnectionManager(
 
     /// <summary>Макс. разрыв keepalive связи: больше — интервал считается прерванным (краш процесса).</summary>
     internal static readonly TimeSpan LinkMaxGap = TimeSpan.FromSeconds(45);
+
+    /// <summary>T — окно владения TRANSAQ (жёлтое на ленте), затем handover супервизору.</summary>
+    private TimeSpan RecoverGrace => TimeSpan.FromSeconds(
+        options.LinkRecoverGraceSeconds > 0 ? options.LinkRecoverGraceSeconds : 60);
 
     private readonly ConcurrentDictionary<long, ConnectorSession> _sessions = new();
     private readonly ConcurrentDictionary<long, short> _sourceIds = new();
@@ -791,21 +796,32 @@ public sealed class ConnectionManager(
             return false;
         }
 
+        var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
+
+        // Пропущенный grace-tick: Live/abandon после T при owner=transaq → дописать boundary на since+T,
+        // иначе лента остаётся целиком жёлтой (жёлтое ≤ T — инвариант 7j.20).
+        if (LinkOwnership.CatchUpEscalationAt(owner, incidentStart, atTs, RecoverGrace) is { } catchUpAt
+            && sourceId is { } catchUpSid)
+        {
+            await linkLiveness
+                .InsertBoundaryMarkerAsync(catchUpSid, LinkCloseReason.ServerDown, catchUpAt, cancellationToken)
+                .ConfigureAwait(false);
+            logger.LogWarning(
+                "Подключение {ConnectionId}: catch-up escalatedAt={Esc:o} (owner=transaq, elapsed≥T={T}s)",
+                connectionId, catchUpAt, (int)RecoverGrace.TotalSeconds);
+        }
+
         LinkCloseReason? ribbonMarker = closeOutcome switch
         {
             NotificationThreadData.OutcomeAbandonedSchedule => LinkCloseReason.Scheduled,
             NotificationThreadData.OutcomeAbandonedManual => LinkCloseReason.Disconnected,
             _ => null,
         };
-        if (ribbonMarker is { } markerReason)
+        if (ribbonMarker is { } markerReason && sourceId is { } sid)
         {
-            var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
-            if (sourceId is { } sid)
-            {
-                await linkLiveness
-                    .InsertBoundaryMarkerAsync(sid, markerReason, atTs, cancellationToken)
-                    .ConfigureAwait(false);
-            }
+            await linkLiveness
+                .InsertBoundaryMarkerAsync(sid, markerReason, atTs, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var label = await ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);

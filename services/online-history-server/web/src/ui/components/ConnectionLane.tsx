@@ -82,6 +82,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
             gaps={link.gaps}
             nowMs={now}
             tzOffsetMin={tzOffsetMin}
+            linkRecoverGraceSeconds={link.linkRecoverGraceSeconds}
           />
         </div>
       </div>
