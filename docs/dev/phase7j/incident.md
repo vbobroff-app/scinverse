@@ -1,6 +1,6 @@
 # Phase 7j — Инциденты: модель, владение, хранение, визуализация
 
-Статус: **J1–J8 + J11a/b/c + I10 + I11 КОД ГОТОВ** · живая приёмка I11 · **H1/H2** → 7h.
+Статус: **J1–J8 + J11a/b/c + I10 + I11 КОД ГОТОВ** · живая приёмка I11 · **H1/H2 DONE**.
 Модель 2026-07-24; горизонт/исходы/виды 2026-07-26; abandon schedule (break+crash) 2026-07-26…27;
 I10 — 2026-07-27.
 Живая приёмка части сценариев на Finam id=3. Данные/запись — 7h ([../phase7h/incident.md](../phase7h/incident.md)).
@@ -516,9 +516,8 @@ As-is файлы: `web/src/ui/components/CoverageTrack.tsx` + `coverageGeometry.
 
 ### Scope 7h — данные / запись (recording-лента, capture)
 
-- [ ] **H1. `Degraded` = дыра в записи.** Раз Degraded теперь потеря данных — recording-путь
-  должен давать **красное** и на Degraded (сейчас Degraded там «живой» и красного не даёт).
-  To-be: красное из проекции `incident`, не из «живности» capture.
+- [x] **H1. `Degraded` = дыра в записи.** Recording red ← проекция `incident`; capture
+  `OnDegradedAsync` / гейт probe — не продлеваем `capture_liveness` в Degraded.
 - [x] **H2. Recording-лента = бинарная проекция `incident`.** Сплошной red без маркеров /
   break\|crash / owner; merge overlap (`[blue][red][blue]`). Не путать с Connection-лентой (J7).
   Спека — [../phase11/incident-journal.md](../phase11/incident-journal.md) §3.0b.

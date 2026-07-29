@@ -129,4 +129,27 @@ describe('mergeIncidentReds', () => {
       },
     ]);
   });
+
+  it('H1: open break (Degraded) paints red to now', () => {
+    const now = Date.parse('2026-07-29T10:30:00.000Z');
+    const merged = mergeIncidentReds(
+      [
+        breakIncident({
+          corrUid: 'degraded',
+          openedAt: '2026-07-29T10:00:00.000Z',
+          status: 'active',
+          subtype: 'degraded',
+          owner: 'transaq',
+        }),
+      ],
+      now,
+    );
+
+    expect(merged).toEqual([
+      {
+        fromMs: Date.parse('2026-07-29T10:00:00.000Z'),
+        toMs: now,
+      },
+    ]);
+  });
 });

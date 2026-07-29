@@ -17,4 +17,10 @@ public interface ILivenessWriter
 
     /// <summary><c>server_status</c> down/error — закрыть живость (причина server_down).</summary>
     Task OnServerDownAsync(long connectionId, DateTimeOffset at, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// H1: <c>Degraded</c> = потеря данных — закрыть живость захвата (причина server_down).
+    /// Сессию/подписки не трогаем (ре-подписка остаётся в ConnectionManager).
+    /// </summary>
+    Task OnDegradedAsync(long connectionId, DateTimeOffset at, CancellationToken cancellationToken);
 }

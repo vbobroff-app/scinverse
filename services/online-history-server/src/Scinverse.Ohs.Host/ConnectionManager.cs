@@ -751,6 +751,11 @@ public sealed class ConnectionManager(
                         .ConfigureAwait(false);
                 }
 
+                // H1: рвём живость захвата (синяя подложка), сессию/подписки оставляем.
+                await liveness.Value
+                    .OnDegradedAsync(connectionId, change.At, CancellationToken.None)
+                    .ConfigureAwait(false);
+
                 await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
                 SetStatus(connectionId, StatusForLinkState(ConnectorLinkState.Degraded));
 

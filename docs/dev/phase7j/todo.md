@@ -54,7 +54,7 @@ UI пресетов захардкожен под MOEX; рынок (CME и др.
 | **UI outage mask** | При crash open: тумблер «OHS недоступен» (жёлтый) + AUTO жёлтый | **КОД ГОТОВ** (`backendOutage$`) |
 | **I6 regress** | ConnectAsync без ре-подписки → recovered без сделок | **КОД ГОТОВ** |
 | **J9 / J10** | per-connection grace / глобальный порог NC | ПЛАН, позже ([incident.md](incident.md) §8) |
-| **H1 / H2** | recording = бинарная проекция `incident` (red, без маркеров/type) | → **7h** / после 11.13 journal · [incident §7](incident.md) |
+| **H1 / H2** | recording = бинарная проекция `incident`; Degraded рвёт capture | **DONE** · [incident §7](incident.md) |
 | **I9 prod** | bind/health/proxy family после Vite | OPEN checklist ([issue.md](issue.md) I9) |
 | **I12** | Pool exhausted → пачка 500; orphan ACTIVE FATAL после recover | **OPEN** ([issue.md](issue.md) I12): RxJS sync refresh; смежно coverage 7h |
 

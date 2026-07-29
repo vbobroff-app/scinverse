@@ -28,8 +28,16 @@ public sealed class LivenessProbe(
 
     private TimeSpan MaxGap => TimeSpan.FromSeconds(Math.Max(_probeInterval.TotalSeconds * 3, 45));
 
-    public Task OnDataAsync(long connectionId, CancellationToken cancellationToken) =>
-        HeartbeatIfRecordingAsync(connectionId, time.GetUtcNow(), cancellationToken);
+    public Task OnDataAsync(long connectionId, CancellationToken cancellationToken)
+    {
+        // H1: в Degraded сделки/колбэки не продлевают «честную» подложку захвата.
+        if (connections.GetLinkState(connectionId) == ConnectorLinkState.Degraded)
+        {
+            return Task.CompletedTask;
+        }
+
+        return HeartbeatIfRecordingAsync(connectionId, time.GetUtcNow(), cancellationToken);
+    }
 
     public async Task OnRecordingStoppedAsync(long connectionId, CancellationToken cancellationToken)
     {
@@ -45,6 +53,9 @@ public sealed class LivenessProbe(
         CloseIfOpenAsync(connectionId, CaptureCloseReason.Stopped, null, cancellationToken);
 
     public Task OnServerDownAsync(long connectionId, DateTimeOffset at, CancellationToken cancellationToken) =>
+        CloseIfOpenAsync(connectionId, CaptureCloseReason.ServerDown, at, cancellationToken);
+
+    public Task OnDegradedAsync(long connectionId, DateTimeOffset at, CancellationToken cancellationToken) =>
         CloseIfOpenAsync(connectionId, CaptureCloseReason.ServerDown, at, cancellationToken);
 
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -81,6 +92,16 @@ public sealed class LivenessProbe(
 
             if (!recordings.HasRecordingsOnConnection(session.ConnectionId))
             {
+                continue;
+            }
+
+            // H1: Degraded = дыра записи — не хартбитим capture; закрываем, если интервал ещё open
+            // (гонка с OnDegradedAsync / рестарт mid-Degraded).
+            if (linkState == ConnectorLinkState.Degraded)
+            {
+                await CloseIfOpenAsync(
+                        session.ConnectionId, CaptureCloseReason.ServerDown, now, cancellationToken)
+                    .ConfigureAwait(false);
                 continue;
             }
 
