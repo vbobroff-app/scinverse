@@ -17,7 +17,7 @@ public sealed class ConnectionSupervisor(
     TimeProvider time,
     INotificationPublisher notifications,
     INotificationStore notificationStore,
-    IJournalRegistrator journal,
+    IIncidentFanOut fanOut,
     ClientRecoveryGate recoveryGate,
     ILogger<ConnectionSupervisor> logger)
 {
@@ -299,19 +299,24 @@ public sealed class ConnectionSupervisor(
 
         if (incidentOpen)
         {
-            notifications.Progress(
-                linkSubject,
-                "connection.reconnecting",
-                $"{scheduleLabel}: восстановление связи, попытка {fails + 1}/{MaxConnectAttempts}",
-                severity: "warning",
-                data: new
-                {
-                    connectionId,
-                    owner = "supervisor",
-                    sender = "supervisor",
-                    attempt = fails + 1,
-                });
-            await RegisterJournalRecoveringAsync(connectionId, nowUtc, cancellationToken)
+            await fanOut
+                .ApplyAsync(
+                    new IncidentStep(
+                        IncidentStepKind.Recovering,
+                        linkSubject,
+                        nowUtc,
+                        ConnectionId: connectionId,
+                        NcCode: "connection.reconnecting",
+                        NcMessage: $"{scheduleLabel}: восстановление связи, попытка {fails + 1}/{MaxConnectAttempts}",
+                        NcSeverity: "warning",
+                        NcData: new
+                        {
+                            connectionId,
+                            owner = "supervisor",
+                            sender = "supervisor",
+                            attempt = fails + 1,
+                        }),
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -549,14 +554,17 @@ public sealed class ConnectionSupervisor(
             return;
         }
 
-        await journal
-            .EnsureBreakAdoptedAsync(
-                connectionId,
-                open.CorrelationId,
-                open.OpenedAt,
-                open.Status,
-                owner: "supervisor",
-                sourceId: null,
+        // Hub.Adopt уже выше; fan-out Adopt идемпотентен по тому же corr + journal ensure.
+        await fanOut
+            .ApplyAsync(
+                new IncidentStep(
+                    IncidentStepKind.Adopt,
+                    subject,
+                    open.OpenedAt,
+                    CorrUid: open.CorrelationId,
+                    ConnectionId: connectionId,
+                    Owner: "supervisor",
+                    HubStatus: open.Status),
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -580,21 +588,27 @@ public sealed class ConnectionSupervisor(
         var label = await connections.ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
         var graceSec = (int)RecoverGrace.TotalSeconds;
 
+        var subject = ConnectionManager.LinkIncidentSubject(connectionId);
         if (elapsed >= RecoverGrace)
         {
-            notifications.Progress(
-                ConnectionManager.LinkIncidentSubject(connectionId),
-                "connection.reconnecting",
-                $"{label}: нет восстановления связи (TRANSAQ) за {graceSec} с, передача супервизору",
-                severity: "warning",
-                data: new
-                {
-                    connectionId,
-                    owner = "supervisor",
-                    sender = "supervisor",
-                    handoverAfterSeconds = graceSec,
-                });
-            await RegisterJournalRecoveringAsync(connectionId, nowUtc, cancellationToken)
+            await fanOut
+                .ApplyAsync(
+                    new IncidentStep(
+                        IncidentStepKind.Recovering,
+                        subject,
+                        nowUtc,
+                        ConnectionId: connectionId,
+                        NcCode: "connection.reconnecting",
+                        NcMessage: $"{label}: нет восстановления связи (TRANSAQ) за {graceSec} с, передача супервизору",
+                        NcSeverity: "warning",
+                        NcData: new
+                        {
+                            connectionId,
+                            owner = "supervisor",
+                            sender = "supervisor",
+                            handoverAfterSeconds = graceSec,
+                        }),
+                    cancellationToken)
                 .ConfigureAwait(false);
             await connections.HandoverToSupervisorAsync(connectionId, nowUtc, cancellationToken).ConfigureAwait(false);
             return;
@@ -604,33 +618,26 @@ public sealed class ConnectionSupervisor(
         const int stepSec = 5;
         var elapsedSec = Math.Max(0, ((int)elapsed.TotalSeconds / stepSec) * stepSec);
         var remainingSec = Math.Max(0, graceSec - elapsedSec);
-        notifications.Progress(
-            ConnectionManager.LinkIncidentSubject(connectionId),
-            "connection.recovering",
-            $"{label}: восстановление связи (TRANSAQ) · {elapsedSec} с, передача супервизору через {remainingSec} с",
-            severity: "warning",
-            data: new
-            {
-                connectionId,
-                owner = "transaq",
-                sender = "supervisor",
-                elapsedSeconds = elapsedSec,
-                handoverInSeconds = remainingSec,
-            });
-        await RegisterJournalRecoveringAsync(connectionId, nowUtc, cancellationToken).ConfigureAwait(false);
-    }
-
-    private Task RegisterJournalRecoveringAsync(
-        long connectionId, DateTimeOffset at, CancellationToken cancellationToken)
-    {
-        if (!notifications.TryGetOpenCorrelationId(
-                ConnectionManager.LinkIncidentSubject(connectionId), out var corr)
-            || corr is null)
-        {
-            return Task.CompletedTask;
-        }
-
-        return journal.RegisterBreakRecoveringAsync(corr, at, cancellationToken);
+        await fanOut
+            .ApplyAsync(
+                new IncidentStep(
+                    IncidentStepKind.Recovering,
+                    subject,
+                    nowUtc,
+                    ConnectionId: connectionId,
+                    NcCode: "connection.recovering",
+                    NcMessage: $"{label}: восстановление связи (TRANSAQ) · {elapsedSec} с, передача супервизору через {remainingSec} с",
+                    NcSeverity: "warning",
+                    NcData: new
+                    {
+                        connectionId,
+                        owner = "transaq",
+                        sender = "supervisor",
+                        elapsedSeconds = elapsedSec,
+                        handoverInSeconds = remainingSec,
+                    }),
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private bool IsConnected(long connectionId)

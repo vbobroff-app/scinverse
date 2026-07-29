@@ -28,7 +28,7 @@ public sealed class ConnectionManager(
     Lazy<RecordingManager> recordings,
     ILinkLivenessStore linkLiveness,
     INotificationPublisher notifications,
-    IJournalRegistrator journal,
+    IIncidentFanOut fanOut,
     TransaqConnectorOptions transaqDefaults,
     OhsOptions options,
     ILoggerFactory loggerFactory,
@@ -115,21 +115,17 @@ public sealed class ConnectionManager(
 
         _incidentOwner[connectionId] = "supervisor";
         var title = $"{label}: не удалось установить связь";
-        notifications.Open(
-            LinkIncidentSubject(connectionId),
-            "connection.lost",
-            title,
-            severity: "error",
-            data: new
-            {
+        // Sync API (connect-fail path): fan-out journal+NC; БД-ошибки глотает JournalRegistrator.
+        FanOutBreakOpenAsync(
                 connectionId,
-                state = "Error",
-                sender = "supervisor",
-                threadKindHint = NotificationThreadData.KindIncident,
-            });
-        // Sync API (connect-fail path): journal — fire-and-complete; БД-ошибки глотает JournalRegistrator.
-        RegisterJournalOpenAsync(
-                connectionId, atTs, owner: "supervisor", subtype: "down", title, CancellationToken.None)
+                atTs,
+                owner: "supervisor",
+                subtype: "down",
+                title,
+                sender: "supervisor",
+                state: "Error",
+                detail: null,
+                CancellationToken.None)
             .GetAwaiter()
             .GetResult();
         return true;
@@ -478,11 +474,15 @@ public sealed class ConnectionManager(
                 connectionId);
         }
 
-        if (notifications.TryGetOpenCorrelationId(LinkIncidentSubject(connectionId), out var corr)
-            && corr is not null)
-        {
-            await journal.RegisterBreakHandoverAsync(corr, atTs, cancellationToken).ConfigureAwait(false);
-        }
+        await fanOut
+            .ApplyAsync(
+                new IncidentStep(
+                    IncidentStepKind.Handover,
+                    LinkIncidentSubject(connectionId),
+                    atTs,
+                    ConnectionId: connectionId),
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public async Task<string> TestAsync(long connectionId, CancellationToken cancellationToken)
@@ -719,27 +719,17 @@ public sealed class ConnectionManager(
                 var isNewDegraded = _incidentSince.TryAdd(connectionId, change.At);
                 _incidentOwner.TryAdd(connectionId, "transaq");
                 var degradedTitle = $"{degradedLabel}: связь потеряна (Degraded)";
-                var openedDegraded = notifications.Open(
-                    LinkIncidentSubject(connectionId),
-                    "connection.lost",
-                    degradedTitle,
-                    severity: "error",
-                    data: new
-                    {
-                        connectionId,
-                        state = change.State.ToString(),
-                        detail = change.Detail,
-                        sender = "transaq",
-                        threadKindHint = NotificationThreadData.KindIncident,
-                    });
-                if (isNewDegraded || openedDegraded)
+                if (isNewDegraded)
                 {
-                    await RegisterJournalOpenAsync(
+                    await FanOutBreakOpenAsync(
                             connectionId,
                             change.At,
                             owner: "transaq",
                             subtype: "degraded",
                             degradedTitle,
+                            sender: "transaq",
+                            state: change.State.ToString(),
+                            detail: change.Detail,
                             CancellationToken.None)
                         .ConfigureAwait(false);
                 }
@@ -826,9 +816,6 @@ public sealed class ConnectionManager(
             return false;
         }
 
-        // Corr ещё в Hub до Resolve — забираем для журнала.
-        notifications.TryGetOpenCorrelationId(LinkIncidentSubject(connectionId), out var journalCorr);
-
         var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
 
         // Пропущенный grace-tick: Live/abandon после T при owner=transaq → дописать boundary на since+T,
@@ -859,76 +846,83 @@ public sealed class ConnectionManager(
 
         var label = await ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
         var gapLine = FormatGapLine(incidentStart, atTs);
+        var subject = LinkIncidentSubject(connectionId);
+
+        IncidentStep resolveStep = closeOutcome switch
+        {
+            NotificationThreadData.OutcomeAbandonedSchedule => new IncidentStep(
+                IncidentStepKind.Resolve,
+                subject,
+                atTs,
+                ConnectionId: connectionId,
+                CloseOutcome: closeOutcome,
+                Severity: "warning",
+                NcCode: "connection.incident_closed",
+                NcMessage: $"{label}: инцидент закрыт по окончании окна расписания",
+                NcSeverity: "warning",
+                NcData: new
+                {
+                    connectionId,
+                    kind = "break",
+                    reason = "schedule_end",
+                    sender = "supervisor",
+                    result = $"Закрыто по окончании окна расписания; {gapLine}",
+                    closeOutcome,
+                }),
+            NotificationThreadData.OutcomeAbandonedManual => new IncidentStep(
+                IncidentStepKind.Resolve,
+                subject,
+                atTs,
+                ConnectionId: connectionId,
+                CloseOutcome: closeOutcome,
+                Severity: "warning",
+                NcCode: "connection.incident_closed",
+                NcMessage: $"{label}: инцидент закрыт (отключено оператором)",
+                NcSeverity: "warning",
+                NcData: new
+                {
+                    connectionId,
+                    kind = "break",
+                    reason = "manual_off",
+                    sender = "user",
+                    result = $"Закрыто оператором; {gapLine}",
+                    closeOutcome,
+                }),
+            _ => new IncidentStep(
+                IncidentStepKind.Resolve,
+                subject,
+                atTs,
+                ConnectionId: connectionId,
+                CloseOutcome: NotificationThreadData.OutcomeRecovered,
+                Severity: "ok",
+                NcCode: "connection.recovered",
+                NcMessage: $"{label}: связь восстановлена",
+                NcSeverity: "ok",
+                NcData: new
+                {
+                    connectionId,
+                    result = owner == "supervisor"
+                        ? $"Восстановлено супервизором (переподключение); {gapLine}"
+                        : $"Восстановлено TRANSAQ; {gapLine}",
+                    sender = owner,
+                    closeOutcome = NotificationThreadData.OutcomeRecovered,
+                }),
+        };
+
+        await fanOut.ApplyAsync(resolveStep, cancellationToken).ConfigureAwait(false);
 
         switch (closeOutcome)
         {
             case NotificationThreadData.OutcomeAbandonedSchedule:
-                notifications.Resolve(
-                    LinkIncidentSubject(connectionId),
-                    "connection.incident_closed",
-                    $"{label}: инцидент закрыт по окончании окна расписания",
-                    severity: "warning",
-                    data: new
-                    {
-                        connectionId,
-                        kind = "break",
-                        reason = "schedule_end",
-                        sender = "supervisor",
-                        result = $"Закрыто по окончании окна расписания; {gapLine}",
-                        closeOutcome,
-                    });
                 logger.LogInformation(
                     "Подключение {ConnectionId}: break-инцидент закрыт по окончании окна расписания (с {Start:o} по {End:o})",
                     connectionId, incidentStart, atTs);
                 break;
-
             case NotificationThreadData.OutcomeAbandonedManual:
-                notifications.Resolve(
-                    LinkIncidentSubject(connectionId),
-                    "connection.incident_closed",
-                    $"{label}: инцидент закрыт (отключено оператором)",
-                    severity: "warning",
-                    data: new
-                    {
-                        connectionId,
-                        kind = "break",
-                        reason = "manual_off",
-                        sender = "user",
-                        result = $"Закрыто оператором; {gapLine}",
-                        closeOutcome,
-                    });
                 logger.LogInformation(
                     "Подключение {ConnectionId}: break-инцидент закрыт вручную (с {Start:o} по {End:o})",
                     connectionId, incidentStart, atTs);
                 break;
-
-            default:
-                // recovered — Live / успешный connect (self-recovery или реконнект супервизора).
-                var ownerLine = owner == "supervisor"
-                    ? "Восстановлено супервизором (переподключение)"
-                    : "Восстановлено TRANSAQ";
-                notifications.Resolve(
-                    LinkIncidentSubject(connectionId),
-                    "connection.recovered",
-                    $"{label}: связь восстановлена",
-                    severity: "ok",
-                    data: new
-                    {
-                        connectionId,
-                        result = $"{ownerLine}; {gapLine}",
-                        sender = owner,
-                        closeOutcome = NotificationThreadData.OutcomeRecovered,
-                    });
-                break;
-        }
-
-        if (journalCorr is not null)
-        {
-            var journalSeverity = closeOutcome == NotificationThreadData.OutcomeRecovered ? "ok" : "warning";
-            await journal
-                .RegisterBreakResolvedAsync(
-                    journalCorr, atTs, closeOutcome, title: null, journalSeverity, cancellationToken)
-                .ConfigureAwait(false);
         }
 
         return true;
@@ -985,25 +979,43 @@ public sealed class ConnectionManager(
         return connection?.SourceId;
     }
 
-    /// <summary>После Hub.Open — INSERT в журнал <c>incident</c> (тот же corr_uid).</summary>
-    private async Task RegisterJournalOpenAsync(
+    /// <summary>I2: open break → fan-out (Hub + journal, один corr).</summary>
+    private async Task FanOutBreakOpenAsync(
         long connectionId,
         DateTimeOffset openedAt,
         string owner,
         string subtype,
         string title,
+        string sender,
+        string state,
+        string? detail,
         CancellationToken cancellationToken)
     {
-        if (!notifications.TryGetOpenCorrelationId(LinkIncidentSubject(connectionId), out var corr)
-            || corr is null)
-        {
-            return;
-        }
-
         var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
-        await journal
-            .RegisterBreakOpenAsync(
-                connectionId, corr, openedAt, owner, subtype, sourceId, title, cancellationToken)
+        await fanOut
+            .ApplyAsync(
+                new IncidentStep(
+                    IncidentStepKind.Open,
+                    LinkIncidentSubject(connectionId),
+                    openedAt,
+                    ConnectionId: connectionId,
+                    SourceId: sourceId,
+                    Owner: owner,
+                    Subtype: subtype,
+                    Title: title,
+                    Severity: "error",
+                    NcCode: "connection.lost",
+                    NcMessage: title,
+                    NcSeverity: "error",
+                    NcData: new
+                    {
+                        connectionId,
+                        state,
+                        detail,
+                        sender,
+                        threadKindHint = NotificationThreadData.KindIncident,
+                    }),
+                cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -1039,9 +1051,16 @@ public sealed class ConnectionManager(
         {
             // Сразу Down/Error/ping — owner=supervisor с t0 (жёлтой фазы не было).
             _incidentOwner[connectionId] = "supervisor";
-            notifications.Open(subject, "connection.lost", message, severity: "error", data: lostData);
-            await RegisterJournalOpenAsync(
-                    connectionId, atTs, owner: "supervisor", subtype: "down", message, cancellationToken)
+            await FanOutBreakOpenAsync(
+                    connectionId,
+                    atTs,
+                    owner: "supervisor",
+                    subtype: "down",
+                    message,
+                    sender,
+                    state: state.ToString(),
+                    detail,
+                    cancellationToken)
                 .ConfigureAwait(false);
             if (_sourceIds.TryGetValue(connectionId, out var srcId))
             {
@@ -1061,6 +1080,7 @@ public sealed class ConnectionManager(
         else
         {
             // TRANSAQ сдался раньше T (или уже был Degraded): та же смена owner, что и grace-handover.
+            // Append — mid-thread (не Open); fan-out Handover обновляет journal owner/escalated.
             notifications.Append(subject, "connection.lost", message, severity: "error", data: lostData);
             await TransferBreakOwnerToSupervisorAsync(connectionId, atTs, reason, cancellationToken)
                 .ConfigureAwait(false);

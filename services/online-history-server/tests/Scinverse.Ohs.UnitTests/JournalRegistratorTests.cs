@@ -80,6 +80,7 @@ public sealed class JournalRegistratorTests
         var link = new RecordingLinkLivenessForJournal();
         var store = new FakeIncidentStore();
         var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
         var connStore = new SingleConnectionStore(7, 1);
         var manager = new ConnectionManager(
             connStore,
@@ -96,7 +97,7 @@ public sealed class JournalRegistratorTests
             recordings: new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
             linkLiveness: link,
             notifications: hub,
-            journal: journal,
+            fanOut: fanOut,
             transaqDefaults: new Connectors.Transaq.TransaqConnectorOptions(),
             options: new OhsOptions { LinkRecoverGraceSeconds = 3600 },
             loggerFactory: NullLoggerFactory.Instance,

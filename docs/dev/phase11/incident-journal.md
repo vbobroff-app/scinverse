@@ -269,8 +269,8 @@ OHS ─ IncidentStep ─┤
 
 ### 7.1. JournalRegistrator / fan-out (**в OHS**) — as-is → to-be
 
-> As-is: `JournalRegistrator` (только `incident`). **I2 step1:** `IncidentStep` + `IIncidentFanOut`
-> (`IncidentFanOut`) — фасад journal+Hub; callers ещё на раздельных путях → step2/3.  
+> As-is: `JournalRegistrator` (только `incident`). **I2:** `IncidentStep` + `IncidentFanOut` —
+> break open/recovering/handover/resolve/adopt через фасад (step1–2); crash/manual resolve → step3.  
 > Не путать с **TradeWriter** / Recording-лентой.
 
 | Событие | Журнал OHS | NC (атомы) |
@@ -368,6 +368,6 @@ As-is: атомы → Hub/V025; to-be gate 11→12 — Publisher → серви�
 
 **Вне scope 11.13:** вынос NC-сервиса / перенос V025 (gate 11→12), WebGL, Keycloak, 7j.15/16, I12.
 
-**Порядок:** a → b → c → (d ∥ e) → f. **I2:** docs ✓ → fan-out фасад (step1) → break → crash → тесты.
+**Порядок:** a → b → c → (d ∥ e) → f. **I2:** docs ✓ → фасад ✓ → break ✓ → crash → тесты.
 
 **Коммиты:** `feat(ohs-11): …` / `docs(11): …` — только по просьбе пользователя.

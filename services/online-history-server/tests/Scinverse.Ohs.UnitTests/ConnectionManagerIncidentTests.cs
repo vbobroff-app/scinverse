@@ -136,7 +136,8 @@ public sealed class ConnectionManagerIncidentTests
             recordings: new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
             linkLiveness: link,
             notifications: hub,
-            journal: NullJournalRegistrator.Instance,
+            fanOut: new IncidentFanOut(
+                hub, NullJournalRegistrator.Instance, NullLogger<IncidentFanOut>.Instance),
             transaqDefaults: new TransaqConnectorOptions(),
             options: new OhsOptions { LinkRecoverGraceSeconds = 3600 },
             loggerFactory: NullLoggerFactory.Instance,
