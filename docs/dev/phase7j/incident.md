@@ -519,7 +519,7 @@ As-is файлы: `web/src/ui/components/CoverageTrack.tsx` + `coverageGeometry.
 - [ ] **H1. `Degraded` = дыра в записи.** Раз Degraded теперь потеря данных — recording-путь
   должен давать **красное** и на Degraded (сейчас Degraded там «живой» и красного не даёт).
   To-be: красное из проекции `incident`, не из «живности» capture.
-- [ ] **H2. Recording-лента = бинарная проекция `incident`.** Сплошной red без маркеров /
+- [x] **H2. Recording-лента = бинарная проекция `incident`.** Сплошной red без маркеров /
   break\|crash / owner; merge overlap (`[blue][red][blue]`). Не путать с Connection-лентой (J7).
   Спека — [../phase11/incident-journal.md](../phase11/incident-journal.md) §3.0b.
 - [ ] **H3. (Отдельно, DEFERRED)** 3-мин задержка «первых данных» — см.

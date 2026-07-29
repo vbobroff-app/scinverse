@@ -31,6 +31,7 @@ import type {
   InstrumentDto,
   InstrumentGroupDto,
   InstrumentQueryParams,
+  IncidentDto,
   LivenessIntervalDto,
   LiveEvent,
   NotificationDto,
@@ -90,6 +91,11 @@ export interface LinkLivenessState {
   gaps: CaptureGapDto[];
   /** T (сек) для clamp жёлтой фазы; с `/coverage/link`. */
   linkRecoverGraceSeconds?: number;
+  /**
+   * Эпизоды журнала `incident` для окна (11.13e). `undefined` — ещё не грузили / сброс
+   * (лента Connection в legacy-режиме gaps); массив — источник цветных эпизодов + Recording red.
+   */
+  incidents?: IncidentDto[];
 }
 
 /** Контекст запроса слоя сделок: какие инструменты и по какому источнику сейчас видно. */
@@ -432,6 +438,8 @@ export class OhsStore {
     if (this.activeConnectionId$.value !== connectionId) {
       this.activeConnectionId$.next(connectionId);
       this.persistView();
+      // 11.13e: журнал инцидентов привязан к connectionId, не только к sourceId.
+      this.refreshLiveness();
     }
   }
 
@@ -621,6 +629,7 @@ export class OhsStore {
       this.link$.next({
         ...overlayCrashOutageOnLink(this.link$.value, start),
         linkRecoverGraceSeconds: this.link$.value.linkRecoverGraceSeconds,
+        incidents: this.link$.value.incidents,
       });
       // 11.11: Incident в горизонте desired, иначе Group (не журнал инцидентов).
       const threadKindHint = horizon?.desired === false ? 'group' : 'incident';
@@ -897,6 +906,7 @@ export class OhsStore {
           : g,
       ),
       linkRecoverGraceSeconds: this.link$.value.linkRecoverGraceSeconds,
+      incidents: this.link$.value.incidents,
     });
 
     void import('./notifications').then((m) => {
@@ -1722,10 +1732,16 @@ export class OhsStore {
     const sourceId = this.livenessSourceId;
     if (sourceId === null) {
       this.liveness$.next({ intervals: [], gaps: [] });
-      this.link$.next({ intervals: [], gaps: [], linkRecoverGraceSeconds: undefined });
+      this.link$.next({
+        intervals: [],
+        gaps: [],
+        linkRecoverGraceSeconds: undefined,
+        incidents: undefined,
+      });
       return;
     }
     const { from, to } = this.window$.value;
+    const connectionId = this.activeConnectionId$.value;
     this.api.getCaptureLiveness({ from, to, sourceId }).subscribe({
       next: (dto) => {
         const gaps =
@@ -1740,11 +1756,13 @@ export class OhsStore {
       next: (dto) => {
         // Во время открытого crash не затираем оптимистичную штриховку ответом «до дропа».
         const grace = dto.linkRecoverGraceSeconds;
+        const prevIncidents = this.link$.value.incidents;
         if (this.outagePhase === 'open' || this.outagePhase === 'warning') {
           if (this.outageStart !== null) {
             this.link$.next({
               ...overlayCrashOutageOnLink(dto, this.outageStart),
               linkRecoverGraceSeconds: grace,
+              incidents: prevIncidents,
             });
             return;
           }
@@ -1753,10 +1771,25 @@ export class OhsStore {
           intervals: dto.intervals,
           gaps: dto.gaps,
           linkRecoverGraceSeconds: grace,
+          incidents: prevIncidents,
         });
       },
       error: (err) => console.error('getLinkLiveness', err),
     });
+    // 11.13e: цветные эпизоды Connection + бинарный red Recording ← журнал incident.
+    if (connectionId != null) {
+      this.api.getConnectionIncidents(connectionId, { from, to, limit: 500 }).subscribe({
+        next: (incidents) => {
+          this.link$.next({ ...this.link$.value, incidents });
+        },
+        error: (err) => {
+          console.error('getConnectionIncidents', err);
+          this.link$.next({ ...this.link$.value, incidents: [] });
+        },
+      });
+    } else {
+      this.link$.next({ ...this.link$.value, incidents: undefined });
+    }
   }
 
   /** Догружает слой сделок для текущего контекста, окна и бакета таймфрейма (батч-запрос). */

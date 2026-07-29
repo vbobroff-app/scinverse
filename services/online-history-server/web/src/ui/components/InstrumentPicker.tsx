@@ -24,6 +24,7 @@ import type {
 } from '../../core/types';
 import { RecordingAutoToggle } from './RecordingAutoToggle';
 import { autoPhase, type AutoPhase } from './recordingAutoPhase';
+import { mergeIncidentReds } from './incidentRibbonProjection';
 import styles from './InstrumentPicker.module.css';
 
 const ROW_HEIGHT = 50;
@@ -101,6 +102,7 @@ interface RowProps {
   activitySourceId: number;
   livenessIntervals?: LivenessIntervalDto[];
   captureGaps?: CaptureGapDto[];
+  incidentReds?: { fromMs: number; toMs: number }[] | null;
   tzOffsetMin: number;
   sessions: SessionDto[];
   sourceCodeById: Map<number, string>;
@@ -136,6 +138,7 @@ const Row = memo(function Row({
   activitySourceId,
   livenessIntervals,
   captureGaps,
+  incidentReds,
   tzOffsetMin,
   sessions,
   sourceCodeById,
@@ -296,6 +299,7 @@ const Row = memo(function Row({
           activitySourceId={activitySourceId}
           livenessIntervals={livenessIntervals}
           captureGaps={captureGaps}
+          incidentReds={incidentReds}
           tzOffsetMin={tzOffsetMin}
           sourceCodeById={sourceCodeById}
           sessions={sessions}
@@ -316,6 +320,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const coverage = useBehavior(store.coverage$);
   const activity = useBehavior(store.activity$);
   const liveness = useBehavior(store.liveness$);
+  const link = useBehavior(store.link$);
   const sources = useBehavior(store.sources$);
   const selected = useBehavior(store.selectedInstruments$);
   const expandedFutures = useBehavior(store.expandedFutures$);
@@ -342,6 +347,12 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const sourceCodeById = useMemo(
     () => new Map(sources.map((s) => [s.sourceId, s.code])),
     [sources],
+  );
+
+  /** Recording binary red ← журнал incident (11.13e); null = legacy captureGaps. */
+  const incidentReds = useMemo(
+    () => (link.incidents != null ? mergeIncidentReds(link.incidents, now) : null),
+    [link.incidents, now],
   );
 
   const recordingByInstrument = useMemo(
@@ -650,6 +661,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               activitySourceId={connection.sourceId}
               livenessIntervals={liveness.intervals}
               captureGaps={liveness.gaps}
+              incidentReds={incidentReds}
               tzOffsetMin={tzOffsetMin}
               sessions={sessions}
               sourceCodeById={sourceCodeById}

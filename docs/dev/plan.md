@@ -85,7 +85,7 @@ Stage 1 (архитектура, модель данных, API/WS, границ
 | 8 | CI/CD: GitHub Actions (build + unit + integration) + compose-сервис `migrator` | TODO | — |
 | 9 | Импорт истории QScalp `.qsh` (бэкфилл, `source=qscalp`) — поздний этап | TODO | — |
 | 10 | Multi-user & auth: Keycloak (OIDC/JWT для .NET+Python), таблица `user_settings`, примитивные роли | PLANNED | [phase10](phase10/plan.md) — единая identity; **обязателен на gate перед phase 12** |
-| **11** | **NC:** лента Thread DONE; **11.13 журнал → 11.13e** (`incident` в OHS, a–d DONE) | **IN PROGRESS** | [incident-journal](phase11/incident-journal.md) · [plan](phase11/plan.md) · handoff [`promt.md` §8](../promt.md) |
+| **11** | **NC:** лента Thread DONE; **11.13 журнал → 11.13f** (`incident` в OHS, a–e DONE) | **IN PROGRESS** | [incident-journal](phase11/incident-journal.md) · [plan](phase11/plan.md) · handoff [`promt.md` §8](../promt.md) |
 | **11→12** | **Gate: вынос Admin Front + NC по to-be архитектуре** — отдельные деплои/репо, Keycloak везде, NC↔Admin через MFE. **До** WebGL (phase 12) | FUTURE | см. ниже § «Gate перед phase 12»; C4 — [`../architecture/c4/arch.md`](../architecture/c4/arch.md) |
 | 12 | **Гант-рендер: MVP → WebGL2 + LOD** — на уже вынесенном Admin Front | FUTURE | [phase12](phase12/plan.md) — только после gate 11→12 |
 | 13 | **Кэширование (сквозное)** — единый слой кэша для всей системы (не только ISS): персистентный/распределённый бэкенд, stale-on-error + refresh-ahead, политики TTL/инвалидации по видам данных, метрики hit/miss | PLANNED | [phase13](phase13/plan.md) — обобщает in-memory ISS-кэш (7c) в сквозную инфраструктуру |

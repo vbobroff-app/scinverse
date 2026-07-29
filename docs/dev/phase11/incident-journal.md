@@ -1,7 +1,7 @@
 # Phase 11 — Журнал инцидентов (11.13)
 
-**Статус:** `DESIGN AGREED` · **11.13a–d DONE** (2026-07-29).  
-Дальше — **11.13e** ribbon←`incident`.
+**Статус:** `DESIGN AGREED` · **11.13a–e DONE** (2026-07-29).  
+Дальше — **11.13f** ручное resolve + backfill.
 
 **Связано:** [plan.md](plan.md) §11.13 · [to-threads.md](to-threads.md) ·
 [persistence.md](persistence.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
@@ -75,28 +75,18 @@
 проекцию), не на раскраску Connection-ленты. См. также [phase7j/incident.md](../phase7j/incident.md)
 §7 Recording + **H2**.
 
-### 3.1. As-is (до переключения ribbon)
-
-Сейчас Connection верхний слой — gaps `link_liveness` (`POST /coverage/link`):
+### 3.1. Реализация (11.13e DONE)
 
 ```text
-intervals → голубое
-gaps      → тело + маркеры  (QueryGapsAsync + CoalesceOwnerPhases)
-```
-
-Recording — честная подложка / gaps capture (7h), ещё не проекция `incident`.
-
-Код: `ConnectionRibbon.tsx`, `CoverageTrack.tsx`, `LinkLivenessStore.CoalesceOwnerPhases`.
-
-### 3.2. To-be (OHS DB)
-
-```text
-link_liveness  → Connection: голубое
+link_liveness  → Connection: голубое (+ серое disconnected/scheduled)
 incident       → Connection: break/crash + маркеры (полная семантика)
                → Recording:  бинарный red (merge), без type/owner/маркеров
 ```
 
-Обе таблицы — **в OHS**. Gaps liveness больше не источник истины по инцидентам.
+Legacy fallback: если `incidents` ещё не загружены — Connection красит gaps as-is.
+Optimistic client crash (J8) — `interrupted` gap, пока нет строки crash в журнале.
+
+Код: `incidentRibbonProjection.ts`, `ConnectionRibbon.tsx`, `CoverageTrack.tsx`, `OhsStore.refreshLiveness`.
 
 ---
 
@@ -353,7 +343,7 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 | **11.13b** | **JournalRegistrator**: Open/handover/close/Adopt → UPSERT `incident` (не TradeWriter / не recording-лента); crash J8 | **DONE** — break-пути + unit; crash J8 отложен |
 | **11.13c** | OHS API `GET /api/incidents` (+ окно для ribbon) | **DONE** — list/detail/by-connection + `durationMs` |
 | **11.13d** | UI экран журнала в Admin Front (OHS web) | **DONE** — раздел «Журнал инцидентов» (`messages`) |
-| **11.13e** | Connection-ribbon←`incident` (+ liveness); Recording←бинарная проекция (merge, без type) | паритет J7 + H2 |
+| **11.13e** | Connection-ribbon←`incident` (+ liveness); Recording←бинарная проекция (merge, без type) | **DONE** — projection + store wire; crash J8 optimistic gap |
 | **11.13f** | Ручное resolve + backfill/регрессия 7j | оператор закрывает; сценарии |
 
 **Вне scope 11.13:** вынос NC-сервиса / перенос V025 (gate 11→12), WebGL, Keycloak, 7j.15/16, I12.

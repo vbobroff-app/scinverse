@@ -80,6 +80,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
             sessions={sessions}
             intervals={link.intervals}
             gaps={link.gaps}
+            incidents={link.incidents}
             nowMs={now}
             tzOffsetMin={tzOffsetMin}
             linkRecoverGraceSeconds={link.linkRecoverGraceSeconds}

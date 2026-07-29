@@ -30,8 +30,13 @@ interface Props {
   tzOffsetMin?: number;
   /** Интервалы живости захвата (source) — честная подложка = намерение ∩ живость. */
   livenessIntervals?: LivenessIntervalDto[];
-  /** Журнал разрывов захвата (красная разметка). */
+  /** Журнал разрывов захвата (красная разметка). As-is / fallback, если нет `incidentReds`. */
   captureGaps?: CaptureGapDto[];
+  /**
+   * Бинарная проекция журнала `incident` (11.13e §3.0b): сплошной red без маркеров/type.
+   * Если задано (в т.ч. `[]`) — вместо `captureGaps` для красной дыры записи.
+   */
+  incidentReds?: { fromMs: number; toMs: number }[] | null;
   sessions?: SessionDto[];
   /** Текущее время (ms) — правый край открытой живости и открытого намерения. */
   nowMs?: number;
@@ -119,6 +124,7 @@ export const CoverageTrack = memo(function CoverageTrack({
   tzOffsetMin = 180,
   livenessIntervals,
   captureGaps,
+  incidentReds,
   sessions,
   highlightDays,
   nowMs,
@@ -236,11 +242,34 @@ export const CoverageTrack = memo(function CoverageTrack({
         return bars;
       })}
 
-      {/* Разрывы захвата (красная штриховка) внутри намерения записи. */}
+      {/* Красные дыры записи: журнал incident (merge) или legacy captureGaps. */}
       {honestMode &&
         intentSpan &&
         (() => {
           const gaps: ReactNode[] = [];
+          if (incidentReds != null) {
+            for (let i = 0; i < incidentReds.length; i++) {
+              const red = incidentReds[i];
+              const inter = gapIntersectsSegment(
+                intentSpan.from,
+                intentSpan.to,
+                red.fromMs,
+                red.toMs,
+              );
+              if (!inter) continue;
+              const left = pct(inter.from);
+              gaps.push(
+                <div
+                  key={`ired-${i}`}
+                  className={styles.captureGap}
+                  style={{ left: `${left}%`, width: `${Math.max(0.4, pct(inter.to) - left)}%` }}
+                  title={`Нет данных · ${hhmm(inter.from, tzOffsetMin)}–${hhmm(inter.to, tzOffsetMin)}`}
+                />,
+              );
+            }
+            return gaps;
+          }
+
           for (let i = 0; i < (captureGaps?.length ?? 0); i++) {
             const gap = captureGaps![i];
             if (!isBreakGap(gap)) continue;
