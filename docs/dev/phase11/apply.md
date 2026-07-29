@@ -1,6 +1,7 @@
 # Phase 11. Особенности реализации
 
 Конкретные решения фазы 11. Обзор — в [plan.md](plan.md), статус — в [report.md](report.md).
+Журнал инцидентов (11.13 DESIGN) — [incident-journal.md](incident-journal.md).
 Заполняется по ходу реализации; ниже — зафиксированные проектные заметки.
 
 ## Пакет `@scinverse/notification-center`

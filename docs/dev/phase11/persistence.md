@@ -4,7 +4,8 @@
 **Обновлено:** 2026-07-22. Сборка бэка — зелёная (проверено на temp-output, т.к. Host занят из VS);
 `NotificationHubTests` 5/5; фронт `tsc` 0 / `eslint` 0 err / vitest 27. Integration/API (Testcontainers)
 требуют Docker — прогон за пользователем.
-**Связано:** [plan.md](plan.md) (§11.2, out-of-scope thin), [apply.md](apply.md) (оси A/B, incident-хаб),
+**Связано:** [plan.md](plan.md) (§11.2), [apply.md](apply.md) (оси A/B, incident-хаб),
+журнал инцидентов to-be (не эта таблица) — [incident-journal.md](incident-journal.md),
 [../phase10/plan.md](../phase10/plan.md) (Keycloak `sub`), [../phase7j/notify-composer.md](../phase7j/notify-composer.md).
 
 Тонкая версия центра уведомлений (phase 11.2) держит события только в **in-memory ring-buffer**

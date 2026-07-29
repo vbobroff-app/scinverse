@@ -10,6 +10,9 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 транспорт системных/внешних событий; необязательно — `user_settings` (phase 10) для персистенции
 состояния панели/фильтров. Влияет на все модули фронта и на серверное логирование.
 
+**Фокус сейчас:** **11.13** — проектирование **журнала инцидентов** в NC (своя БД, отдельная машина) —
+[incident-journal.md](incident-journal.md). Лента Thread 11.8–11.12 и тесты 11.7 — **DONE**.
+
 **Ядро UI/шины:** пакет [`packages/notification-center`](../../../packages/notification-center)
 (`@scinverse/notification-center`) — без привязки к OHS.
 
@@ -17,6 +20,8 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 [to-threads.md](to-threads.md); персист атомов — [persistence.md](persistence.md) (V025 DONE).
 Опции дока (группировать / схлоп тиков) — [dock-settings.md](dock-settings.md);
 маркеры ★/⊘ и фильтр «Выбор» — [nc-marks.md](nc-marks.md).
+Журнал инцидентов (next) — [incident-journal.md](incident-journal.md);
+продуктовое определение — [`docs/wiki-readme/incident.md`](../../wiki-readme/incident.md).
 
 ## Мотивация
 
@@ -88,18 +93,23 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 - **11.12 Регрессия + приёмка Thread.** Пакет + OHS web + backend: сценарии break/crash из
   phase 7j отображаются как Incident/Group; Group не продолжает Incident; плоский audit V025
   и hydrate не ломаются; tsc/vitest/`dotnet` зелёные.
+- **11.13 Журнал инцидентов (DESIGN).** First-class журнал нитей в **БД NC** (не производная
+  таблица в OHS Timescale): модульные инциденты, ingest от продюсеров, API списка, экран журнала.
+  Определение Incident — [wiki-readme/incident.md](../../wiki-readme/incident.md); спека —
+  [incident-journal.md](incident-journal.md). Эскиз «таблица рядом с V025» в to-threads §6.3 —
+  переходный, не целевой.
 
 ## Вне области (out of scope)
 
-- Изменение схемы `notification` / новая таблица под Thread — не нужно для UI Thread: колонка
-  `data` покрывает модель ([to-threads.md](to-threads.md) §6.0). Миграцию
-  `notification_thread` вносим **только когда заводим серверный журнал инцидентов**
-  (экран/API списка нитей) — критерий в [to-threads.md](to-threads.md) §6.5.
+- Менять схему OHS `notification` ради UI Thread — не нужно: колонка `data` покрывает модель
+  ([to-threads.md](to-threads.md) §6.0). Журнал инцидентов проектируем в **БД NC** (11.13), не как
+  обязательный ALTER V025.
 - Пуш-уведомления (email/telegram/desktop) и правила-алерты — позже.
 - Тонкая маршрутизация по ролям (кто какие события видит) — грубо; тонко — вместе с phase 10.
-- Полноценный рантайм Module Federation с раздельными деплоями — задел в контракте, включаем когда
-  появятся реально отдельные MFE-сборки (см. сравнение в [apply.md](apply.md)).
+- Полноценный рантайм Module Federation с раздельными деплоями — задел в контракте / gate 11→12;
+  журнал можно проектировать до полного выноса MFE.
 - Серверное хранение меток ★/⊘ — v1 только клиент / `user_settings`.
+- `ILogger`-sink → notification — отдельная фича.
 
 > Персист плоского аудита (`notification`, V025, retention 90d) — **сделан** ([persistence.md](persistence.md));
 > прежний out-of-scope «только ring-buffer» устарел.
@@ -125,10 +135,11 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 
 **Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
 
-**Продюсер break (не UI):** честная Thread-проекция break зависит от sync Host
-(`_incidentSince` ↔ Hub). Рассинхрон и зачистка костылей — **phase 7j I11 / 7j.21**
-([../phase7j/issue.md](../phase7j/issue.md) I11, [../phase7j/plan.md](../phase7j/plan.md)).
-Phase 11 здесь не расширяем подпорками.
+**Далее:** **11.13** проектирование журнала — [incident-journal.md](incident-journal.md)
+(handoff [`docs/promt.md`](../../promt.md) §8).
 
-Детали — в [apply.md](apply.md), Thread — [to-threads.md](to-threads.md), статус — в
-[report.md](report.md).
+**Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 код готов**
+([../phase7j/issue.md](../phase7j/issue.md)); живая приёмка / хвосты 7j.15–16 — не блокер 11.13.
+
+Детали — в [apply.md](apply.md), Thread — [to-threads.md](to-threads.md), журнал —
+[incident-journal.md](incident-journal.md), статус — в [report.md](report.md).

@@ -96,7 +96,7 @@ scinverse/
 | 8 | CI/CD | TODO | — |
 | 9 | Импорт QScalp `.qsh` | TODO | — |
 | 10 | Keycloak + `user_settings` | PLANNED · **обязателен на gate 11→12** | [phase10](./dev/phase10/plan.md) |
-| **11** | **NC Thread upgrade** (11.8–11.12) поверх готовой базы NC + V025 | **АКТИВНЫЙ ФОКУС** | [plan](./dev/phase11/plan.md) · [to-threads](./dev/phase11/to-threads.md) · [issue](./dev/phase11/issue.md) |
+| **11** | **NC:** лента Thread DONE; фокус **11.13 журнал инцидентов (DESIGN)** | **АКТИВНЫЙ ФОКУС** | [incident-journal](./dev/phase11/incident-journal.md) · [plan](./dev/phase11/plan.md) · [to-threads](./dev/phase11/to-threads.md) |
 | **11→12** | **Gate:** вынос Admin Front + NC (MFE, Keycloak) по to-be C4 | FUTURE | [dev/plan.md](./dev/plan.md) §gate · [arch](./architecture/c4/arch.md) |
 | 12 | Гант WebGL2 + LOD — **только после gate** | FUTURE | [phase12](./dev/phase12/plan.md) |
 
@@ -170,99 +170,98 @@ scinverse/
 
 **OHS MVP** (монолит Host + admin web + пакет NC) — активная разработка.
 
-- **7j инциденты** (связь break/crash, abandon schedule, backend-outage, system JSON) — **код готов**
-  (хвост: `abandoned_manual`, 7j.15/16). См. [phase7j/todo.md](./dev/phase7j/todo.md).
-- **Активный фокус — phase 11:** upgrade объектной модели NC → **Thread / Incident / Group**
-  (спека готова, код UI не начат).
+- **7j инциденты** (связь break/crash, abandon, CloseBreak/Adopt) — **код готов**
+  (очередь не-инцидентов: 7j.15/16). См. [phase7j/todo.md](./dev/phase7j/todo.md).
+- **phase 11 лента Thread** (11.1–11.12, ★/⊘, dock settings, тесты 11.7) — **DONE**.
+- **Активный фокус — 11.13:** проектирование **журнала инцидентов** в NC
+  ([incident-journal.md](./dev/phase11/incident-journal.md)).
 
-**To-be:** отдельный NC + Admin/Product Front (MFE) + Keycloak — C4; до WebGL — **gate 11→12**.
+**To-be:** отдельный NC (своя БД, отдельная машина) + Admin/Product Front (MFE) + Keycloak — C4;
+до WebGL — **gate 11→12**. Журнал проектируем сразу под NC DB, не как вечную таблицу в OHS.
 
 ---
 
-## 8. ➡️ НОВЫЙ ЧАТ — phase 11 Thread (2026-07-27)
+## 8. ➡️ НОВЫЙ ЧАТ — phase 11.13 журнал инцидентов (2026-07-29)
 
 ### Задача чата
 
-Реализовать **11.8 → 11.12**: объектная модель NC (`Single | Thread`, `Incident | Group`), проекция
-в шине, UI контейнеров, backend hints в `data` JSONB. **Таблицы DB не меняем** — колонка `data`
-покрывает изменения модели.
+**Спроектировать** (DESIGN first) first-class **журнал инцидентов** для Notification Center:
+
+- NC — **отдельный сервис + своя БД + отдельная машина** (C4 failure domain).
+- Инциденты **модульные**: объект/виды задаёт модуль-продюсер (OHS сегодня: break/crash).
+- Продуктовое определение Incident vs «только уведомление» —
+  [`wiki-readme/incident.md`](./wiki-readme/incident.md).
+- Не реализовывать «производную `notification_thread` в OHS V025» как целевую схему
+  (эскиз to-threads §6.3 — переходный черновик полей).
+
+Код миграций/API — только после согласованной спеки в
+[incident-journal.md](./dev/phase11/incident-journal.md). Не смешивать с 7j.15/16 и WebGL (12).
 
 ### Прочитай первым (порядок)
 
 1. Этот файл (§1–§6, §8).
-2. [phase11/issue.md](./dev/phase11/issue.md) — **зачем** (групповые стеки → политика Incident/Group).
-3. [phase11/to-threads.md](./dev/phase11/to-threads.md) — **полное проектирование** (сущности, UI, слои, §6.0 DB).
-4. [phase11/plan.md](./dev/phase11/plan.md) — пункты **11.8–11.12** + порядок.
-5. [phase11/persistence.md](./dev/phase11/persistence.md) — V025 плоский audit (DONE); `data` jsonb.
-6. Контекст инцидентов (не ломать): [phase7j/incident.md](./dev/phase7j/incident.md) ·
-   [phase7j/nc-availability.md](./dev/phase7j/nc-availability.md).
-7. To-be / gate: [architecture/c4/arch.md](./architecture/c4/arch.md) · [dev/plan.md](./dev/plan.md).
+2. [`wiki-readme/incident.md`](./wiki-readme/incident.md) — **что такое инцидент**.
+3. [phase11/incident-journal.md](./dev/phase11/incident-journal.md) — **стартовая спека 11.13** (дописать).
+4. [phase11/plan.md](./dev/phase11/plan.md) · [report.md](./dev/phase11/report.md) — статус фазы.
+5. [phase11/to-threads.md](./dev/phase11/to-threads.md) — модель Thread/Incident/Group + §6 (A сейчас / B′ → NC).
+6. [phase11/persistence.md](./dev/phase11/persistence.md) — V025 атомы в OHS (as-is audit).
+7. [architecture/c4/arch.md](./architecture/c4/arch.md) — NC отдельный деплой / failure domain.
+8. Контекст OHS-продюсера (не ломать): [phase7j/incident.md](./dev/phase7j/incident.md).
 
 ### Где мы сейчас
 
 | Контур | Состояние |
 |--------|-----------|
-| **OHS Host** | NotificationHub + PersistWriter → `notification` (V025). Миграции до **V027**. |
-| **Admin web** | Монолит `services/online-history-server/web`; Vite proxy → `http://127.0.0.1:5080` (I9). |
-| **NC** | Пакет `packages/notification-center`: Thread-проекция (`items$`), UI контейнеры, I2 на атомах. |
-| **7j** | Инциденты готовы (хвост 7j.15/16). |
-| **phase11 Thread** | **11.8–11.12 DONE** (типы → проекция → UI → hints в `data` → регрессия). |
+| **OHS Host** | NotificationHub + PersistWriter → `notification` (V025). CloseBreak / Adopt / Forget. |
+| **Admin web** | Монолит `services/online-history-server/web`; Vite → `:5080`. |
+| **NC package** | Thread `items$`, dock, ★/⊘, filters, tail/pause — **DONE**. |
+| **phase11** | 11.1–11.12 + 11.7 **DONE**; **11.13 DESIGN** (журнал). |
+| **7j** | Инциденты код готов; очередь 7j.15/16 (не блокер журнала). |
 
 ### Модель (кратко)
 
 ```text
-NotificationItem = Single | Thread
-Thread → Incident | Group     // политика по горизонту расписания на Open
-Entry extends Single { corr_uid }
+Лента NC (DONE):  NotificationItem = Single | Thread(Incident|Group)  // проекция над атомами
+Журнал (DESIGN):  first-class строки в БД NC; фильтр журнала ≈ kind=incident
+Продюсер:         модуль решает Incident vs notify (горизонт / живой коннектор)
 ```
 
-- UI: один вертикальный список **контейнеров**; Thread header **без** severity-иконки; expand = стек Entry.
-- БД: атомы + `correlation_id`; в `data` на open/close — `threadKindHint`, `closeOutcome`.
-- Thread/status — **проекция** в шине (`items$`), не новая таблица.
-- Миграцию `notification_thread` — **только когда заводим серверный журнал инцидентов**
-  (экран/API), не с UI Thread; критерий — [to-threads.md](./dev/phase11/to-threads.md) §6.5.
+- Атомы сейчас: OHS V025 + hints `threadKindHint` / `closeOutcome`.
+- Журнал to-be: **не** обязан жить в той же БД, что Timescale OHS.
+- Group / вне горизонта → лента/audit, **не** раздувать журнал инцидентов.
 
-### План работ (порядок)
+### План работ чата (порядок)
 
-1. **11.8** — TS-типы Single / Entry / Thread / Incident / Group.
-2. **11.9** — проекция `events → items` в `NotificationBus` + vitest.
-3. **11.10** — UI Dock: контейнеры, expand, фильтры threadStatus + ★/⦸.
-4. **11.11** — Host: писать hints/outcome в `data` на Open/close.
-5. **11.12** — регрессия break/crash из 7j + hydrate.
+1. Дописать [incident-journal.md](./dev/phase11/incident-journal.md): контракт строки журнала,
+   граница Incident, DDL-эскиз **БД NC**, ingest, API, UI экрана, cutover с монолита.
+2. Закрыть открытые вопросы J1–J5 в том же файле (или явно отложить).
+3. Синхронизировать to-threads §6 / plan / report после решений.
+4. **Только потом** — реализация (миграция NC / stub API / UI) отдельным коммитом/чатом.
 
 ### Инварианты (не ломать)
 
-- Плоский audit V025 и wire WS/REST атомов.
-- System → короткий message + JSON (`result` / `error_message` + `sender`); user schedule → `lines[]`.
-- Backend-outage: не FATAL→OK; один corr; progress-тики не персистить; newest-first по `ts`.
+- Лента Thread v1 и wire атомов WS/REST / V025 hydrate.
 - Incident vs Group: вид на Open по горизонту; Group **не** продолжает Incident (новый corr).
-- ★/⦸ — клиент v1; не колонки БД.
+- System → короткий message + JSON (`result` / `error_message` + `sender`); user schedule → `lines[]`.
+- ★/⊘ — клиент v1; не колонки журнала в первой итерации.
+- Не тащить в этот чат WebGL, 7j.15/16 market-profile, полный Keycloak.
 
 ### Ключевые файлы
 
-**Спека:** `docs/dev/phase11/{issue,to-threads,plan,persistence,report}.md`
+**Спека журнала:** `docs/dev/phase11/incident-journal.md`  
+**Модель Thread:** `docs/dev/phase11/to-threads.md`  
+**Wiki:** `docs/wiki-readme/incident.md`  
+**C4:** `docs/architecture/c4/arch.md`  
+**As-is атомы:** Host `NotificationHub.cs`, `NotificationPersistWriter.cs`, V025  
+**OHS-продюсер:** `ConnectionManager.cs`, `ConnectionSupervisor.cs`
 
-**NC package:** `packages/notification-center/src/bus/NotificationBus.ts`, types, Dock UI.
-
-**Host:** `NotificationHub.cs`, `NotificationPersistWriter.cs`, продюсеры connect/outage.
-
-**Web:** `OhsStore.ts`, `notifications.ts` (hydrate / publish).
-
-**Контекст 7j (reference):** `ConnectionManager.cs`, `ConnectionSupervisor.cs`, `coverageGeometry.ts`.
-
-### Перед стартом кода
-
-- `git status` — закоммитить/учесть uncommitted J11c (crash abandon + ribbon overlay), если ещё висит.
-- Не смешивать в этом чате 7j.15/16 и WebGL (phase 12).
-
-### Запуск
+### Запуск (справочно, для проверки ленты — не блокер дизайна)
 
 ```text
-БД:   docker-compose + DbUp (до V027)
-Host: Scinverse.Ohs.Host (VS / dotnet run), appsettings.Local.json
+БД:   docker-compose + DbUp
+Host: Scinverse.Ohs.Host → :5080
 Web:  services/online-history-server/web → pnpm dev --port 5174
 NC:   packages/notification-center → pnpm exec vitest run
-Тесты: dotnet test; pnpm exec vitest run; pnpm exec tsc --noEmit
 ```
 
 ### Соглашения

@@ -329,7 +329,8 @@ public sealed class ConnectionSupervisor(
             await connections.ConnectAsync(connectionId, cancellationToken).ConfigureAwait(false);
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
-            // Успешный kickoff без break → короткая Group auto: (connecting→connected), не до fail.
+            // Успех без open break → короткая Group auto: (connecting→connected) + Single INFO.
+            // Не сюда: recovered инцидента связи (ConnectAsync → CloseBreak в link:) — incidentOpen=true.
             if (!incidentOpen && connectedData is not null)
             {
                 _kickoffPending.TryRemove(connectionId, out _);
@@ -354,6 +355,12 @@ public sealed class ConnectionSupervisor(
                     correlationId: corr,
                     data: NotificationThreadData.WithHints(
                         connectedData, threadKindHint: NotificationThreadData.KindGroup));
+                // Следом за Group — как «плановое отключение…» при schedule disconnect.
+                notifications.Publish(
+                    "connection.schedule_connect",
+                    $"{scheduleLabel}: плановое подключение по расписанию",
+                    "info",
+                    data: new { connectionId, sender = "supervisor" });
             }
 
             logger.LogInformation(

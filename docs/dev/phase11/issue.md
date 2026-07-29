@@ -3,6 +3,7 @@
 Статус: **RESOLVED** (реализовано 11.8–11.12). Обновлено: 2026-07-27.
 
 Связано: [plan.md](plan.md), [to-threads.md](to-threads.md), [persistence.md](persistence.md),
+журнал инцидентов (next) — [incident-journal.md](incident-journal.md),
 инциденты связи/crash — [../phase7j/incident.md](../phase7j/incident.md),
 [../phase7j/nc-availability.md](../phase7j/nc-availability.md).
 
