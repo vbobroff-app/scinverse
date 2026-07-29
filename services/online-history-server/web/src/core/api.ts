@@ -25,9 +25,11 @@ import type {
   ExternalScheduleDto,
   ExternalServiceDto,
   FuturesAssetClassDto,
+  BackfillOpenIncidentsResultDto,
   IncidentDto,
   IncidentQueryParams,
   IntegrationProbeResultDto,
+  ResolveIncidentRequest,
   InstrumentGroupDto,
   InstrumentPage,
   InstrumentQueryParams,
@@ -182,6 +184,11 @@ export const OhsApi = {
       `/connections/${connectionId}/incidents${q ? `?${q}` : ''}`,
     );
   },
+
+  resolveIncident: (corrUid: string, body: ResolveIncidentRequest = {}) =>
+    post<IncidentDto>(`/incidents/${encodeURIComponent(corrUid)}/resolve`, body),
+
+  backfillOpenIncidents: () => post<BackfillOpenIncidentsResultDto>('/incidents/backfill-open'),
 
   // Mock-POST внешнего NC (7j.20): публикуем уже сформированное уведомление (возможно с backdated ts).
   postNotification: (dto: NotificationDto) => post<void>('/notifications', dto),

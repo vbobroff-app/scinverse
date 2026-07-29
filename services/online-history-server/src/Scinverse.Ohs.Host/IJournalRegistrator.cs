@@ -36,6 +36,15 @@ public interface IJournalRegistrator
         string closeOutcome,
         string? title,
         string? severity,
+        CancellationToken cancellationToken,
+        string? resolvedBy = null);
+
+    /// <summary>Open crash (J8): client-led backend.unavailable → журнал.</summary>
+    Task RegisterCrashOpenAsync(
+        string corrUid,
+        DateTimeOffset openedAt,
+        long? connectionId,
+        string title,
         CancellationToken cancellationToken);
 
     /// <summary>

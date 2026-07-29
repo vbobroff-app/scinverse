@@ -2,8 +2,8 @@
 
 Актуальный статус фазы 11. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
-**Текущий статус:** `IN PROGRESS` — Thread **DONE**; **11.13a–e DONE**;
-следующий шаг **11.13f**. [incident-journal.md](incident-journal.md) §12.
+**Текущий статус:** `IN PROGRESS` — Thread **DONE**; **11.13a–f DONE** (журнал OHS v1).
+Gate 11→12 / хвосты. [incident-journal.md](incident-journal.md) §12.
 **Обновлено:** 2026-07-29.
 
 ## Статус задач
@@ -23,7 +23,7 @@
 | 11.10 | UI NC: контейнеры, expand Thread, фильтры статуса нити + Выбор | DONE | `ThreadBlock`, `filterItems`; ★/⊘ per-Entry + [nc-marks.md](nc-marks.md) |
 | 11.11 | Backend `threadKindHint` / `closeOutcome` в колонке `data` | DONE | Hub enrich + ConnectionManager + client crash; таблицы не меняли |
 | 11.12 | Регрессия Thread (7j break/crash + hydrate V025) | DONE | `threadRegression.test.ts` + web `notifications.thread.test.ts` |
-| 11.13 | Журнал инцидентов (`incident` в **OHS**) | **11.13a–e DONE** → 11.13f | [incident-journal.md](incident-journal.md) §12 |
+| 11.13 | Журнал инцидентов (`incident` в **OHS**) | **DONE** (a–f) | [incident-journal.md](incident-journal.md) §12 |
 
 ## Решение
 
@@ -59,8 +59,9 @@
 | 2026-07-29 | **11.13c:** `GET /api/incidents` (+ `/{corr}`, `/connections/{id}/incidents`), `IncidentDto.durationMs` | Contracts + ApiTest |
 | 2026-07-29 | **11.13d:** Admin UI «Журнал инцидентов» (nav `messages`) + `OhsApi.getIncidents` | web + vitest |
 | 2026-07-29 | **11.13e:** Connection←`incident` + Recording binary merge; legacy gaps fallback | web + vitest |
+| 2026-07-29 | **11.13f:** POST resolve/backfill-open; UI «Закрыть»; J8 crash ingest; resolvedBy | код + ApiTest |
 
 ## Итог
 
-Лента NC v1 — **готова**. Журнал OHS: **11.13a–e DONE**; дальше **11.13f**.
+Лента NC v1 — **готова**. Журнал OHS **11.13a–f DONE**.
 Вынос atoms/пакета в NC — **gate 11→12**.

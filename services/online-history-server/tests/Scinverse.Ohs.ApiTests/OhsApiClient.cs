@@ -238,6 +238,19 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
         return GetListAsync<IncidentDto>($"/api/connections/{connectionId}/incidents{q}", cancellationToken);
     }
 
+    public Task<IncidentDto> ResolveIncidentAsync(
+        string corrUid,
+        ResolveIncidentRequest? request = null,
+        CancellationToken cancellationToken = default) =>
+        PostAsync<ResolveIncidentRequest, IncidentDto>(
+            $"/api/incidents/{Uri.EscapeDataString(corrUid)}/resolve",
+            request ?? new ResolveIncidentRequest(null),
+            cancellationToken);
+
+    public Task<BackfillOpenIncidentsResultDto> BackfillOpenIncidentsAsync(
+        CancellationToken cancellationToken = default) =>
+        PostAsync<BackfillOpenIncidentsResultDto>("/api/incidents/backfill-open", cancellationToken);
+
     private static string BuildIncidentsQuery(IncidentQueryParams query)
     {
         var parts = new List<string>();

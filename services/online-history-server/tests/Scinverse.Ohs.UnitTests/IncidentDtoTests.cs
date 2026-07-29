@@ -32,6 +32,32 @@ public sealed class IncidentDtoTests
     }
 
     [Fact]
+    public void ToIncidentDto_reads_resolvedBy_from_payload()
+    {
+        var opened = DateTimeOffset.Parse("2026-07-29T10:00:00Z");
+        var closed = opened.AddMinutes(1);
+        var incident = new Incident
+        {
+            CorrUid = "connection:1:link:z",
+            Module = "connection",
+            Type = "break",
+            Status = "resolved",
+            CloseOutcome = "abandoned_manual",
+            OpenedAt = opened,
+            ClosedAt = closed,
+            Subject = "connection:1:link",
+            Severity = "warning",
+            Title = "t",
+            LastActivityAt = closed,
+            ConnectionId = 1,
+            Payload = """{"resolvedBy":"superuser"}""",
+        };
+
+        var dto = OhsEndpoints.ToIncidentDto(incident, closed);
+        dto.ResolvedBy.Should().Be("superuser");
+    }
+
+    [Fact]
     public void ToIncidentDto_open_uses_now_for_duration()
     {
         var opened = DateTimeOffset.Parse("2026-07-29T10:00:00Z");

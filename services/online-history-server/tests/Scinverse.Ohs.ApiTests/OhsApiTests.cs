@@ -331,7 +331,7 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
             },
             CancellationToken.None);
         await store.ResolveAsync(
-            corrA, t1, "recovered", title: null, severity: "ok", CancellationToken.None);
+            corrA, t1, "recovered", title: null, severity: "ok", resolvedBy: null, CancellationToken.None);
 
         var api = CreateApi();
         var all = await api.GetIncidentsAsync(new IncidentQueryParams { Module = "connection", Limit = 50 });
@@ -357,6 +357,44 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         window.Should().ContainSingle(i => i.CorrUid == corrA);
 
         (await api.GetIncidentAsync("connection:0:link:missing")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Resolve_incident_marks_abandoned_manual_with_resolvedBy()
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IIncidentStore>();
+        // opened_at в прошлом: CHECK closed_at >= opened_at (TimeProvider = UtcNow).
+        var t0 = DateTimeOffset.UtcNow.AddHours(-1);
+        const string corr = "connection:55:link:manual01";
+        await store.OpenAsync(
+            new Incident
+            {
+                CorrUid = corr,
+                Module = "connection",
+                Type = "break",
+                Status = "active",
+                OpenedAt = t0,
+                Subject = "connection:55:link",
+                Severity = "error",
+                Title = "manual close me",
+                LastActivityAt = t0,
+                ConnectionId = 55,
+                SourceId = 1,
+                Subtype = "down",
+                Owner = "supervisor",
+            },
+            CancellationToken.None);
+
+        var api = CreateApi();
+        var closed = await api.ResolveIncidentAsync(corr, new ResolveIncidentRequest("operator-a"));
+        closed.Status.Should().Be("resolved");
+        closed.CloseOutcome.Should().Be("abandoned_manual");
+        closed.ResolvedBy.Should().Be("operator-a");
+
+        var again = await api.ResolveIncidentAsync(corr, new ResolveIncidentRequest("operator-b"));
+        again.Status.Should().Be("resolved");
+        again.ResolvedBy.Should().Be("operator-b");
     }
 
     private static async Task<IReadOnlyList<NotificationRow>> GetNotificationsAsync(HttpClient http)

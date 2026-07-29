@@ -374,6 +374,8 @@ export interface IncidentDto {
   payload?: string | null;
   /** (closedAt ?? now) − openedAt, мс. */
   durationMs: number;
+  /** payload.resolvedBy — кто закрыл вручную. */
+  resolvedBy?: string | null;
 }
 
 export interface IncidentQueryParams {
@@ -384,6 +386,16 @@ export interface IncidentQueryParams {
   from?: string;
   to?: string;
   limit?: number;
+}
+
+export interface ResolveIncidentRequest {
+  resolvedBy?: string | null;
+}
+
+export interface BackfillOpenIncidentsResultDto {
+  adopted: number;
+  skipped: number;
+  failed: number;
 }
 
 export interface ConnectionDto {

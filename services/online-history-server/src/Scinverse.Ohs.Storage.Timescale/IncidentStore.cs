@@ -70,6 +70,7 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
         string closeOutcome,
         string? title,
         string? severity,
+        string? resolvedBy,
         CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -81,7 +82,12 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
                 closed_at = @closedAt,
                 last_activity_at = @closedAt,
                 title = COALESCE(@title, title),
-                severity = COALESCE(@severity, severity)
+                severity = COALESCE(@severity, severity),
+                payload = CASE
+                    WHEN @resolvedBy IS NULL OR btrim(@resolvedBy) = '' THEN payload
+                    ELSE COALESCE(payload, '{}'::jsonb)
+                         || jsonb_build_object('resolvedBy', @resolvedBy)
+                END
             WHERE corr_uid = @corrUid
               AND status IN ('active', 'recovering');
             """,
@@ -92,7 +98,29 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
                 closeOutcome,
                 title,
                 severity,
+                resolvedBy,
             },
+            cancellationToken: cancellationToken));
+        return rows > 0;
+    }
+
+    public async Task<bool> AnnotateResolvedByAsync(
+        string corrUid, string resolvedBy, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(resolvedBy))
+        {
+            return false;
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE incident SET
+                payload = COALESCE(payload, '{}'::jsonb)
+                          || jsonb_build_object('resolvedBy', @resolvedBy)
+            WHERE corr_uid = @corrUid;
+            """,
+            new { corrUid, resolvedBy },
             cancellationToken: cancellationToken));
         return rows > 0;
     }

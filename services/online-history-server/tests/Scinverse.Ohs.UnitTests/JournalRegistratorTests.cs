@@ -145,11 +145,17 @@ public sealed class JournalRegistratorTests
 
         public Task<bool> ResolveAsync(
             string corrUid, DateTimeOffset closedAt, string closeOutcome, string? title, string? severity,
-            CancellationToken cancellationToken)
+            string? resolvedBy, CancellationToken cancellationToken)
         {
             if (!ByCorr.TryGetValue(corrUid, out var existing) || existing.Status == "resolved")
             {
                 return Task.FromResult(false);
+            }
+
+            var payload = existing.Payload;
+            if (!string.IsNullOrWhiteSpace(resolvedBy))
+            {
+                payload = $"{{\"resolvedBy\":\"{resolvedBy}\"}}";
             }
 
             ByCorr[corrUid] = existing with
@@ -160,7 +166,20 @@ public sealed class JournalRegistratorTests
                 Title = title ?? existing.Title,
                 Severity = severity ?? existing.Severity,
                 LastActivityAt = closedAt,
+                Payload = payload,
             };
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> AnnotateResolvedByAsync(
+            string corrUid, string resolvedBy, CancellationToken cancellationToken)
+        {
+            if (!ByCorr.TryGetValue(corrUid, out var existing))
+            {
+                return Task.FromResult(false);
+            }
+
+            ByCorr[corrUid] = existing with { Payload = $"{{\"resolvedBy\":\"{resolvedBy}\"}}" };
             return Task.FromResult(true);
         }
 
@@ -181,7 +200,11 @@ public sealed class JournalRegistratorTests
 
         public Task<bool> ResolveAsync(
             string corrUid, DateTimeOffset closedAt, string closeOutcome, string? title, string? severity,
-            CancellationToken cancellationToken) =>
+            string? resolvedBy, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("db down");
+
+        public Task<bool> AnnotateResolvedByAsync(
+            string corrUid, string resolvedBy, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("db down");
 
         public Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken) =>

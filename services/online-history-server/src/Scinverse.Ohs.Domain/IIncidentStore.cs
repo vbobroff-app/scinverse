@@ -16,6 +16,7 @@ public interface IIncidentStore
 
     /// <summary>
     /// Закрыть эпизод: status=resolved + close_outcome + closed_at.
+    /// Опц. <paramref name="resolvedBy"/> → <c>payload.resolvedBy</c> (J7).
     /// No-op, если нет строки или уже resolved.
     /// </summary>
     Task<bool> ResolveAsync(
@@ -24,7 +25,12 @@ public interface IIncidentStore
         string closeOutcome,
         string? title,
         string? severity,
+        string? resolvedBy,
         CancellationToken cancellationToken);
+
+    /// <summary>Дописать <c>payload.resolvedBy</c> на уже resolved (после CloseBreak-пути).</summary>
+    Task<bool> AnnotateResolvedByAsync(
+        string corrUid, string resolvedBy, CancellationToken cancellationToken);
 
     Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken);
 

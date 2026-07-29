@@ -217,3 +217,25 @@
   margin: 0;
   word-break: break-word;
 }
+
+.resolveBtn {
+  margin-top: var(--spacing-md);
+  width: 100%;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+.resolveBtn:hover:not(:disabled) {
+  border-color: var(--color-danger, #c0392b);
+  color: var(--color-danger, #c0392b);
+}
+
+.resolveBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

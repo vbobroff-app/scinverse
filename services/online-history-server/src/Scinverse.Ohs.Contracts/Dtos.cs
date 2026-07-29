@@ -458,7 +458,9 @@ public sealed record IncidentDto(
     string? Subtype,
     string? Owner,
     string? Payload,
-    long DurationMs);
+    long DurationMs,
+    /// <summary>Из <c>payload.resolvedBy</c> (ручное закрытие, J7).</summary>
+    string? ResolvedBy = null);
 
 /// <summary>Query-параметры <c>GET /api/incidents</c>.</summary>
 public sealed class IncidentQueryParams
@@ -471,3 +473,9 @@ public sealed class IncidentQueryParams
     public DateTimeOffset? To { get; init; }
     public int Limit { get; init; } = 100;
 }
+
+/// <summary>Тело <c>POST /api/incidents/{corr}/resolve</c> — ручное <c>abandoned_manual</c>.</summary>
+public sealed record ResolveIncidentRequest(string? ResolvedBy);
+
+/// <summary>Итог <c>POST /api/incidents/backfill-open</c> — open break из V025 → journal.</summary>
+public sealed record BackfillOpenIncidentsResultDto(int Adopted, int Skipped, int Failed);

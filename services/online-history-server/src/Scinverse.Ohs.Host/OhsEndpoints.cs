@@ -435,6 +435,151 @@ public static class OhsEndpoints
                 : Results.Ok(ToIncidentDto(row, time.GetUtcNow()));
         });
 
+        // 11.13f: оператор закрывает эпизод журнала → abandoned_manual (+ Manager/Hub, если live break).
+        api.MapPost("/incidents/{corrUid}/resolve", async (
+            string corrUid,
+            ResolveIncidentRequest? request,
+            IIncidentStore store,
+            ConnectionManager manager,
+            INotificationPublisher notifications,
+            TimeProvider time,
+            CancellationToken ct) =>
+        {
+            var corr = Uri.UnescapeDataString(corrUid);
+            var row = await store.GetAsync(corr, ct).ConfigureAwait(false);
+            if (row is null)
+            {
+                return Results.NotFound(new { error = $"Инцидент {corr} не найден" });
+            }
+
+            var now = time.GetUtcNow();
+            var resolvedBy = string.IsNullOrWhiteSpace(request?.ResolvedBy)
+                ? NotificationHub.Superuser.Id
+                : request!.ResolvedBy!.Trim();
+
+            if (row.Status == "resolved")
+            {
+                await store.AnnotateResolvedByAsync(corr, resolvedBy, ct).ConfigureAwait(false);
+                var again = await store.GetAsync(corr, ct).ConfigureAwait(false);
+                return Results.Ok(ToIncidentDto(again ?? row, now));
+            }
+
+            var closedViaManager = false;
+            if (row is { Module: "connection", Type: "break", ConnectionId: { } connId }
+                && manager.GetIncidentSince(connId) is not null
+                && notifications.TryGetOpenCorrelationId(
+                    ConnectionManager.LinkIncidentSubject(connId), out var openCorr)
+                && string.Equals(openCorr, corr, StringComparison.Ordinal))
+            {
+                closedViaManager = await manager
+                    .TryAbandonIncidentByManualAsync(connId, now, ct)
+                    .ConfigureAwait(false);
+                if (closedViaManager)
+                {
+                    await store.AnnotateResolvedByAsync(corr, resolvedBy, ct).ConfigureAwait(false);
+                }
+            }
+
+            if (!closedViaManager)
+            {
+                // Напрямую в store (не через JournalRegistrator.SafeAsync) — ошибка БД = 500, не silent no-op.
+                var ok = await store
+                    .ResolveAsync(
+                        corr,
+                        now,
+                        NotificationThreadData.OutcomeAbandonedManual,
+                        title: null,
+                        severity: "warning",
+                        resolvedBy,
+                        ct)
+                    .ConfigureAwait(false);
+                if (!ok)
+                {
+                    return Results.Conflict(new { error = $"Не удалось закрыть {corr}" });
+                }
+
+                if (!string.IsNullOrWhiteSpace(row.Subject))
+                {
+                    notifications.Resolve(
+                        row.Subject,
+                        "connection.incident_closed",
+                        string.IsNullOrWhiteSpace(row.Title)
+                            ? "Инцидент закрыт вручную (журнал)"
+                            : $"{row.Title}: закрыт вручную",
+                        severity: "warning",
+                        data: new
+                        {
+                            connectionId = row.ConnectionId,
+                            kind = row.Type,
+                            reason = "manual_journal",
+                            sender = "user",
+                            closeOutcome = NotificationThreadData.OutcomeAbandonedManual,
+                            resolvedBy,
+                        },
+                        actor: NotificationHub.Superuser);
+                }
+            }
+
+            var updated = await store.GetAsync(corr, ct).ConfigureAwait(false);
+            return updated is null
+                ? Results.NotFound()
+                : Results.Ok(ToIncidentDto(updated, now));
+        });
+
+        // 11.13f / J4: forward+adopt — open link из V025 → строка journal (без истории gaps).
+        api.MapPost("/incidents/backfill-open", async (
+            IConnectionStore connections,
+            INotificationStore notificationStore,
+            IJournalRegistrator journal,
+            CancellationToken ct) =>
+        {
+            var adopted = 0;
+            var skipped = 0;
+            var failed = 0;
+            foreach (var connection in await connections.ListAsync(ct).ConfigureAwait(false))
+            {
+                OpenLinkIncident? open;
+                try
+                {
+                    open = await notificationStore
+                        .FindOpenLinkIncidentAsync(connection.ConnectionId, ct)
+                        .ConfigureAwait(false);
+                }
+                catch
+                {
+                    failed++;
+                    continue;
+                }
+
+                if (open is null)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                try
+                {
+                    await journal
+                        .EnsureBreakAdoptedAsync(
+                            connection.ConnectionId,
+                            open.CorrelationId,
+                            open.OpenedAt,
+                            open.Status,
+                            owner: "supervisor",
+                            connection.SourceId,
+                            ct)
+                        .ConfigureAwait(false);
+                    adopted++;
+                }
+                catch
+                {
+                    failed++;
+                }
+            }
+
+            return Results.Ok(new BackfillOpenIncidentsResultDto(adopted, skipped, failed));
+        });
+
         api.MapGet("/connections/{id:long}/incidents", async (
             long id,
             DateTimeOffset? from,
@@ -475,6 +620,7 @@ public static class OhsEndpoints
             NotificationHub hub,
             ClientRecoveryGate recoveryGate,
             ConnectionManager connections,
+            IJournalRegistrator journal,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(req.Id)
@@ -503,6 +649,21 @@ public static class OhsEndpoints
                 status: req.Status,
                 correlationId: req.CorrelationId);
 
+            // 11.13f / J8: client-led crash → строка журнала (type=crash).
+            if (string.Equals(req.Code, "backend.unavailable", StringComparison.Ordinal)
+                && req.Status is "active" or null or ""
+                && !string.IsNullOrWhiteSpace(req.CorrelationId))
+            {
+                await journal
+                    .RegisterCrashOpenAsync(
+                        req.CorrelationId!,
+                        req.Ts,
+                        TryGetDataConnectionId(req.Data),
+                        req.Message,
+                        ct)
+                    .ConfigureAwait(false);
+            }
+
             // 7j.20: recover клиента снимает стартовый барьер супервизора — Auto-реконнект пойдёт только
             // теперь, когда «Система восстановлена» уже в NC (порядок в ленте: recover → connecting). Плюс
             // снимаем штамп corr (§9.2): инцидент закрыт, следующие 500 — снова одиночные под requestId.
@@ -511,6 +672,18 @@ public static class OhsEndpoints
             {
                 recoveryGate.Release();
                 recoveryGate.ClearActiveIncident();
+                if (!string.IsNullOrWhiteSpace(req.CorrelationId))
+                {
+                    await journal
+                        .RegisterBreakResolvedAsync(
+                            req.CorrelationId!,
+                            req.Ts,
+                            NotificationThreadData.OutcomeRecovered,
+                            title: null,
+                            severity: "ok",
+                            ct)
+                        .ConfigureAwait(false);
+                }
             }
             else if (string.Equals(req.Code, "connection.incident_closed", StringComparison.Ordinal)
                      && IsCrashScheduleEnd(req.Data))
@@ -521,6 +694,19 @@ public static class OhsEndpoints
                 {
                     await connections
                         .MarkCrashAbandonedByScheduleAsync(connectionId, req.Ts, ct)
+                        .ConfigureAwait(false);
+                }
+
+                if (!string.IsNullOrWhiteSpace(req.CorrelationId))
+                {
+                    await journal
+                        .RegisterBreakResolvedAsync(
+                            req.CorrelationId!,
+                            req.Ts,
+                            NotificationThreadData.OutcomeAbandonedSchedule,
+                            title: null,
+                            severity: "warning",
+                            ct)
                         .ConfigureAwait(false);
                 }
             }
@@ -1368,7 +1554,29 @@ public static class OhsEndpoints
             incident.Subtype,
             incident.Owner,
             incident.Payload,
-            durationMs);
+            durationMs,
+            ReadResolvedBy(incident.Payload));
+    }
+
+    private static string? ReadResolvedBy(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(payload);
+            return doc.RootElement.TryGetProperty("resolvedBy", out var p)
+                   && p.ValueKind == JsonValueKind.String
+                ? p.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static ExternalServiceDto ToDto(ExternalService service) => new(

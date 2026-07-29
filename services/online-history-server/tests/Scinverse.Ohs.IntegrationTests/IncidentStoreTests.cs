@@ -77,9 +77,9 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
         await _store.OpenAsync(BreakOpen(corr, t0), CancellationToken.None);
 
         var end = t0.AddMinutes(2);
-        (await _store.ResolveAsync(corr, end, "recovered", "restored", "ok", CancellationToken.None))
+        (await _store.ResolveAsync(corr, end, "recovered", "restored", "ok", resolvedBy: "superuser", CancellationToken.None))
             .Should().BeTrue();
-        (await _store.ResolveAsync(corr, end.AddSeconds(1), "abandoned_manual", null, null, CancellationToken.None))
+        (await _store.ResolveAsync(corr, end.AddSeconds(1), "abandoned_manual", null, null, null, CancellationToken.None))
             .Should().BeFalse("already resolved");
 
         var got = await _store.GetAsync(corr, CancellationToken.None);
@@ -88,6 +88,8 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
         got.ClosedAt.Should().Be(end);
         got.Title.Should().Be("restored");
         got.Severity.Should().Be("ok");
+        got.Payload.Should().Contain("resolvedBy");
+        got.Payload.Should().Contain("superuser");
     }
 
     [Fact]
@@ -98,7 +100,7 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
         await _store.OpenAsync(BreakOpen(corr, t0), CancellationToken.None);
 
         var end = t0.AddHours(1);
-        await _store.ResolveAsync(corr, end, "abandoned_schedule", null, "warning", CancellationToken.None);
+        await _store.ResolveAsync(corr, end, "abandoned_schedule", null, "warning", null, CancellationToken.None);
 
         var got = await _store.GetAsync(corr, CancellationToken.None);
         got!.CloseOutcome.Should().Be("abandoned_schedule");
@@ -123,7 +125,7 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
 
         // Закрытый до окна не попадает; open, начатый до From, пересекает окно (нужен на ribbon).
         await _store.ResolveAsync(
-            "connection:1:link:a", day.AddHours(9).AddMinutes(30), "recovered", null, null, CancellationToken.None);
+            "connection:1:link:a", day.AddHours(9).AddMinutes(30), "recovered", null, null, null, CancellationToken.None);
 
         var window = await _store.QueryAsync(
             new IncidentQuery
@@ -141,7 +143,7 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
     {
         var t0 = new DateTimeOffset(2026, 7, 29, 14, 0, 0, TimeSpan.Zero);
         (await _store.UpdateOpenAsync(BreakOpen("missing", t0), CancellationToken.None)).Should().BeFalse();
-        (await _store.ResolveAsync("missing", t0, "recovered", null, null, CancellationToken.None))
+        (await _store.ResolveAsync("missing", t0, "recovered", null, null, null, CancellationToken.None))
             .Should().BeFalse();
     }
 

@@ -97,11 +97,48 @@ public sealed class JournalRegistrator(
         string closeOutcome,
         string? title,
         string? severity,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        string? resolvedBy = null) =>
         SafeAsync(
             corrUid,
             "resolve",
-            () => store.ResolveAsync(corrUid, closedAt, closeOutcome, title, severity, cancellationToken));
+            () => store.ResolveAsync(
+                corrUid, closedAt, closeOutcome, title, severity, resolvedBy, cancellationToken));
+
+    /// <summary>Open crash (client-led outage / J8) — module=connection, type=crash.</summary>
+    public Task RegisterCrashOpenAsync(
+        string corrUid,
+        DateTimeOffset openedAt,
+        long? connectionId,
+        string title,
+        CancellationToken cancellationToken) =>
+        SafeAsync(
+            corrUid,
+            "crash-open",
+            () => store.OpenAsync(
+                new Incident
+                {
+                    CorrUid = corrUid,
+                    Module = "connection",
+                    Type = "crash",
+                    Status = "active",
+                    OpenedAt = openedAt,
+                    Subject = SubjectFromCorr(corrUid),
+                    Severity = "critical",
+                    Title = title,
+                    LastActivityAt = openedAt,
+                    ConnectionId = connectionId,
+                    Subtype = "host_unavailable",
+                    Owner = "admin",
+                },
+                cancellationToken));
+
+    private static string SubjectFromCorr(string corrUid)
+    {
+        // corr = subject:uid — отрезаем последний сегмент.
+        var i = corrUid.LastIndexOf(':');
+        return i > 0 ? corrUid[..i] : corrUid;
+    }
 
     public Task EnsureBreakAdoptedAsync(
         long connectionId,
@@ -177,6 +214,11 @@ public sealed class NullJournalRegistrator : IJournalRegistrator
 
     public Task RegisterBreakResolvedAsync(
         string corrUid, DateTimeOffset closedAt, string closeOutcome, string? title, string? severity,
+        CancellationToken cancellationToken, string? resolvedBy = null) =>
+        Task.CompletedTask;
+
+    public Task RegisterCrashOpenAsync(
+        string corrUid, DateTimeOffset openedAt, long? connectionId, string title,
         CancellationToken cancellationToken) =>
         Task.CompletedTask;
 

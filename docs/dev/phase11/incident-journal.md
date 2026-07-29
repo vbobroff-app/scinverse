@@ -1,7 +1,7 @@
 # Phase 11 — Журнал инцидентов (11.13)
 
-**Статус:** `DESIGN AGREED` · **11.13a–e DONE** (2026-07-29).  
-Дальше — **11.13f** ручное resolve + backfill.
+**Статус:** `DESIGN AGREED` · **11.13a–f DONE** (2026-07-29).  
+Журнал OHS v1 закрыт; дальше — gate 11→12 / хвосты J8 live.
 
 **Связано:** [plan.md](plan.md) §11.13 · [to-threads.md](to-threads.md) ·
 [persistence.md](persistence.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
@@ -17,7 +17,7 @@
 Лента NC (Thread над V025) — **DONE**. Нужен first-class **журнал инцидентов**:
 
 - одна строка на эпизод (`corr`), без `GROUP BY` по hypertable атомов;
-- экран списка + фильтры + (позже) ручное resolve;
+- экран списка + фильтры + ручное resolve;
 - **источник верхнего слоя Connection-ribbon** (цветные отрезки + 1px маркеры) вместо
   производных gaps из `link_liveness`.
 
@@ -316,11 +316,11 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 | J1 | Cutover V025 atoms → БД NC | **согласовано направление** (gate 11→12); не блокер 11.13a |
 | J2 | Имя таблицы | **закрыт → `incident`** |
 | J3 | Group в таблице? | **закрыт → нет** |
-| J4 | Backfill истории | открыт: окно из gaps+V025 / только forward |
+| J4 | Backfill истории | **v1: forward + `POST /incidents/backfill-open`** (V025 open→journal); полная история gaps — позже |
 | J5 | Реестр types | код v1: connection `break`\|`crash` |
 | J6 | `duration_ms` | **только API** |
-| J7 | `resolved_by` | с POST resolve |
-| J8 | Crash → JournalRegistrator: кто INSERT при client-led outage? | открыт → 11.13c/f (break-пути в b) |
+| J7 | `resolved_by` | **закрыт** → `payload.resolvedBy` на POST resolve |
+| J8 | Crash → JournalRegistrator | **частично:** ingest `backend.unavailable` → crash open; recover/abandon close |
 
 ---
 
@@ -340,11 +340,11 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 | Шаг | Что | Критерий |
 |-----|-----|----------|
 | **11.13a** | Миграция OHS `V028__incident_journal.sql` + `IIncidentStore` | **DONE** — DbUp + 6 integration tests |
-| **11.13b** | **JournalRegistrator**: Open/handover/close/Adopt → UPSERT `incident` (не TradeWriter / не recording-лента); crash J8 | **DONE** — break-пути + unit; crash J8 отложен |
+| **11.13b** | **JournalRegistrator**: Open/handover/close/Adopt → UPSERT `incident` (не TradeWriter / не recording-лента); crash J8 | **DONE** — break-пути + unit; crash open — 11.13f |
 | **11.13c** | OHS API `GET /api/incidents` (+ окно для ribbon) | **DONE** — list/detail/by-connection + `durationMs` |
 | **11.13d** | UI экран журнала в Admin Front (OHS web) | **DONE** — раздел «Журнал инцидентов» (`messages`) |
 | **11.13e** | Connection-ribbon←`incident` (+ liveness); Recording←бинарная проекция (merge, без type) | **DONE** — projection + store wire; crash J8 optimistic gap |
-| **11.13f** | Ручное resolve + backfill/регрессия 7j | оператор закрывает; сценарии |
+| **11.13f** | Ручное resolve + backfill/регрессия 7j | **DONE** — POST resolve/backfill-open; UI; J8 ingest; ApiTest |
 
 **Вне scope 11.13:** вынос NC-сервиса / перенос V025 (gate 11→12), WebGL, Keycloak, 7j.15/16, I12.
 

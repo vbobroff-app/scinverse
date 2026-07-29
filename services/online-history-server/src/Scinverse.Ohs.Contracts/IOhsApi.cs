@@ -124,4 +124,14 @@ public interface IOhsApi
         DateTimeOffset? to = null,
         int? limit = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>POST /api/incidents/{corrUid}/resolve — ручное abandoned_manual.</summary>
+    Task<IncidentDto> ResolveIncidentAsync(
+        string corrUid,
+        ResolveIncidentRequest? request = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>POST /api/incidents/backfill-open — open V025 link → journal (J4 forward+adopt).</summary>
+    Task<BackfillOpenIncidentsResultDto> BackfillOpenIncidentsAsync(
+        CancellationToken cancellationToken = default);
 }

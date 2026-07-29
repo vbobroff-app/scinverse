@@ -28,6 +28,7 @@ export function IncidentsSection() {
   const [type, setType] = useState<TypeFilter>('');
   const [connectionId, setConnectionId] = useState('');
   const [selected, setSelected] = useState<IncidentDto | null>(null);
+  const [resolving, setResolving] = useState(false);
 
   const reload = useCallback(() => {
     setError(null);
@@ -153,7 +154,26 @@ export function IncidentsSection() {
 
       <aside className={styles.detail}>
         {selected ? (
-          <IncidentDetail incident={selected} formatTs={formatTs} />
+          <IncidentDetail
+            incident={selected}
+            formatTs={formatTs}
+            busy={resolving}
+            onResolve={() => {
+              setResolving(true);
+              setError(null);
+              OhsApi.resolveIncident(selected.corrUid, { resolvedBy: 'superuser' }).subscribe({
+                next: (updated) => {
+                  setResolving(false);
+                  setSelected(updated);
+                  reload();
+                },
+                error: (err: unknown) => {
+                  setResolving(false);
+                  setError(err instanceof Error ? err.message : 'Не удалось закрыть инцидент');
+                },
+              });
+            }}
+          />
         ) : (
           <div className={styles.detailEmpty}>Выбери строку — детали corr / owner / escalate</div>
         )}
@@ -165,10 +185,15 @@ export function IncidentsSection() {
 function IncidentDetail({
   incident,
   formatTs,
+  busy,
+  onResolve,
 }: {
   incident: IncidentDto;
   formatTs: (iso: string) => string;
+  busy: boolean;
+  onResolve: () => void;
 }) {
+  const open = incident.status === 'active' || incident.status === 'recovering';
   return (
     <div className={styles.detailBody}>
       <h2 className={styles.detailTitle}>{incident.title || incident.type}</h2>
@@ -207,7 +232,19 @@ function IncidentDetail({
         <dd>
           {incident.connectionId ?? '—'} / {incident.sourceId ?? '—'}
         </dd>
+        <dt>resolved by</dt>
+        <dd>{incident.resolvedBy ?? '—'}</dd>
       </dl>
+      {open ? (
+        <button
+          type="button"
+          className={styles.resolveBtn}
+          disabled={busy}
+          onClick={onResolve}
+        >
+          {busy ? 'Закрываю…' : 'Закрыть вручную'}
+        </button>
+      ) : null}
     </div>
   );
 }

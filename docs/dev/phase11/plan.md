@@ -10,8 +10,8 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 транспорт системных/внешних событий; необязательно — `user_settings` (phase 10) для персистенции
 состояния панели/фильтров. Влияет на все модули фронта и на серверное логирование.
 
-**Фокус сейчас:** **11.13f** resolve + backfill. **11.13a–e DONE**.
-Таблица `incident` в **OHS**; поток `notification` / пакет → NC MFE (gate 11→12).
+**Фокус сейчас:** gate **11→12** (вынос NC) / хвосты. **11.13a–f DONE**.
+Таблица `incident` в **OHS**; поток `notification` / пакет → NC MFE.
 Thread 11.8–11.12 — **DONE**. Канон — [incident-journal.md](incident-journal.md) §12.
 
 **Ядро UI/шины:** пакет [`packages/notification-center`](../../../packages/notification-center)
@@ -134,8 +134,7 @@ Thread 11.8–11.12 — **DONE**. Канон — [incident-journal.md](incident-
 
 **Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
 
-**Далее:** **11.13f** ручное resolve + backfill/регрессия —
-[incident-journal.md](incident-journal.md) §12.
+**11.13 журнал — DONE.** Далее по roadmap: gate 11→12 / 7j хвосты (не блокер журнала).
 
 **Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 код готов**
 ([../phase7j/issue.md](../phase7j/issue.md)); живая приёмка / хвосты 7j.15–16 — не блокер 11.13.
