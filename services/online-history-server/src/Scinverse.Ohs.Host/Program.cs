@@ -47,6 +47,7 @@ builder.Services.AddSingleton<IMarketScheduleStore, MarketScheduleStore>();
 builder.Services.AddSingleton<IExternalServiceStore, ExternalServiceStore>();
 builder.Services.AddSingleton<INotificationStore, NotificationStore>();
 builder.Services.AddSingleton<IIncidentStore, IncidentStore>();
+builder.Services.AddSingleton<IJournalRegistrator, JournalRegistrator>();
 builder.Services.AddSingleton<ITradeWriter, TimescaleTradeWriter>();
 builder.Services.AddSingleton<IDerivativeSpecParser, MoexFortsSpecParser>();
 builder.Services.AddSingleton<IInstrumentRegistry, InstrumentRegistry>();

@@ -89,4 +89,10 @@ public interface INotificationPublisher
     /// false — subject не open или corr не совпал.
     /// </summary>
     bool Forget(string subject, string? correlationId = null);
+
+    /// <summary>
+    /// Corr открытого инцидента по <paramref name="subject"/> (для JournalRegistrator, 11.13b).
+    /// false — нет open (active/underway).
+    /// </summary>
+    bool TryGetOpenCorrelationId(string subject, out string? correlationId);
 }

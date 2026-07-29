@@ -17,6 +17,7 @@ public sealed class ConnectionSupervisor(
     TimeProvider time,
     INotificationPublisher notifications,
     INotificationStore notificationStore,
+    IJournalRegistrator journal,
     ClientRecoveryGate recoveryGate,
     ILogger<ConnectionSupervisor> logger)
 {
@@ -310,6 +311,8 @@ public sealed class ConnectionSupervisor(
                     sender = "supervisor",
                     attempt = fails + 1,
                 });
+            await RegisterJournalRecoveringAsync(connectionId, nowUtc, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         // «Предыдущее подключение» — до нового Heartbeat. При инциденте детали идут в recovered, не сюда.
@@ -546,6 +549,17 @@ public sealed class ConnectionSupervisor(
             return;
         }
 
+        await journal
+            .EnsureBreakAdoptedAsync(
+                connectionId,
+                open.CorrelationId,
+                open.OpenedAt,
+                open.Status,
+                owner: "supervisor",
+                sourceId: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
         logger.LogInformation(
             "ConnectionSupervisor: adopted open break {Corr} (status={Status}, since={Since:o}) для {ConnectionId}",
             open.CorrelationId, open.Status, open.OpenedAt, connectionId);
@@ -580,6 +594,8 @@ public sealed class ConnectionSupervisor(
                     sender = "supervisor",
                     handoverAfterSeconds = graceSec,
                 });
+            await RegisterJournalRecoveringAsync(connectionId, nowUtc, cancellationToken)
+                .ConfigureAwait(false);
             await connections.HandoverToSupervisorAsync(connectionId, nowUtc, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -601,6 +617,20 @@ public sealed class ConnectionSupervisor(
                 elapsedSeconds = elapsedSec,
                 handoverInSeconds = remainingSec,
             });
+        await RegisterJournalRecoveringAsync(connectionId, nowUtc, cancellationToken).ConfigureAwait(false);
+    }
+
+    private Task RegisterJournalRecoveringAsync(
+        long connectionId, DateTimeOffset at, CancellationToken cancellationToken)
+    {
+        if (!notifications.TryGetOpenCorrelationId(
+                ConnectionManager.LinkIncidentSubject(connectionId), out var corr)
+            || corr is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return journal.RegisterBreakRecoveringAsync(corr, at, cancellationToken);
     }
 
     private bool IsConnected(long connectionId)

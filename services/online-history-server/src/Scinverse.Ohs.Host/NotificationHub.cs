@@ -227,6 +227,27 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         }
     }
 
+    /// <inheritdoc />
+    public bool TryGetOpenCorrelationId(string subject, out string? correlationId)
+    {
+        correlationId = null;
+        if (string.IsNullOrWhiteSpace(subject))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            if (!_openIncidents.TryGetValue(subject, out var open))
+            {
+                return false;
+            }
+
+            correlationId = open.CorrelationId;
+            return true;
+        }
+    }
+
     private bool Transition(
         string subject,
         string targetStatus,

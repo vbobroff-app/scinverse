@@ -554,6 +554,7 @@ public static class OhsEndpoints
             IConnectionStore store,
             ILinkLivenessStore linkLiveness,
             INotificationPublisher notifications,
+            IJournalRegistrator journal,
             RecordingSupervisor recordingSupervisor,
             CancellationToken ct) =>
         {
@@ -583,6 +584,13 @@ public static class OhsEndpoints
                     $"{label}: восстановление связи по команде оператора…",
                     severity: "warning",
                     data: new { connectionId = id, owner = "supervisor", sender = "user" });
+                if (notifications.TryGetOpenCorrelationId(linkSubject, out var reconnectCorr)
+                    && reconnectCorr is not null)
+                {
+                    await journal
+                        .RegisterBreakRecoveringAsync(reconnectCorr, DateTimeOffset.UtcNow, ct)
+                        .ConfigureAwait(false);
+                }
 
                 try
                 {

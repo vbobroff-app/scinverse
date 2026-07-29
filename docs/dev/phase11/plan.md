@@ -10,9 +10,9 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 транспорт системных/внешних событий; необязательно — `user_settings` (phase 10) для персистенции
 состояния панели/фильтров. Влияет на все модули фронта и на серверное логирование.
 
-**Фокус сейчас:** **11.13** — журнал инцидентов: DESIGN AGREED → план
-([incident-journal.md](incident-journal.md) §12). Таблица `incident` в **OHS** (рядом с
-`link_liveness`); поток `notification` / пакет → NC MFE (gate 11→12). Thread 11.8–11.12 — **DONE**.
+**Фокус сейчас:** **11.13c** — API журнала (`GET /api/incidents`). **11.13a–b DONE**.
+Таблица `incident` в **OHS**; поток `notification` / пакет → NC MFE (gate 11→12).
+Thread 11.8–11.12 — **DONE**. Канон — [incident-journal.md](incident-journal.md) §12.
 
 **Ядро UI/шины:** пакет [`packages/notification-center`](../../../packages/notification-center)
 (`@scinverse/notification-center`) — без привязки к OHS.
@@ -134,7 +134,7 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 
 **Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
 
-**Далее:** **11.13b** JournalRegistrator (UPSERT строк `incident`; writer = сделки) —
+**Далее:** **11.13c** OHS API `GET /api/incidents` —
 [incident-journal.md](incident-journal.md) §12.
 
 **Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 код готов**

@@ -28,6 +28,7 @@ public sealed class ConnectionManager(
     Lazy<RecordingManager> recordings,
     ILinkLivenessStore linkLiveness,
     INotificationPublisher notifications,
+    IJournalRegistrator journal,
     TransaqConnectorOptions transaqDefaults,
     OhsOptions options,
     ILoggerFactory loggerFactory,
@@ -113,10 +114,11 @@ public sealed class ConnectionManager(
         }
 
         _incidentOwner[connectionId] = "supervisor";
+        var title = $"{label}: не удалось установить связь";
         notifications.Open(
             LinkIncidentSubject(connectionId),
             "connection.lost",
-            $"{label}: не удалось установить связь",
+            title,
             severity: "error",
             data: new
             {
@@ -125,6 +127,11 @@ public sealed class ConnectionManager(
                 sender = "supervisor",
                 threadKindHint = NotificationThreadData.KindIncident,
             });
+        // Sync API (connect-fail path): journal — fire-and-complete; БД-ошибки глотает JournalRegistrator.
+        RegisterJournalOpenAsync(
+                connectionId, atTs, owner: "supervisor", subtype: "down", title, CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
         return true;
     }
 
@@ -470,6 +477,12 @@ public sealed class ConnectionManager(
                 "Подключение {ConnectionId}: handover без sourceId — маркер escalatedAt не записан",
                 connectionId);
         }
+
+        if (notifications.TryGetOpenCorrelationId(LinkIncidentSubject(connectionId), out var corr)
+            && corr is not null)
+        {
+            await journal.RegisterBreakHandoverAsync(corr, atTs, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public async Task<string> TestAsync(long connectionId, CancellationToken cancellationToken)
@@ -703,12 +716,13 @@ public sealed class ConnectionManager(
                 // восстановление идёт внутри TRANSAQ) — только идемпотентная ре-подписка. Передача владельца
                 // супервизору по grace-таймауту — J3/J6.
                 var degradedLabel = await ResolveLabelAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
-                _incidentSince.TryAdd(connectionId, change.At);
+                var isNewDegraded = _incidentSince.TryAdd(connectionId, change.At);
                 _incidentOwner.TryAdd(connectionId, "transaq");
-                notifications.Open(
+                var degradedTitle = $"{degradedLabel}: связь потеряна (Degraded)";
+                var openedDegraded = notifications.Open(
                     LinkIncidentSubject(connectionId),
                     "connection.lost",
-                    $"{degradedLabel}: связь потеряна (Degraded)",
+                    degradedTitle,
                     severity: "error",
                     data: new
                     {
@@ -718,6 +732,17 @@ public sealed class ConnectionManager(
                         sender = "transaq",
                         threadKindHint = NotificationThreadData.KindIncident,
                     });
+                if (isNewDegraded || openedDegraded)
+                {
+                    await RegisterJournalOpenAsync(
+                            connectionId,
+                            change.At,
+                            owner: "transaq",
+                            subtype: "degraded",
+                            degradedTitle,
+                            CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
 
                 if (_sourceIds.TryGetValue(connectionId, out var degradedSourceId))
                 {
@@ -795,6 +820,9 @@ public sealed class ConnectionManager(
         {
             return false;
         }
+
+        // Corr ещё в Hub до Resolve — забираем для журнала.
+        notifications.TryGetOpenCorrelationId(LinkIncidentSubject(connectionId), out var journalCorr);
 
         var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
 
@@ -889,6 +917,15 @@ public sealed class ConnectionManager(
                 break;
         }
 
+        if (journalCorr is not null)
+        {
+            var journalSeverity = closeOutcome == NotificationThreadData.OutcomeRecovered ? "ok" : "warning";
+            await journal
+                .RegisterBreakResolvedAsync(
+                    journalCorr, atTs, closeOutcome, title: null, journalSeverity, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         return true;
     }
 
@@ -943,6 +980,28 @@ public sealed class ConnectionManager(
         return connection?.SourceId;
     }
 
+    /// <summary>После Hub.Open — INSERT в журнал <c>incident</c> (тот же corr_uid).</summary>
+    private async Task RegisterJournalOpenAsync(
+        long connectionId,
+        DateTimeOffset openedAt,
+        string owner,
+        string subtype,
+        string title,
+        CancellationToken cancellationToken)
+    {
+        if (!notifications.TryGetOpenCorrelationId(LinkIncidentSubject(connectionId), out var corr)
+            || corr is null)
+        {
+            return;
+        }
+
+        var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        await journal
+            .RegisterBreakOpenAsync(
+                connectionId, corr, openedAt, owner, subtype, sourceId, title, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Открывает инцидент связи (`connection.lost`), закрывает живость связи причиной <paramref name="reason"/>
     /// на момент <paramref name="atTs"/> (честная граница дыры), гасит захват и статус. Общий путь для
@@ -976,6 +1035,9 @@ public sealed class ConnectionManager(
             // Сразу Down/Error/ping — owner=supervisor с t0 (жёлтой фазы не было).
             _incidentOwner[connectionId] = "supervisor";
             notifications.Open(subject, "connection.lost", message, severity: "error", data: lostData);
+            await RegisterJournalOpenAsync(
+                    connectionId, atTs, owner: "supervisor", subtype: "down", message, cancellationToken)
+                .ConfigureAwait(false);
             if (_sourceIds.TryGetValue(connectionId, out var srcId))
             {
                 var closed = await linkLiveness

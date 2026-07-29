@@ -1,7 +1,7 @@
 # Phase 11 — Журнал инцидентов (11.13)
 
-**Статус:** `DESIGN AGREED` · **11.13a DONE** (миграция V028 + store + tests, 2026-07-29).  
-Дальше — **11.13b** JournalRegistrator.
+**Статус:** `DESIGN AGREED` · **11.13a–b DONE** (2026-07-29).  
+Дальше — **11.13c** OHS API `GET /api/incidents`.
 
 **Связано:** [plan.md](plan.md) §11.13 · [to-threads.md](to-threads.md) ·
 [persistence.md](persistence.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
@@ -330,7 +330,7 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 | J5 | Реестр types | код v1: connection `break`\|`crash` |
 | J6 | `duration_ms` | **только API** |
 | J7 | `resolved_by` | с POST resolve |
-| J8 | Crash → JournalRegistrator: кто INSERT при client-led outage? | открыт → 11.13b |
+| J8 | Crash → JournalRegistrator: кто INSERT при client-led outage? | открыт → 11.13c/f (break-пути в b) |
 
 ---
 
@@ -350,7 +350,7 @@ PK = `corr_uid` (идемпотентность). Group/Single → **не** в `
 | Шаг | Что | Критерий |
 |-----|-----|----------|
 | **11.13a** | Миграция OHS `V028__incident_journal.sql` + `IIncidentStore` | **DONE** — DbUp + 6 integration tests |
-| **11.13b** | **JournalRegistrator**: Open/handover/close/Adopt → UPSERT `incident` (не TradeWriter / не recording-лента); crash J8 | строки пишутся; Adopt без дублей |
+| **11.13b** | **JournalRegistrator**: Open/handover/close/Adopt → UPSERT `incident` (не TradeWriter / не recording-лента); crash J8 | **DONE** — break-пути + unit; crash J8 отложен |
 | **11.13c** | OHS API `GET /api/incidents` (+ окно для ribbon) | список/фильтры |
 | **11.13d** | UI экран журнала в Admin Front (OHS web) | tsc/eslint |
 | **11.13e** | Connection-ribbon←`incident` (+ liveness); Recording←бинарная проекция (merge, без type) | паритет J7 + H2 |
