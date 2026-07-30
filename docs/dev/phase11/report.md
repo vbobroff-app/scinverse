@@ -2,9 +2,10 @@
 
 Актуальный статус фазы 11. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
-**Текущий статус:** `IN PROGRESS` — Thread **DONE**; **11.13a–f DONE**; **I2 RESOLVED** (fan-out
-journal↔NC). [issue.md](issue.md) I2 · [incident-journal.md](incident-journal.md) §7.
-**Обновлено:** 2026-07-29.
+**Текущий статус:** Thread **DONE**; **11.13a–f DONE**; **I2 RESOLVED**; **crash-dispatch D1–D8 DONE**.
+[issue.md](issue.md) I2 · [incident-journal.md](incident-journal.md) §7 ·
+[crash-dispatch.md](crash-dispatch.md).
+**Обновлено:** 2026-07-30.
 
 ## Статус задач
 
@@ -24,6 +25,7 @@ journal↔NC). [issue.md](issue.md) I2 · [incident-journal.md](incident-journal
 | 11.11 | Backend `threadKindHint` / `closeOutcome` в колонке `data` | DONE | Hub enrich + ConnectionManager + client crash; таблицы не меняли |
 | 11.12 | Регрессия Thread (7j break/crash + hydrate V025) | DONE | `threadRegression.test.ts` + web `notifications.thread.test.ts` |
 | 11.13 | Журнал инцидентов (`incident` в **OHS**) | **DONE** (a–f) | [incident-journal.md](incident-journal.md) §12 |
+| Crash | Host outage: T Group + C fan-out (D1–D8) | **DONE** | [crash-dispatch.md](crash-dispatch.md); `47fb58e`…`62453e0` + D6+LS `ef6805b` |
 
 ## Решение
 
@@ -65,8 +67,9 @@ journal↔NC). [issue.md](issue.md) I2 · [incident-journal.md](incident-journal
 | 2026-07-29 | **I2 step2:** break open/recovering/handover/resolve/adopt → fan-out | Manager/Supervisor |
 | 2026-07-29 | **I2 step3:** crash ingest + manual resolve + connect recovering → fan-out | OhsEndpoints |
 | 2026-07-29 | **I2 RESOLVED:** регрессия parallel crash (unit+ApiTest); критерии приёмки | [issue.md](issue.md) I2 |
+| 2026-07-30 | **Crash dispatch D1–D8 DONE:** `POST /recovery/outage` merge; emit T (`ohs.host.transport:`) + C (`ohs.backend.outage:…:c{id}`); journal только desired; клиент — local Single + LS pending + POST + optimistic ribbon; cutover с client-led crash journal | HostOutage unit 14 · Crash_ Api 3 · web 48 · NC bus 23; [crash-dispatch.md](crash-dispatch.md) |
 
 ## Итог
 
 Лента NC v1 — **готова**. Журнал OHS **11.13a–f DONE**. **I2 fan-out — RESOLVED**.
-Вынос atoms/пакета в NC — **gate 11→12**.
+**Crash dispatch (Host outage T+C) — DONE.** Вынос atoms/пакета в NC — **gate 11→12**.

@@ -21,7 +21,9 @@ Thread 11.8–11.12 — **DONE**. Канон — [incident-journal.md](incident-
 [to-threads.md](to-threads.md); персист атомов — [persistence.md](persistence.md) (V025 DONE).
 Опции дока (группировать / схлоп тиков) — [dock-settings.md](dock-settings.md);
 маркеры ★/⊘ и фильтр «Выбор» — [nc-marks.md](nc-marks.md).
-Журнал инцидентов (next) — [incident-journal.md](incident-journal.md);
+Журнал инцидентов — [incident-journal.md](incident-journal.md);
+**crash dispatch** (транспорт + слой соединений, DESIGN AGREED) —
+[crash-dispatch.md](crash-dispatch.md);
 продуктовое определение — [`docs/wiki-readme/incident.md`](../../wiki-readme/incident.md).
 
 ## Мотивация
@@ -98,6 +100,9 @@ Thread 11.8–11.12 — **DONE**. Канон — [incident-journal.md](incident-
   (не TradeWriter) + API + UI; Connection-ribbon + Recording (**бинарная проекция**).
   Atoms — as-is V025 / to-be NC ([gate 11→12](../plan.md)). Канон —
   [incident-journal.md](incident-journal.md) §3.
+- **Crash dispatch (после 11.13) — DONE.** Host crash: транспортный Group (admin↔OHS) + fan-out
+  Incident/Group per `connectionId`. D1–D8 —
+  [crash-dispatch.md](crash-dispatch.md) §11–§14; отчёт — [report.md](report.md).
 
 ## Вне области (out of scope)
 
@@ -135,7 +140,8 @@ Thread 11.8–11.12 — **DONE**. Канон — [incident-journal.md](incident-
 **Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
 
 **11.13 журнал — DONE.** **I2 RESOLVED** — fan-out OHS→`incident`+NC ([issue.md](issue.md) I2,
-[incident-journal.md](incident-journal.md) §7). Далее: gate 11→12 / 7j хвосты.
+[incident-journal.md](incident-journal.md) §7). **Crash dispatch D1–D8 — DONE**
+([crash-dispatch.md](crash-dispatch.md)). Далее: gate 11→12 / 7j хвосты.
 
 **Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 код готов**
 ([../phase7j/issue.md](../phase7j/issue.md)); живая приёмка / хвосты 7j.15–16 — не блокер 11.13.

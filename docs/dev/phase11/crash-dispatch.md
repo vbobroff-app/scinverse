@@ -1,7 +1,7 @@
 # Phase 11 — Crash dispatch: транспорт + слой соединений
 
-**Статус:** `DESIGN AGREED` · **IN PROGRESS** (D1–D7 DONE · D8…).  
-**Дата согласования:** 2026-07-30 · план: 2026-07-30.
+**Статус:** `DESIGN AGREED` · **DONE** (D1–D8).  
+**Дата согласования:** 2026-07-30 · план: 2026-07-30 · закрыто: 2026-07-30.
 
 **Связано:** [incident-journal.md](incident-journal.md) (§2, §4.3 Crash, A6) ·
 [to-threads.md](to-threads.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
@@ -302,7 +302,7 @@ POST /api/recovery/outage
 | **D5a** | NC фильтр «Соединение» (show/hide Id) — **DONE** | Скрыть id=1; без id в data остаётся видимым |
 | **D6** | Клиент: WS up → `POST /recovery/outage` `{clientId, from, to}` (+ hold как сейчас); не mock-POST backend.* для crash — **DONE** | vitest: body from/to; pending в `localStorage` до 2xx POST |
 | **D7** | Optimistic ribbon на **все** `connections$`; после incidents refresh — journal wins — **DONE** | unit: clip/apply; UI: journal глушит overlapping crash gap |
-| **D8** | Регрессия + docs: report.md, статус спеки → `IN PROGRESS`/`DONE` | unit + ApiTest зелёные |
+| **D8** | Регрессия + docs: report.md, статус спеки → `DONE` — **DONE** | HostOutage unit 14 · Crash_ ApiTest 3 · web hostOutage/localTransport/coverageGeometry/OhsStore 48 · NC bus 23 |
 
 **Порядок жёсткий:** D1→D2→D3→D4, затем D5→D6→D7, D8 в конце. D2∥D3 на одном PR допустимо, если coordinator готов.
 
@@ -319,7 +319,7 @@ POST /api/recovery/outage
 
 - `OhsStore.onBackendDrop` / `onBackendReachable`: Single + outage POST вместо `openBackendOutage`/`resolveBackendOutage` persist;
 - `clientId`: стабильный per browser tab (`sessionStorage` uuid) — достаточно для админки;
-- локальный фейк: **memory only** в MVP (localStorage — later, вне D5);
+- локальный фейк: Single — memory; pending report — `localStorage` (`ohs.hostOutage.pending`) до 2xx POST (D6+LS);
 - `notifications.ts`: helpers для локальной Single; deprecate crash Thread helpers или оставить для тестов до D5.
 
 **Не трогаем:** break/link path, Recording, gate 11→12, schema migrations.
