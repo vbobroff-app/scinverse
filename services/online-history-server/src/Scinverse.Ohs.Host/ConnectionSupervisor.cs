@@ -260,7 +260,7 @@ public sealed class ConnectionSupervisor(
                         "connection.schedule_disconnect",
                         $"{label}: плановое отключение по расписанию",
                         "info",
-                        data: new { connectionId });
+                        data: new { connectionId, sender = "supervisor" });
                 }
 
                 logger.LogInformation(
