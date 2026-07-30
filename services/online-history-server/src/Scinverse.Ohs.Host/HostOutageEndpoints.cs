@@ -10,6 +10,7 @@ public static class HostOutageEndpoints
             HostOutageCoordinator outages,
             HostOutageTransportEmitter transport,
             HostOutageConnectionEmitter connections,
+            ClientRecoveryGate recoveryGate,
             CancellationToken ct) =>
         {
             if (req is null || string.IsNullOrWhiteSpace(req.ClientId))
@@ -21,6 +22,13 @@ public static class HostOutageEndpoints
             // D2: слой T в NC (без journal). D3: слой C per enabled connection.
             transport.Apply(result);
             await connections.ApplyAsync(result, ct).ConfigureAwait(false);
+            // D6: close эпизода снимает hold-барьер (раньше — client backend.recovered).
+            if (result.ClosedEmitted)
+            {
+                recoveryGate.Release();
+                recoveryGate.ClearActiveIncident();
+            }
+
             return Results.Accepted(
                 value: new
                 {

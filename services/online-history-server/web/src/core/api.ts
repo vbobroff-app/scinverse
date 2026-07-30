@@ -199,6 +199,14 @@ export const OhsApi = {
   // не пришлю backend.recovered» + corr инцидента (§9.2, штамп для `ohs.unhandled`). Шлём на реконнекте WS.
   holdRecovery: (correlationId: string) => post<void>('/recovery/hold', { correlationId }),
 
+  /** Crash-dispatch D6: сигнал Host outage/recover (дедуп T+C на Host). */
+  reportHostOutage: (body: {
+    clientId: string;
+    from: string;
+    to?: string | null;
+    code?: string;
+  }) => post<unknown>('/recovery/outage', body),
+
   connect: (connectionId: number) => post<ConnectionDto>(`/connections/${connectionId}/connect`),
   disconnect: (connectionId: number) =>
     post<ConnectionDto>(`/connections/${connectionId}/disconnect`),

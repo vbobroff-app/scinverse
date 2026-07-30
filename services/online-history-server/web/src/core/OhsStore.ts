@@ -4,6 +4,8 @@ import { notificationBus } from './notifications';
 import { catchError, finalize, map, mergeMap, switchMap, tap, timeout, toArray } from 'rxjs/operators';
 import { bucketSecondsForTimeframe } from './activityBucket';
 import { OhsApi, type OhsApiClient } from './api';
+import { getAdminClientId } from './adminClientId';
+import { buildHostOutageReportBody } from './hostOutageReport';
 import { isConnectedNow } from './connectionSchedule';
 import { gapsFromLivenessIntervals, overlayCrashOutageOnLink } from './coverageGeometry';
 import { createLiveStream, linkStateToConnectionStatus } from './live';
@@ -346,6 +348,8 @@ export class OhsStore {
   private pendingOutagePersist: NotificationDto[] | null = null;
   /** Последний `backend.recovering` — в шину сразу, в БД только вместе с open+recovered (анти-сирота). */
   private pendingRecoveringDto: NotificationDto | null = null;
+  /** D6: отложенный POST /recovery/outage (abandon при мёртвом Host → flush на WS up). */
+  private pendingOutageReport: { fromMs: number; toMs: number } | null = null;
 
   constructor(
     private readonly api: OhsApiClient = OhsApi,
@@ -672,6 +676,7 @@ export class OhsStore {
         this.refreshLiveness();
       }
     }
+    this.flushPendingOutageReport();
     if (this.outageStart === null) {
       return;
     }
@@ -878,6 +883,7 @@ export class OhsStore {
       return false;
     }
 
+    const fromMs = this.outageStart!;
     const end = Date.now();
     this.clearOutageTimers();
     this.outageStart = null;
@@ -900,8 +906,10 @@ export class OhsStore {
       incidents: this.link$.value.incidents,
     });
 
-    // D5: без mock-POST abandon; клип ленты локальный. Journal schedule-end — Host later.
     void import('./notifications').then((m) => m.dismissLocalTransportDownSingle());
+    // Host down → очередь; flush на WS up. Если бэк уже жив — уйдёт сразу.
+    this.pendingOutageReport = { fromMs, toMs: end };
+    this.flushPendingOutageReport();
     return true;
   }
 
@@ -936,7 +944,7 @@ export class OhsStore {
     run(0);
   }
 
-  /** Закрытие локального outage после settle. D6 добавит POST /recovery/outage. */
+  /** Закрытие локального outage после settle + POST /recovery/outage (D6). */
   private resolveOutage(): void {
     if (this.outageStart === null || this.outageCorr === null) {
       return;
@@ -948,6 +956,8 @@ export class OhsStore {
       this.onBackendReachable();
       return;
     }
+    const fromMs = this.outageStart;
+    const toMs = Date.now();
     this.clearOutageTimers();
     this.outageStart = null;
     this.setOutagePhase('none');
@@ -959,9 +969,8 @@ export class OhsStore {
     this.pendingOutagePersist = null;
     this.pendingRecoveringDto = null;
     void import('./notifications').then((m) => {
-      // D5: снять локальную Single; mock-POST backend.* убран (D6 — /recovery/outage).
       m.dismissLocalTransportDownSingle();
-      this.refreshLiveness();
+      this.reportHostOutageEpisode(fromMs, toMs);
       // После recover: Auto×N stop + open break → Single INFO (не link-corr).
       this.api.getConnectionsNeedsOperator().subscribe({
         next: (rows) => {
@@ -975,6 +984,31 @@ export class OhsStore {
         error: (err) => console.error('getConnectionsNeedsOperator', err),
       });
     });
+  }
+
+  /** D6: сигнал эпизода на Host → emit T+C; hydrate снимет локальную Single при T. */
+  private reportHostOutageEpisode(fromMs: number, toMs: number): void {
+    const body = buildHostOutageReportBody(getAdminClientId(), fromMs, toMs);
+    this.api.reportHostOutage(body).subscribe({
+      next: () => {
+        this.pendingOutageReport = null;
+        this.refreshNotifications();
+        this.refreshLiveness();
+      },
+      error: (err) => {
+        console.error('reportHostOutage', err);
+        this.pendingOutageReport = { fromMs, toMs };
+        this.refreshLiveness();
+      },
+    });
+  }
+
+  private flushPendingOutageReport(): void {
+    const pending = this.pendingOutageReport;
+    if (pending === null) {
+      return;
+    }
+    this.reportHostOutageEpisode(pending.fromMs, pending.toMs);
   }
 
   /** Переключает активный раздел верхнего уровня (левый рейл). */
