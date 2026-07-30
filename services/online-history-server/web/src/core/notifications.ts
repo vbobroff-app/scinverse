@@ -246,6 +246,7 @@ export function hydrateServerBacklog(dtos: readonly NotificationDto[]): void {
 
 /** Событие с бэка (WS `notification` / GET /api/notifications) → шина дока. */
 export function publishServerNotification(dto: NotificationDto): void {
+  dismissLocalTransportDownIfHostTransport(dto);
   const severity = (dto.severity ?? 'info') as NotificationSeverity;
   const sourceType = (dto.sourceType ?? 'system') as NotificationSourceType;
   const data =
@@ -284,15 +285,9 @@ export function publishServerNotification(dto: NotificationDto): void {
   }
 }
 
-// ── Недоступность бэка (7j.20): mock-behaviour optimistic pattern, ИНЦИДЕНТ ───────────────────────
-// Бэк не может сообщить о СОБСТВЕННОМ простое, пока лежит → детектит клиент (дроп WS) и ведёт инцидент
-// сам (в отличие от инцидентов связи, где оркестратор — NotificationHub на бэке; тут бэк мёртв). Стек:
-//   fatal  (open)     — «Сервер OHS недоступен, жду восстановления»            (status active)
-//   error  (progress) — «Сервер OHS недоступен · N с», живые тики 5 c          (status underway, upsert)
-//   warning           — «…идёт восстановление…» (отдельная строка, персист); к OK только через warn
-//   ok     (resolve)  — «Система восстановлена…» (status resolved)
-// Инвариант: не FATAL→OK; пачка mid-stack 500 → один warn после кулдауна. Тики — temporary (не POST).
-// corr: cold = ohs.backend.outage:<startMs>; эскалация 500 = adopt requestId (§9.2).
+// ── Host outage (crash-dispatch): локальный фейк + legacy Thread helpers ─────────────────────────
+// D5: пока Host лежит — память-only Single (без corr → не Thread; без persist). Durable T/C — Host
+// после POST /recovery/outage (D6). Legacy openBackendOutage/resolve* оставлены для тестов/перехода.
 const BACKEND_OUTAGE_MODULE = 'ohs.host';
 const OUTAGE_CODE_OPEN = 'backend.unavailable';
 const OUTAGE_CODE_PROGRESS = 'backend.unavailable.progress';
@@ -301,10 +296,85 @@ const OUTAGE_CODE_RESOLVED = 'backend.recovered';
 /** Тот же code, что у break schedule-end; различает `data.kind` = crash | break. */
 const OUTAGE_CODE_INCIDENT_CLOSED = 'connection.incident_closed';
 const HEALTHCHECK_CODE_OK = 'backend.healthcheck.ok';
+/** Локальный Single на WS drop (код слоя T; без correlationId). */
+const LOCAL_TRANSPORT_DOWN_CODE = 'host.unreachable';
+const LOCAL_TRANSPORT_DOWN_MESSAGE = 'Пропала связь с сервером';
+
+let localTransportDownId: string | null = null;
+let localTransportDownStartMs: number | null = null;
 
 /** corr cold-инцидента простоя (нет предшествующего 500). Экспорт — OhsStore шлёт его в holdRecovery (§9.2). */
 export function outageCorrelationId(startMs: number): string {
   return `ohs.backend.outage:${startMs}`;
+}
+
+/**
+ * WS down → локальная Single (memory only). Без correlationId → projectThreads = Single, не Thread.
+ * Повторный вызов — no-op (держим первый startMs).
+ */
+export function showLocalTransportDownSingle(startMs: number): void {
+  if (localTransportDownId !== null) {
+    return;
+  }
+  localTransportDownId = guidN();
+  localTransportDownStartMs = startMs;
+  notify.error(notificationBus, {
+    id: localTransportDownId,
+    ts: new Date(startMs).toISOString(),
+    module: BACKEND_OUTAGE_MODULE,
+    code: LOCAL_TRANSPORT_DOWN_CODE,
+    message: LOCAL_TRANSPORT_DOWN_MESSAGE,
+    sourceType: 'system',
+    interaction: 'system',
+    localization: 'internal',
+    data: { sender: 'client', kind: 'transport', local: true },
+  });
+}
+
+/** Живой тик длительности на той же Single (upsert по id). */
+export function tickLocalTransportDownSingle(nowMs: number): void {
+  if (localTransportDownId === null || localTransportDownStartMs === null) {
+    return;
+  }
+  const durationSec = Math.max(1, Math.round((nowMs - localTransportDownStartMs) / 1000));
+  notify.error(notificationBus, {
+    id: localTransportDownId,
+    ts: new Date(localTransportDownStartMs).toISOString(),
+    module: BACKEND_OUTAGE_MODULE,
+    code: LOCAL_TRANSPORT_DOWN_CODE,
+    message: `${LOCAL_TRANSPORT_DOWN_MESSAGE} · ${formatOutageDuration(durationSec)}`,
+    sourceType: 'system',
+    interaction: 'system',
+    localization: 'internal',
+    data: {
+      sender: 'client',
+      kind: 'transport',
+      local: true,
+      durationSec,
+    },
+  });
+}
+
+/** Снять локальный фейк (WS up / hydrate транспортного Group с Host). */
+export function dismissLocalTransportDownSingle(): void {
+  if (localTransportDownId === null) {
+    return;
+  }
+  notificationBus.remove(localTransportDownId);
+  localTransportDownId = null;
+  localTransportDownStartMs = null;
+}
+
+/** Есть ли сейчас локальная Single недоступности (для тестов). */
+export function hasLocalTransportDownSingle(): boolean {
+  return localTransportDownId !== null;
+}
+
+function dismissLocalTransportDownIfHostTransport(dto: NotificationDto): void {
+  const corr = dto.correlationId ?? '';
+  if (corr.startsWith('ohs.host.transport:')) {
+    dismissLocalTransportDownSingle();
+  }
 }
 
 /**
@@ -574,6 +644,7 @@ export function resolveBackendOutage(
     result: spanLine,
     sender: 'client',
     closeOutcome: 'recovered' as const,
+    ...(thread.connectionId != null ? { connectionId: thread.connectionId } : {}),
   };
 
   notify.ok(notificationBus, {

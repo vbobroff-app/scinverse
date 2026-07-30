@@ -16,16 +16,18 @@ describe('11.12 notifications Thread hints + hydrate', () => {
   });
 
   it('openBackendOutage stamps threadKindHint; resolve stamps closeOutcome', () => {
-    openBackendOutage(1_720_000_000_000, 'ohs.backend.outage:1', 'incident');
+    openBackendOutage(1_720_000_000_000, 'ohs.backend.outage:1', 'incident', 3);
     const open = notificationBus.events[0]!;
     expect(open.code).toBe('backend.unavailable');
     expect(open.data?.threadKindHint).toBe('incident');
+    expect(open.data?.connectionId).toBe(3);
 
     const dtos = resolveBackendOutage(1_720_000_000_000, 1_720_000_030_000, 'ohs.backend.outage:1');
     const close = dtos.find((d) => d.code === 'backend.recovered')!;
-    expect(close.data).toMatchObject({ closeOutcome: 'recovered' });
+    expect(close.data).toMatchObject({ closeOutcome: 'recovered', connectionId: 3 });
     expect(dtos.find((d) => d.code === 'backend.unavailable')?.data).toMatchObject({
       threadKindHint: 'incident',
+      connectionId: 3,
     });
 
     const thread = notificationBus.items.find(isThreadItem);

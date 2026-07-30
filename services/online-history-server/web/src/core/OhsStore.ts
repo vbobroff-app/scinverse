@@ -621,7 +621,6 @@ export class OhsStore {
       if (this.outageStart === null || this.outageCorr === null) {
         return;
       }
-      const corr = this.outageCorr;
       const start = this.outageStart!;
       const horizon = this.resolveOutageScheduleHorizon();
       this.outageScheduleDesired = horizon?.desired ?? null;
@@ -631,11 +630,8 @@ export class OhsStore {
         linkRecoverGraceSeconds: this.link$.value.linkRecoverGraceSeconds,
         incidents: this.link$.value.incidents,
       });
-      // 11.11: Incident в горизонте desired, иначе Group (не журнал инцидентов).
-      const threadKindHint = horizon?.desired === false ? 'group' : 'incident';
-      void import('./notifications').then((m) =>
-        m.openBackendOutage(start, corr, threadKindHint, horizon?.connectionId),
-      );
+      // D5: локальная Single (не Thread); durable T/C — Host после /recovery/outage (D6).
+      void import('./notifications').then((m) => m.showLocalTransportDownSingle(start));
       this.startOutageProgress(false);
     }, BACKEND_OUTAGE_GRACE_MS);
   }
@@ -655,13 +651,11 @@ export class OhsStore {
         if (this.tryAbandonOutageBySchedule()) {
           return;
         }
-        const corr = this.outageCorr;
-        void import('./notifications').then((m) => m.tickBackendOutage(this.outageStart!, Date.now(), corr));
+        void import('./notifications').then((m) => m.tickLocalTransportDownSingle(Date.now()));
       }, BACKEND_OUTAGE_TICK_MS);
     }
-    if (immediate && this.outageStart !== null && this.outageCorr !== null) {
-      const corr = this.outageCorr;
-      void import('./notifications').then((m) => m.tickBackendOutage(this.outageStart!, Date.now(), corr));
+    if (immediate && this.outageStart !== null) {
+      void import('./notifications').then((m) => m.tickLocalTransportDownSingle(Date.now()));
     }
   }
 
@@ -689,6 +683,7 @@ export class OhsStore {
       this.outageNeedsWarnBeforeOk = false;
       this.pendingFatalCorr = null;
       this.pendingFatalAt = null;
+      void import('./notifications').then((m) => m.dismissLocalTransportDownSingle());
       return;
     }
 
@@ -701,10 +696,9 @@ export class OhsStore {
       this.outageRecoverTimer = undefined;
     }
 
-    const corr = this.outageCorr ?? `ohs.backend.outage:${this.outageStart}`;
     this.signalHoldRecovery();
 
-    // Уже recovering: повторный WS-reconnect не плодит второй warn — только перевзводим settle.
+    // D5: без client Thread warn/recover; Single снимем в settle→resolve (D6 — POST /recovery/outage).
     if (this.outagePhase === 'warning') {
       this.armOutageSettle();
       return;
@@ -712,10 +706,7 @@ export class OhsStore {
 
     this.setOutagePhase('warning');
     this.outageNeedsWarnBeforeOk = false;
-    void import('./notifications').then((m) => {
-      // Live сразу; POST — в resolveOutage вместе с open+ok (иначе сирота recovering в БД).
-      this.pendingRecoveringDto = m.warnBackendOutage(corr);
-    });
+    this.pendingRecoveringDto = null;
     this.armOutageSettle();
   }
 
@@ -887,8 +878,6 @@ export class OhsStore {
       return false;
     }
 
-    const start = this.outageStart;
-    const corr = this.outageCorr;
     const end = Date.now();
     this.clearOutageTimers();
     this.outageStart = null;
@@ -911,17 +900,8 @@ export class OhsStore {
       incidents: this.link$.value.incidents,
     });
 
-    void import('./notifications').then((m) => {
-      const dtos = m.abandonBackendOutageBySchedule(
-        start,
-        end,
-        corr,
-        horizon.connectionId,
-        horizon.label,
-      );
-      this.pendingOutagePersist = dtos;
-      this.flushPendingOutagePersist();
-    });
+    // D5: без mock-POST abandon; клип ленты локальный. Journal schedule-end — Host later.
+    void import('./notifications').then((m) => m.dismissLocalTransportDownSingle());
     return true;
   }
 
@@ -956,11 +936,9 @@ export class OhsStore {
     run(0);
   }
 
-  /** Закрытие: ok + mock-POST open+resolve. Вызывать только из warning после warn (§9.2). */
+  /** Закрытие локального outage после settle. D6 добавит POST /recovery/outage. */
   private resolveOutage(): void {
-    const start = this.outageStart;
-    const corr = this.outageCorr;
-    if (start === null || corr === null) {
+    if (this.outageStart === null || this.outageCorr === null) {
       return;
     }
     // Последний рубеж: никогда FATAL→OK без recovering в стеке.
@@ -979,18 +957,12 @@ export class OhsStore {
     this.outageCorr = null;
     this.outageScheduleDesired = null;
     this.pendingOutagePersist = null;
-    const recovering = this.pendingRecoveringDto;
     this.pendingRecoveringDto = null;
-    const end = Date.now();
     void import('./notifications').then((m) => {
-      const batch = m.resolveBackendOutage(start, end, corr, recovering);
-      if (batch.length === 0) {
-        this.refreshLiveness();
-      } else {
-        // open → recovering → recovered строго по порядку (журнал + NC).
-        this.postNotificationsSequential(batch, () => this.refreshLiveness());
-      }
-      // После OK recover: спросить бэк про Auto×N stop + open break → Single INFO (не link-corr).
+      // D5: снять локальную Single; mock-POST backend.* убран (D6 — /recovery/outage).
+      m.dismissLocalTransportDownSingle();
+      this.refreshLiveness();
+      // После recover: Auto×N stop + open break → Single INFO (не link-corr).
       this.api.getConnectionsNeedsOperator().subscribe({
         next: (rows) => {
           for (const row of rows) {

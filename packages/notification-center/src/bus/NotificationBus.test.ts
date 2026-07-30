@@ -70,6 +70,15 @@ describe('NotificationBus', () => {
     expect(bus.unreadAlertCount).toBe(0);
   });
 
+  it('remove drops a single event by id', () => {
+    const bus = createNotificationBus();
+    notify.error(bus, { id: 'e1', module: 'm', code: 'c', message: 'a' });
+    notify.info(bus, { id: 'i1', module: 'm', code: 'c', message: 'b' });
+    expect(bus.remove('e1')).toBe(true);
+    expect(bus.events.map((e) => e.id)).toEqual(['i1']);
+    expect(bus.remove('missing')).toBe(false);
+  });
+
   describe('lifecycle status (ось B)', () => {
     it('keeps both rows on transition; statusOf follows the latest', () => {
       const bus = createNotificationBus();

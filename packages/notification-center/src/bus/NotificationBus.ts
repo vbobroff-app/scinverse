@@ -244,6 +244,21 @@ export class NotificationBus {
     this.eventsSubject.next([]);
   }
 
+  /** Убрать событие из raw/ленты (локальный фейк до hydrate — crash-dispatch D5). */
+  remove(id: string): boolean {
+    if (!id) {
+      return false;
+    }
+    const next = this.raw.filter((e) => e.id !== id);
+    if (next.length === this.raw.length) {
+      return false;
+    }
+    this.raw = next;
+    this.readIds.delete(id);
+    this.emitDisplay();
+    return true;
+  }
+
   markRead(id: string): void {
     if (this.readIds.has(id)) {
       return;
