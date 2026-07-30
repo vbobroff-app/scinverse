@@ -56,6 +56,6 @@ UI пресетов захардкожен под MOEX; рынок (CME и др.
 | **J9 / J10** | per-connection grace / глобальный порог NC | ПЛАН, позже ([incident.md](incident.md) §8) |
 | **H1 / H2** | recording = бинарная проекция `incident`; Degraded рвёт capture | **DONE** · [incident §7](incident.md) |
 | **I9 prod** | bind/health/proxy family после Vite | OPEN checklist ([issue.md](issue.md) I9) |
-| **I12** | Pool exhausted → пачка 500; orphan ACTIVE FATAL после recover | **OPEN** ([issue.md](issue.md) I12): RxJS sync refresh; смежно coverage 7h |
+| **I12** | Pool exhausted → пачка 500; orphan ACTIVE FATAL (recover или break) | **OPEN** ([issue.md](issue.md) I12): RxJS sync refresh; смежно coverage 7h |
 
 System-уведомления: JSON (`result`/`error_message`/`sender`); user schedule — `lines[]`.

@@ -4,7 +4,8 @@
 **I10/I11** — КОД ГОТОВ · **I12** — OPEN (пул Npgsql / orphan ACTIVE 500).
 Диагностика I1–I5 — живой тест 23.07.2026; I6/I7 — 24.07.2026; I8 — 25–26.07.2026
 ([nc-availability.md](nc-availability.md)); I9 — 26.07.2026 (после рестарта Host);
-I10 — 27.07.2026 (Thread UI + вложенный crash); I12 — 29.07.2026 (после recover + coverage).
+I10 — 27.07.2026 (Thread UI + вложенный crash); I12 — 29.07.2026 (после recover + coverage),
+повтор 30.07.2026 (break / WiFi cut → залп coverage).
 Часть сценариев принята на Finam id=3. Инцидентный контур 7j: хвост **I12**;
 остаток фазы — **7j.15/7j.16** ([todo.md](todo.md)); UI NC Thread → **phase 11**.
 
@@ -637,16 +638,20 @@ Connect-fail: Open link: + Append (Group auto:/connect: только после 
 
 ---
 
-## I12. После recover: пул Npgsql exhausted → пачка `ohs.unhandled` (500); orphan ACTIVE FATAL
+## I12. Пул Npgsql exhausted → пачка `ohs.unhandled` (500); orphan ACTIVE FATAL
 
-**Статус:** OPEN (2026-07-29). Живой эпизод после outage/рестарта Host.
+**Статус:** OPEN (2026-07-29; подтверждено **2026-07-30**).
+
+**Триггеры (не только рестарт Host):** любой залп тяжёлых coverage/liveness API —
+после outage/recover Host **или** после break (WiFi cut / Finam Degraded→Down), когда UI
+массово зовёт refresh ленты.
 
 **Почему 7j, не 7h.** Триггер — залп coverage/liveness API (территория ленты 7h), но
 **симптом и пробел контракта** — в NC/исключениях: `ohs.unhandled`, health-probe §9.3 (I8),
 orphan `ACTIVE` FATAL. Инфра-корень (пул) фиксируем здесь же; throttle coverage — смежный
 хвост 7h ([../phase7h/issue.md](../phase7h/issue.md) — ссылка ниже).
 
-### Симптом (МСК, 29.07.2026)
+### Эпизод A (МСК, 29.07.2026) — после recover Host
 
 | Время | Событие |
 |-------|---------|
@@ -655,6 +660,15 @@ orphan `ACTIVE` FATAL. Инфра-корень (пул) фиксируем зд�
 | **10:07:59** | три FATAL `ohs.unhandled` одним тиком |
 | 10:08:01 | один corr закрыт health-probe → Group `RESOLVED` («Проверка работоспособности…») |
 | — | **два других FATAL остаются `ACTIVE`** при уже живом бэке |
+
+### Эпизод B (МСК, 30.07.2026) — break / WiFi cut (приёмка break-detect)
+
+| Время | Событие |
+|-------|---------|
+| ~12:56 | Finam Degraded / «Связь потеряна…»; UI refresh coverage/liveness |
+| **13:09:47** | пачка FATAL `ohs.unhandled` (`GET /api/coverage` → pool exhausted) |
+| 13:09:47 | один corr → Group `RESOLVED` health-probe; **остальные ACTIVE** |
+| ~13:10 | оператор остановил Host → локальный Single «Сервер OHS недоступен» (ожидаемо) |
 
 `data.result` у FATAL (не лимит сообщений NC):
 
@@ -667,15 +681,16 @@ POST /api/coverage/activity
 ```
 
 «100» = **Max Pool Size** соединений Host→Postgres, не лимит уведомлений в ленте.
+Не путать с лимитом строк в доке NC.
 
 ### Что произошло (проще)
 
-1. После оживления UI разом дергает несколько тяжёлых coverage-запросов к БД.
+1. UI разом дергает несколько тяжёлых coverage-запросов к БД (после recover **или** break).
 2. Пул соединений занят / не успевает отдать слот за 15 с → Npgsql кидает исключение.
 3. `GlobalExceptionHandler` → 500 + `ohs.unhandled` (critical) с **отдельным** `corr = requestId`
    на каждый запрос (вне открытого outage-hold).
 4. Пул **сам** освобождается, когда висящие запросы заканчиваются/таймаутятся (~секунды) —
-   бэк снова отвечает; отдельной «кнопки разлип» нет.
+   бэк снова отвечает; отдельной «кнопки разлип» нет. Рестарт Host не обязателен.
 5. Клиентский health-probe (§9.3 / I8) закрывает **только последний** одиночный 500 → один
    Group `RESOLVED`; остальные corr остаются `ACTIVE` в журнале (хвост, не «пул всё ещё мёртв»).
 
@@ -715,7 +730,7 @@ Npgsql connection string / `NpgsqlDataSource`.
 | I9 | UI пустой: `localhost`→`::1`, IPv6 Kestrel залип | proxy → `127.0.0.1`; prod: bind/health/proxy family | MITIGATION / prod OPEN |
 | I10 | После crash: break `active` + восстановление в Group `auto:` | Adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ** |
 | I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **КОД ГОТОВ** (живая приёмка) |
-| I12 | Pool exhausted → пачка 500; orphan ACTIVE FATAL | RxJS sync refresh coverage; pool; close-all single 500 | **OPEN** |
+| I12 | Pool exhausted (recover **или** break) → пачка 500; orphan ACTIVE FATAL | RxJS sync refresh coverage; pool; close-all single 500 | **OPEN** |
 
 Остаток 7j: 7j.15/7j.16 ([todo.md](todo.md)); I12 OPEN; I10/I11 — живая приёмка.
 NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).

@@ -42,8 +42,15 @@
 
 ### 3.0. Connection-лента (диагностика: где / почему / кто чинит)
 
+Два **независимых слоя** на одной оси (разные таблицы OHS):
+
+| Слой UI | Таблица | Что показывает |
+|---------|--------|----------------|
+| Лента связи (голубое / pulse / серое idle) | `link_liveness` | Факт link: сессия с брокером готова / нет |
+| Инциденты (цвет + 1px маркеры) | `incident` | Эпизоды break/crash |
+
 ```text
-низ:   link_liveness      — голубые отрезки «связь жива» (schedule-bounded)
+низ:   link_liveness      — голубые отрезки «link готов» (+ серое disconnected/scheduled)
 верх:  incident (journal) — цветные эпизоды + маркеры поверх
          ├── break  (низ подслоя)  — жёлтое / красное сплошное + 1px
          └── crash  (верх подслоя) — красная штриховка + 1px; paint поверх break
@@ -53,7 +60,32 @@
   UI только красит crash сверху.
 - Плановый stop / ручной off **без** предшествующего инцидента — не в журнале
   (серое / отсутствие голубого).
-- Перспектива: тумблеры слоёв «только живность» / «только инциденты».
+- **Тумблеры** (шестерёнка провайдера → Показывать): «Лента связи», «Инциденты»,
+  «Now-маркер», «Панель фильтров».
+
+### 3.0a. Инвариант `ts`: `link_liveness` → NC (не наоборот)
+
+**Link** = сессия коннектора с брокером (`ConnectorLinkState` / TRANSAQ `server_status`),
+не запись и не Host.
+
+**Инвариант (DONE в коде, без миграций):** NC **копирует** `ts` источника, не штампует
+`UtcNow` в момент `Publish`/`Open`/`Resolve`.
+
+| Путь | Источник `ts` | Куда |
+|------|---------------|------|
+| Connect OK | `ConnectResult.ReadyAt` (= `Heartbeat` после `OnLinkLiveAsync`) | `link_liveness.from` · NC `connecting`/`connected` · journal Resolve recovered |
+| Break lost | `atTs` события (`server_status` / ping) | `link_liveness.to` · journal Open · NC `connection.lost` |
+| Recovered / abandon | `IncidentStep.At` | journal Resolve · NC `connection.recovered` / `incident_closed` |
+| Recovering ticks | `IncidentStep.At` | NC Progress |
+
+Hub API: опц. `DateTimeOffset? ts` на `Publish` / `Open` / `Progress` / `Append` / `Resolve`
+(`null` → `UtcNow` только для операционки без якоря). Fan-out всегда передаёт `step.At`.
+
+Post-factum Group `connection.connecting` после успеха — **не** источник правды (тот же
+`ReadyAt`, что у `connected`); кандидат на упрощение `auto:` Group.
+
+**Close / пессимизм:** правый край UP в `link_liveness` (`to_ts`) ≤ факт обрыва; NC terminal
+по тому же `atTs` (не позже из‑за Enqueue).
 
 ### 3.0b. Recording-лента (полнота данных: шли / не шли)
 
@@ -132,13 +164,17 @@ To-be в журнале: при handover UPDATE `escalated_at`, `owner=superviso
 
 | Что | Правило |
 |-----|---------|
-| Вид | `type=crash`, отдельный `corr` (`ohs.backend.outage:…`) |
+| Вид | `type=crash`, отдельный `corr` на **connection** (`ohs.backend.outage:{seed}:c{id}`) |
 | Тело | красная **штриховка** на `[opened_at, closed_at??now]` |
 | Paint | **поверх** break (z-order); вложенность схемой не проверяем |
 | Старт 1px | `opened_at` |
 | Green | только `recovered` |
 | Abandon | `abandoned_*` → клип без green |
 | Детект host_unavailable | клиент (дроп WS); оптимистичная геометрия до прихода API |
+| Dispatch | **два слоя** (транспорт admin↔OHS + слой соединений) — канон [crash-dispatch.md](crash-dispatch.md) |
+
+> As-is (один corr без / с одним `connectionId` от клиента) — переходный; to-be — fan-out
+> супервизора per connection после POST. Журнал только Incident слоя соединений.
 
 ---
 

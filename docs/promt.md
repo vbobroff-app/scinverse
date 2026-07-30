@@ -175,7 +175,12 @@ scinverse/
   RxJS sync coverage). См. [todo](./dev/phase7j/todo.md) · [issue I12](./dev/phase7j/issue.md).
 - **phase 11 лента Thread** (11.1–11.12, ★/⊘, dock settings, тесты 11.7) — **DONE**.
 - **11.13 журнал DONE; H1/J8/backfill-recent DONE.** **I2 RESOLVED** — fan-out OHS→journal+NC
-  ([phase11/issue.md](./dev/phase11/issue.md) I2). Дальше: gate 11→12 / I12.
+  ([phase11/issue.md](./dev/phase11/issue.md) I2).
+- **Фокус:** слои Connection-ганта раздельно (`link_liveness` ≠ `incident`); инвариант
+  `ts`: источник — liveness/`IncidentStep.At`, NC **копирует** (Hub `ts?`, FanOut, Connect
+  `ReadyAt`). Спека: [incident-journal §3.0a](./dev/phase11/incident-journal.md).
+- **Crash dispatch (DESIGN AGREED + PLAN DRAFT, код не начат):** транспорт + слой соединений —
+  [crash-dispatch.md](./dev/phase11/crash-dispatch.md) §11–§14 (D1–D8).
 
 **To-be:** `notification`/пакет → отдельный NC (MFE, своя БД) на **gate 11→12**;
 `link_liveness` + `incident` остаются в OHS. Admin/Product + Keycloak — C4.
@@ -202,12 +207,13 @@ scinverse/
 
 1. Этот файл (§1–§6, §8).
 2. [`wiki-readme/incident.md`](./wiki-readme/incident.md) — **что такое инцидент**.
-3. [phase11/incident-journal.md](./dev/phase11/incident-journal.md) — **стартовая спека 11.13** (дописать).
-4. [phase11/plan.md](./dev/phase11/plan.md) · [report.md](./dev/phase11/report.md) — статус фазы.
-5. [phase11/to-threads.md](./dev/phase11/to-threads.md) — модель Thread/Incident/Group + §6 (A сейчас / B′ → NC).
-6. [phase11/persistence.md](./dev/phase11/persistence.md) — V025 атомы в OHS (as-is audit).
-7. [architecture/c4/arch.md](./architecture/c4/arch.md) — NC отдельный деплой / failure domain.
-8. Контекст OHS-продюсера (не ломать): [phase7j/incident.md](./dev/phase7j/incident.md).
+3. [phase11/incident-journal.md](./dev/phase11/incident-journal.md) — журнал 11.13.
+4. [phase11/crash-dispatch.md](./dev/phase11/crash-dispatch.md) — **спека Host crash: T + C слои**.
+5. [phase11/plan.md](./dev/phase11/plan.md) · [report.md](./dev/phase11/report.md) — статус фазы.
+6. [phase11/to-threads.md](./dev/phase11/to-threads.md) — модель Thread/Incident/Group + §6 (A сейчас / B′ → NC).
+7. [phase11/persistence.md](./dev/phase11/persistence.md) — V025 атомы в OHS (as-is audit).
+8. [architecture/c4/arch.md](./architecture/c4/arch.md) — NC отдельный деплой / failure domain.
+9. Контекст OHS-продюсера (не ломать): [phase7j/incident.md](./dev/phase7j/incident.md).
 
 ### Где мы сейчас
 

@@ -151,11 +151,12 @@ Finam/TRANSAQ **может сам гасить сессию** вне торго�
 
 ---
 
-## Заметка: после recover залп coverage → пул Npgsql exhausted (→ 7j I12)
+## Заметка: залп coverage → пул Npgsql exhausted (→ 7j I12)
 
-**Не отдельный баг 7h-ленты**, а триггер: UI после оживления Host параллельно зовёт
-`/api/coverage`, `/coverage/link`, `/coverage/activity` → `Max Pool Size` исчерпан → пачка
-`ohs.unhandled` (500) в NC, часть FATAL остаётся `ACTIVE`.
+**Не отдельный баг 7h-ленты**, а триггер: UI параллельно зовёт
+`/api/coverage`, `/coverage/link`, `/coverage/activity` (после recover Host **или** break /
+WiFi cut) → `Max Pool Size` исчерпан → пачка `ohs.unhandled` (500) в NC, часть FATAL
+остаётся `ACTIVE`.
 
 Полный разбор и направления фикса (основное: **RxJS**-синхронизация refresh coverage;
 пул / close-all single 500) →
