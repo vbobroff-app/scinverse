@@ -83,5 +83,32 @@ public sealed class HostOutageCoordinatorTests
         var c = new HostOutageCoordinator();
         c.Report("a", T0, to: null);
         c.Current!.ConnectionCorrUid(3).Should().Be($"ohs.backend.outage:{T0.ToUnixTimeMilliseconds()}:c3");
+        c.Current.Code.Should().Be(HostOutageCoordinator.DefaultOutageCode);
+    }
+
+    [Fact]
+    public void Different_code_in_window_starts_new_episode()
+    {
+        var c = new HostOutageCoordinator();
+        var first = c.Report("a", T0, to: null, code: HostOutageCoordinator.DefaultOutageCode);
+        first.IsNewEpisode.Should().BeTrue();
+
+        var other = c.Report("b", T0.AddSeconds(10), to: null, code: "other.signal");
+        other.IsNewEpisode.Should().BeTrue();
+        other.Merged.Should().BeFalse();
+        other.OutageSeed.Should().NotBe(first.OutageSeed);
+        other.Code.Should().Be("other.signal");
+        c.Current!.Code.Should().Be("other.signal");
+    }
+
+    [Fact]
+    public void Same_code_in_window_merges()
+    {
+        var c = new HostOutageCoordinator();
+        c.Report("a", T0, to: null, code: "host.unreachable");
+        var b = c.Report("b", T0.AddSeconds(15), to: null, code: "host.unreachable");
+        b.Merged.Should().BeTrue();
+        b.IsNewEpisode.Should().BeFalse();
+        c.Current!.ClientIds.Should().BeEquivalentTo("a", "b");
     }
 }

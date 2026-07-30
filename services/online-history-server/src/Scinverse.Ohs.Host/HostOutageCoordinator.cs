@@ -2,11 +2,14 @@ namespace Scinverse.Ohs.Host;
 
 /// <summary>
 /// Дедуп мультиклиентских сигналов Host crash (crash-dispatch D1).
-/// In-memory эпизод: merge по окну, <c>outageSeed = minFrom</c> Unix ms.
+/// Merge: тот же <c>code</c> + |from − openedAt| ≤ окна; seed = minFrom Unix ms.
 /// Emit T/C — шаги D2/D3.
 /// </summary>
 public sealed class HostOutageCoordinator
 {
+    /// <summary>Канонический code транспортного open (слой T).</summary>
+    public const string DefaultOutageCode = "host.unreachable";
+
     /// <summary>Слияние POST, если |from − episode.minFrom| ≤ этого окна (спека §11 Q2).</summary>
     public static readonly TimeSpan DefaultMergeWindow = TimeSpan.FromSeconds(120);
 
@@ -34,14 +37,22 @@ public sealed class HostOutageCoordinator
     }
 
     /// <summary>
-    /// Принять сигнал от admin-клиента. Идемпотентно: повтор close / merge в окно.
+    /// Принять сигнал от admin-клиента. Идемпотентно: повтор close / merge в окно при том же code.
     /// </summary>
-    public HostOutageReportResult Report(string clientId, DateTimeOffset from, DateTimeOffset? to)
+    public HostOutageReportResult Report(
+        string clientId,
+        DateTimeOffset from,
+        DateTimeOffset? to,
+        string? code = null)
     {
         if (string.IsNullOrWhiteSpace(clientId))
         {
             throw new ArgumentException("clientId обязателен", nameof(clientId));
         }
+
+        var normalizedCode = string.IsNullOrWhiteSpace(code)
+            ? DefaultOutageCode
+            : code.Trim();
 
         var now = _time.GetUtcNow();
         if (from > now)
@@ -59,12 +70,14 @@ public sealed class HostOutageCoordinator
         lock (_gate)
         {
             var episode = _current;
-            var merge = episode is not null && WithinMergeWindow(from, episode.OpenedAt);
+            var merge = episode is not null
+                        && string.Equals(episode.Code, normalizedCode, StringComparison.Ordinal)
+                        && WithinMergeWindow(from, episode.OpenedAt);
 
             if (!merge)
             {
                 var seed = from.ToUnixTimeMilliseconds();
-                episode = new HostOutageEpisode(seed, from);
+                episode = new HostOutageEpisode(seed, from, normalizedCode);
                 _current = episode;
                 episode.AddClient(clientId);
                 var closedEmitted = false;
@@ -78,6 +91,7 @@ public sealed class HostOutageCoordinator
                     episode.OutageSeed,
                     episode.OpenedAt,
                     episode.ClosedAt,
+                    episode.Code,
                     IsNewEpisode: true,
                     OpenedEmitted: true,
                     ClosedEmitted: closedEmitted,
@@ -103,6 +117,7 @@ public sealed class HostOutageCoordinator
                 episode.OutageSeed,
                 episode.OpenedAt,
                 episode.ClosedAt,
+                episode.Code,
                 IsNewEpisode: false,
                 OpenedEmitted: false,
                 ClosedEmitted: closedEmittedMerge,
@@ -119,15 +134,17 @@ public sealed class HostOutageEpisode
 {
     private readonly HashSet<string> _clientIds = new(StringComparer.Ordinal);
 
-    public HostOutageEpisode(long outageSeed, DateTimeOffset openedAt)
+    public HostOutageEpisode(long outageSeed, DateTimeOffset openedAt, string code)
     {
         OutageSeed = outageSeed;
         OpenedAt = openedAt.ToUniversalTime();
+        Code = code;
     }
 
     public long OutageSeed { get; private set; }
     public DateTimeOffset OpenedAt { get; private set; }
     public DateTimeOffset? ClosedAt { get; private set; }
+    public string Code { get; }
     public IReadOnlyCollection<string> ClientIds => _clientIds;
 
     public string TransportCorrUid => $"ohs.host.transport:{OutageSeed}";
@@ -165,6 +182,7 @@ public sealed record HostOutageReportResult(
     long OutageSeed,
     DateTimeOffset OpenedAt,
     DateTimeOffset? ClosedAt,
+    string Code,
     bool IsNewEpisode,
     bool OpenedEmitted,
     bool ClosedEmitted,
@@ -174,4 +192,6 @@ public sealed record HostOutageReportResult(
 public sealed record HostOutageReportRequest(
     string ClientId,
     DateTimeOffset From,
-    DateTimeOffset? To = null);
+    DateTimeOffset? To = null,
+    /// <summary>Машинный code open; по умолчанию <c>host.unreachable</c>. Merge только при совпадении.</summary>
+    string? Code = null);

@@ -14,13 +14,14 @@ public static class HostOutageEndpoints
                 return Results.BadRequest(new { error = "clientId обязателен" });
             }
 
-            var result = outages.Report(req.ClientId.Trim(), req.From, req.To);
+            var result = outages.Report(req.ClientId.Trim(), req.From, req.To, req.Code);
             return Results.Accepted(
                 value: new
                 {
                     outageSeed = result.OutageSeed,
                     openedAt = result.OpenedAt,
                     closedAt = result.ClosedAt,
+                    code = result.Code,
                     isNewEpisode = result.IsNewEpisode,
                     openedEmitted = result.OpenedEmitted,
                     closedEmitted = result.ClosedEmitted,

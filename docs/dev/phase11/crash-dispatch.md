@@ -236,7 +236,7 @@ Incident  ohs.backend.outage:{seed}:c3    ← connectionId=3
 | # | Решение |
 |---|---------|
 | **Q1** | Новый **`POST /api/recovery/outage`** — сигнал эпизода от клиента. `POST /api/notifications` остаётся для прочих атомов; **клиентский** mock-POST `backend.unavailable` / `backend.recovered` для crash **снимаем** (Host сам публикует T+C). |
-| **Q2** | `outageSeed = minFrom.UnixMs` эпизода. In-memory `HostOutageEpisode` на Host: merge POST, если пересекается окно или `|from − episode.minFrom| ≤ MergeWindow` (**по умолчанию 120 s**). `openedAt = min(from)`; close по первому валидному `to` (или отдельный recover-вызов) → один close для T и всех C. |
+| **Q2** | `outageSeed = minFrom.UnixMs`. Merge POST только если **тот же `code`** (default `host.unreachable`) **и** `|from − openedAt| ≤ MergeWindow` (120 s). Message не ключ. `openedAt = min(from)`; close по первому `to` → один close для T и всех C. |
 | **Q3** | Optimistic ribbon: на WS drop красить **все** connections из локального `connections$` (interrupted gap). После hydrate/`GET …/incidents` — журнал уточняет Incident; Group-only connections без journal-строки остаются с optimistic до refresh или клипа по `to`. |
 | **Q4** | Слой T — **новые коды**: `host.unreachable` (open) / `host.reachable` (close), `threadKindHint=group`, без `connectionId`. Слой C — reuse `backend.unavailable` / `backend.recovered` (+ progress опц.), с `connectionId` и hint incident\|group. |
 | **Q5** | `connectionIds[]` в T — **не в MVP**. |
