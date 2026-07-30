@@ -20,8 +20,12 @@ public sealed class HostOutageConnectionEmitter(
     public const string Module = "ohs.host";
     public const string CodeUnavailable = "backend.unavailable";
     public const string CodeRecovered = "backend.recovered";
-    public const string OpenMessage = "Сервер OHS недоступен, жду восстановления";
-    public const string CloseMessage = "Система восстановлена";
+    public const string OpenMessageBase = "Сервер OHS недоступен, жду восстановления";
+    public const string CloseMessageBase = "Система восстановлена";
+
+    /// <summary>Текст Entry/журнала с привязкой к connection (иначе N нитей выглядят как дубль).</summary>
+    public static string MessageFor(long connectionId, string body) =>
+        $"Подключение {connectionId}: {body}";
 
     public static string CorrUid(long outageSeed, long connectionId) =>
         $"ohs.backend.outage:{outageSeed}:c{connectionId}";
@@ -98,11 +102,12 @@ public sealed class HostOutageConnectionEmitter(
             connectionId,
             threadKindHint = hint,
         });
+        var openMessage = MessageFor(connectionId, OpenMessageBase);
         hub.Ingest(
             Guid.NewGuid().ToString("N"),
             openedAt,
             CodeUnavailable,
-            OpenMessage,
+            openMessage,
             severity: desired ? "critical" : "error",
             sourceType: "system",
             module: Module,
@@ -116,7 +121,7 @@ public sealed class HostOutageConnectionEmitter(
         }
 
         return journal.RegisterCrashOpenAsync(
-            corr, openedAt, connectionId, OpenMessage, cancellationToken);
+            corr, openedAt, connectionId, openMessage, cancellationToken);
     }
 
     private Task EmitCloseAsync(
@@ -133,11 +138,12 @@ public sealed class HostOutageConnectionEmitter(
             connectionId,
             closeOutcome = NotificationThreadData.OutcomeRecovered,
         });
+        var closeMessage = MessageFor(connectionId, CloseMessageBase);
         hub.Ingest(
             Guid.NewGuid().ToString("N"),
             closedAt,
             CodeRecovered,
-            CloseMessage,
+            closeMessage,
             severity: "ok",
             sourceType: "system",
             module: Module,
@@ -154,7 +160,7 @@ public sealed class HostOutageConnectionEmitter(
             corr,
             closedAt,
             NotificationThreadData.OutcomeRecovered,
-            CloseMessage,
+            closeMessage,
             "ok",
             cancellationToken);
     }

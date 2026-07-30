@@ -83,6 +83,10 @@ public sealed class HostOutageConnectionEmitterTests
         DataString(desired, "threadKindHint").Should().Be(NotificationThreadData.KindIncident);
         desired.Severity.Should().Be("critical");
         DataLong(desired, "connectionId").Should().Be(3);
+        desired.Message.Should().Be(HostOutageConnectionEmitter.MessageFor(3, HostOutageConnectionEmitter.OpenMessageBase));
+        hub.List().Single(e => e.Code == HostOutageConnectionEmitter.CodeRecovered
+                && e.CorrelationId == HostOutageConnectionEmitter.CorrUid(seed, 3))
+            .Message.Should().Be(HostOutageConnectionEmitter.MessageFor(3, HostOutageConnectionEmitter.CloseMessageBase));
 
         journal.CrashOpens.Should().ContainSingle()
             .Which.Should().Be((HostOutageConnectionEmitter.CorrUid(seed, 3), 3L));

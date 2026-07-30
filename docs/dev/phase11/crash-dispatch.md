@@ -28,7 +28,7 @@ schedule и при нескольких admin-клиентах.
 
 | Слой | Имя | Контекст | `connectionId` | Journal | NC |
 |------|-----|----------|----------------|---------|-----|
-| **T** | **Транспортный** (admin ↔ OHS) | «пропала / вернулась связь с сервером» | **нет** | **нет** | один Group |
+| **T** | **Транспортный** (admin ↔ OHS) | слот для общих system-уведомлений; **crash-стек T Group не пишем** | **нет** | **нет** | local Single FATAL на клиенте; durable T Group — off |
 | **C** | **Слой соединений** (connection / provider) | влияние простоя Host на каждый enabled connection | **обязателен** | только **Incident** | Incident **или** Group на каждый id |
 
 В UI connection ≈ провайдер; в спеке канон — **слой соединений** (ключ всегда `connectionId`).
@@ -37,16 +37,16 @@ schedule и при нескольких admin-клиентах.
 WS drop (N admin clients)
         │
         ▼
-  [локальный Single «нет WS»]     ← только память клиента; не audit
+  [локальный Single FATAL «Сервер OHS недоступен»]  ← memory; не audit
         │
    WS up + POST ×N (clientId)
         │
         ▼
   Supervisor (дедуп)
-        ├── слой T: 1× Group (без connectionId)     → NC only
+        ├── слой T: NC Group — не эмитим (слот на будущее)
         └── слой C: ∀ enabled connection
-              ├── desired(schedule, openedAt) → Incident + journal + NC
-              └── иначе                       → Group + NC (без journal)
+              ├── desired → Incident + journal + NC  (снимает local Single)
+              └── иначе  → Group + NC (без journal)
 ```
 
 ---
@@ -58,18 +58,16 @@ WS drop (N admin clients)
 В данном OHS-случае — **единая клиентская модель**: в NC **не** фильтруем и **не** размножаем
 нити по `clientId`. Пачка POST от разных admin → один транспортный эпизод.
 
-### 3.2. Форма NC
+### 3.2. Форма NC (crash)
 
-Один **Group** (не два несвязанных Single):
+**Не эмитим** durable Group T (`ohs.host.transport:*` / `host.reachable`): между local
+Single и C-Incident появлялся зелёный Group «снова доступен» — дубль и шум.
 
-| Entry | Severity | Смысл (черновик текста) |
-|-------|----------|-------------------------|
-| open | error / critical | Пропала связь с сервером |
-| close | ok | Сервер OHS снова доступен |
+На WS drop клиент держит **local Single FATAL** (`host.unreachable`, memory). Снимается
+при первом атоме слоя C (`ohs.backend.outage:{seed}:c{id}`) или при локальном recover.
 
-- один `corr`, один `resolved`;
-- **без** `connectionId` → в фильтре NC по connection не мешает;
-- `sender` в NC: схлопнутый `client` (не перечень clientId).
+Слот T + `HostOutageTransportEmitter` остаются для будущих общих system-уведомлений
+(не этот crash-стек).
 
 ### 3.3. Corr (черновик)
 
@@ -205,19 +203,18 @@ Connections: `1` (вне окна), `3` (в desired). Два admin POST.
 **NC после fan-out:**
 
 ```text
-Group  ohs.host.transport:{seed}          ← без connectionId
-  ERROR  Пропала связь с сервером
-  OK     Сервер OHS снова доступен
+[local FATAL Single]  Сервер OHS недоступен · t++   ← memory; снимается на C
 
-Group  ohs.backend.outage:{seed}:c1       ← connectionId=1
+Group  ohs.backend.outage:{seed}:c1       ← connectionId=1 (вне окна)
   … stack …
 
 Incident  ohs.backend.outage:{seed}:c3    ← connectionId=3
-  … stack …
+  FATAL  Подключение 3: Сервер OHS недоступен…
+  OK     … восстановлена
 ```
 
 **Journal:** одна строка crash для `connection_id=3`.  
-Фильтр NC `connectionId=3` → только Incident `:c3` (транспорт не виден).
+Фильтр NC `connectionId=3` → только Incident `:c3`.
 
 ---
 
@@ -238,7 +235,7 @@ Incident  ohs.backend.outage:{seed}:c3    ← connectionId=3
 | **Q1** | Новый **`POST /api/recovery/outage`** — сигнал эпизода от клиента. `POST /api/notifications` остаётся для прочих атомов; **клиентский** mock-POST `backend.unavailable` / `backend.recovered` для crash **снимаем** (Host сам публикует T+C). |
 | **Q2** | `outageSeed = minFrom.UnixMs`. Merge POST только если **тот же `code`** (default `host.unreachable`) **и** `|from − openedAt| ≤ MergeWindow` (120 s). Message не ключ. `openedAt = min(from)`; close по первому `to` → один close для T и всех C. |
 | **Q3** | Optimistic ribbon: на WS drop красить **все** connections из локального `connections$` (interrupted gap). После hydrate/`GET …/incidents` — журнал уточняет Incident; Group-only connections без journal-строки остаются с optimistic до refresh или клипа по `to`. |
-| **Q4** | Слой T — **новые коды**: `host.unreachable` (open) / `host.reachable` (close), `threadKindHint=group`, без `connectionId`. Слой C — reuse `backend.unavailable` / `backend.recovered` (+ progress опц.), с `connectionId` и hint incident\|group. |
+| **Q4** | Слой T — corr/seed есть; **NC Group T off** (local FATAL Single на клиенте). Слой C — `backend.unavailable` / `backend.recovered`, `connectionId`, hint incident\|group. |
 | **Q5** | `connectionIds[]` в T — **не в MVP**. |
 
 ---
@@ -319,7 +316,7 @@ POST /api/recovery/outage
 
 - `OhsStore.onBackendDrop` / `onBackendReachable`: Single + outage POST вместо `openBackendOutage`/`resolveBackendOutage` persist;
 - `clientId`: стабильный per browser tab (`sessionStorage` uuid) — достаточно для админки;
-- локальный фейк: Single — memory; pending report — `localStorage` (`ohs.hostOutage.pending`) до 2xx POST (D6+LS);
+- локальный фейк: Single FATAL — memory; pending report — `localStorage` (`ohs.hostOutage.pending`) до 2xx POST (D6+LS);
 - `notifications.ts`: helpers для локальной Single; deprecate crash Thread helpers или оставить для тестов до D5.
 
 **Не трогаем:** break/link path, Recording, gate 11→12, schema migrations.

@@ -296,9 +296,9 @@ const OUTAGE_CODE_RESOLVED = 'backend.recovered';
 /** Тот же code, что у break schedule-end; различает `data.kind` = crash | break. */
 const OUTAGE_CODE_INCIDENT_CLOSED = 'connection.incident_closed';
 const HEALTHCHECK_CODE_OK = 'backend.healthcheck.ok';
-/** Локальный Single на WS drop (код слоя T; без correlationId). */
+/** Локальный Single на WS drop (memory; без corr). FATAL — пока Host не пришлёт слой C. */
 const LOCAL_TRANSPORT_DOWN_CODE = 'host.unreachable';
-const LOCAL_TRANSPORT_DOWN_MESSAGE = 'Пропала связь с сервером';
+const LOCAL_TRANSPORT_DOWN_MESSAGE = 'Сервер OHS недоступен';
 
 let localTransportDownId: string | null = null;
 let localTransportDownStartMs: number | null = null;
@@ -309,7 +309,7 @@ export function outageCorrelationId(startMs: number): string {
 }
 
 /**
- * WS down → локальная Single (memory only). Без correlationId → projectThreads = Single, не Thread.
+ * WS down → локальная Single FATAL (memory only). Без correlationId → Single, не Thread.
  * Повторный вызов — no-op (держим первый startMs).
  */
 export function showLocalTransportDownSingle(startMs: number): void {
@@ -318,7 +318,7 @@ export function showLocalTransportDownSingle(startMs: number): void {
   }
   localTransportDownId = guidN();
   localTransportDownStartMs = startMs;
-  notify.error(notificationBus, {
+  notify.critical(notificationBus, {
     id: localTransportDownId,
     ts: new Date(startMs).toISOString(),
     module: BACKEND_OUTAGE_MODULE,
@@ -337,7 +337,7 @@ export function tickLocalTransportDownSingle(nowMs: number): void {
     return;
   }
   const durationSec = Math.max(1, Math.round((nowMs - localTransportDownStartMs) / 1000));
-  notify.error(notificationBus, {
+  notify.critical(notificationBus, {
     id: localTransportDownId,
     ts: new Date(localTransportDownStartMs).toISOString(),
     module: BACKEND_OUTAGE_MODULE,
@@ -355,7 +355,7 @@ export function tickLocalTransportDownSingle(nowMs: number): void {
   });
 }
 
-/** Снять локальный фейк (WS up / hydrate транспортного Group с Host). */
+/** Снять локальный фейк (WS up / пришёл durable слой C). */
 export function dismissLocalTransportDownSingle(): void {
   if (localTransportDownId === null) {
     return;
@@ -370,11 +370,16 @@ export function hasLocalTransportDownSingle(): boolean {
   return localTransportDownId !== null;
 }
 
+/** Local FATAL снимаем, когда Host отдал crash на connection (слой C) — без промежуточного Group T. */
 function dismissLocalTransportDownIfHostTransport(dto: NotificationDto): void {
   const corr = dto.correlationId ?? '';
-  if (corr.startsWith('ohs.host.transport:')) {
-    dismissLocalTransportDownSingle();
+  if (!corr.startsWith('ohs.backend.outage:')) {
+    return;
   }
+  if (dto.code !== 'backend.unavailable' && dto.code !== 'backend.recovered') {
+    return;
+  }
+  dismissLocalTransportDownSingle();
 }
 
 /**
@@ -439,11 +444,11 @@ function formatOutageDuration(totalSec: number): string {
 
 /** Фаза 1 (open, fatal): связь с бэком потеряна. Заводит нить инцидента (ts = момент дропа). corr —
  * снаружи (§9.2): cold = outageCorrelationId(startMs); эскалация одиночного 500 = adopt requestId.
- * `threadKindHint`: incident в горизонте desired, иначе group (phase 11.11). */
+ * `threadKindHint`: incident только при desired=true; иначе group (phase 11.11). */
 export function openBackendOutage(
   startMs: number,
   correlationId: string,
-  threadKindHint: 'incident' | 'group' = 'incident',
+  threadKindHint: 'incident' | 'group' = 'group',
   connectionId?: number,
 ): void {
   const startIso = new Date(startMs).toISOString();
@@ -630,7 +635,7 @@ export function resolveBackendOutage(
     startMs,
     openId: guidN(),
     openTs: new Date(startMs).toISOString(),
-    threadKindHint: 'incident' as const,
+    threadKindHint: 'group' as const,
   };
   outageThreads.delete(correlationId);
 
@@ -742,7 +747,7 @@ export function abandonBackendOutageBySchedule(
     startMs,
     openId: guidN(),
     openTs: new Date(startMs).toISOString(),
-    threadKindHint: 'incident' as const,
+    threadKindHint: 'group' as const,
   };
   outageThreads.delete(correlationId);
 

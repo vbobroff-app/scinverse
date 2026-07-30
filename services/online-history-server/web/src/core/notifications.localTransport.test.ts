@@ -16,7 +16,7 @@ describe('crash-dispatch D5: local transport Single', () => {
     notificationBus.clear();
   });
 
-  it('show → Single without Thread; tick upserts same id', () => {
+  it('show → FATAL Single without Thread; tick upserts same id', () => {
     const start = 1_720_000_000_000;
     showLocalTransportDownSingle(start);
 
@@ -25,6 +25,8 @@ describe('crash-dispatch D5: local transport Single', () => {
     const singles = notificationBus.items.filter(isSingleItem);
     expect(singles).toHaveLength(1);
     expect(singles[0]!.code).toBe('host.unreachable');
+    expect(singles[0]!.severity).toBe('critical');
+    expect(singles[0]!.message).toBe('Сервер OHS недоступен');
     expect(singles[0]!.correlationId).toBeUndefined();
     expect(singles[0]!.data?.local).toBe(true);
 
@@ -43,7 +45,7 @@ describe('crash-dispatch D5: local transport Single', () => {
     expect(notificationBus.events).toHaveLength(0);
   });
 
-  it('hydrate of host transport Group dismisses local Single', () => {
+  it('hydrate of C-layer crash Incident dismisses local Single', () => {
     showLocalTransportDownSingle(1_720_000_000_000);
     expect(hasLocalTransportDownSingle()).toBe(true);
 
@@ -51,14 +53,19 @@ describe('crash-dispatch D5: local transport Single', () => {
       {
         id: 'a'.repeat(32),
         ts: '2026-07-30T02:19:22.000Z',
-        severity: 'error',
+        severity: 'critical',
         sourceType: 'system',
         module: 'ohs.host',
-        code: 'host.unreachable',
-        message: 'Пропала связь с сервером',
+        code: 'backend.unavailable',
+        message: 'Подключение 3: Сервер OHS недоступен, жду восстановления',
         status: 'active',
-        correlationId: 'ohs.host.transport:1785375762000',
-        data: { sender: 'client', kind: 'transport', threadKindHint: 'group' },
+        correlationId: 'ohs.backend.outage:1785375762000:c3',
+        data: {
+          sender: 'client',
+          kind: 'crash',
+          connectionId: 3,
+          threadKindHint: 'incident',
+        },
         interaction: 'system',
         localization: 'internal',
       },
@@ -69,6 +76,7 @@ describe('crash-dispatch D5: local transport Single', () => {
     expect(notificationBus.events.some((e) => e.data?.local === true)).toBe(false);
     const threads = notificationBus.items.filter(isThreadItem);
     expect(threads).toHaveLength(1);
-    expect(threads[0]!.uid).toBe('ohs.host.transport:1785375762000');
+    expect(threads[0]!.uid).toBe('ohs.backend.outage:1785375762000:c3');
+    expect(threads[0]!.threadKind).toBe('incident');
   });
 });

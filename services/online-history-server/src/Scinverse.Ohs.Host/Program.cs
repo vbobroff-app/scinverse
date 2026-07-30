@@ -107,7 +107,7 @@ builder.Services.AddSingleton<NotificationHub>();
 builder.Services.AddSingleton<INotificationPublisher>(sp => sp.GetRequiredService<NotificationHub>());
 builder.Services.AddSingleton<ClientRecoveryGate>();
 builder.Services.AddSingleton<HostOutageCoordinator>();
-builder.Services.AddSingleton<HostOutageTransportEmitter>();
+builder.Services.AddSingleton<HostOutageTransportEmitter>(); // Apply = no-op NC; слот T
 builder.Services.AddSingleton<HostOutageConnectionEmitter>();
 builder.Services.AddSingleton<ConnectionSupervisor>();
 // Pre-flight сверки расписания: transient — резолвит подтверждатель по adapter (per-request).
