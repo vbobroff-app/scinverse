@@ -184,6 +184,18 @@ public sealed class JournalRegistratorTests
             return Task.FromResult(true);
         }
 
+        public Task<bool> BindConnectionIdIfNullAsync(
+            string corrUid, long connectionId, CancellationToken cancellationToken)
+        {
+            if (!ByCorr.TryGetValue(corrUid, out var existing) || existing.ConnectionId is not null)
+            {
+                return Task.FromResult(false);
+            }
+
+            ByCorr[corrUid] = existing with { ConnectionId = connectionId };
+            return Task.FromResult(true);
+        }
+
         public Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken) =>
             Task.FromResult(ByCorr.TryGetValue(corrUid, out var i) ? i : null);
 
@@ -206,6 +218,10 @@ public sealed class JournalRegistratorTests
 
         public Task<bool> AnnotateResolvedByAsync(
             string corrUid, string resolvedBy, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("db down");
+
+        public Task<bool> BindConnectionIdIfNullAsync(
+            string corrUid, long connectionId, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("db down");
 
         public Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken) =>

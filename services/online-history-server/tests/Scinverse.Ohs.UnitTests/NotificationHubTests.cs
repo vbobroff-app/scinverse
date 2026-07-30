@@ -55,6 +55,21 @@ public sealed class NotificationHubTests
     }
 
     [Fact]
+    public void Explicit_ts_is_copied_not_replaced_by_enqueue_clock()
+    {
+        var hub = NewHub();
+        var at = DateTimeOffset.Parse("2026-07-29T14:38:39.554Z");
+        hub.Open("connection:3:link", "connection.lost", "down", ts: at).Should().BeTrue();
+        hub.Publish("connection.connected", "up", status: "resolved", correlationId: "c:auto:1", ts: at);
+        hub.Resolve("connection:3:link", "connection.recovered", "ok", ts: at.AddSeconds(1)).Should().BeTrue();
+
+        var list = hub.List();
+        list[0].Ts.Should().Be(at);
+        list[1].Ts.Should().Be(at);
+        list[2].Ts.Should().Be(at.AddSeconds(1));
+    }
+
+    [Fact]
     public void Append_withoutOpenIncident_isNoop()
     {
         var hub = NewHub();

@@ -40,6 +40,7 @@ public sealed class IncidentFanOutTests
         store.ByCorr[corrUid].Type.Should().Be("break");
         hub.TryGetOpenCorrelationId(subject, out var openCorr).Should().BeTrue();
         openCorr.Should().Be(corrUid);
+        hub.List().Should().ContainSingle(e => e.Code == "connection.lost" && e.Ts == t0);
 
         var t1 = t0.AddMinutes(1);
         var closed = await fanOut.ApplyAsync(
@@ -61,6 +62,7 @@ public sealed class IncidentFanOutTests
         store.ByCorr[corrUid].CloseOutcome.Should().Be(NotificationThreadData.OutcomeRecovered);
         store.ByCorr[corrUid].ClosedAt.Should().Be(t1);
         hub.TryGetOpenCorrelationId(subject, out _).Should().BeFalse();
+        hub.List().Should().ContainSingle(e => e.Code == "connection.recovered" && e.Ts == t1);
     }
 
     [Fact]
@@ -378,6 +380,21 @@ public sealed class IncidentFanOutTests
         public Task<bool> AnnotateResolvedByAsync(
             string corrUid, string resolvedBy, CancellationToken cancellationToken) =>
             Task.FromResult(false);
+
+        public Task<bool> BindConnectionIdIfNullAsync(
+            string corrUid, long connectionId, CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                if (!ByCorr.TryGetValue(corrUid, out var existing) || existing.ConnectionId is not null)
+                {
+                    return Task.FromResult(false);
+                }
+
+                ByCorr[corrUid] = existing with { ConnectionId = connectionId };
+                return Task.FromResult(true);
+            }
+        }
 
         public Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken)
         {

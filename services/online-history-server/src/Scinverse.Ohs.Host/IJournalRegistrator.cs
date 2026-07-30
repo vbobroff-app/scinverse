@@ -48,6 +48,12 @@ public interface IJournalRegistrator
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Проставить <c>connection_id</c> если null (crash без привязки → гант Connection).
+    /// </summary>
+    Task BindConnectionIdIfNullAsync(
+        string corrUid, long connectionId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Adopt после рестарта: строка уже должна быть в журнале (из прошлого Open).
     /// Если нет — INSERT open (backfill), чтобы Resolve/лента не потеряли corr.
     /// </summary>

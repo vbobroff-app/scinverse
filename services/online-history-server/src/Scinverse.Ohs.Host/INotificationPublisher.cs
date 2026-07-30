@@ -9,12 +9,15 @@ namespace Scinverse.Ohs.Host;
 /// <c>subject</c>. Хаб сам присваивает каждому инциденту per-occurrence <c>correlationId = subject:uid</c>.
 /// Опц. <paramref name="actor"/> — кто/что породило (user → позже Keycloak-принципал; по умолчанию для
 /// user-событий = <see cref="NotificationHub.Superuser"/>, для system/external выводится из module).
+/// Опц. <c>ts</c> — явный момент события (из <c>link_liveness</c> / <c>IncidentStep.At</c>);
+/// null → <c>UtcNow</c> в момент Enqueue (только для операционки без якоря).
 /// </summary>
 public interface INotificationPublisher
 {
     /// <summary>Одиночное событие. Опц. <paramref name="status"/>/<paramref name="correlationId"/> — для
     /// продюсер-управляемых последовательностей (напр. connecting→connect/failed одной группой), без incident-оркестратора.
-    /// <paramref name="subject"/> — квалификатор инцидента для аудита (без <c>:uid</c>).</summary>
+    /// <paramref name="subject"/> — квалификатор инцидента для аудита (без <c>:uid</c>).
+    /// <paramref name="ts"/> — копировать из источника правды (liveness/событие), не штамп Publish.</summary>
     void Publish(
         string code,
         string message,
@@ -25,7 +28,8 @@ public interface INotificationPublisher
         string? status = null,
         string? correlationId = null,
         NotificationActor? actor = null,
-        string? subject = null);
+        string? subject = null,
+        DateTimeOffset? ts = null);
 
     /// <summary>Открыть/подтвердить инцидент по <paramref name="subject"/> (active). true — если статус сменился (событие ушло).</summary>
     bool Open(
@@ -36,7 +40,8 @@ public interface INotificationPublisher
         string sourceType = "system",
         string module = "ohs.connection",
         object? data = null,
-        NotificationActor? actor = null);
+        NotificationActor? actor = null,
+        DateTimeOffset? ts = null);
 
     /// <summary>Пометить восстановление (underway) открытого по <paramref name="subject"/> инцидента.</summary>
     bool Progress(
@@ -47,7 +52,8 @@ public interface INotificationPublisher
         string sourceType = "system",
         string module = "ohs.connection",
         object? data = null,
-        NotificationActor? actor = null);
+        NotificationActor? actor = null,
+        DateTimeOffset? ts = null);
 
     /// <summary>
     /// Дописать строку в открытый инцидент (тот же <c>correlationId</c>).
@@ -64,7 +70,8 @@ public interface INotificationPublisher
         string module = "ohs.connection",
         object? data = null,
         NotificationActor? actor = null,
-        string? status = null);
+        string? status = null,
+        DateTimeOffset? ts = null);
 
     /// <summary>Закрыть инцидент по <paramref name="subject"/> (resolved, терминальный).</summary>
     bool Resolve(
@@ -75,7 +82,8 @@ public interface INotificationPublisher
         string sourceType = "system",
         string module = "ohs.connection",
         object? data = null,
-        NotificationActor? actor = null);
+        NotificationActor? actor = null,
+        DateTimeOffset? ts = null);
 
     /// <summary>
     /// Засеять открытый инцидент в память хаба без новой строки (I10): после рестарта Host

@@ -40,7 +40,7 @@ public sealed class CaptureLivenessStore(Npgsql.NpgsqlDataSource dataSource) : I
         {
             await InsertOpenAsync(connection, tx, sourceId, tsUtc, cancellationToken);
         }
-        else if (tsUtc.UtcDateTime - open.ToTs <= maxGap)
+        else if (tsUtc.UtcDateTime - AsUtc(open.ToTs) <= maxGap)
         {
             // Продлеваем открытый интервал (монотонно — на случай перескока часов).
             await connection.ExecuteAsync(new CommandDefinition(
@@ -164,6 +164,14 @@ public sealed class CaptureLivenessStore(Npgsql.NpgsqlDataSource dataSource) : I
 
     private static DateTimeOffset ToUtcOffset(DateTime ts) =>
         new(DateTime.SpecifyKind(ts, DateTimeKind.Unspecified), TimeSpan.Zero);
+
+    private static DateTime AsUtc(DateTime ts) =>
+        ts.Kind switch
+        {
+            DateTimeKind.Utc => ts,
+            DateTimeKind.Local => ts.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(ts, DateTimeKind.Utc),
+        };
 
     private static string ToDb(CaptureCloseReason reason) => reason switch
     {

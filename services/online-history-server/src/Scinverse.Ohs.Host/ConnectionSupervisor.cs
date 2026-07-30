@@ -240,6 +240,11 @@ public sealed class ConnectionSupervisor(
         // Подхватить до ветки desired — иначе !desired не сделает catch-up abandon, а desired счеканит auto:.
         await TryAdoptOpenBreakFromAuditAsync(connectionId, cancellationToken).ConfigureAwait(false);
 
+        // Live уже есть, а NC break ещё ACTIVE (гонка Open/close) — добить recovered.
+        await connections
+            .EnsureBreakClosedIfLiveAsync(connectionId, nowUtc, cancellationToken)
+            .ConfigureAwait(false);
+
         if (!desiredConnected)
         {
             _failCounts.TryRemove(connectionId, out _);
@@ -335,15 +340,17 @@ public sealed class ConnectionSupervisor(
 
         try
         {
-            await connections.ConnectAsync(connectionId, cancellationToken).ConfigureAwait(false);
+            var connect = await connections.ConnectAsync(connectionId, cancellationToken).ConfigureAwait(false);
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
             // Успех без open break → короткая Group auto: (connecting→connected) + Single INFO.
+            // ts = ConnectResult.ReadyAt (= link_liveness.from), не UtcNow Publish.
             // Не сюда: recovered инцидента связи (ConnectAsync → CloseBreak в link:) — incidentOpen=true.
             if (!incidentOpen && connectedData is not null)
             {
                 _kickoffPending.TryRemove(connectionId, out _);
                 var corr = $"connection:{connectionId}:auto:{Guid.NewGuid().ToString("N")[..8]}";
+                var readyAt = connect.ReadyAt;
                 notifications.Publish(
                     "connection.connecting",
                     $"{scheduleLabel}: подключаю по расписанию…",
@@ -355,7 +362,8 @@ public sealed class ConnectionSupervisor(
                         connectionId,
                         sender = "supervisor",
                         threadKindHint = NotificationThreadData.KindGroup,
-                    });
+                    },
+                    ts: readyAt);
                 notifications.Publish(
                     "connection.connected",
                     $"{scheduleLabel}: связь установлена (Auto)",
@@ -363,13 +371,15 @@ public sealed class ConnectionSupervisor(
                     status: "resolved",
                     correlationId: corr,
                     data: NotificationThreadData.WithHints(
-                        connectedData, threadKindHint: NotificationThreadData.KindGroup));
+                        connectedData, threadKindHint: NotificationThreadData.KindGroup),
+                    ts: readyAt);
                 // Следом за Group — как «плановое отключение…» при schedule disconnect.
                 notifications.Publish(
                     "connection.schedule_connect",
                     $"{scheduleLabel}: плановое подключение по расписанию",
                     "info",
-                    data: new { connectionId, sender = "supervisor" });
+                    data: new { connectionId, sender = "supervisor" },
+                    ts: readyAt);
             }
 
             logger.LogInformation(
@@ -534,9 +544,53 @@ public sealed class ConnectionSupervisor(
             return;
         }
 
+        var subject = ConnectionManager.LinkIncidentSubject(connectionId);
+        var linkState = connections.GetLinkState(connectionId);
+
+        // Связь уже Live (или ещё не в break): stale open в V025 нельзя Adopt —
+        // иначе Hub занимает слот без lost, а NC остаётся ACTIVE. Закрываем recovered.
+        if (linkState is not (
+            ConnectorLinkState.Degraded or ConnectorLinkState.Down or ConnectorLinkState.Error))
+        {
+            if (!notifications.Adopt(subject, open.CorrelationId, open.Status))
+            {
+                logger.LogWarning(
+                    "ConnectionSupervisor: skip stale-close {Corr} для {ConnectionId} — Hub.Adopt отказал (link={Link})",
+                    open.CorrelationId, connectionId, linkState?.ToString() ?? "null");
+                return;
+            }
+
+            var label = ConnectionManager.ConnLabelSystem(connectionId);
+            await fanOut
+                .ApplyAsync(
+                    new IncidentStep(
+                        IncidentStepKind.Resolve,
+                        subject,
+                        DateTimeOffset.UtcNow,
+                        CorrUid: open.CorrelationId,
+                        ConnectionId: connectionId,
+                        CloseOutcome: NotificationThreadData.OutcomeRecovered,
+                        Severity: "ok",
+                        NcCode: "connection.recovered",
+                        NcMessage: $"{label}: связь восстановлена",
+                        NcSeverity: "ok",
+                        NcData: new
+                        {
+                            connectionId,
+                            result = "Восстановлено (stale audit close)",
+                            sender = "supervisor",
+                            closeOutcome = NotificationThreadData.OutcomeRecovered,
+                        }),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            logger.LogWarning(
+                "ConnectionSupervisor: closed stale audit break {Corr} для {ConnectionId} (link={Link})",
+                open.CorrelationId, connectionId, linkState?.ToString() ?? "null");
+            return;
+        }
+
         // I11 B2: Hub — ворота Progress/Append. Сначала Hub, потом Manager;
         // отказ Manager → Forget Hub (без Resolve-события). Отказ Hub → ничего не сеем.
-        var subject = ConnectionManager.LinkIncidentSubject(connectionId);
         if (!notifications.Adopt(subject, open.CorrelationId, open.Status))
         {
             logger.LogWarning(
@@ -573,9 +627,10 @@ public sealed class ConnectionSupervisor(
             open.CorrelationId, open.Status, open.OpenedAt, connectionId);
     }
 
-    /// <summary>Прогресс-тик восстановления средствами TRANSAQ (7j.20 J5). Пока связь в <c>Degraded</c>
-    /// и инцидент открыт — тик супервизора шлёт underway «восстановление (TRANSAQ) · N с» (кратность 5 с)
-    /// с <c>sender=supervisor</c>, <c>owner=transaq</c>. По grace <c>t</c> — handover (J3/J6).</summary>
+    /// <summary>
+    /// Backup handover (J3): прогресс TRANSAQ t&lt;T теперь в <see cref="ConnectionManager"/> (сразу t=0).
+    /// Здесь — только страховка, если Manager-таймер не успел при t≥T.
+    /// </summary>
     private async Task TickRecoveringAsync(long connectionId, DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         if (connections.GetLinkState(connectionId) != ConnectorLinkState.Degraded
@@ -584,40 +639,14 @@ public sealed class ConnectionSupervisor(
             return;
         }
 
-        var elapsed = nowUtc - since;
-        var label = await connections.ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
-        var graceSec = (int)RecoverGrace.TotalSeconds;
-
-        var subject = ConnectionManager.LinkIncidentSubject(connectionId);
-        if (elapsed >= RecoverGrace)
+        if (nowUtc - since < RecoverGrace)
         {
-            await fanOut
-                .ApplyAsync(
-                    new IncidentStep(
-                        IncidentStepKind.Recovering,
-                        subject,
-                        nowUtc,
-                        ConnectionId: connectionId,
-                        NcCode: "connection.reconnecting",
-                        NcMessage: $"{label}: нет восстановления связи (TRANSAQ) за {graceSec} с, передача супервизору",
-                        NcSeverity: "warning",
-                        NcData: new
-                        {
-                            connectionId,
-                            owner = "supervisor",
-                            sender = "supervisor",
-                            handoverAfterSeconds = graceSec,
-                        }),
-                    cancellationToken)
-                .ConfigureAwait(false);
-            await connections.HandoverToSupervisorAsync(connectionId, nowUtc, cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        // Кратно 5 с: 5/55, 10/50… не 7/53 (тик ~5 с + floor elapsed).
-        const int stepSec = 5;
-        var elapsedSec = Math.Max(0, ((int)elapsed.TotalSeconds / stepSec) * stepSec);
-        var remainingSec = Math.Max(0, graceSec - elapsedSec);
+        var label = await connections.ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        var graceSec = (int)RecoverGrace.TotalSeconds;
+        var subject = ConnectionManager.LinkIncidentSubject(connectionId);
         await fanOut
             .ApplyAsync(
                 new IncidentStep(
@@ -625,19 +654,19 @@ public sealed class ConnectionSupervisor(
                     subject,
                     nowUtc,
                     ConnectionId: connectionId,
-                    NcCode: "connection.recovering",
-                    NcMessage: $"{label}: восстановление связи (TRANSAQ) · {elapsedSec} с, передача супервизору через {remainingSec} с",
+                    NcCode: "connection.reconnecting",
+                    NcMessage: $"{label}: нет восстановления связи (TRANSAQ) за {graceSec} с, передача супервизору",
                     NcSeverity: "warning",
                     NcData: new
                     {
                         connectionId,
-                        owner = "transaq",
+                        owner = "supervisor",
                         sender = "supervisor",
-                        elapsedSeconds = elapsedSec,
-                        handoverInSeconds = remainingSec,
+                        handoverAfterSeconds = graceSec,
                     }),
                 cancellationToken)
             .ConfigureAwait(false);
+        await connections.HandoverToSupervisorAsync(connectionId, nowUtc, cancellationToken).ConfigureAwait(false);
     }
 
     private bool IsConnected(long connectionId)

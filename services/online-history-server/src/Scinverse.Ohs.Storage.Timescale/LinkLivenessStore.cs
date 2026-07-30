@@ -39,7 +39,7 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
         {
             await InsertOpenAsync(connection, tx, sourceId, tsUtc, cancellationToken);
         }
-        else if (tsUtc.UtcDateTime - open.ToTs <= maxGap)
+        else if (tsUtc.UtcDateTime - AsUtc(open.ToTs) <= maxGap)
         {
             // Продлеваем открытый интервал (монотонно — на случай перескока часов).
             await connection.ExecuteAsync(new CommandDefinition(
@@ -267,6 +267,18 @@ public sealed class LinkLivenessStore(Npgsql.NpgsqlDataSource dataSource) : ILin
 
     private static DateTimeOffset ToUtcOffset(DateTime ts) =>
         new(DateTime.SpecifyKind(ts, DateTimeKind.Unspecified), TimeSpan.Zero);
+
+    /// <summary>
+    /// Npgsql/Dapper иногда отдаёт timestamptz как <see cref="DateTimeKind.Unspecified"/>;
+    /// для сравнения с UTC-хартбитом считаем такие значения UTC (не Local).
+    /// </summary>
+    private static DateTime AsUtc(DateTime ts) =>
+        ts.Kind switch
+        {
+            DateTimeKind.Utc => ts,
+            DateTimeKind.Local => ts.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(ts, DateTimeKind.Utc),
+        };
 
     private static string ToDb(LinkCloseReason reason) => reason switch
     {

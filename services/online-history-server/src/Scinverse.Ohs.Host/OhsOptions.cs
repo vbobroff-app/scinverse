@@ -25,6 +25,13 @@ public sealed class OhsOptions
     public double LinkRecoverGraceSeconds { get; set; } = 60;
 
     /// <summary>
+    /// Подтверждение Degraded перед open break (сек). ≤0 — сразу open (дефолт: приёмка/оператор
+    /// видит разрыв без задержки). &gt;0 — debounce коротких recover-flap TRANSAQ (меньше зелёных
+    /// маркеров на мигании ~1с).
+    /// </summary>
+    public double LinkDegradedConfirmSeconds { get; set; } = 0;
+
+    /// <summary>
     /// Connect-grace барьера восстановления клиента на старте процесса (сек), phase 7j.20; ≤0 — барьер
     /// выключен. Столько ждём подключения хоть одного WS-клиента (WS доступен лишь через несколько секунд
     /// после старта Kestrel — с запасом на это). Никто не подключился ⇒ наблюдателя нет ⇒ Auto стартует.

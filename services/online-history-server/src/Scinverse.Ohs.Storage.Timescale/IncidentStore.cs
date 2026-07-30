@@ -125,6 +125,22 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
         return rows > 0;
     }
 
+    public async Task<bool> BindConnectionIdIfNullAsync(
+        string corrUid, long connectionId, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE incident
+            SET connection_id = @connectionId
+            WHERE corr_uid = @corrUid
+              AND connection_id IS NULL;
+            """,
+            new { corrUid, connectionId },
+            cancellationToken: cancellationToken));
+        return rows > 0;
+    }
+
     public async Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);

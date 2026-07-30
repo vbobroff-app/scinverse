@@ -22,8 +22,9 @@ public sealed class OhsWorker(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("OHS control-plane запущен");
+        connectionManager.RequestSupervisorNudge = connectionSupervisor.Nudge;
 
-        var batcherTask = batcher.RunAsync(stoppingToken);
+        var batcherTask = RunBatcherResilientAsync(stoppingToken);
         var heartbeatTask = coverageTracker.RunHeartbeatAsync(HeartbeatInterval, stoppingToken);
         var livenessTask = livenessProbe.RunAsync(stoppingToken);
         var supervisorTask = recordingSupervisor.RunAsync(stoppingToken);
@@ -49,5 +50,37 @@ public sealed class OhsWorker(
         await batcherTask.ConfigureAwait(false);
 
         logger.LogInformation("OHS control-plane остановлен");
+    }
+
+    /// <summary>
+    /// TradeBatcher.RunAsync падает целиком на ошибке WriteAsync (пул БД и т.п.) —
+    /// без рестарта сделки копятся только в памяти (coverage tradeCount), в md_trade тишина.
+    /// </summary>
+    private async Task RunBatcherResilientAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await batcher.RunAsync(stoppingToken).ConfigureAwait(false);
+                return;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "TradeBatcher упал — перезапуск через 1 с");
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+            }
+        }
     }
 }

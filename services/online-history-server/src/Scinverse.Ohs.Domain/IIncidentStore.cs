@@ -34,6 +34,13 @@ public interface IIncidentStore
 
     Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Проставить <c>connection_id</c>, если ещё null (crash open без привязки → гант Connection).
+    /// Работает и для уже resolved.
+    /// </summary>
+    Task<bool> BindConnectionIdIfNullAsync(
+        string corrUid, long connectionId, CancellationToken cancellationToken);
+
     /// <summary>Список newest-first по <c>opened_at</c> (лимит по умолчанию 100).</summary>
     Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken);
 }

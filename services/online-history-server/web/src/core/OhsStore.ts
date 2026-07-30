@@ -124,8 +124,9 @@ const SERIES_STRIKES_LIMIT = 500;
 
 /** Как часто перезапрашивать покрытие (живые гэпы внутри активной сессии). */
 const COVERAGE_POLL_MS = 12_000;
-/** Grace до объявления недоступности бэка (7j.20): глушим тривиальные блипы WS (HMR/быстрый рестарт). */
-const BACKEND_OUTAGE_GRACE_MS = 6_000;
+/** Grace до объявления недоступности бэка (7j.20). 0 = сразу Single + optimistic ribbon
+ * (оператор ждёт инцидент без задержки; HMR-блип редкий на живой приёмке). */
+const BACKEND_OUTAGE_GRACE_MS = 0;
 /** Каденция живых тиков длительности простоя (error-фаза). */
 const BACKEND_OUTAGE_TICK_MS = 5_000;
 /** Settle после re-open: столько связь должна продержаться (без нового дропа) → warning→ok. */
@@ -319,6 +320,12 @@ export class OhsStore {
   readonly highlightDays$ = new BehaviorSubject<boolean>(false);
   /** Показывать панель фильтров каталога (шестерёнка провайдера, сохраняется). */
   readonly showFilters$ = new BehaviorSubject<boolean>(true);
+  /** Показывать now-маркер на лентах Connection/Recording (шестерёнка провайдера, сохраняется). */
+  readonly showNowMarker$ = new BehaviorSubject<boolean>(true);
+  /** Слой ленты связи (`link_liveness`) на Connection. */
+  readonly showLinkRibbon$ = new BehaviorSubject<boolean>(true);
+  /** Слой инцидентов (`incident`) на Connection. */
+  readonly showIncidents$ = new BehaviorSubject<boolean>(true);
 
   /** Раскрытые серии, ожидающие регидрации после перезагрузки (одноразово, см. hydrateExpanded). */
   private pendingSeriesHydration: PersistedSeries[] = [];
@@ -420,6 +427,15 @@ export class OhsStore {
     if (typeof v.showFilters === 'boolean') {
       this.showFilters$.next(v.showFilters);
     }
+    if (typeof v.showNowMarker === 'boolean') {
+      this.showNowMarker$.next(v.showNowMarker);
+    }
+    if (typeof v.showLinkRibbon === 'boolean') {
+      this.showLinkRibbon$.next(v.showLinkRibbon);
+    }
+    if (typeof v.showIncidents === 'boolean') {
+      this.showIncidents$.next(v.showIncidents);
+    }
   }
 
   /** Снимок представления каталога для localStorage (из текущих сабджектов). */
@@ -452,6 +468,9 @@ export class OhsStore {
       crosshair: this.crosshairOn$.value,
       highlightDays: this.highlightDays$.value,
       showFilters: this.showFilters$.value,
+      showNowMarker: this.showNowMarker$.value,
+      showLinkRibbon: this.showLinkRibbon$.value,
+      showIncidents: this.showIncidents$.value,
     });
   }
 
@@ -504,6 +523,8 @@ export class OhsStore {
           this.refreshRecordings();
           this.refreshCoverage();
           this.refreshLiveness();
+          // Иначе lost/стек, ушедшие по WS пока сокет был мёртв, всплывают только случайно позже.
+          this.refreshNotifications();
           this.onBackendReachable();
         },
         () => this.onBackendDrop(),
@@ -640,7 +661,7 @@ export class OhsStore {
     this.pendingFatalAt = null;
     this.outageNeedsWarnBeforeOk = true;
     this.setOutagePhase('grace');
-    this.outageGraceTimer = setTimeout(() => {
+    const announce = () => {
       this.outageGraceTimer = undefined;
       if (this.outageStart === null || this.outageCorr === null) {
         return;
@@ -660,7 +681,12 @@ export class OhsStore {
       // localStorage до POST: from зафиксирован; to допишем на recover.
       this.queueOutageReport(start, null);
       this.startOutageProgress(false);
-    }, BACKEND_OUTAGE_GRACE_MS);
+    };
+    if (BACKEND_OUTAGE_GRACE_MS <= 0) {
+      announce();
+    } else {
+      this.outageGraceTimer = setTimeout(announce, BACKEND_OUTAGE_GRACE_MS);
+    }
   }
 
   /** Фаза error: живые тики длительности. immediate — тик сразу (возврат из warning / после 500). */
@@ -1023,7 +1049,7 @@ export class OhsStore {
     savePendingHostOutageReport(report);
   }
 
-  /** D6: сигнал эпизода на Host → emit T+C; hydrate снимет локальную Single при T. */
+  /** D6: сигнал эпизода на Host → emit C; после 2xx POST — clear LS (как раньше). */
   private reportHostOutageEpisode(fromMs: number, toMs: number): void {
     const stored = loadPendingHostOutageReport();
     const clientId =
@@ -1140,6 +1166,30 @@ export class OhsStore {
   setShowFilters(on: boolean): void {
     if (this.showFilters$.value !== on) {
       this.showFilters$.next(on);
+      this.persistView();
+    }
+  }
+
+  /** Показывать / скрывать now-маркер на лентах Connection и Recording. */
+  setShowNowMarker(on: boolean): void {
+    if (this.showNowMarker$.value !== on) {
+      this.showNowMarker$.next(on);
+      this.persistView();
+    }
+  }
+
+  /** Показывать / скрывать слой ленты связи (`link_liveness`). */
+  setShowLinkRibbon(on: boolean): void {
+    if (this.showLinkRibbon$.value !== on) {
+      this.showLinkRibbon$.next(on);
+      this.persistView();
+    }
+  }
+
+  /** Показывать / скрывать слой инцидентов (`incident`) на Connection. */
+  setShowIncidents(on: boolean): void {
+    if (this.showIncidents$.value !== on) {
+      this.showIncidents$.next(on);
       this.persistView();
     }
   }

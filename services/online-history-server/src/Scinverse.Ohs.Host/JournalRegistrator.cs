@@ -158,23 +158,43 @@ public sealed class JournalRegistrator(
         SafeAsync(
             corrUid,
             "crash-open",
-            () => store.OpenAsync(
-                new Incident
+            async () =>
+            {
+                var inserted = await store.OpenAsync(
+                        new Incident
+                        {
+                            CorrUid = corrUid,
+                            Module = "connection",
+                            Type = "crash",
+                            Status = "active",
+                            OpenedAt = openedAt,
+                            Subject = SubjectFromCorr(corrUid),
+                            Severity = "critical",
+                            Title = title,
+                            LastActivityAt = openedAt,
+                            ConnectionId = connectionId,
+                            Subtype = "host_unavailable",
+                            Owner = "admin",
+                        },
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                // ON CONFLICT DO NOTHING мог оставить null — добьём привязку для ганта Connection.
+                if (connectionId is { } id)
                 {
-                    CorrUid = corrUid,
-                    Module = "connection",
-                    Type = "crash",
-                    Status = "active",
-                    OpenedAt = openedAt,
-                    Subject = SubjectFromCorr(corrUid),
-                    Severity = "critical",
-                    Title = title,
-                    LastActivityAt = openedAt,
-                    ConnectionId = connectionId,
-                    Subtype = "host_unavailable",
-                    Owner = "admin",
-                },
-                cancellationToken));
+                    await store
+                        .BindConnectionIdIfNullAsync(corrUid, id, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                return inserted;
+            });
+
+    public Task BindConnectionIdIfNullAsync(
+        string corrUid, long connectionId, CancellationToken cancellationToken) =>
+        SafeAsync(
+            corrUid,
+            "bind-connection",
+            () => store.BindConnectionIdIfNullAsync(corrUid, connectionId, cancellationToken));
 
     private static string SubjectFromCorr(string corrUid)
     {
@@ -263,6 +283,10 @@ public sealed class NullJournalRegistrator : IJournalRegistrator
     public Task RegisterCrashOpenAsync(
         string corrUid, DateTimeOffset openedAt, long? connectionId, string title,
         CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task BindConnectionIdIfNullAsync(
+        string corrUid, long connectionId, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 
     public Task EnsureBreakAdoptedAsync(

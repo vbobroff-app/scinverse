@@ -41,11 +41,12 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         string? status = null,
         string? correlationId = null,
         NotificationActor? actor = null,
-        string? subject = null)
+        string? subject = null,
+        DateTimeOffset? ts = null)
     {
         // Одиночное событие; status/correlationId — для продюсер-управляемых последовательностей
         // (напр. фаза connect: connecting→connect/failed одной группой), минуя incident-оркестратор.
-        var evt = Enqueue(code, message, severity, sourceType, module, status, correlationId, data, actor, subject);
+        var evt = Enqueue(code, message, severity, sourceType, module, status, correlationId, data, actor, subject, ts);
         Dispatch(evt);
     }
 
@@ -110,8 +111,9 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         string sourceType = "system",
         string module = "ohs.connection",
         object? data = null,
-        NotificationActor? actor = null)
-        => Transition(subject, "active", code, message, severity, sourceType, module, data, actor,
+        NotificationActor? actor = null,
+        DateTimeOffset? ts = null)
+        => Transition(subject, "active", code, message, severity, sourceType, module, data, actor, ts,
             canTransition: current => current is null);
 
     /// <summary>Прогресс восстановления (status=underway) открытого инцидента. Повторяемо (7j.20 J5):
@@ -126,8 +128,9 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         string sourceType = "system",
         string module = "ohs.connection",
         object? data = null,
-        NotificationActor? actor = null)
-        => Transition(subject, "underway", code, message, severity, sourceType, module, data, actor,
+        NotificationActor? actor = null,
+        DateTimeOffset? ts = null)
+        => Transition(subject, "underway", code, message, severity, sourceType, module, data, actor, ts,
             canTransition: current => current is "active" or "underway");
 
     /// <inheritdoc />
@@ -140,7 +143,8 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         string module = "ohs.connection",
         object? data = null,
         NotificationActor? actor = null,
-        string? status = null)
+        string? status = null,
+        DateTimeOffset? ts = null)
     {
         NotificationDto? evt;
         lock (_gate)
@@ -159,7 +163,7 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
 
             evt = EnqueueLocked(
                 code, message, severity, sourceType, module,
-                stamp, open.CorrelationId, data, actor, subject);
+                stamp, open.CorrelationId, data, actor, subject, ts);
         }
 
         Dispatch(evt);
@@ -175,8 +179,9 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         string sourceType = "system",
         string module = "ohs.connection",
         object? data = null,
-        NotificationActor? actor = null)
-        => Transition(subject, "resolved", code, message, severity, sourceType, module, data, actor,
+        NotificationActor? actor = null,
+        DateTimeOffset? ts = null)
+        => Transition(subject, "resolved", code, message, severity, sourceType, module, data, actor, ts,
             canTransition: current => current is "active" or "underway");
 
     /// <inheritdoc />
@@ -258,6 +263,7 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         string module,
         object? data,
         NotificationActor? actor,
+        DateTimeOffset? ts,
         Func<string?, bool> canTransition)
     {
         NotificationDto? evt;
@@ -281,7 +287,8 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
                 _openIncidents[subject] = (correlationId, targetStatus);
             }
 
-            evt = EnqueueLocked(code, message, severity, sourceType, module, targetStatus, correlationId, data, actor, subject);
+            evt = EnqueueLocked(
+                code, message, severity, sourceType, module, targetStatus, correlationId, data, actor, subject, ts);
         }
 
         Dispatch(evt);
@@ -290,24 +297,27 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
 
     private NotificationDto Enqueue(
         string code, string message, string severity, string sourceType, string module,
-        string? status, string? correlationId, object? data, NotificationActor? actor, string? subject)
+        string? status, string? correlationId, object? data, NotificationActor? actor, string? subject,
+        DateTimeOffset? ts)
     {
         lock (_gate)
         {
-            return EnqueueLocked(code, message, severity, sourceType, module, status, correlationId, data, actor, subject);
+            return EnqueueLocked(
+                code, message, severity, sourceType, module, status, correlationId, data, actor, subject, ts);
         }
     }
 
     private NotificationDto EnqueueLocked(
         string code, string message, string severity, string sourceType, string module,
-        string? status, string? correlationId, object? data, NotificationActor? actor, string? subject)
+        string? status, string? correlationId, object? data, NotificationActor? actor, string? subject,
+        DateTimeOffset? ts)
     {
         var resolvedActor = ResolveActor(actor, sourceType, module);
         // 11.11: threadKindHint / closeOutcome в data jsonb (без смены схемы).
         var enriched = NotificationThreadData.EnrichByCode(code, status, data);
         var evt = new NotificationDto(
             Id: Guid.NewGuid().ToString("N"),
-            Ts: DateTimeOffset.UtcNow,
+            Ts: ts ?? DateTimeOffset.UtcNow,
             Severity: severity,
             SourceType: sourceType,
             Module: module,
@@ -420,3 +430,4 @@ public sealed record IngestNotificationRequest(
 /// <summary>Тело <c>POST /api/recovery/hold</c> (7j.20 §9.2): corr открытого клиентского инцидента простоя,
 /// чтобы бэк штамповал `ohs.unhandled` во время recovery в ту же нить. Тело может отсутствовать.</summary>
 public sealed record HoldRecoveryRequest(string? CorrelationId);
+

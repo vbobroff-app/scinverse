@@ -119,9 +119,27 @@ public sealed class ConnectorSession(
             {
                 // Await, а не fire-and-forget: смены связи обрабатываются строго последовательно, иначе
                 // Down/Degraded/Live гонятся и previous-состояние (детект recovering) считается неверно.
-                if (onLinkState is not null)
+                // Ошибка одного тика (пул БД, fan-out) НЕ должна убивать pump — иначе Host
+                // перестаёт видеть Degraded/Down («не чувствует разрыв»).
+                if (onLinkState is null)
+                {
+                    continue;
+                }
+
+                try
                 {
                     await onLinkState(change).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(
+                        ex,
+                        "Ошибка обработки смены связи {State} — link pump продолжает",
+                        change.State);
                 }
             }
         }

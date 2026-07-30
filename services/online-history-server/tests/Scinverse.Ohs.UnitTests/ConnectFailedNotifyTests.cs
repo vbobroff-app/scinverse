@@ -31,9 +31,9 @@ public sealed class ConnectFailedNotifyTests
     public void FormatConnectFailed_short_headline_detail_in_error_message()
     {
         var (message, data) = ConnectionManager.FormatConnectFailedNotification(
-            3, "Подключение 3 («Finam»)", "TRANSAQ connect failed: connection error");
+            3, "Подключение 3", "TRANSAQ connect failed: connection error");
 
-        message.Should().Be("Подключение 3 («Finam»): не удалось подключиться — TRANSAQ connect failed");
+        message.Should().Be("Подключение 3: не удалось подключиться — TRANSAQ connect failed");
         var el = JsonSerializer.SerializeToElement(data);
         el.GetProperty("connectionId").GetInt64().Should().Be(3);
         el.GetProperty("state").GetString().Should().Be("Error");
@@ -45,9 +45,9 @@ public sealed class ConnectFailedNotifyTests
     public void FormatConnectFailed_non_transaq_puts_full_text_in_error_message()
     {
         var (message, data) = ConnectionManager.FormatConnectFailedNotification(
-            3, "Подключение 3 («Finam»)", "Подключение 3 не найдено");
+            3, "Подключение 3", "Подключение 3 не найдено");
 
-        message.Should().Be("Подключение 3 («Finam»): не удалось подключиться");
+        message.Should().Be("Подключение 3: не удалось подключиться");
         var el = JsonSerializer.SerializeToElement(data);
         el.GetProperty("error_message").GetString().Should().Be("Подключение 3 не найдено");
         el.GetProperty("sender").GetString().Should().Be("backend");

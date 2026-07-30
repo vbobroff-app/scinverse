@@ -39,32 +39,41 @@ public sealed class IncidentFanOut(
         }
     }
 
-    private async Task<string?> ApplyOpenAsync(IncidentStep step, CancellationToken cancellationToken)
+    private Task<string?> ApplyOpenAsync(IncidentStep step, CancellationToken cancellationToken)
     {
-        EmitNcOpen(step);
+        if (!string.IsNullOrWhiteSpace(step.NcCode) && !EmitNcOpen(step))
+        {
+            // Hub.Open = no-op (subject уже open) — без строки в NC/WS. Нельзя продолжать journal/corr.
+            return Task.FromResult<string?>(null);
+        }
+
         var corr = ResolveCorr(step);
         if (step.SkipJournal || corr is null || step.ConnectionId is not { } connectionId)
         {
-            return corr;
+            return Task.FromResult(corr);
         }
 
-        await journal
-            .RegisterBreakOpenAsync(
-                connectionId,
-                corr,
-                step.At,
-                step.Owner ?? "supervisor",
-                step.Subtype ?? "down",
-                step.SourceId,
-                step.Title ?? step.NcMessage ?? "connection.lost",
-                cancellationToken)
-            .ConfigureAwait(false);
-        return corr;
+        // WS уже в EmitNcOpen. Journal в фоне: иначе ConfirmDegraded ждёт пул БД до TryAdd
+        // _incidentSince → Live успевает CloseIncident(no-op) → залипший ACTIVE при синем тумблере.
+        _ = journal.RegisterBreakOpenAsync(
+            connectionId,
+            corr,
+            step.At,
+            step.Owner ?? "supervisor",
+            step.Subtype ?? "down",
+            step.SourceId,
+            step.Title ?? step.NcMessage ?? "connection.lost",
+            cancellationToken);
+        return Task.FromResult<string?>(corr);
     }
 
     private async Task<string?> ApplyCrashOpenAsync(IncidentStep step, CancellationToken cancellationToken)
     {
-        EmitNcOpen(step);
+        if (!string.IsNullOrWhiteSpace(step.NcCode) && !EmitNcOpen(step))
+        {
+            return null;
+        }
+
         var corr = ResolveCorr(step);
         if (step.SkipJournal || corr is null)
         {
@@ -108,19 +117,28 @@ public sealed class IncidentFanOut(
         return corr;
     }
 
-    private async Task<string?> ApplyResolveAsync(IncidentStep step, CancellationToken cancellationToken)
+    private Task<string?> ApplyResolveAsync(IncidentStep step, CancellationToken cancellationToken)
     {
         // Corr снимаем до Hub.Resolve — после terminal open в памяти хаба уже нет.
         var corr = ResolveCorr(step);
         EmitNcResolve(step);
         if (step.SkipJournal || corr is null)
         {
-            return corr;
+            return Task.FromResult(corr);
         }
 
+        // recovered в WS уже ушёл; journal/bind — фон (пул БД не тормозит close).
+        var corrUid = corr;
+        _ = CompleteResolveJournalAsync(step, corrUid, cancellationToken);
+        return Task.FromResult<string?>(corrUid);
+    }
+
+    private async Task CompleteResolveJournalAsync(
+        IncidentStep step, string corrUid, CancellationToken cancellationToken)
+    {
         await journal
             .RegisterBreakResolvedAsync(
-                corr,
+                corrUid,
                 step.At,
                 step.CloseOutcome ?? "recovered",
                 step.Title,
@@ -128,7 +146,12 @@ public sealed class IncidentFanOut(
                 cancellationToken,
                 step.ResolvedBy)
             .ConfigureAwait(false);
-        return corr;
+        if (step.ConnectionId is { } connectionId)
+        {
+            await journal
+                .BindConnectionIdIfNullAsync(corrUid, connectionId, cancellationToken)
+                .ConfigureAwait(false);
+        }
     }
 
     private async Task<string?> ApplyAdoptAsync(IncidentStep step, CancellationToken cancellationToken)
@@ -166,25 +189,36 @@ public sealed class IncidentFanOut(
         return corr;
     }
 
-    private void EmitNcOpen(IncidentStep step)
+    /// <returns><c>false</c> — Hub отказал (subject уже open) или исключение; строки в WS нет.</returns>
+    private bool EmitNcOpen(IncidentStep step)
     {
         if (string.IsNullOrWhiteSpace(step.NcCode))
         {
-            return;
+            return true;
         }
 
         try
         {
-            notifications.Open(
+            var opened = notifications.Open(
                 step.Subject,
                 step.NcCode,
                 step.NcMessage ?? step.Title ?? step.NcCode,
                 severity: step.NcSeverity ?? step.Severity ?? "error",
-                data: step.NcData);
+                data: step.NcData,
+                ts: step.At);
+            if (!opened)
+            {
+                logger.LogWarning(
+                    "IncidentFanOut: Hub.Open refused (subject already open) {Subject}",
+                    step.Subject);
+            }
+
+            return opened;
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "IncidentFanOut Open NC failed for {Subject}", step.Subject);
+            return false;
         }
     }
 
@@ -202,7 +236,8 @@ public sealed class IncidentFanOut(
                 step.NcCode,
                 step.NcMessage ?? step.Title ?? step.NcCode,
                 severity: step.NcSeverity ?? step.Severity ?? "warning",
-                data: step.NcData);
+                data: step.NcData,
+                ts: step.At);
         }
         catch (Exception ex)
         {
@@ -224,7 +259,8 @@ public sealed class IncidentFanOut(
                 step.NcCode,
                 step.NcMessage ?? step.Title ?? step.NcCode,
                 severity: step.NcSeverity ?? step.Severity ?? "ok",
-                data: step.NcData);
+                data: step.NcData,
+                ts: step.At);
         }
         catch (Exception ex)
         {

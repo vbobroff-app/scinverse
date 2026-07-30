@@ -10,6 +10,12 @@ namespace Scinverse.Ohs.Host;
 public sealed record LiveConnectionSnapshot(long ConnectionId, short SourceId, IMarketConnector Connector);
 
 /// <summary>
+/// Итог <see cref="ConnectionManager.ConnectAsync"/>: статус UI + <see cref="ReadyAt"/> —
+/// общий <c>ts</c> для <c>link_liveness</c> и NC <c>connection.connected</c>.
+/// </summary>
+public readonly record struct ConnectResult(string Status, DateTimeOffset ReadyAt);
+
+/// <summary>
 /// Управляет живыми подключениями (сессиями коннекторов) по connector_connection:
 /// connect/disconnect/test/status. Секреты берёт из in-memory <see cref="ICredentialStore"/>.
 /// </summary>
@@ -48,6 +54,10 @@ public sealed class ConnectionManager(
     private TimeSpan RecoverGrace => TimeSpan.FromSeconds(
         options.LinkRecoverGraceSeconds > 0 ? options.LinkRecoverGraceSeconds : 60);
 
+    /// <summary>Debounce Degraded→open: короткие recover-flap TRANSAQ не плодят green-маркеры.</summary>
+    private TimeSpan DegradedConfirmDelay => TimeSpan.FromSeconds(
+        Math.Max(0, options.LinkDegradedConfirmSeconds));
+
     private readonly ConcurrentDictionary<long, ConnectorSession> _sessions = new();
     private readonly ConcurrentDictionary<long, short> _sourceIds = new();
     private readonly ConcurrentDictionary<long, string> _status = new();
@@ -63,9 +73,15 @@ public sealed class ConnectionManager(
     // либо "supervisor" (Down/Error/ping-fail сразу, либо передача владения по grace). Нужен для expanded
     // recovered («кем восстановлена связь»). Живёт вместе с _incidentSince (ставится на open, снимается на recovered).
     private readonly ConcurrentDictionary<long, string> _incidentOwner = new();
-    // Кэш имени подключения для ярлыков NC (7j.18): избегаем DB-lookup на каждое событие связи.
-    private readonly ConcurrentDictionary<long, string> _nameCache = new();
+    /// <summary>Ожидание confirm Degraded (flap &lt; delay → cancel, без journal/green).</summary>
+    private readonly ConcurrentDictionary<long, CancellationTokenSource> _degradedConfirm = new();
+    private readonly ConcurrentDictionary<long, (DateTimeOffset At, string? Detail)> _degradedPending = new();
+    /// <summary>J5: прогресс TRANSAQ (t&lt;T) + handover по T — в Manager, не ждём тик Auto-супервизора.</summary>
+    private readonly ConcurrentDictionary<long, CancellationTokenSource> _transaqProgress = new();
     private Timer? _idleMonitor;
+
+    /// <summary>Пробудить <see cref="ConnectionSupervisor"/> после open/handover (wire в OhsWorker).</summary>
+    public Action? RequestSupervisorNudge { get; set; }
 
     public ConnectorLinkState? GetLinkState(long connectionId) =>
         _linkStates.TryGetValue(connectionId, out var state) ? state : null;
@@ -96,6 +112,7 @@ public sealed class ConnectionManager(
     /// </summary>
     public bool ClearAdoptedIncident(long connectionId)
     {
+        StopTransaqRecoverProgress(connectionId);
         _incidentOwner.TryRemove(connectionId, out _);
         return _incidentSince.TryRemove(connectionId, out _);
     }
@@ -113,10 +130,9 @@ public sealed class ConnectionManager(
             return false;
         }
 
-        _incidentOwner[connectionId] = "supervisor";
         var title = $"{label}: не удалось установить связь";
         // Sync API (connect-fail path): fan-out journal+NC; БД-ошибки глотает JournalRegistrator.
-        FanOutBreakOpenAsync(
+        var corr = FanOutBreakOpenAsync(
                 connectionId,
                 atTs,
                 owner: "supervisor",
@@ -128,18 +144,30 @@ public sealed class ConnectionManager(
                 CancellationToken.None)
             .GetAwaiter()
             .GetResult();
+        if (corr is null)
+        {
+            _incidentSince.TryRemove(connectionId, out _);
+            return false;
+        }
+
+        _incidentOwner[connectionId] = "supervisor";
         return true;
     }
 
     public string GetStatus(long connectionId) =>
         _status.TryGetValue(connectionId, out var status) ? status : "disconnected";
 
-    /// <summary>Ярлык подключения для NC (7j.18): «Подключение {id} («{name}»)» — id первичен,
-    /// имя в кавычках если задано. Единый формат для supervisor/manager.</summary>
-    public static string ConnLabel(long connectionId, string? name) =>
+    /// <summary>Системный ярлык NC: только id (без имени провайдера).</summary>
+    public static string ConnLabelSystem(long connectionId) => $"Подключение {connectionId}";
+
+    /// <summary>Пользовательский ярлык NC: id + имя, если задано.</summary>
+    public static string ConnLabelUser(long connectionId, string? name) =>
         string.IsNullOrWhiteSpace(name)
             ? $"Подключение {connectionId}"
-            : $"Подключение {connectionId} («{name}»)";
+            : $"Подключение {connectionId} ({name})";
+
+    /// <summary>Alias → <see cref="ConnLabelUser"/> (ручные user-события из endpoints).</summary>
+    public static string ConnLabel(long connectionId, string? name) => ConnLabelUser(connectionId, name);
 
     /// <summary>NC <c>connection.connect_failed</c>: короткий заголовок без дубля детали;
     /// сырой хвост → <c>data.error_message</c>; <c>data.sender</c> = origin (transaq / backend).
@@ -179,20 +207,11 @@ public sealed class ConnectionManager(
         return string.IsNullOrEmpty(rest) ? null : rest;
     }
 
-    /// <summary>Ярлык подключения с резолвом имени (кэш → БД). Fallback — только id.</summary>
-    public async ValueTask<string> ResolveLabelAsync(long connectionId, CancellationToken cancellationToken)
+    /// <summary>Системный ярлык (manager/supervisor): всегда <c>Подключение {id}</c>, без имени.</summary>
+    public ValueTask<string> ResolveLabelAsync(long connectionId, CancellationToken cancellationToken)
     {
-        if (!_nameCache.TryGetValue(connectionId, out var name))
-        {
-            var connection = await connectionStore.GetAsync(connectionId, cancellationToken).ConfigureAwait(false);
-            name = connection?.Name ?? string.Empty;
-            if (!string.IsNullOrEmpty(name))
-            {
-                _nameCache[connectionId] = name;
-            }
-        }
-
-        return ConnLabel(connectionId, name);
+        _ = cancellationToken;
+        return ValueTask.FromResult(ConnLabelSystem(connectionId));
     }
 
     /// <summary>Данные NC для <c>connection.connected</c>. Вызывать ДО нового Heartbeat — иначе «предыдущим»
@@ -269,14 +288,18 @@ public sealed class ConnectionManager(
         return result;
     }
 
-    public async Task<string> ConnectAsync(long connectionId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Установить связь. <see cref="ConnectResult.ReadyAt"/> — единый <c>ts</c> для
+    /// <c>link_liveness</c> Heartbeat и NC <c>connection.connected</c> (после подписок).
+    /// </summary>
+    public async Task<ConnectResult> ConnectAsync(long connectionId, CancellationToken cancellationToken)
     {
         if (_sessions.ContainsKey(connectionId))
         {
             var status = GetStatus(connectionId);
             if (status is "waiting" or "active" or "degraded")
             {
-                return status;
+                return new ConnectResult(status, DateTimeOffset.UtcNow);
             }
 
             // Осиротевшая сессия после Down/Error: статус disconnected, но коннектор ещё в памяти —
@@ -320,24 +343,24 @@ public sealed class ConnectionManager(
 
             // Подключено, но данных ещё нет → «ожидание» (перейдёт в «active» при первой сделке).
             SetStatus(connectionId, "waiting");
-            // Открываем интервал живости связи (лента Connection, 7h.8): связь есть — независимо от записи.
-            await linkLiveness
-                .HeartbeatAsync(sourceId, DateTimeOffset.UtcNow, LinkMaxGap, cancellationToken)
-                .ConfigureAwait(false);
             EnsureIdleMonitor();
-            // 7j.20 J3/J6: успешный (ре)коннект = связь снова жива (server_status connected=true пришёл внутри
-            // ConnectAsync). Свежая сессия НЕ даёт отдельного перехода в Live (рождается подключённой), поэтому
-            // закрываем открытый инцидент здесь — иначе после handover он висел бы открытым (recovered терялся).
-            await CloseIncidentAsync(connectionId, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
-            // Ре-подписка записей: не полагаемся только на server_status Live (может уже быть consumed /
-            // не повториться). OnLinkLiveAsync идемпотентен (пропуск при active coverage).
+            // Ре-подписка до Heartbeat: ReadyAt = момент готовности линка (после подписок).
+            // OnLinkLiveAsync идемпотентен (пропуск при active coverage).
             await recordings.Value.OnLinkLiveAsync(connectionId, cancellationToken).ConfigureAwait(false);
-            _firstTradePending[connectionId] = DateTimeOffset.UtcNow;
+            var readyAt = DateTimeOffset.UtcNow;
+            // Открываем интервал link_liveness тем же ts, что уйдёт в NC connection.connected.
+            await linkLiveness
+                .HeartbeatAsync(sourceId, readyAt, LinkMaxGap, cancellationToken)
+                .ConfigureAwait(false);
+            // 7j.20 J3/J6: успешный (ре)коннект = связь снова жива. Свежая сессия НЕ даёт отдельного
+            // перехода в Live → закрываем open break здесь (recovered с тем же readyAt).
+            await CloseIncidentAsync(connectionId, readyAt, cancellationToken).ConfigureAwait(false);
+            _firstTradePending[connectionId] = readyAt;
             var connectElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(connectStartedAt);
             logger.LogInformation(
                 "Подключение {ConnectionId} ({Kind}) установлено за {ElapsedMs:0} мс (рукопожатие TRANSAQ/Finam)",
                 connectionId, connection.Kind, connectElapsed.TotalMilliseconds);
-            return "waiting";
+            return new ConnectResult("waiting", readyAt);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -435,6 +458,7 @@ public sealed class ConnectionManager(
         // внутренний CloseAsync(ServerDown) — no-op (границу уже поставил маркер выше). Дальше связь поднимет
         // супервизор (connect ×5, ветка «не connected» в ReconcileOneAsync).
         await DisconnectAsync(connectionId, cancellationToken, LinkCloseReason.ServerDown).ConfigureAwait(false);
+        RequestSupervisorNudge?.Invoke();
     }
 
     /// <summary>
@@ -670,13 +694,24 @@ public sealed class ConnectionManager(
         {
             case ConnectorLinkState.Live:
             {
+                // Flap Degraded→Live до confirm: снять отложенный open — без journal и без зелёного маркера.
+                CancelDegradedConfirm(connectionId);
+
                 // Связь ЖИВА (server_status connected=true, recover=false): открываем/продлеваем интервал
                 // живости связи (лента Connection, 7h.8). Единственное «здоровое» состояние (7j.20).
+                // DB/side-effects в try: сбой пула не должен блокировать CloseIncident/статус.
                 if (_sourceIds.TryGetValue(connectionId, out var liveSourceId))
                 {
-                    await linkLiveness
-                        .HeartbeatAsync(liveSourceId, change.At, LinkMaxGap, CancellationToken.None)
-                        .ConfigureAwait(false);
+                    try
+                    {
+                        await linkLiveness
+                            .HeartbeatAsync(liveSourceId, change.At, LinkMaxGap, CancellationToken.None)
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogError(ex, "Подключение {ConnectionId}: Heartbeat link_liveness на Live", connectionId);
+                    }
                 }
 
                 var recovering = hadState && previous is ConnectorLinkState.Down or ConnectorLinkState.Error or ConnectorLinkState.Degraded;
@@ -685,8 +720,13 @@ public sealed class ConnectionManager(
                 // _incidentSince, не на in-memory previous (реконнект супервизора идёт через полный
                 // DisconnectAsync, стелс-разрыв — без server_status Down). Общий путь с успешным реконнектом
                 // супервизора — см. CloseIncidentAsync.
-                await CloseIncidentAsync(connectionId, change.At, CancellationToken.None)
-                    .ConfigureAwait(false);
+                // Если Manager уже пуст (гонка Open/journal), а Hub ещё open — добиваем orphan Resolve.
+                if (!await CloseIncidentAsync(connectionId, change.At, CancellationToken.None)
+                        .ConfigureAwait(false))
+                {
+                    await TryResolveOrphanHubBreakAsync(connectionId, change.At, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
 
                 // Ре-подписку НЕЛЬЗЯ гейтить in-memory `recovering` (7j.19/I6): реконнект супервизора идёт
                 // через полный DisconnectAsync (стирает _linkStates) → на первом Live новой сессии
@@ -694,7 +734,14 @@ public sealed class ConnectionManager(
                 // подписок TRANSAQ на новой сессии нет → сделок нет. Для TRANSAQ это ВСЕГДА (восстановление
                 // только через новую сессию, server_status Down не приходит). OnLinkLiveAsync идемпотентен
                 // (пропускает записи с активным покрытием), поэтому безопасно звать на любом Live/Degraded.
-                await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
+                try
+                {
+                    await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogError(ex, "Подключение {ConnectionId}: OnLinkLive на Live", connectionId);
+                }
 
                 if (recovering || GetStatus(connectionId) is "disconnected" or "error" or "degraded")
                 {
@@ -709,55 +756,63 @@ public sealed class ConnectionManager(
 
             case ConnectorLinkState.Degraded:
             {
-                // Phase 7j.20: Degraded (server_status connected=true, recover=true) — ИНЦИДЕНТ, а не «живое»
-                // состояние: линк к серверу дёрнулся, данных нет, но TRANSAQ сам восстанавливает (владелец
-                // восстановления = TRANSAQ). Закрываем интервал живости причиной Degraded → жёлтая дырка на
-                // ленте Connection; открываем инцидент связи (error). Сегменты/подписки НЕ рвём (сессия жива,
-                // восстановление идёт внутри TRANSAQ) — только идемпотентная ре-подписка. Передача владельца
-                // супервизору по grace-таймауту — J3/J6.
-                var degradedLabel = await ResolveLabelAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
-                var isNewDegraded = _incidentSince.TryAdd(connectionId, change.At);
-                _incidentOwner.TryAdd(connectionId, "transaq");
-                var degradedTitle = $"{degradedLabel}: связь потеряна (Degraded)";
-                if (isNewDegraded)
-                {
-                    await FanOutBreakOpenAsync(
-                            connectionId,
-                            change.At,
-                            owner: "transaq",
-                            subtype: "degraded",
-                            degradedTitle,
-                            sender: "transaq",
-                            state: change.State.ToString(),
-                            detail: change.Detail,
-                            CancellationToken.None)
-                        .ConfigureAwait(false);
-                }
-
-                if (_sourceIds.TryGetValue(connectionId, out var degradedSourceId))
-                {
-                    await linkLiveness
-                        .CloseAsync(degradedSourceId, LinkCloseReason.Degraded, change.At, CancellationToken.None)
-                        .ConfigureAwait(false);
-                }
-
-                // H1: рвём живость захвата (синяя подложка), сессию/подписки оставляем.
-                await liveness.Value
-                    .OnDegradedAsync(connectionId, change.At, CancellationToken.None)
-                    .ConfigureAwait(false);
-
-                await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
+                // Phase 7j.20: Degraded — инцидент, но TRANSAQ часто мигает recover≈1с.
+                // Confirm-delay: flap Live до истечения → без journal/green; иначе open с t0=первый Degraded.
+                //
+                // Важно: Hub.Open / WS notification — ДО OnLinkLive. PublishLinkState уже ушёл в UI;
+                // OnLinkLive → SubscribeTradesAsync при мёртвой сети висит (десятки секунд) и раньше
+                // откладывал connection.lost — тумблер «Связь потеряна», а NC пустой.
                 SetStatus(connectionId, StatusForLinkState(ConnectorLinkState.Degraded));
 
-                logger.LogWarning(
-                    "Подключение {ConnectionId}: связь Degraded ({Detail}) — инцидент (владелец TRANSAQ), сегменты сохранены",
-                    connectionId, change.Detail);
+                if (_incidentSince.ContainsKey(connectionId))
+                {
+                    // Уже подтверждённый open break — только поддерживаем дыру liveness/capture.
+                    try
+                    {
+                        await ApplyDegradedSideEffectsAsync(connectionId, change.At, CancellationToken.None)
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogError(ex, "Подключение {ConnectionId}: side-effects Degraded", connectionId);
+                    }
+                }
+                else if (DegradedConfirmDelay <= TimeSpan.Zero)
+                {
+                    await ConfirmDegradedIncidentAsync(connectionId, change.At, change.Detail, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    _degradedPending[connectionId] = (change.At, change.Detail);
+                    var cts = new CancellationTokenSource();
+                    if (_degradedConfirm.TryRemove(connectionId, out var prevCts))
+                    {
+                        prevCts.Cancel();
+                        prevCts.Dispose();
+                    }
+
+                    _degradedConfirm[connectionId] = cts;
+                    logger.LogInformation(
+                        "Подключение {ConnectionId}: Degraded — confirm через {DelaySec:0.#}с ({Detail})",
+                        connectionId, DegradedConfirmDelay.TotalSeconds, change.Detail);
+                    _ = ConfirmDegradedAfterDelayAsync(connectionId, cts.Token);
+                }
+
+                // Не await: SubscribeTrades при обрыве сети может висеть минутами и блокировал
+                // pump (Down/Progress). NC уже открыт выше — ре-подписка best-effort в фоне.
+                _ = OnLinkLiveBestEffortAsync(connectionId);
+
                 break;
             }
 
             case ConnectorLinkState.Down:
             case ConnectorLinkState.Error:
             {
+                // Down/Error важнее debounce: сразу фиксируем break (после flush pending Degraded).
+                await FlushDegradedConfirmNowAsync(connectionId, change.At, CancellationToken.None)
+                    .ConfigureAwait(false);
+
                 var wasUp = !hadState || previous is ConnectorLinkState.Live or ConnectorLinkState.Degraded;
                 if (!wasUp)
                 {
@@ -791,6 +846,7 @@ public sealed class ConnectionManager(
     /// </summary>
     private bool TryTakeOpenBreak(long connectionId, out DateTimeOffset incidentStart, out string owner)
     {
+        StopTransaqRecoverProgress(connectionId);
         if (!_incidentSince.TryRemove(connectionId, out incidentStart))
         {
             owner = "supervisor";
@@ -802,7 +858,7 @@ public sealed class ConnectionManager(
     }
 
     /// <summary>
-    /// I11: единый close-break — Manager clear + Hub.Resolve (+ опциональный маркер ленты).
+    /// I11: единый close-break — сначала Hub.Resolve (WS), потом Manager clear + маркеры ленты.
     /// Исходы: <c>recovered</c> / <c>abandoned_schedule</c> / <c>abandoned_manual</c>.
     /// </summary>
     private async Task<bool> CloseBreakAsync(
@@ -811,40 +867,15 @@ public sealed class ConnectionManager(
         string closeOutcome,
         CancellationToken cancellationToken)
     {
-        if (!TryTakeOpenBreak(connectionId, out var incidentStart, out var owner))
+        if (!_incidentSince.TryGetValue(connectionId, out var incidentStart))
         {
             return false;
         }
 
-        var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
-
-        // Пропущенный grace-tick: Live/abandon после T при owner=transaq → дописать boundary на since+T,
-        // иначе лента остаётся целиком жёлтой (жёлтое ≤ T — инвариант 7j.20).
-        if (LinkOwnership.CatchUpEscalationAt(owner, incidentStart, atTs, RecoverGrace) is { } catchUpAt
-            && sourceId is { } catchUpSid)
-        {
-            await linkLiveness
-                .InsertBoundaryMarkerAsync(catchUpSid, LinkCloseReason.ServerDown, catchUpAt, cancellationToken)
-                .ConfigureAwait(false);
-            logger.LogWarning(
-                "Подключение {ConnectionId}: catch-up escalatedAt={Esc:o} (owner=transaq, elapsed≥T={T}s)",
-                connectionId, catchUpAt, (int)RecoverGrace.TotalSeconds);
-        }
-
-        LinkCloseReason? ribbonMarker = closeOutcome switch
-        {
-            NotificationThreadData.OutcomeAbandonedSchedule => LinkCloseReason.Scheduled,
-            NotificationThreadData.OutcomeAbandonedManual => LinkCloseReason.Disconnected,
-            _ => null,
-        };
-        if (ribbonMarker is { } markerReason && sourceId is { } sid)
-        {
-            await linkLiveness
-                .InsertBoundaryMarkerAsync(sid, markerReason, atTs, cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        var label = await ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        var owner = _incidentOwner.TryGetValue(connectionId, out var incidentOwner)
+            ? incidentOwner
+            : "transaq";
+        var label = ConnLabelSystem(connectionId);
         var gapLine = FormatGapLine(incidentStart, atTs);
         var subject = LinkIncidentSubject(connectionId);
 
@@ -909,7 +940,55 @@ public sealed class ConnectionManager(
                 }),
         };
 
+        // WS recovered/closed ДО любых await БД и ДО снятия _incidentSince.
         await fanOut.ApplyAsync(resolveStep, cancellationToken).ConfigureAwait(false);
+
+        if (!TryTakeOpenBreak(connectionId, out _, out _))
+        {
+            // Уже сняли параллельным close — NC всё равно отправили (Resolve идемпотентен no-op).
+            return true;
+        }
+
+        short? sourceId = _sourceIds.TryGetValue(connectionId, out var cached) ? cached : null;
+
+        // Пропущенный grace-tick: Live/abandon после T при owner=transaq → boundary на since+T.
+        if (LinkOwnership.CatchUpEscalationAt(owner, incidentStart, atTs, RecoverGrace) is { } catchUpAt
+            && sourceId is { } catchUpSid)
+        {
+            try
+            {
+                await linkLiveness
+                    .InsertBoundaryMarkerAsync(catchUpSid, LinkCloseReason.ServerDown, catchUpAt, cancellationToken)
+                    .ConfigureAwait(false);
+                logger.LogWarning(
+                    "Подключение {ConnectionId}: catch-up escalatedAt={Esc:o} (owner=transaq, elapsed≥T={T}s)",
+                    connectionId, catchUpAt, (int)RecoverGrace.TotalSeconds);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Подключение {ConnectionId}: catch-up boundary на close", connectionId);
+            }
+        }
+
+        LinkCloseReason? ribbonMarker = closeOutcome switch
+        {
+            NotificationThreadData.OutcomeAbandonedSchedule => LinkCloseReason.Scheduled,
+            NotificationThreadData.OutcomeAbandonedManual => LinkCloseReason.Disconnected,
+            _ => null,
+        };
+        if (ribbonMarker is { } markerReason && sourceId is { } sid)
+        {
+            try
+            {
+                await linkLiveness
+                    .InsertBoundaryMarkerAsync(sid, markerReason, atTs, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Подключение {ConnectionId}: ribbon marker на close", connectionId);
+            }
+        }
 
         switch (closeOutcome)
         {
@@ -923,8 +1002,55 @@ public sealed class ConnectionManager(
                     "Подключение {ConnectionId}: break-инцидент закрыт вручную (с {Start:o} по {End:o})",
                     connectionId, incidentStart, atTs);
                 break;
+            default:
+                logger.LogInformation(
+                    "Подключение {ConnectionId}: break-инцидент recovered (с {Start:o} по {End:o}, owner={Owner})",
+                    connectionId, incidentStart, atTs, owner);
+                break;
         }
 
+        return true;
+    }
+
+    /// <summary>
+    /// Manager пуст, а Hub ещё держит open break (гонка Open→journal→TryAdd vs Live→Close).
+    /// Добиваем <c>connection.recovered</c>, иначе NC залипает ACTIVE при синем тумблере.
+    /// </summary>
+    private async Task<bool> TryResolveOrphanHubBreakAsync(
+        long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
+    {
+        var subject = LinkIncidentSubject(connectionId);
+        if (!notifications.TryGetOpenCorrelationId(subject, out _))
+        {
+            return false;
+        }
+
+        var label = ConnLabelSystem(connectionId);
+        logger.LogWarning(
+            "Подключение {ConnectionId}: orphan Hub break — Resolve без _incidentSince",
+            connectionId);
+        await fanOut
+            .ApplyAsync(
+                new IncidentStep(
+                    IncidentStepKind.Resolve,
+                    subject,
+                    atTs,
+                    ConnectionId: connectionId,
+                    CloseOutcome: NotificationThreadData.OutcomeRecovered,
+                    Severity: "ok",
+                    NcCode: "connection.recovered",
+                    NcMessage: $"{label}: связь восстановлена",
+                    NcSeverity: "ok",
+                    NcData: new
+                    {
+                        connectionId,
+                        result = "Восстановлено TRANSAQ; (orphan Hub close)",
+                        sender = "transaq",
+                        closeOutcome = NotificationThreadData.OutcomeRecovered,
+                    }),
+                cancellationToken)
+            .ConfigureAwait(false);
+        StopTransaqRecoverProgress(connectionId);
         return true;
     }
 
@@ -933,6 +1059,24 @@ public sealed class ConnectionManager(
     private Task<bool> CloseIncidentAsync(
         long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken) =>
         CloseBreakAsync(connectionId, atTs, NotificationThreadData.OutcomeRecovered, cancellationToken);
+
+    /// <summary>
+    /// Страховка супервизора: link уже Live, а break ещё open (Manager или orphan Hub) → recovered.
+    /// </summary>
+    public async Task EnsureBreakClosedIfLiveAsync(long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
+    {
+        if (GetLinkState(connectionId) is not ConnectorLinkState.Live)
+        {
+            return;
+        }
+
+        if (await CloseIncidentAsync(connectionId, atTs, cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        await TryResolveOrphanHubBreakAsync(connectionId, atTs, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Закрывает открытый <c>break</c> по окончании окна расписания (desired true→false):
@@ -979,8 +1123,8 @@ public sealed class ConnectionManager(
         return connection?.SourceId;
     }
 
-    /// <summary>I2: open break → fan-out (Hub + journal, один corr).</summary>
-    private async Task FanOutBreakOpenAsync(
+    /// <summary>I2: open break → fan-out (Hub + journal, один corr). <c>null</c> — Hub.Open отказал.</summary>
+    private Task<string?> FanOutBreakOpenAsync(
         long connectionId,
         DateTimeOffset openedAt,
         string owner,
@@ -991,32 +1135,31 @@ public sealed class ConnectionManager(
         string? detail,
         CancellationToken cancellationToken)
     {
-        var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
-        await fanOut
-            .ApplyAsync(
-                new IncidentStep(
-                    IncidentStepKind.Open,
-                    LinkIncidentSubject(connectionId),
-                    openedAt,
-                    ConnectionId: connectionId,
-                    SourceId: sourceId,
-                    Owner: owner,
-                    Subtype: subtype,
-                    Title: title,
-                    Severity: "error",
-                    NcCode: "connection.lost",
-                    NcMessage: title,
-                    NcSeverity: "error",
-                    NcData: new
-                    {
-                        connectionId,
-                        state,
-                        detail,
-                        sender,
-                        threadKindHint = NotificationThreadData.KindIncident,
-                    }),
-                cancellationToken)
-            .ConfigureAwait(false);
+        // Только кэш: await connectionStore до Hub.Open откладывал WS lost при забитом пуле Npgsql.
+        short? sourceId = _sourceIds.TryGetValue(connectionId, out var cached) ? cached : null;
+        return fanOut.ApplyAsync(
+            new IncidentStep(
+                IncidentStepKind.Open,
+                LinkIncidentSubject(connectionId),
+                openedAt,
+                ConnectionId: connectionId,
+                SourceId: sourceId,
+                Owner: owner,
+                Subtype: subtype,
+                Title: title,
+                Severity: "error",
+                NcCode: "connection.lost",
+                NcMessage: title,
+                NcSeverity: "error",
+                NcData: new
+                {
+                    connectionId,
+                    state,
+                    detail,
+                    sender,
+                    threadKindHint = NotificationThreadData.KindIncident,
+                }),
+            cancellationToken);
     }
 
     /// <summary>
@@ -1050,8 +1193,7 @@ public sealed class ConnectionManager(
         if (isNew)
         {
             // Сразу Down/Error/ping — owner=supervisor с t0 (жёлтой фазы не было).
-            _incidentOwner[connectionId] = "supervisor";
-            await FanOutBreakOpenAsync(
+            var corr = await FanOutBreakOpenAsync(
                     connectionId,
                     atTs,
                     owner: "supervisor",
@@ -1062,6 +1204,20 @@ public sealed class ConnectionManager(
                     detail,
                     cancellationToken)
                 .ConfigureAwait(false);
+            if (corr is null)
+            {
+                _incidentSince.TryRemove(connectionId, out _);
+                logger.LogError(
+                    "Подключение {ConnectionId}: Hub.Open отказал на Down/Error — откат _incidentSince",
+                    connectionId);
+            }
+            else
+            {
+                _incidentOwner[connectionId] = "supervisor";
+                StopTransaqRecoverProgress(connectionId);
+                RequestSupervisorNudge?.Invoke();
+            }
+
             if (_sourceIds.TryGetValue(connectionId, out var srcId))
             {
                 var closed = await linkLiveness
@@ -1081,9 +1237,12 @@ public sealed class ConnectionManager(
         {
             // TRANSAQ сдался раньше T (или уже был Degraded): та же смена owner, что и grace-handover.
             // Append — mid-thread (не Open); fan-out Handover обновляет journal owner/escalated.
-            notifications.Append(subject, "connection.lost", message, severity: "error", data: lostData);
+            StopTransaqRecoverProgress(connectionId);
+            notifications.Append(
+                subject, "connection.lost", message, severity: "error", data: lostData, ts: atTs);
             await TransferBreakOwnerToSupervisorAsync(connectionId, atTs, reason, cancellationToken)
                 .ConfigureAwait(false);
+            RequestSupervisorNudge?.Invoke();
         }
 
         await liveness.Value.OnServerDownAsync(connectionId, atTs, cancellationToken).ConfigureAwait(false);
@@ -1184,5 +1343,363 @@ public sealed class ConnectionManager(
         }
     }
 
-    public void Dispose() => _idleMonitor?.Dispose();
+    private void CancelDegradedConfirm(long connectionId)
+    {
+        _degradedPending.TryRemove(connectionId, out _);
+        if (_degradedConfirm.TryRemove(connectionId, out var cts))
+        {
+            cts.Cancel();
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>Down/Error во время ожидания confirm — открыть break сразу с t0 pending Degraded.</summary>
+    private async Task FlushDegradedConfirmNowAsync(
+        long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
+    {
+        if (!_degradedPending.TryRemove(connectionId, out var pending))
+        {
+            CancelDegradedConfirm(connectionId);
+            return;
+        }
+
+        if (_degradedConfirm.TryRemove(connectionId, out var cts))
+        {
+            cts.Cancel();
+            cts.Dispose();
+        }
+
+        if (_incidentSince.ContainsKey(connectionId))
+        {
+            return;
+        }
+
+        await ConfirmDegradedIncidentAsync(connectionId, pending.At, pending.Detail, cancellationToken)
+            .ConfigureAwait(false);
+        // atTs (момент Down) может быть позже pending.At — CloseBreak использует _incidentSince.
+        _ = atTs;
+    }
+
+    private async Task ConfirmDegradedAfterDelayAsync(long connectionId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(DegradedConfirmDelay, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!_degradedPending.TryRemove(connectionId, out var pending))
+        {
+            return;
+        }
+
+        _degradedConfirm.TryRemove(connectionId, out var cts);
+        cts?.Dispose();
+
+        if (GetLinkState(connectionId) != ConnectorLinkState.Degraded)
+        {
+            return;
+        }
+
+        if (_incidentSince.ContainsKey(connectionId))
+        {
+            return;
+        }
+
+        await ConfirmDegradedIncidentAsync(connectionId, pending.At, pending.Detail, CancellationToken.None)
+            .ConfigureAwait(false);
+    }
+
+    private async Task ConfirmDegradedIncidentAsync(
+        long connectionId,
+        DateTimeOffset openedAt,
+        string? detail,
+        CancellationToken cancellationToken)
+    {
+        if (_incidentSince.ContainsKey(connectionId))
+        {
+            // Adopt без lost-строки (I10): Hub open, а NC/WS пуст — дошлём atom + TRANSAQ progress.
+            // Если Open уже был в этой сессии — _transaqProgress крутится, Append не нужен.
+            if (!_transaqProgress.ContainsKey(connectionId))
+            {
+                var adoptedTitle = $"{ConnLabelSystem(connectionId)}: связь потеряна (Degraded)";
+                notifications.Append(
+                    LinkIncidentSubject(connectionId),
+                    "connection.lost",
+                    adoptedTitle,
+                    severity: "error",
+                    data: new
+                    {
+                        connectionId,
+                        state = nameof(ConnectorLinkState.Degraded),
+                        detail,
+                        sender = "transaq",
+                        threadKindHint = NotificationThreadData.KindIncident,
+                    },
+                    status: "active",
+                    ts: openedAt);
+                if (!_incidentOwner.ContainsKey(connectionId))
+                {
+                    _incidentOwner[connectionId] = "transaq";
+                }
+
+                if (_incidentOwner.TryGetValue(connectionId, out var owner)
+                    && string.Equals(owner, "transaq", StringComparison.Ordinal)
+                    && _incidentSince.TryGetValue(connectionId, out var since))
+                {
+                    StartTransaqRecoverProgress(connectionId, since);
+                }
+            }
+
+            try
+            {
+                await ApplyDegradedSideEffectsAsync(connectionId, openedAt, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Подключение {ConnectionId}: side-effects Degraded (уже open)", connectionId);
+            }
+
+            return;
+        }
+
+        // Сначала Hub.Open (WS), потом память. Label — sync ConnLabelSystem (без БД до lost).
+        var title = $"{ConnLabelSystem(connectionId)}: связь потеряна (Degraded)";
+        string? corr;
+        try
+        {
+            corr = await FanOutBreakOpenAsync(
+                    connectionId,
+                    openedAt,
+                    owner: "transaq",
+                    subtype: "degraded",
+                    title,
+                    sender: "transaq",
+                    state: nameof(ConnectorLinkState.Degraded),
+                    detail,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Подключение {ConnectionId}: FanOut open break на Degraded провален", connectionId);
+            return;
+        }
+
+        if (corr is null)
+        {
+            logger.LogError(
+                "Подключение {ConnectionId}: Hub.Open не отправил connection.lost — _incidentSince не ставлю",
+                connectionId);
+            return;
+        }
+
+        if (!_incidentSince.TryAdd(connectionId, openedAt))
+        {
+            try
+            {
+                await ApplyDegradedSideEffectsAsync(connectionId, openedAt, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Подключение {ConnectionId}: side-effects после race open", connectionId);
+            }
+
+            return;
+        }
+
+        _incidentOwner[connectionId] = "transaq";
+        StartTransaqRecoverProgress(connectionId, openedAt);
+        RequestSupervisorNudge?.Invoke();
+        logger.LogWarning(
+            "Подключение {ConnectionId}: связь Degraded ({Detail}) — инцидент (владелец TRANSAQ), сегменты сохранены",
+            connectionId, detail);
+
+        try
+        {
+            await ApplyDegradedSideEffectsAsync(connectionId, openedAt, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Подключение {ConnectionId}: side-effects после confirm Degraded", connectionId);
+        }
+    }
+
+    /// <summary>
+    /// J5 в Manager: сразу тик «восстановление (TRANSAQ) · 0 с…», далее каждые 5 с; при t≥T — handover.
+    /// </summary>
+    private void StartTransaqRecoverProgress(long connectionId, DateTimeOffset openedAt)
+    {
+        StopTransaqRecoverProgress(connectionId);
+        var cts = new CancellationTokenSource();
+        _transaqProgress[connectionId] = cts;
+        _ = RunTransaqRecoverProgressAsync(connectionId, openedAt, cts.Token);
+    }
+
+    private void StopTransaqRecoverProgress(long connectionId)
+    {
+        if (!_transaqProgress.TryRemove(connectionId, out var cts))
+        {
+            return;
+        }
+
+        try
+        {
+            cts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // already disposed
+        }
+
+        cts.Dispose();
+    }
+
+    private async Task RunTransaqRecoverProgressAsync(
+        long connectionId, DateTimeOffset openedAt, CancellationToken cancellationToken)
+    {
+        const int stepSec = 5;
+        try
+        {
+            await EmitTransaqRecoveringTickAsync(connectionId, openedAt, openedAt, cancellationToken)
+                .ConfigureAwait(false);
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(stepSec), cancellationToken).ConfigureAwait(false);
+                if (GetLinkState(connectionId) != ConnectorLinkState.Degraded
+                    || GetIncidentSince(connectionId) is not { } since
+                    || !_incidentOwner.TryGetValue(connectionId, out var owner)
+                    || !string.Equals(owner, "transaq", StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                var now = DateTimeOffset.UtcNow;
+                var elapsed = now - since;
+                if (elapsed >= RecoverGrace)
+                {
+                    var label = await ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
+                    var graceSec = (int)RecoverGrace.TotalSeconds;
+                    await fanOut
+                        .ApplyAsync(
+                            new IncidentStep(
+                                IncidentStepKind.Recovering,
+                                LinkIncidentSubject(connectionId),
+                                now,
+                                ConnectionId: connectionId,
+                                NcCode: "connection.reconnecting",
+                                NcMessage:
+                                $"{label}: нет восстановления связи (TRANSAQ) за {graceSec} с, передача супервизору",
+                                NcSeverity: "warning",
+                                NcData: new
+                                {
+                                    connectionId,
+                                    owner = "supervisor",
+                                    sender = "supervisor",
+                                    handoverAfterSeconds = graceSec,
+                                }),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    await HandoverToSupervisorAsync(connectionId, now, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                await EmitTransaqRecoveringTickAsync(connectionId, since, now, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // close / dispose
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Подключение {ConnectionId}: сбой прогресса TRANSAQ recover", connectionId);
+        }
+    }
+
+    private async Task EmitTransaqRecoveringTickAsync(
+        long connectionId,
+        DateTimeOffset since,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var label = await ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        var graceSec = (int)RecoverGrace.TotalSeconds;
+        const int stepSec = 5;
+        var elapsedSec = Math.Max(0, ((int)(now - since).TotalSeconds / stepSec) * stepSec);
+        var remainingSec = Math.Max(0, graceSec - elapsedSec);
+        await fanOut
+            .ApplyAsync(
+                new IncidentStep(
+                    IncidentStepKind.Recovering,
+                    LinkIncidentSubject(connectionId),
+                    now,
+                    ConnectionId: connectionId,
+                    NcCode: "connection.recovering",
+                    NcMessage:
+                    $"{label}: восстановление связи (TRANSAQ) · {elapsedSec} с, передача супервизору через {remainingSec} с",
+                    NcSeverity: "warning",
+                    NcData: new
+                    {
+                        connectionId,
+                        owner = "transaq",
+                        sender = "supervisor",
+                        elapsedSeconds = elapsedSec,
+                        handoverInSeconds = remainingSec,
+                    }),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task ApplyDegradedSideEffectsAsync(
+        long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
+    {
+        if (_sourceIds.TryGetValue(connectionId, out var degradedSourceId))
+        {
+            await linkLiveness
+                .CloseAsync(degradedSourceId, LinkCloseReason.Degraded, atTs, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await liveness.Value.OnDegradedAsync(connectionId, atTs, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task OnLinkLiveBestEffortAsync(long connectionId)
+    {
+        try
+        {
+            await recordings.Value.OnLinkLiveAsync(connectionId, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Подключение {ConnectionId}: OnLinkLive (best-effort) провален", connectionId);
+        }
+    }
+
+    public void Dispose()
+    {
+        _idleMonitor?.Dispose();
+        foreach (var kv in _degradedConfirm)
+        {
+            kv.Value.Cancel();
+            kv.Value.Dispose();
+        }
+
+        _degradedConfirm.Clear();
+        _degradedPending.Clear();
+        foreach (var kv in _transaqProgress)
+        {
+            kv.Value.Cancel();
+            kv.Value.Dispose();
+        }
+
+        _transaqProgress.Clear();
+    }
 }

@@ -885,7 +885,8 @@ public static class OhsEndpoints
                 return Results.NotFound(new { error = $"Подключение {id} не найдено" });
             }
 
-            var label = ConnectionManager.ConnLabel(id, connection.Name);
+            var userLabel = ConnectionManager.ConnLabelUser(id, connection.Name);
+            var systemLabel = ConnectionManager.ConnLabelSystem(id);
             var linkSubject = ConnectionManager.LinkIncidentSubject(id);
             // Открытый break → вся ручная попытка в ТОТ ЖЕ link-corr (не новый connect: «инцидент»).
             var breakOpen = manager.GetIncidentSince(id) is not null;
@@ -895,7 +896,7 @@ public static class OhsEndpoints
                 notifications.Append(
                     linkSubject,
                     "connection.connect",
-                    $"{label}: подключение по команде оператора",
+                    $"{userLabel}: подключение по команде оператора",
                     severity: "info",
                     sourceType: "user",
                     data: new { connectionId = id, sender = "user" });
@@ -907,7 +908,7 @@ public static class OhsEndpoints
                             DateTimeOffset.UtcNow,
                             ConnectionId: id,
                             NcCode: "connection.reconnecting",
-                            NcMessage: $"{label}: восстановление связи по команде оператора…",
+                            NcMessage: $"{userLabel}: восстановление связи по команде оператора…",
                             NcSeverity: "warning",
                             NcData: new { connectionId = id, owner = "supervisor", sender = "user" }),
                         ct)
@@ -915,14 +916,14 @@ public static class OhsEndpoints
 
                 try
                 {
-                    var status = await manager.ConnectAsync(id, ct);
+                    var connect = await manager.ConnectAsync(id, ct);
                     // recovered пишет ConnectAsync → CloseIncidentAsync в link-corr.
                     recordingSupervisor.Nudge();
-                    return Results.Ok(ToDto(connection, status));
+                    return Results.Ok(ToDto(connection, connect.Status));
                 }
                 catch (InvalidOperationException ex)
                 {
-                    var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, label, ex.Message);
+                    var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, systemLabel, ex.Message);
                     notifications.Append(
                         linkSubject,
                         "connection.connect_failed",
@@ -933,7 +934,7 @@ public static class OhsEndpoints
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, label, ex.Message);
+                    var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, systemLabel, ex.Message);
                     notifications.Append(
                         linkSubject,
                         "connection.connect_failed",
@@ -948,34 +949,37 @@ public static class OhsEndpoints
             // Fail → Open link: Incident (без throwaway connect: Group).
             notifications.Publish(
                 "connection.connect",
-                $"{label}: подключение по команде оператора",
+                $"{userLabel}: подключение по команде оператора",
                 severity: "info", sourceType: "user", data: new { connectionId = id });
 
             var previous = await linkLiveness.GetLastAsync(connection.SourceId, ct);
 
             try
             {
-                var status = await manager.ConnectAsync(id, ct);
+                var connect = await manager.ConnectAsync(id, ct);
                 var attempt = $"connection:{id}:connect:{Guid.NewGuid().ToString("N")[..8]}";
+                var readyAt = connect.ReadyAt;
                 notifications.Publish(
                     "connection.connecting",
-                    $"{label}: устанавливаю связь…",
+                    $"{systemLabel}: устанавливаю связь…",
                     severity: "warning", sourceType: "system", status: "underway", correlationId: attempt,
-                    data: new { connectionId = id, threadKindHint = NotificationThreadData.KindGroup });
+                    data: new { connectionId = id, threadKindHint = NotificationThreadData.KindGroup },
+                    ts: readyAt);
                 notifications.Publish(
                     "connection.connected",
-                    $"{label}: связь установлена.",
+                    $"{systemLabel}: связь установлена.",
                     severity: "ok", sourceType: "system", status: "resolved", correlationId: attempt,
                     data: NotificationThreadData.WithHints(
                         ConnectionManager.FormatConnectedNotificationData(id, previous, sender: "backend"),
-                        threadKindHint: NotificationThreadData.KindGroup));
+                        threadKindHint: NotificationThreadData.KindGroup),
+                    ts: readyAt);
                 recordingSupervisor.Nudge();
-                return Results.Ok(ToDto(connection, status));
+                return Results.Ok(ToDto(connection, connect.Status));
             }
             catch (InvalidOperationException ex)
             {
-                var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, label, ex.Message);
-                manager.EnsureBreakIncidentOnConnectFailure(id, DateTimeOffset.UtcNow, label);
+                var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, systemLabel, ex.Message);
+                manager.EnsureBreakIncidentOnConnectFailure(id, DateTimeOffset.UtcNow, systemLabel);
                 notifications.Append(
                     linkSubject,
                     "connection.connect_failed",
@@ -986,8 +990,8 @@ public static class OhsEndpoints
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, label, ex.Message);
-                manager.EnsureBreakIncidentOnConnectFailure(id, DateTimeOffset.UtcNow, label);
+                var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, systemLabel, ex.Message);
+                manager.EnsureBreakIncidentOnConnectFailure(id, DateTimeOffset.UtcNow, systemLabel);
                 notifications.Append(
                     linkSubject,
                     "connection.connect_failed",
@@ -1019,11 +1023,11 @@ public static class OhsEndpoints
             }
 
             // J11b / I11: close-break в Manager+Hub вместе (не голый Hub.Resolve — иначе _incidentSince висит).
-            var label = ConnectionManager.ConnLabel(id, connection.Name);
+            var userLabel = ConnectionManager.ConnLabelUser(id, connection.Name);
             await manager.TryAbandonIncidentByManualAsync(id, DateTimeOffset.UtcNow, ct).ConfigureAwait(false);
             notifications.Publish(
                 "connection.disconnect",
-                $"{label}: отключение по команде оператора",
+                $"{userLabel}: отключение по команде оператора",
                 severity: "info",
                 sourceType: "user",
                 data: new { connectionId = id });
@@ -1716,4 +1720,5 @@ public static class OhsEndpoints
             _ => null,
         };
     }
+
 }
