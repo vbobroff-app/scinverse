@@ -1,6 +1,6 @@
 # Phase 11 — Crash dispatch: транспорт + слой соединений
 
-**Статус:** `DESIGN AGREED` · **IN PROGRESS** (D1–D3 DONE · D4…).  
+**Статус:** `DESIGN AGREED` · **IN PROGRESS** (D1–D4 DONE · D5…).  
 **Дата согласования:** 2026-07-30 · план: 2026-07-30.
 
 **Связано:** [incident-journal.md](incident-journal.md) (§2, §4.3 Crash, A6) ·
@@ -297,7 +297,7 @@ POST /api/recovery/outage
 | **D1** | `HostOutageCoordinator` + `POST /api/recovery/outage` — **DONE** | Unit: два clientId → один seed; min from; один close |
 | **D2** | Emit **слой T**: `HostOutageTransportEmitter` → Hub Ingest open/close, hint=group, без journal — **DONE** | Unit: 2 атома, без connectionId; merge не дублирует open |
 | **D3** | Emit **слой C**: ∀ enabled connection; `desired` через `ConnectionScheduleResolver`; Incident→Hub Ingest+journal; Group→Hub only — **DONE** | Unit: N enabled → N corr `:c{id}`; journal только desired |
-| **D4** | Снять client-led journal path для crash из `POST /notifications` (или игнор `backend.unavailable` от client для journal; лучше не слать с клиента) | Старые ApiTests crash ingest → переписать на `/recovery/outage` |
+| **D4** | Снять client-led journal path для crash из `POST /notifications` — **DONE** | ApiTests: journal через `/recovery/outage`; client `backend.unavailable` → NC only |
 | **D5** | Клиент: WS down → **локальная Single** (не Thread); убрать `openBackendOutage` Thread+queue атомов crash | vitest: нет Thread до hydrate; Single снимается |
 | **D5a** | NC фильтр «Соединение» (show/hide Id) — **DONE** | Скрыть id=1; без id в data остаётся видимым |
 | **D6** | Клиент: WS up → `POST /recovery/outage` `{clientId, from, to}` (+ hold как сейчас); не mock-POST backend.* для crash | Ручной: один/два таба → один T Group |

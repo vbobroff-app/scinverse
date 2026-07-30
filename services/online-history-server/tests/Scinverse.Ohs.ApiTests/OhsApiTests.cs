@@ -432,58 +432,35 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
     }
 
     [Fact]
-    public async Task Crash_notification_roundtrip_writes_and_resolves_journal_incident()
+    public async Task Crash_recovery_outage_writes_and_resolves_journal_for_desired_connection()
     {
         using var http = factory.CreateClient();
         var api = CreateApi();
-        var openedAt = DateTimeOffset.UtcNow.AddMinutes(-5);
-        var closedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
-        const string corr = "ohs.backend.outage:j8apitest01";
-        var openId = Guid.NewGuid().ToString("N");
-        var closeId = Guid.NewGuid().ToString("N");
+        // from далеко от других ApiTests (> merge 120s) и внутри date-окна расписания.
+        var openedAt = new DateTimeOffset(2026, 6, 1, 10, 0, 0, TimeSpan.Zero);
+        var closedAt = openedAt.AddMinutes(4);
+        var connectionId = await SeedDesiredCrashConnectionAsync(
+            http, api, "crash-d4-roundtrip", openedAt);
 
         using (var openRes = await http.PostAsJsonAsync(
-                   "/api/notifications",
-                   new
-                   {
-                       id = openId,
-                       ts = openedAt,
-                       code = "backend.unavailable",
-                       message = "Сервер OHS недоступен, жду восстановления",
-                       severity = "critical",
-                       sourceType = "system",
-                       module = "ohs.host",
-                       status = "active",
-                       correlationId = corr,
-                       data = new { sender = "client", kind = "crash", connectionId = 77L },
-                   }))
+                   "/api/recovery/outage",
+                   new { clientId = "d4-a", from = openedAt, to = (DateTimeOffset?)null }))
         {
-            openRes.EnsureSuccessStatusCode();
+            openRes.StatusCode.Should().Be(System.Net.HttpStatusCode.Accepted);
         }
 
+        var corr = $"ohs.backend.outage:{openedAt.ToUnixTimeMilliseconds()}:c{connectionId}";
         var openRow = await api.GetIncidentAsync(corr);
         openRow.Should().NotBeNull();
         openRow!.Type.Should().Be("crash");
         openRow.Status.Should().Be("active");
-        openRow.ConnectionId.Should().Be(77);
+        openRow.ConnectionId.Should().Be(connectionId);
 
         using (var closeRes = await http.PostAsJsonAsync(
-                   "/api/notifications",
-                   new
-                   {
-                       id = closeId,
-                       ts = closedAt,
-                       code = "backend.recovered",
-                       message = "Система восстановлена",
-                       severity = "ok",
-                       sourceType = "system",
-                       module = "ohs.host",
-                       status = "resolved",
-                       correlationId = corr,
-                       data = new { sender = "client", closeOutcome = "recovered" },
-                   }))
+                   "/api/recovery/outage",
+                   new { clientId = "d4-a", from = openedAt, to = closedAt }))
         {
-            closeRes.EnsureSuccessStatusCode();
+            closeRes.StatusCode.Should().Be(System.Net.HttpStatusCode.Accepted);
         }
 
         var closed = await api.GetIncidentAsync(corr);
@@ -493,47 +470,59 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
     }
 
     [Fact]
-    public async Task Crash_parallel_unavailable_and_recovered_leaves_journal_resolved()
+    public async Task Crash_client_notification_does_not_write_journal()
     {
         using var http = factory.CreateClient();
         var api = CreateApi();
-        var openedAt = DateTimeOffset.UtcNow.AddMinutes(-3);
-        var closedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
-        const string corr = "ohs.backend.outage:i2parallel01";
+        const string corr = "ohs.backend.outage:d4clientled01";
 
-        var openBody = new
-        {
-            id = Guid.NewGuid().ToString("N"),
-            ts = openedAt,
-            code = "backend.unavailable",
-            message = "Сервер OHS недоступен",
-            severity = "critical",
-            sourceType = "system",
-            module = "ohs.host",
-            status = "active",
-            correlationId = corr,
-            data = new { sender = "client", kind = "crash", connectionId = 88L },
-        };
-        var closeBody = new
-        {
-            id = Guid.NewGuid().ToString("N"),
-            ts = closedAt,
-            code = "backend.recovered",
-            message = "Система восстановлена",
-            severity = "ok",
-            sourceType = "system",
-            module = "ohs.host",
-            status = "resolved",
-            correlationId = corr,
-            data = new { sender = "client", closeOutcome = "recovered" },
-        };
+        using var openRes = await http.PostAsJsonAsync(
+            "/api/notifications",
+            new
+            {
+                id = Guid.NewGuid().ToString("N"),
+                ts = DateTimeOffset.UtcNow.AddMinutes(-2),
+                code = "backend.unavailable",
+                message = "Сервер OHS недоступен, жду восстановления",
+                severity = "critical",
+                sourceType = "system",
+                module = "ohs.host",
+                status = "active",
+                correlationId = corr,
+                data = new
+                {
+                    sender = "client",
+                    kind = "crash",
+                    connectionId = 77L,
+                    threadKindHint = "incident",
+                },
+            });
+        openRes.EnsureSuccessStatusCode();
 
-        var openTask = http.PostAsJsonAsync("/api/notifications", openBody);
-        var closeTask = http.PostAsJsonAsync("/api/notifications", closeBody);
+        (await api.GetIncidentAsync(corr)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Crash_parallel_recovery_outage_posts_leave_journal_resolved()
+    {
+        using var http = factory.CreateClient();
+        var api = CreateApi();
+        var openedAt = new DateTimeOffset(2026, 6, 2, 10, 0, 0, TimeSpan.Zero);
+        var closedAt = openedAt.AddMinutes(3);
+        var connectionId = await SeedDesiredCrashConnectionAsync(
+            http, api, "crash-d4-parallel", openedAt);
+        var corr = $"ohs.backend.outage:{openedAt.ToUnixTimeMilliseconds()}:c{connectionId}";
+
+        var openTask = http.PostAsJsonAsync(
+            "/api/recovery/outage",
+            new { clientId = "d4-p1", from = openedAt, to = (DateTimeOffset?)null });
+        var closeTask = http.PostAsJsonAsync(
+            "/api/recovery/outage",
+            new { clientId = "d4-p2", from = openedAt.AddSeconds(10), to = closedAt });
         using var openRes = await openTask;
         using var closeRes = await closeTask;
-        openRes.EnsureSuccessStatusCode();
-        closeRes.EnsureSuccessStatusCode();
+        openRes.StatusCode.Should().Be(System.Net.HttpStatusCode.Accepted);
+        closeRes.StatusCode.Should().Be(System.Net.HttpStatusCode.Accepted);
 
         IncidentDto? row = null;
         for (var i = 0; i < 20; i++)
@@ -551,6 +540,48 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         row!.Type.Should().Be("crash");
         row.Status.Should().Be("resolved");
         row.CloseOutcome.Should().Be("recovered");
+        row.ConnectionId.Should().Be(connectionId);
+    }
+
+    /// <summary>
+    /// Enabled connection + date-window на локальный день <paramref name="atUtc"/> (MSK),
+    /// чтобы HostOutageConnectionEmitter классифицировал Incident.
+    /// </summary>
+    private static async Task<long> SeedDesiredCrashConnectionAsync(
+        HttpClient http, IOhsApi api, string name, DateTimeOffset atUtc)
+    {
+        var sources = await api.GetSourcesAsync();
+        var sourceId = sources.First(s => s.Code == "synthetic").SourceId;
+        var connection = await api.UpsertConnectionAsync(
+            new UpsertConnectionRequest(sourceId, name, "synthetic", "{}", Enabled: true));
+
+        await api.PutConnectionScheduleSettingsAsync(
+            connection.ConnectionId,
+            new PutConnectionScheduleSettingsRequest(AutoEnabled: true, Engine: "futures", Tz: "Europe/Moscow"));
+
+        var localDate = DateOnly.FromDateTime(atUtc.ToOffset(TimeSpan.FromHours(3)).DateTime);
+        using var batchRes = await http.PostAsJsonAsync(
+            $"/api/connections/{connection.ConnectionId}/schedule/batch",
+            new ScheduleBatchRequest(
+                BatchId: Guid.NewGuid().ToString("N"),
+                Kind: "applied",
+                Upserts:
+                [
+                    new PutConnectionScheduleRuleRequest(
+                        ScopeKind: "date",
+                        DowMask: null,
+                        DateFrom: localDate,
+                        DateTo: localDate,
+                        Mode: "window",
+                        Open: "00:00:00",
+                        DurationMin: 1439,
+                        ChangeSource: "test",
+                        ChangeNote: null),
+                ],
+                Cancels: [],
+                Items: [new ScheduleComposeItemDto("set", "crash-d4 window")]));
+        batchRes.EnsureSuccessStatusCode();
+        return connection.ConnectionId;
     }
 
     private static async Task<IReadOnlyList<NotificationRow>> GetNotificationsAsync(HttpClient http)

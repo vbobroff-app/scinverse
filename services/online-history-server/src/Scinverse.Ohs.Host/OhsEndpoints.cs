@@ -730,7 +730,8 @@ public static class OhsEndpoints
                 return Results.BadRequest(new { error = "id должен быть Guid в формате N (32 hex без дефисов)" });
             }
 
-            // NC atom — Ingest (клиентский corr/ts). Journal — fan-out без NcCode (без второго Open).
+            // NC atom — Ingest (клиентский corr/ts). Crash journal — только Host fan-out
+            // POST /recovery/outage (crash-dispatch D4); client backend.* в journal не пишет.
             hub.Ingest(
                 req.Id,
                 req.Ts,
@@ -743,68 +744,15 @@ public static class OhsEndpoints
                 status: req.Status,
                 correlationId: req.CorrelationId);
 
-            // 11.13f / J8 / I2: client-led crash → journal type=crash (тот же corr).
-            if (string.Equals(req.Code, "backend.unavailable", StringComparison.Ordinal)
-                && req.Status is "active" or null or ""
-                && !string.IsNullOrWhiteSpace(req.CorrelationId))
-            {
-                var crashCorr = req.CorrelationId!;
-                await fanOut
-                    .ApplyAsync(
-                        new IncidentStep(
-                            IncidentStepKind.CrashOpen,
-                            SubjectFromCorrelationId(crashCorr),
-                            req.Ts,
-                            CorrUid: crashCorr,
-                            ConnectionId: TryGetDataConnectionId(req.Data),
-                            Title: req.Message),
-                        ct)
-                    .ConfigureAwait(false);
-
-                // Гонка: recovered уже в хабе (parallel POST) — сразу закрыть журнал.
-                var recovered = hub.List(200).FirstOrDefault(e =>
-                    string.Equals(e.CorrelationId, crashCorr, StringComparison.Ordinal)
-                    && string.Equals(e.Code, "backend.recovered", StringComparison.Ordinal));
-                if (recovered is not null)
-                {
-                    await fanOut
-                        .ApplyAsync(
-                            new IncidentStep(
-                                IncidentStepKind.Resolve,
-                                SubjectFromCorrelationId(crashCorr),
-                                recovered.Ts,
-                                CorrUid: crashCorr,
-                                CloseOutcome: NotificationThreadData.OutcomeRecovered,
-                                Title: recovered.Message,
-                                Severity: "ok"),
-                            ct)
-                        .ConfigureAwait(false);
-                }
-            }
-
             // 7j.20: recover клиента снимает стартовый барьер супервизора — Auto-реконнект пойдёт только
             // теперь, когда «Система восстановлена» уже в NC (порядок в ленте: recover → connecting). Плюс
             // снимаем штамп corr (§9.2): инцидент закрыт, следующие 500 — снова одиночные под requestId.
             // Crash schedule-end (client mock-POST) — тот же Release, без зелёного recovered.
+            // Journal resolve crash — слой C на /recovery/outage (не client backend.recovered).
             if (string.Equals(req.Code, "backend.recovered", StringComparison.Ordinal))
             {
                 recoveryGate.Release();
                 recoveryGate.ClearActiveIncident();
-                if (!string.IsNullOrWhiteSpace(req.CorrelationId))
-                {
-                    var crashCorr = req.CorrelationId!;
-                    await fanOut
-                        .ApplyAsync(
-                            new IncidentStep(
-                                IncidentStepKind.Resolve,
-                                SubjectFromCorrelationId(crashCorr),
-                                req.Ts,
-                                CorrUid: crashCorr,
-                                CloseOutcome: NotificationThreadData.OutcomeRecovered,
-                                Severity: "ok"),
-                            ct)
-                        .ConfigureAwait(false);
-                }
             }
             else if (string.Equals(req.Code, "connection.incident_closed", StringComparison.Ordinal)
                      && IsCrashScheduleEnd(req.Data))
