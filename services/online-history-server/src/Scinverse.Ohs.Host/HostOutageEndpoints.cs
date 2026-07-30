@@ -1,14 +1,16 @@
 namespace Scinverse.Ohs.Host;
 
-/// <summary>Crash-dispatch D1: сигнал Host outage (дедуп клиентов). Emit T/C — D2/D3.</summary>
+/// <summary>Crash-dispatch: сигнал Host outage (дедуп клиентов) + emit слоёв T/C.</summary>
 public static class HostOutageEndpoints
 {
     public static RouteGroupBuilder MapHostOutageRecovery(this RouteGroupBuilder api)
     {
-        api.MapPost("/recovery/outage", (
+        api.MapPost("/recovery/outage", async (
             HostOutageReportRequest? req,
             HostOutageCoordinator outages,
-            HostOutageTransportEmitter transport) =>
+            HostOutageTransportEmitter transport,
+            HostOutageConnectionEmitter connections,
+            CancellationToken ct) =>
         {
             if (req is null || string.IsNullOrWhiteSpace(req.ClientId))
             {
@@ -16,8 +18,9 @@ public static class HostOutageEndpoints
             }
 
             var result = outages.Report(req.ClientId.Trim(), req.From, req.To, req.Code);
-            // D2: слой T в NC (без journal). D3 — слой C.
+            // D2: слой T в NC (без journal). D3: слой C per enabled connection.
             transport.Apply(result);
+            await connections.ApplyAsync(result, ct).ConfigureAwait(false);
             return Results.Accepted(
                 value: new
                 {
