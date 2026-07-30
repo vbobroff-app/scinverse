@@ -12,7 +12,11 @@ import {
   savePendingHostOutageReport,
 } from './hostOutageReport';
 import { isConnectedNow } from './connectionSchedule';
-import { gapsFromLivenessIntervals, overlayCrashOutageOnLink } from './coverageGeometry';
+import {
+  applyCrashOptimistic,
+  gapsFromLivenessIntervals,
+  linkHasCrashGap,
+} from './coverageGeometry';
 import { createLiveStream, linkStateToConnectionStatus } from './live';
 import { loadSelectedInstruments, persistSelectedInstruments } from './selectedInstrumentsStorage';
 import { loadViewState, persistViewState, type PersistedSeries } from './viewStateStorage';
@@ -355,9 +359,15 @@ export class OhsStore {
   private pendingRecoveringDto: NotificationDto | null = null;
   /**
    * D6: очередь POST /recovery/outage (зеркало localStorage `ohs.hostOutage.pending`).
-   * Пишем до POST; снимаем только после 2xx.
+   * Пишем до POST; снимаем только после успешного ответа.
    */
   private pendingOutageReport: { fromMs: number; toMs: number | null } | null = null;
+  /**
+   * D7: optimistic crash на ленте Connection для **всех** connections$ (при смене active
+   * тот же from/to накладывается на link выбранного). Journal crash → UI глушит gap
+   * (`journalHasOverlappingCrash`); снимаем tracker, когда API/journal закрыли эпизод.
+   */
+  private crashOptimistic: { fromMs: number; toMs: number | null } | null = null;
 
   constructor(
     private readonly api: OhsApiClient = OhsApi,
@@ -638,9 +648,10 @@ export class OhsStore {
       const start = this.outageStart!;
       const horizon = this.resolveOutageScheduleHorizon();
       this.outageScheduleDesired = horizon?.desired ?? null;
-      // Лента Connection: сразу красный маркер + ползущая штриховка (API во время простоя молчит).
+      // D7: optimistic interrupted на текущий link; при смене connection — тот же overlay в refresh.
+      this.crashOptimistic = { fromMs: start, toMs: null };
       this.link$.next({
-        ...overlayCrashOutageOnLink(this.link$.value, start),
+        ...applyCrashOptimistic(this.link$.value, start, null),
         linkRecoverGraceSeconds: this.link$.value.linkRecoverGraceSeconds,
         incidents: this.link$.value.incidents,
       });
@@ -908,14 +919,10 @@ export class OhsStore {
     this.outageCorr = null;
     this.outageScheduleDesired = null;
     this.pendingRecoveringDto = null;
-    // Клип штриховки на t_end (abandoned), без green — до refresh после оживления бэка.
+    // D7: клип optimistic на t_end (Group без journal держит gap до refresh/API).
+    this.crashOptimistic = { fromMs, toMs: end };
     this.link$.next({
-      intervals: this.link$.value.intervals,
-      gaps: this.link$.value.gaps.map((g) =>
-        g.to == null && g.cause === 'interrupted'
-          ? { ...g, to: new Date(end).toISOString(), abandoned: true }
-          : g,
-      ),
+      ...applyCrashOptimistic(this.link$.value, fromMs, end),
       linkRecoverGraceSeconds: this.link$.value.linkRecoverGraceSeconds,
       incidents: this.link$.value.incidents,
     });
@@ -981,6 +988,13 @@ export class OhsStore {
     this.outageScheduleDesired = null;
     this.pendingOutagePersist = null;
     this.pendingRecoveringDto = null;
+    // D7: клип optimistic; journal для desired connection снимет gap в UI после GET incidents.
+    this.crashOptimistic = { fromMs, toMs };
+    this.link$.next({
+      ...applyCrashOptimistic(this.link$.value, fromMs, toMs),
+      linkRecoverGraceSeconds: this.link$.value.linkRecoverGraceSeconds,
+      incidents: this.link$.value.incidents,
+    });
     void import('./notifications').then((m) => {
       m.dismissLocalTransportDownSingle();
       this.reportHostOutageEpisode(fromMs, toMs);
@@ -1807,18 +1821,27 @@ export class OhsStore {
     // есть — они включают серый 'disconnected' (в отличие от захвата, где серое отфильтровано).
     this.api.getLinkLiveness({ from, to, sourceId }).subscribe({
       next: (dto) => {
-        // Во время открытого crash не затираем оптимистичную штриховку ответом «до дропа».
         const grace = dto.linkRecoverGraceSeconds;
         const prevIncidents = this.link$.value.incidents;
-        if (this.outagePhase === 'open' || this.outagePhase === 'warning') {
-          if (this.outageStart !== null) {
+        const opt = this.crashOptimistic;
+        // D7: один optimistic from/to на любой active connection из connections$.
+        if (opt) {
+          if (linkHasCrashGap(dto, opt.fromMs, opt.toMs)) {
+            this.crashOptimistic = null;
             this.link$.next({
-              ...overlayCrashOutageOnLink(dto, this.outageStart),
+              intervals: dto.intervals,
+              gaps: dto.gaps,
               linkRecoverGraceSeconds: grace,
               incidents: prevIncidents,
             });
             return;
           }
+          this.link$.next({
+            ...applyCrashOptimistic(dto, opt.fromMs, opt.toMs),
+            linkRecoverGraceSeconds: grace,
+            incidents: prevIncidents,
+          });
+          return;
         }
         this.link$.next({
           intervals: dto.intervals,
@@ -1834,6 +1857,7 @@ export class OhsStore {
       this.api.getConnectionIncidents(connectionId, { from, to, limit: 500 }).subscribe({
         next: (incidents) => {
           this.link$.next({ ...this.link$.value, incidents });
+          this.maybeClearCrashOptimisticFromJournal(incidents);
         },
         error: (err) => {
           console.error('getConnectionIncidents', err);
@@ -1842,6 +1866,30 @@ export class OhsStore {
       });
     } else {
       this.link$.next({ ...this.link$.value, incidents: undefined });
+    }
+  }
+
+  /** Journal crash на активном connection → optimistic gap больше не нужен (UI и так глушит). */
+  private maybeClearCrashOptimisticFromJournal(incidents: readonly IncidentDto[]): void {
+    const opt = this.crashOptimistic;
+    if (opt === null || incidents.length === 0) {
+      return;
+    }
+    const gapTo = opt.toMs ?? Date.now();
+    for (const incident of incidents) {
+      if (incident.type !== 'crash') {
+        continue;
+      }
+      const opened = Date.parse(incident.openedAt);
+      if (!Number.isFinite(opened)) {
+        continue;
+      }
+      const closed = incident.closedAt ? Date.parse(incident.closedAt) : Date.now();
+      const end = Number.isFinite(closed) ? closed : Date.now();
+      if (opened < gapTo && end > opt.fromMs) {
+        this.crashOptimistic = null;
+        return;
+      }
     }
   }
 

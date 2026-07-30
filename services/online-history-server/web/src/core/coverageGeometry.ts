@@ -288,3 +288,70 @@ export function overlayCrashOutageOnLink(
 
   return { intervals, gaps };
 }
+
+/**
+ * Клип открытого interrupted gap на `toMs` (recover / abandoned_schedule).
+ * D7: Group-only connections без journal остаются с optimistic до клипа.
+ */
+export function clipCrashOutageGaps(
+  state: LinkLivenessSnapshot,
+  toMs: number,
+): LinkLivenessSnapshot {
+  const toIso = new Date(toMs).toISOString();
+  return {
+    intervals: state.intervals,
+    gaps: state.gaps.map((g) => {
+      if (g.cause !== 'interrupted' || g.to != null) {
+        return g;
+      }
+      const fromMs = Date.parse(g.from);
+      if (!Number.isFinite(fromMs) || fromMs >= toMs) {
+        return g;
+      }
+      return { ...g, to: toIso };
+    }),
+    linkRecoverGraceSeconds: state.linkRecoverGraceSeconds,
+  };
+}
+
+/** Overlay + опциональный клип (crash-dispatch D7). */
+export function applyCrashOptimistic(
+  state: LinkLivenessSnapshot,
+  fromMs: number,
+  toMs: number | null,
+): LinkLivenessSnapshot {
+  const overlaid = overlayCrashOutageOnLink(state, fromMs);
+  return toMs == null ? overlaid : clipCrashOutageGaps(overlaid, toMs);
+}
+
+/** Сервер уже отразил тот же interrupted-интервал — optimistic можно снять. */
+export function linkHasCrashGap(
+  state: LinkLivenessSnapshot,
+  fromMs: number,
+  toMs: number | null,
+  slopMs = 5_000,
+): boolean {
+  for (const g of state.gaps) {
+    if (g.cause !== 'interrupted') {
+      continue;
+    }
+    const gFrom = Date.parse(g.from);
+    if (!Number.isFinite(gFrom) || Math.abs(gFrom - fromMs) > slopMs) {
+      continue;
+    }
+    if (toMs == null) {
+      if (g.to == null) {
+        return true;
+      }
+      continue;
+    }
+    if (g.to == null) {
+      continue;
+    }
+    const gTo = Date.parse(g.to);
+    if (Number.isFinite(gTo) && Math.abs(gTo - toMs) <= slopMs) {
+      return true;
+    }
+  }
+  return false;
+}

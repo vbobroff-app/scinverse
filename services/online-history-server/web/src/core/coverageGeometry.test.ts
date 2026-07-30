@@ -6,6 +6,9 @@ import {
   intersectMs,
   isBreakGap,
   livenessEndMs,
+  applyCrashOptimistic,
+  clipCrashOutageGaps,
+  linkHasCrashGap,
   overlayCrashOutageOnLink,
   resolveGapEndMs,
   segmentRecordedEndMs,
@@ -162,5 +165,47 @@ describe('coverageGeometry', () => {
     expect(over.gaps).toEqual([
       { from: new Date(start).toISOString(), to: null, cause: 'interrupted' },
     ]);
+  });
+
+  it('applyCrashOptimistic clips open interrupted gap on recover', () => {
+    const start = Date.parse('2026-07-26T14:30:00.000Z');
+    const end = start + 120_000;
+    const clipped = applyCrashOptimistic(
+      {
+        intervals: [
+          { from: '2026-07-26T10:00:00.000Z', to: '', open: true, closeReason: null },
+        ],
+        gaps: [],
+      },
+      start,
+      end,
+    );
+    expect(clipped.gaps).toEqual([
+      {
+        from: new Date(start).toISOString(),
+        to: new Date(end).toISOString(),
+        cause: 'interrupted',
+      },
+    ]);
+    expect(linkHasCrashGap(clipped, start, end)).toBe(true);
+    expect(linkHasCrashGap(clipped, start, null)).toBe(false);
+  });
+
+  it('clipCrashOutageGaps leaves closed gaps untouched', () => {
+    const end = Date.parse('2026-07-26T15:00:00.000Z');
+    const state = {
+      intervals: [] as const,
+      gaps: [
+        {
+          from: '2026-07-26T14:00:00.000Z',
+          to: '2026-07-26T14:30:00.000Z',
+          cause: 'interrupted' as const,
+        },
+        { from: '2026-07-26T14:45:00.000Z', to: null, cause: 'interrupted' as const },
+      ],
+    };
+    const clipped = clipCrashOutageGaps(state, end);
+    expect(clipped.gaps[0]).toEqual(state.gaps[0]);
+    expect(clipped.gaps[1]?.to).toBe(new Date(end).toISOString());
   });
 });
