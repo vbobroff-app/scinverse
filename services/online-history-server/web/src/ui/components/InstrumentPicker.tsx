@@ -114,6 +114,7 @@ interface RowProps {
   seriesRecordingCount: number;
   autoPhase: AutoPhase;
   highlightDays: boolean;
+  showNowMarker: boolean;
   nowMs: number;
   onToggleFutures: (instrument: InstrumentDto) => void;
   onToggleSeries: (futuresId: number, expiration: string) => void;
@@ -150,6 +151,7 @@ const Row = memo(function Row({
   seriesRecordingCount,
   autoPhase: autoPh,
   highlightDays,
+  showNowMarker,
   nowMs,
   onToggleFutures,
   onToggleSeries,
@@ -304,6 +306,7 @@ const Row = memo(function Row({
           sourceCodeById={sourceCodeById}
           sessions={sessions}
           highlightDays={highlightDays}
+          showNowMarker={showNowMarker}
           nowMs={nowMs}
         />
       </div>
@@ -334,6 +337,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const window = useBehavior(store.window$);
   const sessions = useBehavior(store.sessions$);
   const tzOffsetMin = useBehavior(store.displayTz$).offsetMin;
+  const showIncidents = useBehavior(store.showIncidents$);
   const now = useNow(1000);
 
   // Подключением считаем оба «живых» статуса: active (идут данные) и waiting (тишина).
@@ -349,10 +353,15 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
     [sources],
   );
 
-  /** Recording binary red ← журнал incident (11.13e); null = legacy captureGaps. */
+  /** Recording binary red ← журнал incident; выкл. «Инциденты» → без red из журнала. */
   const incidentReds = useMemo(
-    () => (link.incidents != null ? mergeIncidentReds(link.incidents, now) : null),
-    [link.incidents, now],
+    () =>
+      showIncidents && link.incidents != null
+        ? mergeIncidentReds(link.incidents, now)
+        : showIncidents
+          ? null
+          : [],
+    [link.incidents, now, showIncidents],
   );
 
   const recordingByInstrument = useMemo(
@@ -444,6 +453,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const axisCellRef = useRef<HTMLDivElement>(null);
   const crosshairOn = useBehavior(store.crosshairOn$);
   const highlightDays = useBehavior(store.highlightDays$);
+  const showNowMarker = useBehavior(store.showNowMarker$);
   const frameRef = useRef(0);
 
   const invert = useMemo(
@@ -677,6 +687,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               seriesRecordingCount={seriesRecordingCount}
               autoPhase={rowAutoPhase}
               highlightDays={highlightDays}
+              showNowMarker={showNowMarker}
               nowMs={now}
               onToggleFutures={onToggleFutures}
               onToggleSeries={onToggleSeries}

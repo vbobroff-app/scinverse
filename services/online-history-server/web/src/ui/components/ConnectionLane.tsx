@@ -21,6 +21,9 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const window = useBehavior(store.window$);
   const sessions = useBehavior(store.sessions$);
   const tzOffsetMin = useBehavior(store.displayTz$).offsetMin;
+  const showNowMarker = useBehavior(store.showNowMarker$);
+  const showLinkRibbon = useBehavior(store.showLinkRibbon$);
+  const showIncidents = useBehavior(store.showIncidents$);
   const connectionSchedules = useBehavior(store.connectionSchedule$);
   const ohsUnavailable = useBehavior(store.backendOutage$);
   const now = useNow(1000);
@@ -84,6 +87,9 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
             nowMs={now}
             tzOffsetMin={tzOffsetMin}
             linkRecoverGraceSeconds={link.linkRecoverGraceSeconds}
+            showNowMarker={showNowMarker}
+            showLinkRibbon={showLinkRibbon}
+            showIncidents={showIncidents}
           />
         </div>
       </div>

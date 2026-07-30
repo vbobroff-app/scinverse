@@ -18,11 +18,11 @@ interface Props {
   intervals?: LivenessIntervalDto[];
   /**
    * Периоды «связь не жива» из link_liveness.
-   * При загруженном журнале (`incidents != null`) — серое + optimistic crash
-   * (только если нет пересекающегося journal crash); иначе полный as-is.
+   * Слой связи: только серое (disconnected/scheduled).
+   * Цветные причины — только в слое инцидентов (journal или legacy fallback).
    */
   gaps?: CaptureGapDto[];
-  /** Журнал `incident` (11.13e). `null`/`undefined` → legacy gaps. */
+  /** Журнал `incident` (11.13e). `null`/`undefined` + showIncidents → legacy gaps. */
   incidents?: IncidentDto[] | null;
   /** Текущее время (ms) — правый край открытого интервала связи. */
   nowMs?: number;
@@ -30,6 +30,12 @@ interface Props {
   tzOffsetMin?: number;
   /** T = LinkRecoverGraceSeconds (жёлтое ≤ T). С API `/coverage/link`. */
   linkRecoverGraceSeconds?: number;
+  /** Вертикаль «сейчас» на правом краю live-ленты (настройка провайдера). */
+  showNowMarker?: boolean;
+  /** Слой голубого/серого из `link_liveness`. */
+  showLinkRibbon?: boolean;
+  /** Слой цветных эпизодов + маркеров из `incident`. */
+  showIncidents?: boolean;
 }
 
 /** Не-инцидент (серое, без маркеров): отключил оператор / плановое по расписанию. */
@@ -70,9 +76,13 @@ function kindClass(kind: IncidentRibbonKind): string {
   return styles.supervisor;
 }
 
+/** Ongoing optimistic crash (to=null). Исторический `interrupted` от RecoverOpenIntervals/рестарта
+ * Host НЕ красим — иначе длинная красная штриховка без journal/NC инцидента. */
+
 /**
- * Лента Connection: голубое ← link_liveness; цветные эпизоды ← журнал `incident` (11.13e).
- * Gaps liveness — серое; optimistic crash — пока в журнале нет пересекающегося crash (J8).
+ * Connection: два независимых слоя.
+ * - Лента связи (`showLinkRibbon`): голубое + серое idle из `link_liveness`.
+ * - Инциденты (`showIncidents`): journal / legacy gaps + маркеры (не зависят от живности).
  */
 export const ConnectionRibbon = memo(function ConnectionRibbon({
   window,
@@ -83,6 +93,9 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   nowMs,
   tzOffsetMin = 180,
   linkRecoverGraceSeconds = DEFAULT_LINK_RECOVER_GRACE_SEC,
+  showNowMarker = true,
+  showLinkRibbon = true,
+  showIncidents = true,
 }: Props) {
   const windowFromMs = Date.parse(window.from);
   const windowToMs = Date.parse(window.to);
@@ -90,45 +103,53 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   const pct = makeProjector(windowFromMs, windowToMs, sessions);
   const graceSec =
     linkRecoverGraceSeconds > 0 ? linkRecoverGraceSeconds : DEFAULT_LINK_RECOVER_GRACE_SEC;
-  const useJournal = incidents != null;
+  const useJournal = showIncidents && incidents != null;
   const journalPaint = useJournal
     ? projectConnectionIncidents(incidents, liveEdgeMs, graceSec)
     : null;
   const journalList = incidents ?? [];
   const optimisticCrashGaps = useJournal
     ? gaps?.filter((g) => {
-        if (g.cause !== 'interrupted') {
+        if (g.cause !== 'interrupted' || g.to != null) {
           return false;
         }
         const from = Date.parse(g.from);
-        const to = g.to ? Date.parse(g.to) : liveEdgeMs;
-        return !journalHasOverlappingCrash(journalList, from, to, liveEdgeMs);
+        if (!Number.isFinite(from)) {
+          return false;
+        }
+        return !journalHasOverlappingCrash(journalList, from, liveEdgeMs, liveEdgeMs);
       })
     : undefined;
 
   return (
     <div className={styles.track}>
-      <span className={styles.nowLine} />
+      {showNowMarker ? <span className={styles.nowLine} /> : null}
 
-      {intervals?.map((liv, i) => {
-        const from = Date.parse(liv.from);
-        const to = livenessEndMs(liv, liveEdgeMs, windowToMs);
-        if (!liv.open && to <= from) return null;
-        const left = pct(from);
-        return (
-          <div
-            key={`c${i}`}
-            className={[styles.bar, styles.connected, liv.open ? styles.live : ''].filter(Boolean).join(' ')}
-            style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
-            title={`Сервер работает · ${hhmm(from, tzOffsetMin)}–${liv.open ? 'сейчас' : hhmm(to, tzOffsetMin)}`}
-          />
-        );
-      })}
+      {/* —— слой связи (link_liveness): только голубое + серое —— */}
+      {showLinkRibbon
+        ? (intervals ?? []).map((liv, i) => {
+            const fromMs = Date.parse(liv.from);
+            if (!Number.isFinite(fromMs)) return null;
+            const toMs = livenessEndMs(liv, liveEdgeMs, windowToMs);
+            if (!liv.open && toMs <= fromMs) return null;
+            const left = pct(fromMs);
+            const widthPct = pct(toMs) - left;
+            if (widthPct <= 0) return null;
+            return (
+              <div
+                key={`c${i}`}
+                className={[styles.bar, styles.connected, liv.open ? styles.live : '']
+                  .filter(Boolean)
+                  .join(' ')}
+                style={{ left: `${left}%`, width: `${widthPct}%` }}
+                title={`Сервер работает · ${hhmm(fromMs, tzOffsetMin)}–${liv.open ? 'сейчас' : hhmm(toMs, tzOffsetMin)}`}
+              />
+            );
+          })
+        : null}
 
-      {useJournal ? (
-        <>
-          {/* Серое из liveness — не журнал. */}
-          {gaps
+      {showLinkRibbon
+        ? gaps
             ?.filter((g) => GREY_CAUSES.has(g.cause))
             .map((gap, i) => {
               const from = Date.parse(gap.from);
@@ -142,22 +163,25 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
                   title={`${CAUSE_LABEL[gap.cause] ?? gap.cause} · ${hhmm(from, tzOffsetMin)}–${gap.to ? hhmm(to, tzOffsetMin) : 'сейчас'}`}
                 />
               );
-            })}
+            })
+        : null}
 
-          {/* Optimistic client crash (J8) — только если journal ещё без пересекающегося crash. */}
+      {/* —— слой инцидентов: journal или legacy gaps (только если галка включена) —— */}
+      {useJournal ? (
+        <>
           {optimisticCrashGaps?.map((gap, i) => {
-              const from = Date.parse(gap.from);
-              const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
-              const left = pct(from);
-              return (
-                <div
-                  key={`crash-gap${i}`}
-                  className={[styles.bar, styles.down].join(' ')}
-                  style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
-                  title={`${CAUSE_LABEL.interrupted} · ${hhmm(from, tzOffsetMin)}–${gap.to ? hhmm(to, tzOffsetMin) : 'сейчас'}`}
-                />
-              );
-            })}
+            const from = Date.parse(gap.from);
+            const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
+            const left = pct(from);
+            return (
+              <div
+                key={`crash-gap${i}`}
+                className={[styles.bar, styles.down].join(' ')}
+                style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
+                title={`${CAUSE_LABEL.interrupted} · ${hhmm(from, tzOffsetMin)}–${gap.to ? hhmm(to, tzOffsetMin) : 'сейчас'}`}
+              />
+            );
+          })}
 
           {journalPaint!.bodies.map((body, i) => {
             const left = pct(body.fromMs);
@@ -175,7 +199,6 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             );
           })}
 
-          {/* Маркеры после тел — слой сверху (z-index 20). */}
           {journalPaint!.markers.map((m, i) =>
             m.kind === 'start' ? (
               <span
@@ -194,19 +217,22 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             ),
           )}
 
-          {/* Стартовый 1px для optimistic crash gap. */}
           {optimisticCrashGaps?.map((gap, i) => (
-              <span
-                key={`crash-s${i}`}
-                className={styles.startMarker}
-                style={{ left: `${pct(Date.parse(gap.from))}%`, zIndex: 20 }}
-                title={`Потеря связи · ${hhmm(Date.parse(gap.from), tzOffsetMin)}`}
-              />
-            ))}
+            <span
+              key={`crash-s${i}`}
+              className={styles.startMarker}
+              style={{ left: `${pct(Date.parse(gap.from))}%`, zIndex: 20 }}
+              title={`Потеря связи · ${hhmm(Date.parse(gap.from), tzOffsetMin)}`}
+            />
+          ))}
         </>
-      ) : (
-        <>
-          {gaps?.flatMap((gap, i) => {
+      ) : null}
+
+      {showIncidents && !useJournal
+        ? gaps?.flatMap((gap, i) => {
+            if (GREY_CAUSES.has(gap.cause)) {
+              return [];
+            }
             const from = Date.parse(gap.from);
             const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
             const label = CAUSE_LABEL[gap.cause] ?? gap.cause;
@@ -240,9 +266,11 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
                 title={`Восстановление связи (супервизор) · ${hhmm(escMs, tzOffsetMin)}–${gap.to ? hhmm(to, tzOffsetMin) : 'сейчас'}`}
               />,
             ];
-          })}
+          })
+        : null}
 
-          {gaps?.map((gap, i) =>
+      {showIncidents && !useJournal
+        ? gaps?.map((gap, i) =>
             isIncident(gap.cause) ? (
               <span
                 key={`s${i}`}
@@ -251,9 +279,11 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
                 title={`Потеря связи · ${hhmm(Date.parse(gap.from), tzOffsetMin)}`}
               />
             ) : null,
-          )}
+          )
+        : null}
 
-          {gaps?.map((gap, i) =>
+      {showIncidents && !useJournal
+        ? gaps?.map((gap, i) =>
             gap.to && isIncident(gap.cause) && !gap.abandoned ? (
               <span
                 key={`r${i}`}
@@ -262,9 +292,8 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
                 title={`Связь восстановлена · ${hhmm(Date.parse(gap.to), tzOffsetMin)}`}
               />
             ) : null,
-          )}
-        </>
-      )}
+          )
+        : null}
     </div>
   );
 });

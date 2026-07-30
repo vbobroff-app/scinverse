@@ -52,6 +52,12 @@ export interface PersistedViewState {
   highlightDays?: boolean;
   /** Показывать панель фильтров каталога (шестерёнка провайдера). */
   showFilters?: boolean;
+  /** Показывать now-маркер (вертикаль «сейчас») на лентах Connection/Recording. */
+  showNowMarker?: boolean;
+  /** Слой голубого/серого из `link_liveness` на Connection. */
+  showLinkRibbon?: boolean;
+  /** Слой инцидентов (`incident`) на Connection. */
+  showIncidents?: boolean;
 }
 
 const EMPTY: PersistedViewState = {
@@ -197,6 +203,9 @@ export function loadViewState(): PersistedViewState {
       crosshair: typeof parsed.crosshair === 'boolean' ? parsed.crosshair : undefined,
       highlightDays: typeof parsed.highlightDays === 'boolean' ? parsed.highlightDays : undefined,
       showFilters: typeof parsed.showFilters === 'boolean' ? parsed.showFilters : undefined,
+      showNowMarker: typeof parsed.showNowMarker === 'boolean' ? parsed.showNowMarker : undefined,
+      showLinkRibbon: typeof parsed.showLinkRibbon === 'boolean' ? parsed.showLinkRibbon : undefined,
+      showIncidents: typeof parsed.showIncidents === 'boolean' ? parsed.showIncidents : undefined,
     };
   } catch {
     return { ...EMPTY };

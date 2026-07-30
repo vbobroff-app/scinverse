@@ -1,5 +1,6 @@
 import { BehaviorSubject } from 'rxjs';
 import type {
+  ConnectionDockFilter,
   DockFilterKey,
   DockFilterState,
   DockRangeFilter,
@@ -13,9 +14,11 @@ import type {
   ThreadStatus,
 } from '@scinverse/notification-center';
 import {
+  EMPTY_CONNECTION_FILTER,
   EMPTY_DOCK_RANGE,
   EMPTY_DOCK_SETTINGS,
   isDockRangePreset,
+  normalizeConnectionFilter,
   normalizeDockSettings,
 } from '@scinverse/notification-center';
 
@@ -28,6 +31,7 @@ const VALID_ACTIVE: readonly DockFilterKey[] = [
   'status',
   'threadStatus',
   'choice',
+  'connection',
   'range',
 ];
 const VALID_SEVERITIES: readonly NotificationSeverity[] = [
@@ -60,9 +64,17 @@ function emptyFilter(): DockFilterState {
     statuses: [],
     threadStatuses: [],
     choices: [],
+    connection: { ...EMPTY_CONNECTION_FILTER },
     range: { ...EMPTY_DOCK_RANGE },
     query: '',
   };
+}
+
+function parseConnection(raw: unknown): ConnectionDockFilter {
+  if (!raw || typeof raw !== 'object') {
+    return { ...EMPTY_CONNECTION_FILTER };
+  }
+  return normalizeConnectionFilter(raw as Partial<ConnectionDockFilter>);
 }
 
 function asStringArray(value: unknown): string[] {
@@ -130,6 +142,7 @@ function parseFilter(raw: unknown): DockFilterState {
     choices: asStringArray(f.choices).filter((s): s is NcChoiceFilter =>
       (VALID_CHOICES as readonly string[]).includes(s),
     ),
+    connection: parseConnection(f.connection),
     range: parseRange(f.range),
     query: typeof f.query === 'string' ? f.query : '',
   };
@@ -168,6 +181,7 @@ function cloneFilter(filter: DockFilterState): DockFilterState {
     statuses: [...(filter.statuses ?? [])],
     threadStatuses: [...(filter.threadStatuses ?? [])],
     choices: [...(filter.choices ?? [])],
+    connection: normalizeConnectionFilter(filter.connection),
     range: nextRange,
     query: filter.query ?? '',
   };
@@ -341,6 +355,8 @@ class NotificationDockStore {
       this.filter$.next({ ...f, threadStatuses: [] });
     } else if (key === 'choice') {
       this.filter$.next({ ...f, choices: [] });
+    } else if (key === 'connection') {
+      this.filter$.next({ ...f, connection: { ...EMPTY_CONNECTION_FILTER } });
     } else if (key === 'range') {
       this.filter$.next({ ...f, range: { ...EMPTY_DOCK_RANGE } });
     }
@@ -356,6 +372,7 @@ class NotificationDockStore {
       statuses: [],
       threadStatuses: [],
       choices: [],
+      connection: { ...EMPTY_CONNECTION_FILTER },
       range: { ...EMPTY_DOCK_RANGE },
       query: this.filter$.value.query,
     });
@@ -379,7 +396,7 @@ class NotificationDockStore {
  * Иначе после hot-reload появляются два store и toggle open со старого
  * затирает фильтры в localStorage пустым снимком.
  */
-const globalStoreKey = '__scinverseOhsNotificationDockStore_v7';
+const globalStoreKey = '__scinverseOhsNotificationDockStore_v8';
 
 function getOrCreateStore(): NotificationDockStore {
   const g = globalThis as unknown as Record<string, NotificationDockStore | undefined>;

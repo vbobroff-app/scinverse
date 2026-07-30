@@ -11,6 +11,9 @@ import styles from './ProviderCard.module.css';
 export function ProviderCard({ connection }: { connection: ConnectionDto }) {
   const store = useOhsStore();
   const showFilters = useBehavior(store.showFilters$);
+  const showNowMarker = useBehavior(store.showNowMarker$);
+  const showLinkRibbon = useBehavior(store.showLinkRibbon$);
+  const showIncidents = useBehavior(store.showIncidents$);
   const ohsUnavailable = useBehavior(store.backendOutage$);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -90,6 +93,30 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
                       onChange={() => store.setShowFilters(!showFilters)}
                     />
                     Панель фильтров
+                  </label>
+                  <label className={styles.settingsCheck}>
+                    <input
+                      type="checkbox"
+                      checked={showNowMarker}
+                      onChange={() => store.setShowNowMarker(!showNowMarker)}
+                    />
+                    Now-маркер
+                  </label>
+                  <label className={styles.settingsCheck}>
+                    <input
+                      type="checkbox"
+                      checked={showLinkRibbon}
+                      onChange={() => store.setShowLinkRibbon(!showLinkRibbon)}
+                    />
+                    Лента связи
+                  </label>
+                  <label className={styles.settingsCheck}>
+                    <input
+                      type="checkbox"
+                      checked={showIncidents}
+                      onChange={() => store.setShowIncidents(!showIncidents)}
+                    />
+                    Инциденты
                   </label>
                 </div>
               </div>

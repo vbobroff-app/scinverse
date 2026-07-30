@@ -42,6 +42,8 @@ interface Props {
   nowMs?: number;
   /** Подсветка дней: каждый день обрамляется рамкой + скруглением (тумблер в Ганте). */
   highlightDays?: boolean;
+  /** Вертикаль «сейчас» (настройка провайдера). */
+  showNowMarker?: boolean;
 }
 
 function pad2(n: number): string {
@@ -127,6 +129,7 @@ export const CoverageTrack = memo(function CoverageTrack({
   incidentReds,
   sessions,
   highlightDays,
+  showNowMarker = true,
   nowMs,
 }: Props) {
   const windowFromMs = Date.parse(window.from);
@@ -184,7 +187,7 @@ export const CoverageTrack = memo(function CoverageTrack({
           );
         })}
 
-      <span className={styles.nowLine} />
+      {showNowMarker ? <span className={styles.nowLine} /> : null}
 
       {showSessionDetail &&
         !highlightDays &&

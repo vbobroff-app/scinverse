@@ -50,6 +50,26 @@ describe('resolveIncidentEscalatedMs', () => {
 });
 
 describe('projectConnectionIncidents', () => {
+  it('paints short recovered break as-is (MVP — no micro-flap filter)', () => {
+    const paint = projectConnectionIncidents(
+      [
+        breakIncident({
+          corrUid: 'connection:1:link:flap',
+          openedAt: '2026-07-29T14:51:10.620Z',
+          closedAt: '2026-07-29T14:51:11.568Z',
+          closeOutcome: 'recovered',
+          owner: 'transaq',
+          subtype: 'degraded',
+          status: 'resolved',
+        }),
+      ],
+      Date.parse('2026-07-29T15:00:00.000Z'),
+      60,
+    );
+    expect(paint.bodies).toHaveLength(1);
+    expect(paint.markers.map((m) => m.kind)).toEqual(['start', 'recover']);
+  });
+
   it('splits yellow|red on escalatedAt and adds recover marker', () => {
     const opened = '2026-07-29T10:00:00.000Z';
     const esc = '2026-07-29T10:00:40.000Z';

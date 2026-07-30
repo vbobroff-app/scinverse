@@ -81,7 +81,7 @@ function breakLabel(incident: IncidentDto): string {
 }
 
 /**
- * Connection-лента: тела + 1px маркеры из журнала `incident`.
+ * Connection-лента: тела + 1px маркеры из журнала `incident` as-is (MVP, без фильтра микро-flap).
  * break снизу, crash сверху (z). Grey (disconnected/scheduled) сюда не входит.
  */
 export function projectConnectionIncidents(

@@ -72,6 +72,9 @@ describe('viewStateStorage', () => {
       crosshair: false,
       highlightDays: true,
       showFilters: false,
+      showNowMarker: false,
+      showLinkRibbon: false,
+      showIncidents: false,
     });
 
     const v = loadViewState();
@@ -85,6 +88,9 @@ describe('viewStateStorage', () => {
     expect(v.crosshair).toBe(false);
     expect(v.highlightDays).toBe(true);
     expect(v.showFilters).toBe(false);
+    expect(v.showNowMarker).toBe(false);
+    expect(v.showLinkRibbon).toBe(false);
+    expect(v.showIncidents).toBe(false);
   });
 
   it('отбрасывает невалидные таймфрейм/тайм-лайн/ТЗ', () => {

@@ -33,7 +33,7 @@ const LABEL: Record<SwitchPhase, string> = {
   connecting: 'Подключение…',
   active: 'Подключён',
   waiting: 'Подключён',
-  degraded: 'Восстановление…',
+  degraded: 'Связь потеряна…',
   error: 'Ошибка',
   unreachable: 'OHS недоступен',
 };
