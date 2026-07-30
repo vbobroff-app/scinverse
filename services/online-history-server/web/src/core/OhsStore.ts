@@ -5,7 +5,12 @@ import { catchError, finalize, map, mergeMap, switchMap, tap, timeout, toArray }
 import { bucketSecondsForTimeframe } from './activityBucket';
 import { OhsApi, type OhsApiClient } from './api';
 import { getAdminClientId } from './adminClientId';
-import { buildHostOutageReportBody } from './hostOutageReport';
+import {
+  buildHostOutageReportBody,
+  clearPendingHostOutageReport,
+  loadPendingHostOutageReport,
+  savePendingHostOutageReport,
+} from './hostOutageReport';
 import { isConnectedNow } from './connectionSchedule';
 import { gapsFromLivenessIntervals, overlayCrashOutageOnLink } from './coverageGeometry';
 import { createLiveStream, linkStateToConnectionStatus } from './live';
@@ -348,8 +353,11 @@ export class OhsStore {
   private pendingOutagePersist: NotificationDto[] | null = null;
   /** Последний `backend.recovering` — в шину сразу, в БД только вместе с open+recovered (анти-сирота). */
   private pendingRecoveringDto: NotificationDto | null = null;
-  /** D6: отложенный POST /recovery/outage (abandon при мёртвом Host → flush на WS up). */
-  private pendingOutageReport: { fromMs: number; toMs: number } | null = null;
+  /**
+   * D6: очередь POST /recovery/outage (зеркало localStorage `ohs.hostOutage.pending`).
+   * Пишем до POST; снимаем только после 2xx.
+   */
+  private pendingOutageReport: { fromMs: number; toMs: number | null } | null = null;
 
   constructor(
     private readonly api: OhsApiClient = OhsApi,
@@ -475,6 +483,8 @@ export class OhsStore {
     this.refreshRecordingSchedule();
     this.refreshNotifications();
     this.applyTimeframe(this.timeframe$.value);
+    // Reload после неудачного POST recover — дослать закрытый pending из localStorage.
+    this.flushPendingOutageReport({ closeOpen: false });
     const stream =
       this.live ??
       createLiveStream(
@@ -636,6 +646,8 @@ export class OhsStore {
       });
       // D5: локальная Single (не Thread); durable T/C — Host после /recovery/outage (D6).
       void import('./notifications').then((m) => m.showLocalTransportDownSingle(start));
+      // localStorage до POST: from зафиксирован; to допишем на recover.
+      this.queueOutageReport(start, null);
       this.startOutageProgress(false);
     }, BACKEND_OUTAGE_GRACE_MS);
   }
@@ -676,8 +688,9 @@ export class OhsStore {
         this.refreshLiveness();
       }
     }
-    this.flushPendingOutageReport();
+    // Нет живого outage в памяти (reload / уже abandon) — дослать pending из LS.
     if (this.outageStart === null) {
+      this.flushPendingOutageReport({ closeOpen: true });
       return;
     }
     if (this.outagePhase === 'grace') {
@@ -688,6 +701,7 @@ export class OhsStore {
       this.outageNeedsWarnBeforeOk = false;
       this.pendingFatalCorr = null;
       this.pendingFatalAt = null;
+      // Блип внутри grace — outage в LS ещё не писали (только после grace).
       void import('./notifications').then((m) => m.dismissLocalTransportDownSingle());
       return;
     }
@@ -907,9 +921,8 @@ export class OhsStore {
     });
 
     void import('./notifications').then((m) => m.dismissLocalTransportDownSingle());
-    // Host down → очередь; flush на WS up. Если бэк уже жив — уйдёт сразу.
-    this.pendingOutageReport = { fromMs, toMs: end };
-    this.flushPendingOutageReport();
+    this.queueOutageReport(fromMs, end);
+    this.flushPendingOutageReport({ closeOpen: true });
     return true;
   }
 
@@ -986,29 +999,54 @@ export class OhsStore {
     });
   }
 
+  /** Записать pending в память + localStorage (снять только после успешного POST). */
+  private queueOutageReport(fromMs: number, toMs: number | null): void {
+    const stored = loadPendingHostOutageReport();
+    const clientId =
+      stored?.fromMs === fromMs ? stored.clientId : getAdminClientId();
+    const report = { clientId, fromMs, toMs };
+    this.pendingOutageReport = { fromMs, toMs };
+    savePendingHostOutageReport(report);
+  }
+
   /** D6: сигнал эпизода на Host → emit T+C; hydrate снимет локальную Single при T. */
   private reportHostOutageEpisode(fromMs: number, toMs: number): void {
-    const body = buildHostOutageReportBody(getAdminClientId(), fromMs, toMs);
+    const stored = loadPendingHostOutageReport();
+    const clientId =
+      stored?.fromMs === fromMs ? stored.clientId : getAdminClientId();
+    this.queueOutageReport(fromMs, toMs);
+    const body = buildHostOutageReportBody(clientId, fromMs, toMs);
     this.api.reportHostOutage(body).subscribe({
       next: () => {
+        clearPendingHostOutageReport();
         this.pendingOutageReport = null;
         this.refreshNotifications();
         this.refreshLiveness();
       },
       error: (err) => {
         console.error('reportHostOutage', err);
+        // LS уже содержит pending — переживёт reload.
         this.pendingOutageReport = { fromMs, toMs };
         this.refreshLiveness();
       },
     });
   }
 
-  private flushPendingOutageReport(): void {
-    const pending = this.pendingOutageReport;
+  /**
+   * Дослать pending. `closeOpen`: на WS up закрыть open-only (to=null → now).
+   * Без флага — только уже закрытые (после reload с неудачным POST).
+   */
+  private flushPendingOutageReport(opts?: { closeOpen?: boolean }): void {
+    const pending = this.pendingOutageReport ?? loadPendingHostOutageReport();
     if (pending === null) {
       return;
     }
-    this.reportHostOutageEpisode(pending.fromMs, pending.toMs);
+    this.pendingOutageReport = { fromMs: pending.fromMs, toMs: pending.toMs };
+    if (pending.toMs === null && !opts?.closeOpen) {
+      return;
+    }
+    const toMs = pending.toMs ?? Date.now();
+    this.reportHostOutageEpisode(pending.fromMs, toMs);
   }
 
   /** Переключает активный раздел верхнего уровня (левый рейл). */

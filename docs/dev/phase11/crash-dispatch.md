@@ -300,7 +300,7 @@ POST /api/recovery/outage
 | **D4** | Снять client-led journal path для crash из `POST /notifications` — **DONE** | ApiTests: journal через `/recovery/outage`; client `backend.unavailable` → NC only |
 | **D5** | Клиент: WS down → **локальная Single** (не Thread); убрать `openBackendOutage` Thread+queue атомов crash — **DONE** | vitest: Single без Thread; dismiss на hydrate `ohs.host.transport:` |
 | **D5a** | NC фильтр «Соединение» (show/hide Id) — **DONE** | Скрыть id=1; без id в data остаётся видимым |
-| **D6** | Клиент: WS up → `POST /recovery/outage` `{clientId, from, to}` (+ hold как сейчас); не mock-POST backend.* для crash — **DONE** | vitest: body from/to; Host close → Release hold |
+| **D6** | Клиент: WS up → `POST /recovery/outage` `{clientId, from, to}` (+ hold как сейчас); не mock-POST backend.* для crash — **DONE** | vitest: body from/to; pending в `localStorage` до 2xx POST |
 | **D7** | Optimistic ribbon на **все** `connections$`; после incidents refresh — journal wins | Ручной: 2 connection, desired разный → 1 journal + 2 NC C-threads |
 | **D8** | Регрессия + docs: report.md, статус спеки → `IN PROGRESS`/`DONE` | unit + ApiTest зелёные |
 
