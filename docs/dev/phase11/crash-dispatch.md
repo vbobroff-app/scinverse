@@ -1,6 +1,6 @@
 # Phase 11 — Crash dispatch: транспорт + слой соединений
 
-**Статус:** `DESIGN AGREED` · **PLAN DRAFT** (реализация не начата).  
+**Статус:** `DESIGN AGREED` · **IN PROGRESS** (D1–D2 DONE · D3…).  
 **Дата согласования:** 2026-07-30 · план: 2026-07-30.
 
 **Связано:** [incident-journal.md](incident-journal.md) (§2, §4.3 Crash, A6) ·
@@ -295,7 +295,7 @@ POST /api/recovery/outage
 | Шаг | Что | Критерий готовности |
 |-----|-----|---------------------|
 | **D1** | `HostOutageCoordinator` + `POST /api/recovery/outage` — **DONE** | Unit: два clientId → один seed; min from; один close |
-| **D2** | Emit **слой T**: Hub Open/Resolve `host.unreachable`/`host.reachable`, corr transport, hint=group, **SkipJournal** | ApiTest: в `notification` 2 атома, в `incident` 0 строк на этот corr |
+| **D2** | Emit **слой T**: `HostOutageTransportEmitter` → Hub Ingest open/close, hint=group, без journal — **DONE** | Unit: 2 атома, без connectionId; merge не дублирует open |
 | **D3** | Emit **слой C**: ∀ enabled connection; `desired` через `ConnectionScheduleResolver`; Incident→FanOut CrashOpen+journal; Group→Hub only | ApiTest: N connections → N corr `:c{id}`; journal только desired |
 | **D4** | Снять client-led journal path для crash из `POST /notifications` (или игнор `backend.unavailable` от client для journal; лучше не слать с клиента) | Старые ApiTests crash ingest → переписать на `/recovery/outage` |
 | **D5** | Клиент: WS down → **локальная Single** (не Thread); убрать `openBackendOutage` Thread+queue атомов crash | vitest: нет Thread до hydrate; Single снимается |

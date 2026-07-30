@@ -7,7 +7,8 @@ public static class HostOutageEndpoints
     {
         api.MapPost("/recovery/outage", (
             HostOutageReportRequest? req,
-            HostOutageCoordinator outages) =>
+            HostOutageCoordinator outages,
+            HostOutageTransportEmitter transport) =>
         {
             if (req is null || string.IsNullOrWhiteSpace(req.ClientId))
             {
@@ -15,6 +16,8 @@ public static class HostOutageEndpoints
             }
 
             var result = outages.Report(req.ClientId.Trim(), req.From, req.To, req.Code);
+            // D2: слой T в NC (без journal). D3 — слой C.
+            transport.Apply(result);
             return Results.Accepted(
                 value: new
                 {
