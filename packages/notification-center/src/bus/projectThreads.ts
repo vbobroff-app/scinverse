@@ -91,6 +91,12 @@ function buildThread(corrUid: string, group: readonly NotificationEvent[]): Thre
   const threadKind = deriveThreadKind(ordered);
   const subject = deriveSubject(corrUid);
   const closedAt = terminal?.ts;
+  // Слой C crash: message уже «Подключение N: …» — в title целиком (не голый ohs.backend.outage).
+  const newest = ordered[ordered.length - 1];
+  const headerTitle =
+    subject?.startsWith('Подключение ') && newest?.message
+      ? newest.message
+      : (subject ?? corrUid);
 
   const thread: ThreadItem = {
     itemKind: 'thread',
@@ -103,7 +109,7 @@ function buildThread(corrUid: string, group: readonly NotificationEvent[]): Thre
     lastActivityAt,
     subject,
     closeOutcome,
-    header: buildHeader(subject ?? corrUid, threadKind, threadStatus, closeOutcome),
+    header: buildHeader(headerTitle, threadKind, threadStatus, closeOutcome),
   };
   return thread;
 }
@@ -220,6 +226,12 @@ export function deriveSubject(corrUid: string): string | undefined {
   if (conn) {
     return `connection:${conn[1]}`;
   }
+  // crash-dispatch слой C: `ohs.backend.outage:{seed}:c{id}` → «Подключение {id}»
+  // (не общий `ohs.backend.outage` — иначе N connection выглядят как дубль).
+  const outageConn = /^ohs\.backend\.outage:[^:]+:c(\d+)$/.exec(corrUid);
+  if (outageConn) {
+    return `Подключение ${outageConn[1]}`;
+  }
   const outage = /^(ohs\.backend\.outage)(?::|$)/.exec(corrUid);
   if (outage) {
     return outage[1];
@@ -298,7 +310,7 @@ function sortItemsByLastActivity(items: readonly NotificationItem[]): Notificati
       if (b.ms !== a.ms) {
         return b.ms - a.ms;
       }
-      // Equal time: open Incident → Single сверху; resolved Incident → Thread сверху (перетекает вверх).
+      // Equal time: см. singleVsThreadOrder (Incident resolved ↑; Group resolved не перекрывает INFO).
       const singleThread = singleVsThreadOrder(a.item, b.item);
       if (singleThread !== 0) {
         return singleThread;
@@ -311,17 +323,26 @@ function sortItemsByLastActivity(items: readonly NotificationItem[]): Notificati
     .map(({ item }) => item);
 }
 
-/** -1 = a выше b; +1 = b выше a; 0 = не пара Single/Thread. */
+/**
+ * -1 = a выше b; +1 = b выше a; 0 = не пара Single/Thread.
+ * Open Thread → Single сверху (WARN над дырой).
+ * Resolved **Incident** → Thread сверху (recovered «всплывает»).
+ * Resolved **Group** → Single сверху (INFO «плановое подключение» над auto Group).
+ */
 function singleVsThreadOrder(a: NotificationItem, b: NotificationItem): number {
   const aThread = a.itemKind === 'thread' ? a : null;
   const bThread = b.itemKind === 'thread' ? b : null;
   const aSingle = a.itemKind === 'single';
   const bSingle = b.itemKind === 'single';
   if (aSingle && bThread) {
-    return bThread.threadStatus === 'resolved' ? 1 : -1;
+    return resolvedIncidentRises(bThread) ? 1 : -1;
   }
   if (bSingle && aThread) {
-    return aThread.threadStatus === 'resolved' ? -1 : 1;
+    return resolvedIncidentRises(aThread) ? -1 : 1;
   }
   return 0;
+}
+
+function resolvedIncidentRises(thread: ThreadItem): boolean {
+  return thread.threadStatus === 'resolved' && thread.threadKind === 'incident';
 }

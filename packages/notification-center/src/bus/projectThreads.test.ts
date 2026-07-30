@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createNotificationBus } from './NotificationBus';
-import { projectThreads } from './projectThreads';
+import { deriveSubject, projectThreads } from './projectThreads';
 import type { NotificationEvent, ThreadItem } from '../types';
 import { isSingleItem, isThreadItem } from '../types';
 
@@ -129,6 +129,41 @@ describe('projectThreads', () => {
     expect(t.threadKind).toBe('group');
   });
 
+  it('crash layer C: subject + header title bind to connectionId', () => {
+    expect(deriveSubject('ohs.backend.outage:1720000000000:c3')).toBe('Подключение 3');
+    const corr = 'ohs.backend.outage:1720000000000:c3';
+    const closeMsg = 'Подключение 3: Система восстановлена';
+    const items = projectThreads([
+      evt({
+        id: 'o1',
+        correlationId: corr,
+        code: 'backend.unavailable',
+        status: 'active',
+        severity: 'critical',
+        message: 'Подключение 3: Сервер OHS недоступен, жду восстановления',
+        ts: '2026-07-14T12:00:00.000Z',
+        data: { connectionId: 3, threadKindHint: 'incident', kind: 'crash' },
+      }),
+      evt({
+        id: 'c1',
+        correlationId: corr,
+        code: 'backend.recovered',
+        status: 'resolved',
+        severity: 'ok',
+        message: closeMsg,
+        ts: '2026-07-14T12:05:00.000Z',
+        data: { connectionId: 3, kind: 'crash', closeOutcome: 'recovered' },
+      }),
+    ]);
+    const t = threadOf(items, corr);
+    expect(t.subject).toBe('Подключение 3');
+    expect(t.header.title).toBe(closeMsg);
+    expect(t.notifications.map((n) => n.message)).toEqual([
+      'Подключение 3: Сервер OHS недоступен, жду восстановления',
+      closeMsg,
+    ]);
+  });
+
   it('threadKindHint group wins over open-code heuristic', () => {
     const corr = 'connection:c3:link';
     const items = projectThreads([
@@ -190,7 +225,7 @@ describe('projectThreads', () => {
     ]);
   });
 
-  it('open Incident: at equal ts Single WARN above Thread; resolved Thread rises above Single', () => {
+  it('open Incident: Single WARN above Thread; resolved Incident rises; resolved Group stays below INFO', () => {
     const corr = 'connection:3:link:c4e5b051';
     const ts = '2026-07-29T08:16:48.000Z';
     const warnId = 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
@@ -242,7 +277,7 @@ describe('projectThreads', () => {
     ]);
     expect(resolvedLater.map((i) => (isThreadItem(i) ? i.uid : i.id))).toEqual([corr, warnId]);
 
-    // Resolve в ту же секунду, что WARN → tie-break: resolved Thread над Single.
+    // Resolve в ту же секунду, что WARN → tie-break: resolved Incident над Single.
     const resolvedSameTs = projectThreads([
       evt({
         id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -268,6 +303,41 @@ describe('projectThreads', () => {
       }),
     ]);
     expect(resolvedSameTs.map((i) => (isThreadItem(i) ? i.uid : i.id))).toEqual([corr, warnId]);
+
+    // Auto Group + INFO schedule_connect (тот же ts) → INFO выше Group.
+    const autoCorr = 'connection:3:auto:deadbeef';
+    const infoId = 'cccccccccccccccccccccccccccccccc';
+    const schedulePair = projectThreads([
+      evt({
+        id: 'dddddddddddddddddddddddddddddddd',
+        correlationId: autoCorr,
+        code: 'connection.connecting',
+        status: 'underway',
+        severity: 'warning',
+        message: 'подключаю по расписанию…',
+        ts,
+        data: { threadKindHint: 'group' },
+      }),
+      evt({
+        id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        correlationId: autoCorr,
+        code: 'connection.connected',
+        status: 'resolved',
+        severity: 'ok',
+        message: 'связь установлена (Auto)',
+        ts,
+        data: { threadKindHint: 'group' },
+      }),
+      evt({
+        id: infoId,
+        code: 'connection.schedule_connect',
+        severity: 'info',
+        message: 'плановое подключение по расписанию',
+        ts,
+      }),
+    ]);
+    expect(schedulePair.map((i) => (isThreadItem(i) ? i.uid : i.id))).toEqual([infoId, autoCorr]);
+    expect(threadOf(schedulePair, autoCorr).threadKind).toBe('group');
   });
 
   it('Group and Incident with different corr stay two threads', () => {

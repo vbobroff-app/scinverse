@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { FormatTs } from '../format/formatTs';
+import { formatThreadTimeLabel, formatThreadTs, type FormatTs } from '../format/formatTs';
 import type { NcMarks, NotificationEvent, ThreadItem } from '../types';
 import { BreakIncidentIcon } from './BreakIncidentIcon';
 import { GroupStackIcon } from './GroupStackIcon';
@@ -25,6 +25,8 @@ function isCrashThread(thread: ThreadItem): boolean {
 interface Props {
   thread: ThreadItem;
   formatTs: FormatTs;
+  /** Display TZ (минуты от UTC), как настройки хоста; для «сегодня» без даты в заголовке. */
+  tzOffsetMin?: number;
   expanded: boolean;
   onToggleExpanded: () => void;
   showStatusLogo?: boolean;
@@ -61,6 +63,7 @@ function statusPaneClass(status: ThreadItem['threadStatus']): string {
 export function ThreadBlock({
   thread,
   formatTs,
+  tzOffsetMin = 0,
   expanded,
   onToggleExpanded,
   showStatusLogo = true,
@@ -77,6 +80,8 @@ export function ThreadBlock({
   const ref = useRef<HTMLDivElement>(null);
   const newest = thread.notifications[thread.notifications.length - 1];
   const lastMessage = newest?.message ?? thread.header.summary ?? '';
+  // Title уже = last message (crash «Подключение N: …») — не дублировать в message.
+  const messageDistinct = lastMessage !== thread.header.title;
   const kindBadge = thread.threadKind === 'incident' ? 'incident' : 'group';
   const kindLabel = thread.threadKind === 'incident' ? 'Incident' : 'Group';
 
@@ -87,8 +92,8 @@ export function ThreadBlock({
   }, [expanded]);
 
   const timeLabel = thread.closedAt
-    ? `${formatTs(thread.openedAt)} → ${formatTs(thread.closedAt)}`
-    : formatTs(thread.lastActivityAt);
+    ? formatThreadTimeLabel(thread.openedAt, thread.closedAt, tzOffsetMin)
+    : formatThreadTs(thread.lastActivityAt, tzOffsetMin);
 
   return (
     <div
@@ -149,7 +154,7 @@ export function ThreadBlock({
         </span>
 
         <span className={[styles.message, expanded ? styles.messageMuted : ''].join(' ')}>
-          {lastMessage}
+          {messageDistinct ? lastMessage : null}
           {thread.notifications.length > 1 ? (
             <span className={styles.count}> · {thread.notifications.length}</span>
           ) : null}

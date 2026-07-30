@@ -440,3 +440,51 @@
 .timeInput:disabled {
   cursor: not-allowed;
 }
+
+.connectionPopover {
+  min-width: 220px;
+  padding-bottom: 8px;
+}
+
+.connectionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: var(--font-size-sm, 0.875rem);
+  color: var(--color-text, #e9ecef);
+  cursor: text;
+}
+
+.connectionLabel {
+  flex: 1 1 auto;
+  white-space: nowrap;
+}
+
+.connectionIdInput {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--color-border, #373a40);
+  background: var(--color-bg-input, #2c2e33);
+  color: var(--color-text, #e9ecef);
+  font-size: var(--font-size-sm, 0.875rem);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color-scheme: dark;
+}
+
+.connectionIdInput:focus {
+  outline: none;
+  border-color: var(--color-border-focus, #4dabf7);
+}
+
+.connectionHint {
+  margin: 4px 10px 0;
+  padding: 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--color-text-muted, #6c757d);
+}

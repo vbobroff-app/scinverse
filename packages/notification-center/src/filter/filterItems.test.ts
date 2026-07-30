@@ -121,4 +121,68 @@ describe('filterItems', () => {
     expect(visible).toHaveLength(1);
     expect(visible[0]?.itemKind === 'thread' && visible[0].uid).toBe('c1');
   });
+
+  it('connection hide Id excludes matching threads; keeps no-id', () => {
+    const items = projectThreads([
+      evt({
+        id: 'a',
+        correlationId: 'ohs.backend.outage:1:c1',
+        code: 'backend.unavailable',
+        data: { connectionId: 1 },
+        message: 'synth',
+      }),
+      evt({
+        id: 'b',
+        correlationId: 'ohs.backend.outage:1:c3',
+        code: 'backend.unavailable',
+        data: { connectionId: 3 },
+        message: 'finam',
+      }),
+      evt({
+        id: 't',
+        correlationId: 'ohs.host.transport:1',
+        code: 'host.unreachable',
+        message: 'no link',
+      }),
+    ]);
+    const visible = filterItems(items, {
+      connection: { showIdText: '', hideIdText: '1' },
+    });
+    expect(visible.map((i) => (i.itemKind === 'thread' ? i.uid : i.id))).toEqual([
+      'ohs.backend.outage:1:c3',
+      'ohs.host.transport:1',
+    ]);
+  });
+
+  it('connection show Id keeps matching + no-id; hide wins over show', () => {
+    const items = projectThreads([
+      evt({
+        id: 'a',
+        correlationId: 'c:1',
+        code: 'backend.unavailable',
+        data: { connectionId: 1 },
+        message: 'one',
+      }),
+      evt({
+        id: 'b',
+        correlationId: 'c:3',
+        code: 'backend.unavailable',
+        data: { connectionId: 3 },
+        message: 'three',
+      }),
+      evt({ id: 'n', correlationId: 'c:none', code: 'host.unreachable', message: 'transport' }),
+    ]);
+    const showOnly = filterItems(items, {
+      connection: { showIdText: '3', hideIdText: '' },
+    });
+    expect(showOnly.map((i) => (i.itemKind === 'thread' ? i.uid : i.id))).toEqual([
+      'c:3',
+      'c:none',
+    ]);
+
+    const both = filterItems(items, {
+      connection: { showIdText: '3', hideIdText: '3' },
+    });
+    expect(both.map((i) => (i.itemKind === 'thread' ? i.uid : i.id))).toEqual(['c:none']);
+  });
 });

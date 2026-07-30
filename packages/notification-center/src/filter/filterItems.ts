@@ -6,13 +6,80 @@ import type {
   ThreadStatus,
 } from '../types';
 import { filterEvents } from './filterEvents';
+import {
+  parseConnectionFilterId,
+  type ConnectionDockFilter,
+} from './connectionFilter';
 
 export type NcChoiceFilter = 'favorite' | 'left';
 
-/** Фильтр ленты контейнеров (атомы + threadStatus + Выбор). */
+/** Фильтр ленты контейнеров (атомы + threadStatus + Выбор + connectionId). */
 export interface NotificationItemFilter extends NotificationFilter {
   threadStatuses?: ReadonlySet<ThreadStatus> | readonly ThreadStatus[];
   choices?: ReadonlySet<NcChoiceFilter> | readonly NcChoiceFilter[];
+  /** По `data.connectionId`; hide побеждает show. */
+  connection?: ConnectionDockFilter;
+}
+
+/** Прочитать `data.connectionId` (number | numeric string). */
+export function readConnectionId(data: Record<string, unknown> | null | undefined): number | undefined {
+  if (!data) {
+    return undefined;
+  }
+  const raw = data.connectionId;
+  if (typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 1) {
+    return raw;
+  }
+  if (typeof raw === 'string') {
+    return parseConnectionFilterId(raw);
+  }
+  return undefined;
+}
+
+function itemConnectionIds(item: NotificationItem): number[] {
+  if (item.itemKind === 'single') {
+    const id = readConnectionId(item.data);
+    return id != null ? [id] : [];
+  }
+  const ids = new Set<number>();
+  for (const e of item.notifications) {
+    const id = readConnectionId(e.data);
+    if (id != null) {
+      ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * Include/exclude по connectionId.
+ * Нет id на item (транспорт) — не режется include; hide только если id совпал.
+ * Hide побеждает show.
+ */
+export function matchesConnectionFilter(
+  item: NotificationItem,
+  connection: ConnectionDockFilter | undefined,
+): boolean {
+  if (!connection) {
+    return true;
+  }
+  const hideId = parseConnectionFilterId(connection.hideIdText);
+  const showId = parseConnectionFilterId(connection.showIdText);
+  if (hideId == null && showId == null) {
+    return true;
+  }
+
+  const ids = itemConnectionIds(item);
+  if (hideId != null && ids.includes(hideId)) {
+    return false;
+  }
+  if (showId != null) {
+    if (ids.length === 0) {
+      return true;
+    }
+    return ids.includes(showId);
+  }
+  return true;
 }
 
 function toSet<T extends string>(value: ReadonlySet<T> | readonly T[] | undefined): Set<T> | null {
@@ -109,6 +176,10 @@ export function filterItems(
   };
 
   return items.filter((item) => {
+    if (!matchesConnectionFilter(item, filter.connection)) {
+      return false;
+    }
+
     if (choices) {
       const wantFav = choices.has('favorite');
       const hideSpam = choices.has('left');

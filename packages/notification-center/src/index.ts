@@ -52,7 +52,21 @@ export { notify, type NotifyInput } from './bus/notify';
 export { projectThreads, deriveSubject } from './bus/projectThreads';
 
 export { filterEvents } from './filter/filterEvents';
-export { filterItems, type NotificationItemFilter, type NcChoiceFilter } from './filter/filterItems';
+export {
+  filterItems,
+  matchesConnectionFilter,
+  readConnectionId,
+  type NotificationItemFilter,
+  type NcChoiceFilter,
+} from './filter/filterItems';
+export {
+  EMPTY_CONNECTION_FILTER,
+  connectionFilterSummary,
+  isConnectionFilterDefault,
+  normalizeConnectionFilter,
+  parseConnectionFilterId,
+  type ConnectionDockFilter,
+} from './filter/connectionFilter';
 export {
   NC_MARKS_STORAGE_KEY,
   loadNcMarks,
@@ -83,7 +97,13 @@ export {
   resolveRangeBounds,
 } from './filter/dateRange';
 
-export { formatTsUtc, createOffsetFormatTs, type FormatTs } from './format/formatTs';
+export {
+  formatTsUtc,
+  createOffsetFormatTs,
+  formatThreadTs,
+  formatThreadTimeLabel,
+  type FormatTs,
+} from './format/formatTs';
 
 export { NotificationDock, type NotificationDockProps, type NotificationDockFiltersSnapshot } from './ui/NotificationDock';
 export {

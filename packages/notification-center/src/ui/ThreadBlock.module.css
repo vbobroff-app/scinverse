@@ -100,10 +100,10 @@
   flex: none;
   font-family: var(--font-family-mono, ui-monospace, monospace);
   font-size: 11px;
-  margin-top: 4px;
+  line-height: 1;
   color: var(--color-text-muted, #6c757d);
   white-space: nowrap;
-  min-width: 130px;
+  /* «сегодня» HH:mm:ss → HH:mm:ss ≈ 19ch; полный день+день — шире, без жёсткого min. */
 }
 
 .status {

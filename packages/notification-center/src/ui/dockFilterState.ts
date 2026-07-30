@@ -5,8 +5,22 @@ import type {
   NotificationStatus,
   ThreadStatus,
 } from '../types';
+import {
+  EMPTY_CONNECTION_FILTER,
+  normalizeConnectionFilter,
+  type ConnectionDockFilter,
+} from '../filter/connectionFilter';
 import { EMPTY_DOCK_RANGE, type DockRangeFilter } from '../filter/dateRange';
 import type { NcChoiceFilter } from '../filter/filterItems';
+
+export type { ConnectionDockFilter } from '../filter/connectionFilter';
+export {
+  EMPTY_CONNECTION_FILTER,
+  connectionFilterSummary,
+  isConnectionFilterDefault,
+  normalizeConnectionFilter,
+  parseConnectionFilterId,
+} from '../filter/connectionFilter';
 
 export type DockFilterKey =
   | 'severity'
@@ -15,6 +29,7 @@ export type DockFilterKey =
   | 'status'
   | 'threadStatus'
   | 'choice'
+  | 'connection'
   | 'range';
 
 export interface DockFilterState {
@@ -26,6 +41,7 @@ export interface DockFilterState {
   threadStatuses: ThreadStatus[];
   /** Выбор: ★ favorite (include) / ⊘ left=спам (exclude). */
   choices: NcChoiceFilter[];
+  connection: ConnectionDockFilter;
   range: DockRangeFilter;
   query: string;
 }
@@ -37,6 +53,7 @@ export const EMPTY_DOCK_FILTER: DockFilterState = {
   statuses: [],
   threadStatuses: [],
   choices: [],
+  connection: { ...EMPTY_CONNECTION_FILTER },
   range: { ...EMPTY_DOCK_RANGE },
   query: '',
 };
@@ -52,6 +69,7 @@ export function normalizeDockFilter(
     statuses: value?.statuses ?? [],
     threadStatuses: value?.threadStatuses ?? [],
     choices: value?.choices ?? [],
+    connection: normalizeConnectionFilter(value?.connection),
     range: value?.range ?? { ...EMPTY_DOCK_RANGE },
     query: value?.query ?? '',
   };

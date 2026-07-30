@@ -19,7 +19,11 @@ import {
 } from '../filter/dateRange';
 import type { NcChoiceFilter } from '../filter/filterItems';
 import {
+  connectionFilterSummary,
+  EMPTY_CONNECTION_FILTER,
+  isConnectionFilterDefault,
   normalizeDockFilter,
+  type ConnectionDockFilter,
   type DockFilterKey,
   type DockFilterState,
   type DockFiltersSnapshot,
@@ -28,8 +32,20 @@ import { SeverityIcon } from './SeverityIcon';
 import { Tip } from './Tooltip';
 import styles from './DockFilters.module.css';
 
-export type { DockFilterKey, DockFilterState, DockFiltersSnapshot } from './dockFilterState';
-export { EMPTY_DOCK_FILTER, normalizeDockFilter } from './dockFilterState';
+export type {
+  ConnectionDockFilter,
+  DockFilterKey,
+  DockFilterState,
+  DockFiltersSnapshot,
+} from './dockFilterState';
+export {
+  connectionFilterSummary,
+  EMPTY_CONNECTION_FILTER,
+  EMPTY_DOCK_FILTER,
+  isConnectionFilterDefault,
+  normalizeDockFilter,
+  parseConnectionFilterId,
+} from './dockFilterState';
 
 /** Поле даты для «ввести даты» — хост может подставить свой календарь (как в коннекторах). */
 export interface DockDateFieldProps {
@@ -94,6 +110,7 @@ const AVAILABLE: { key: DockFilterKey; name: string }[] = [
   { key: 'status', name: 'Статус' },
   { key: 'threadStatus', name: 'Статус нити' },
   { key: 'choice', name: 'Выбор' },
+  { key: 'connection', name: 'Соединения' },
   { key: 'range', name: 'Период' },
 ];
 
@@ -151,6 +168,9 @@ function isFilterAtDefault(key: DockFilterKey, value: DockFilterState): boolean 
   if (key === 'choice') {
     return value.choices.length === 0;
   }
+  if (key === 'connection') {
+    return isConnectionFilterDefault(value.connection);
+  }
   return (value.range.preset === 'all' || !value.range.preset) && !value.range.timeEnabled;
 }
 
@@ -172,6 +192,9 @@ function resetFilterValue(key: DockFilterKey, value: DockFilterState): DockFilte
   }
   if (key === 'choice') {
     return { ...value, choices: [] };
+  }
+  if (key === 'connection') {
+    return { ...value, connection: { ...EMPTY_CONNECTION_FILTER } };
   }
   return { ...value, range: { ...EMPTY_DOCK_RANGE } };
 }
@@ -264,7 +287,7 @@ export function DockFilters({
       window.removeEventListener('resize', place);
       pop.style.maxHeight = '';
     };
-  }, [open, calendarOpen, value.range]);
+  }, [open, calendarOpen, value.range, value.connection]);
 
   useEffect(() => {
     if (open === null) {
@@ -305,7 +328,7 @@ export function DockFilters({
     };
   }, [open]);
 
-  const specs = useMemo<Record<Exclude<DockFilterKey, 'range'>, ChipSpec>>(
+  const specs = useMemo<Record<Exclude<DockFilterKey, 'range' | 'connection'>, ChipSpec>>(
     () => ({
       severity: {
         key: 'severity',
@@ -356,6 +379,13 @@ export function DockFilters({
     [value, onChange],
   );
 
+  const withConnectionActive = (connection: ConnectionDockFilter) => {
+    const nextActive: DockFilterKey[] = activeFilters.includes('connection')
+      ? activeFilters
+      : [...activeFilters, 'connection'];
+    commit({ ...value, connection }, nextActive);
+  };
+
   const toggleOpen = (key: OpenKey) => setOpen((cur) => (cur === key ? null : key));
 
   const onAdd = (key: DockFilterKey) => {
@@ -397,6 +427,7 @@ export function DockFilters({
         statuses: [],
         threadStatuses: [],
         choices: [],
+        connection: { ...EMPTY_CONNECTION_FILTER },
         range: { ...EMPTY_DOCK_RANGE },
         query: value.query,
       },
@@ -517,6 +548,112 @@ export function DockFilters({
         </div>
 
         {visibleActiveFilters.map((key) => {
+          if (key === 'connection') {
+            const conn = value.connection;
+            const summary = connectionFilterSummary(conn);
+            const isOpen = open === 'connection';
+            const showAll = isConnectionFilterDefault(conn);
+            const active = !showAll || isOpen;
+            return (
+              <div className={styles.chipWrap} key={key}>
+                <div
+                  className={[styles.chip, active ? styles.chipActive : ''].filter(Boolean).join(' ')}
+                >
+                  <button
+                    type="button"
+                    data-filter-trigger="connection"
+                    className={styles.chipBody}
+                    onClick={() => toggleOpen('connection')}
+                    aria-expanded={isOpen}
+                  >
+                    <span className={styles.chipName}>Соединения</span>
+                    {summary ? (
+                      <span className={styles.chipValue}>: {summary}</span>
+                    ) : (
+                      <span className={styles.chipValue}>: все</span>
+                    )}
+                    <span className={[styles.caret, isOpen ? styles.caretOpen : ''].join(' ')}>▾</span>
+                  </button>
+                  <Tip
+                    content={
+                      isFilterAtDefault('connection', value) ? 'Убрать фильтр' : 'Сбросить фильтр'
+                    }
+                  >
+                    <button
+                      type="button"
+                      className={styles.chipClose}
+                      onClick={() => onChipClose('connection')}
+                      aria-label={
+                        isFilterAtDefault('connection', value)
+                          ? 'Убрать фильтр «Соединения»'
+                          : 'Сбросить фильтр «Соединения»'
+                      }
+                    >
+                      ×
+                    </button>
+                  </Tip>
+                </div>
+                {isOpen && (
+                  <div
+                    ref={popoverRef}
+                    className={popoverClass(styles.connectionPopover)}
+                    role="group"
+                    aria-label="Соединения"
+                  >
+                    <button
+                      type="button"
+                      className={[styles.option, showAll ? styles.optionActive : '']
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick={() => withConnectionActive({ ...EMPTY_CONNECTION_FILTER })}
+                    >
+                      <span className={styles.radioMark}>{showAll ? '●' : '○'}</span>
+                      Показывать все
+                    </button>
+                    <div className={styles.checkDivider} aria-hidden="true" />
+                    <label className={styles.connectionRow}>
+                      <span className={styles.connectionLabel}>Показывать Id =</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        className={styles.connectionIdInput}
+                        value={conn.showIdText}
+                        placeholder="—"
+                        aria-label="Показывать connection Id"
+                        onChange={(e) =>
+                          withConnectionActive({
+                            ...conn,
+                            showIdText: e.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label className={styles.connectionRow}>
+                      <span className={styles.connectionLabel}>Скрывать Id =</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        className={styles.connectionIdInput}
+                        value={conn.hideIdText}
+                        placeholder="—"
+                        aria-label="Скрывать connection Id"
+                        onChange={(e) =>
+                          withConnectionActive({
+                            ...conn,
+                            hideIdText: e.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <p className={styles.connectionHint}>
+                      При одновременном показе и скрытии побеждает «Скрывать».
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           if (key === 'range') {
             const summary = rangeSummary(value.range);
             const isOpen = open === 'range';

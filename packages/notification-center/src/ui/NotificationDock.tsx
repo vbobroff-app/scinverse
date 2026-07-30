@@ -397,6 +397,7 @@ export function NotificationDock({
             ? filter.threadStatuses
             : undefined,
         choices: activeFilters.includes('choice') ? filter.choices : undefined,
+        connection: activeFilters.includes('connection') ? filter.connection : undefined,
         query: filter.query,
         range: activeFilters.includes('range') ? filter.range : undefined,
         tzOffsetMin,
@@ -729,6 +730,7 @@ export function NotificationDock({
                       key={item.uid}
                       thread={item}
                       formatTs={formatTs}
+                      tzOffsetMin={tzOffsetMin ?? 0}
                       expanded={expandedThreads.has(item.uid)}
                       onToggleExpanded={() => toggleThreadExpanded(item.uid)}
                       showStatusLogo={settings.showStatusLogo}
