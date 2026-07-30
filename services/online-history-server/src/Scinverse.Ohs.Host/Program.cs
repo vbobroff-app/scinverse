@@ -106,6 +106,7 @@ builder.Services.AddSingleton<NotificationPersistQueue>();
 builder.Services.AddSingleton<NotificationHub>();
 builder.Services.AddSingleton<INotificationPublisher>(sp => sp.GetRequiredService<NotificationHub>());
 builder.Services.AddSingleton<ClientRecoveryGate>();
+builder.Services.AddSingleton<HostOutageCoordinator>();
 builder.Services.AddSingleton<ConnectionSupervisor>();
 // Pre-flight сверки расписания: transient — резолвит подтверждатель по adapter (per-request).
 builder.Services.AddTransient<SchedulePreflight>();
@@ -161,6 +162,7 @@ app.Map("/ws", async (HttpContext context, WebSocketBroadcaster broadcaster) =>
 });
 
 app.MapOhsApi();
+app.MapGroup("/api").MapHostOutageRecovery();
 
 // Прогреваем реестр инструментов до старта приёма запросов (команды записи резолвят инструмент).
 await app.Services.GetRequiredService<IInstrumentRegistry>().InitializeAsync(CancellationToken.None);
