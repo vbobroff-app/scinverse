@@ -91,12 +91,9 @@ function buildThread(corrUid: string, group: readonly NotificationEvent[]): Thre
   const threadKind = deriveThreadKind(ordered);
   const subject = deriveSubject(corrUid);
   const closedAt = terminal?.ts;
-  // Слой C crash: message уже «Подключение N: …» — в title целиком (не голый ohs.backend.outage).
-  const newest = ordered[ordered.length - 1];
-  const headerTitle =
-    subject?.startsWith('Подключение ') && newest?.message
-      ? newest.message
-      : (subject ?? corrUid);
+  // Как у Group: короткий subject в title; полный message — в колонке .message (flex),
+  // не в .title (max-width 160px → «Система восстановлена, …»).
+  const headerTitle = subject ?? corrUid;
 
   const thread: ThreadItem = {
     itemKind: 'thread',
@@ -226,11 +223,11 @@ export function deriveSubject(corrUid: string): string | undefined {
   if (conn) {
     return `connection:${conn[1]}`;
   }
-  // crash-dispatch слой C: `ohs.backend.outage:{seed}:c{id}` → «Подключение {id}»
-  // (не общий `ohs.backend.outage` — иначе N connection выглядят как дубль).
+  // crash-dispatch слой C: `ohs.backend.outage:{seed}:c{id}` → `connection:{id}`
+  // (как break `connection:{id}:link` — короткий title после RESOLVED; текст в message).
   const outageConn = /^ohs\.backend\.outage:[^:]+:c(\d+)$/.exec(corrUid);
   if (outageConn) {
-    return `Подключение ${outageConn[1]}`;
+    return `connection:${outageConn[1]}`;
   }
   const outage = /^(ohs\.backend\.outage)(?::|$)/.exec(corrUid);
   if (outage) {

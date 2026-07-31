@@ -80,7 +80,7 @@ export function ThreadBlock({
   const ref = useRef<HTMLDivElement>(null);
   const newest = thread.notifications[thread.notifications.length - 1];
   const lastMessage = newest?.message ?? thread.header.summary ?? '';
-  // Title уже = last message (crash «Подключение N: …») — не дублировать в message.
+  // Title = subject (короткий); message = last Entry — как у Group.
   const messageDistinct = lastMessage !== thread.header.title;
   const kindBadge = thread.threadKind === 'incident' ? 'incident' : 'group';
   const kindLabel = thread.threadKind === 'incident' ? 'Incident' : 'Group';

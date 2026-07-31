@@ -130,7 +130,7 @@ describe('projectThreads', () => {
   });
 
   it('crash layer C: subject + header title bind to connectionId', () => {
-    expect(deriveSubject('ohs.backend.outage:1720000000000:c3')).toBe('Подключение 3');
+    expect(deriveSubject('ohs.backend.outage:1720000000000:c3')).toBe('connection:3');
     const corr = 'ohs.backend.outage:1720000000000:c3';
     const closeMsg = 'Подключение 3: Система восстановлена';
     const items = projectThreads([
@@ -156,8 +156,9 @@ describe('projectThreads', () => {
       }),
     ]);
     const t = threadOf(items, corr);
-    expect(t.subject).toBe('Подключение 3');
-    expect(t.header.title).toBe(closeMsg);
+    expect(t.subject).toBe('connection:3');
+    // Как break: title = connection:{id}; message без изменений («Подключение 3: …»).
+    expect(t.header.title).toBe('connection:3');
     expect(t.notifications.map((n) => n.message)).toEqual([
       'Подключение 3: Сервер OHS недоступен, жду восстановления',
       closeMsg,
