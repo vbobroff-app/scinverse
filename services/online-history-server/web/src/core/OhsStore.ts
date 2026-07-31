@@ -1,7 +1,30 @@
-import { BehaviorSubject, EMPTY, from, of, throwError, type Observable, type Subscription } from 'rxjs';
+import {
+  BehaviorSubject,
+  EMPTY,
+  Subject,
+  concat,
+  from,
+  of,
+  throwError,
+  type Observable,
+  type Subscription,
+} from 'rxjs';
 import { notify } from '@scinverse/notification-center';
 import { notificationBus } from './notifications';
-import { catchError, finalize, map, mergeMap, switchMap, tap, timeout, toArray } from 'rxjs/operators';
+import {
+  catchError,
+  concatMap,
+  debounceTime,
+  defaultIfEmpty,
+  finalize,
+  ignoreElements,
+  map,
+  mergeMap,
+  switchMap,
+  tap,
+  timeout,
+  toArray,
+} from 'rxjs/operators';
 import { bucketSecondsForTimeframe } from './activityBucket';
 import { OhsApi, type OhsApiClient } from './api';
 import { getAdminClientId } from './adminClientId';
@@ -124,6 +147,11 @@ const SERIES_STRIKES_LIMIT = 500;
 
 /** Как часто перезапрашивать покрытие (живые гэпы внутри активной сессии). */
 const COVERAGE_POLL_MS = 12_000;
+/**
+ * I12 / 7j.22 шаг 1 (+ задел под WebGL drag-zoom): склеить залп/жест в один проход.
+ * Тишина debounce → полный последовательный refresh; in-flight отменяется (switchMap).
+ */
+const RIBBON_REFRESH_DEBOUNCE_MS = 150;
 /** Grace до объявления недоступности бэка (7j.20). 0 = сразу Single + optimistic ribbon
  * (оператор ждёт инцидент без задержки; HMR-блип редкий на живой приёмке). */
 const BACKEND_OUTAGE_GRACE_MS = 0;
@@ -333,6 +361,8 @@ export class OhsStore {
   private liveSub?: Subscription;
   private windowTimer?: ReturnType<typeof setInterval>;
   private coveragePollTimer?: ReturnType<typeof setInterval>;
+  /** I12: вход pipeline refresh ленты (полный проход coverage→activity→liveness). */
+  private readonly ribbonRefresh$ = new Subject<void>();
 
   // Инцидент недоступности бэка (7j.20). Фазы: grace → open (FATAL+тики) → warning → ok.
   // §9.2: к OK только через WARNING (не FATAL→OK). Пачка mid-stack 500 → один warn после кулдауна.
@@ -381,6 +411,12 @@ export class OhsStore {
     private readonly live?: Observable<LiveEvent>,
   ) {
     this.restoreViewState();
+    this.ribbonRefresh$
+      .pipe(
+        debounceTime(RIBBON_REFRESH_DEBOUNCE_MS),
+        switchMap(() => this.runRibbonRefresh$()),
+      )
+      .subscribe({ error: (err) => console.error('ribbon refresh', err) });
   }
 
   /**
@@ -537,11 +573,7 @@ export class OhsStore {
     // Периодический пересчёт окна ловит смену суток и рост экстента (для range — no-op).
     // Покрытие перезапрашивается чаще — свежие гэпы внутри активной сессии.
     this.windowTimer = setInterval(() => this.refreshTimeframeWindow(), WINDOW_REFRESH_MS);
-    this.coveragePollTimer = setInterval(() => {
-      this.refreshCoverage();
-      this.refreshActivity();
-      this.refreshLiveness();
-    }, COVERAGE_POLL_MS);
+    this.coveragePollTimer = setInterval(() => this.requestRibbonRefresh(), COVERAGE_POLL_MS);
   }
 
   stop(): void {
@@ -1810,12 +1842,9 @@ export class OhsStore {
     });
   }
 
+  /** Заказать refresh покрытия через I12-pipeline (debounce + полный последовательный проход). */
   refreshCoverage(): void {
-    const { from, to } = this.window$.value;
-    this.api.getCoverage(from, to).subscribe({
-      next: (x) => this.coverage$.next(x),
-      error: (err) => console.error('getCoverage', err),
-    });
+    this.requestRibbonRefresh();
   }
 
   /**
@@ -1846,77 +1875,157 @@ export class OhsStore {
 
   /** Догружает интервалы живости и журнал разрывов для текущего окна и источника. */
   refreshLiveness(): void {
+    this.requestRibbonRefresh();
+  }
+
+  /**
+   * I12: коалесцирует залп refresh* → один полный последовательный проход
+   * (coverage → activity → capture → link → incidents).
+   */
+  private requestRibbonRefresh(): void {
+    this.ribbonRefresh$.next(undefined);
+  }
+
+  /** Один полный проход ленты: тяжёлые API строго по очереди (не параллельный залп). */
+  private runRibbonRefresh$(): Observable<void> {
+    return concat(
+      this.fetchCoverage$(),
+      this.fetchActivity$(),
+      this.fetchLiveness$(),
+    ).pipe(ignoreElements(), defaultIfEmpty(undefined as void));
+  }
+
+  private fetchCoverage$(): Observable<unknown> {
+    const { from, to } = this.window$.value;
+    return this.api.getCoverage(from, to).pipe(
+      tap((x) => this.coverage$.next(x)),
+      catchError((err) => {
+        console.error('getCoverage', err);
+        return of(null);
+      }),
+    );
+  }
+
+  private fetchActivity$(): Observable<unknown> {
+    const ctx = this.activityContext;
+    const bucketSeconds = bucketSecondsForTimeframe(this.timeframe$.value);
+    if (ctx === null || ctx.instrumentIds.length === 0) {
+      this.activity$.next({ bucketMs: bucketSeconds * 1000, byInstrument: new Map() });
+      return of(null);
+    }
+    const { from, to } = this.window$.value;
+    return this.api
+      .getTradeActivity({
+        from,
+        to,
+        bucketSeconds,
+        sourceId: ctx.sourceId,
+        instrumentIds: [...ctx.instrumentIds],
+      })
+      .pipe(
+        tap((rows) => {
+          const byInstrument = new Map<number, number[]>();
+          for (const r of rows) {
+            byInstrument.set(
+              r.instrumentId,
+              r.buckets.map((b) => Date.parse(b)),
+            );
+          }
+          this.activity$.next({ bucketMs: bucketSeconds * 1000, byInstrument });
+        }),
+        catchError((err) => {
+          console.error('getTradeActivity', err);
+          return of(null);
+        }),
+      );
+  }
+
+  private clearLivenessState(): void {
+    this.liveness$.next({ intervals: [], gaps: [] });
+    this.link$.next({
+      intervals: [],
+      gaps: [],
+      linkRecoverGraceSeconds: undefined,
+      incidents: undefined,
+    });
+  }
+
+  /** Capture → link → incidents — последовательно внутри liveness-шага. */
+  private fetchLiveness$(): Observable<unknown> {
     const sourceId = this.livenessSourceId;
     if (sourceId === null) {
-      this.liveness$.next({ intervals: [], gaps: [] });
-      this.link$.next({
-        intervals: [],
-        gaps: [],
-        linkRecoverGraceSeconds: undefined,
-        incidents: undefined,
-      });
-      return;
+      this.clearLivenessState();
+      return of(null);
     }
     const { from, to } = this.window$.value;
     const connectionId = this.activeConnectionId$.value;
-    this.api.getCaptureLiveness({ from, to, sourceId }).subscribe({
-      next: (dto) => {
+    return this.api.getCaptureLiveness({ from, to, sourceId }).pipe(
+      tap((dto) => {
         const gaps =
           dto.intervals.length > 0 ? gapsFromLivenessIntervals(dto.intervals) : dto.gaps;
         this.liveness$.next({ intervals: dto.intervals, gaps });
-      },
-      error: (err) => console.error('getCaptureLiveness', err),
-    });
-    // Лента Connection (phase 7h.8): вся история связи по тому же источнику. Gaps берём с сервера как
-    // есть — они включают серый 'disconnected' (в отличие от захвата, где серое отфильтровано).
-    this.api.getLinkLiveness({ from, to, sourceId }).subscribe({
-      next: (dto) => {
-        const grace = dto.linkRecoverGraceSeconds;
-        const prevIncidents = this.link$.value.incidents;
-        const opt = this.crashOptimistic;
-        // D7: один optimistic from/to на любой active connection из connections$.
-        if (opt) {
-          if (linkHasCrashGap(dto, opt.fromMs, opt.toMs)) {
-            this.crashOptimistic = null;
+      }),
+      catchError((err) => {
+        console.error('getCaptureLiveness', err);
+        return of(null);
+      }),
+      concatMap(() =>
+        this.api.getLinkLiveness({ from, to, sourceId }).pipe(
+          tap((dto) => {
+            const grace = dto.linkRecoverGraceSeconds;
+            const prevIncidents = this.link$.value.incidents;
+            const opt = this.crashOptimistic;
+            // D7: один optimistic from/to на любой active connection из connections$.
+            if (opt) {
+              if (linkHasCrashGap(dto, opt.fromMs, opt.toMs)) {
+                this.crashOptimistic = null;
+                this.link$.next({
+                  intervals: dto.intervals,
+                  gaps: dto.gaps,
+                  linkRecoverGraceSeconds: grace,
+                  incidents: prevIncidents,
+                });
+                return;
+              }
+              this.link$.next({
+                ...applyCrashOptimistic(dto, opt.fromMs, opt.toMs),
+                linkRecoverGraceSeconds: grace,
+                incidents: prevIncidents,
+              });
+              return;
+            }
             this.link$.next({
               intervals: dto.intervals,
               gaps: dto.gaps,
               linkRecoverGraceSeconds: grace,
               incidents: prevIncidents,
             });
-            return;
-          }
-          this.link$.next({
-            ...applyCrashOptimistic(dto, opt.fromMs, opt.toMs),
-            linkRecoverGraceSeconds: grace,
-            incidents: prevIncidents,
-          });
-          return;
+          }),
+          catchError((err) => {
+            console.error('getLinkLiveness', err);
+            return of(null);
+          }),
+        ),
+      ),
+      concatMap(() => {
+        // 11.13e: цветные эпизоды Connection + бинарный red Recording ← журнал incident.
+        if (connectionId == null) {
+          this.link$.next({ ...this.link$.value, incidents: undefined });
+          return of(null);
         }
-        this.link$.next({
-          intervals: dto.intervals,
-          gaps: dto.gaps,
-          linkRecoverGraceSeconds: grace,
-          incidents: prevIncidents,
-        });
-      },
-      error: (err) => console.error('getLinkLiveness', err),
-    });
-    // 11.13e: цветные эпизоды Connection + бинарный red Recording ← журнал incident.
-    if (connectionId != null) {
-      this.api.getConnectionIncidents(connectionId, { from, to, limit: 500 }).subscribe({
-        next: (incidents) => {
-          this.link$.next({ ...this.link$.value, incidents });
-          this.maybeClearCrashOptimisticFromJournal(incidents);
-        },
-        error: (err) => {
-          console.error('getConnectionIncidents', err);
-          this.link$.next({ ...this.link$.value, incidents: [] });
-        },
-      });
-    } else {
-      this.link$.next({ ...this.link$.value, incidents: undefined });
-    }
+        return this.api.getConnectionIncidents(connectionId, { from, to, limit: 500 }).pipe(
+          tap((incidents) => {
+            this.link$.next({ ...this.link$.value, incidents });
+            this.maybeClearCrashOptimisticFromJournal(incidents);
+          }),
+          catchError((err) => {
+            console.error('getConnectionIncidents', err);
+            this.link$.next({ ...this.link$.value, incidents: [] });
+            return of(null);
+          }),
+        );
+      }),
+    );
   }
 
   /** Journal crash на активном connection → optimistic gap больше не нужен (UI и так глушит). */
@@ -1945,41 +2054,12 @@ export class OhsStore {
 
   /** Догружает слой сделок для текущего контекста, окна и бакета таймфрейма (батч-запрос). */
   refreshActivity(): void {
-    const ctx = this.activityContext;
-    const bucketSeconds = bucketSecondsForTimeframe(this.timeframe$.value);
-    if (ctx === null || ctx.instrumentIds.length === 0) {
-      this.activity$.next({ bucketMs: bucketSeconds * 1000, byInstrument: new Map() });
-      return;
-    }
-    const { from, to } = this.window$.value;
-    this.api
-      .getTradeActivity({
-        from,
-        to,
-        bucketSeconds,
-        sourceId: ctx.sourceId,
-        instrumentIds: [...ctx.instrumentIds],
-      })
-      .subscribe({
-        next: (rows) => {
-          const byInstrument = new Map<number, number[]>();
-          for (const r of rows) {
-            byInstrument.set(
-              r.instrumentId,
-              r.buckets.map((b) => Date.parse(b)),
-            );
-          }
-          this.activity$.next({ bucketMs: bucketSeconds * 1000, byInstrument });
-        },
-        error: (err) => console.error('getTradeActivity', err),
-      });
+    this.requestRibbonRefresh();
   }
 
   setWindow(window: CoverageWindow): void {
     this.window$.next(window);
-    this.refreshCoverage();
-    this.refreshActivity();
-    this.refreshLiveness();
+    this.requestRibbonRefresh();
   }
 
   connect(connectionId: number): void {

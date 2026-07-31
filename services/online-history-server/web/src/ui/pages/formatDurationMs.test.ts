@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDurationMs } from './IncidentsSection';
+import { formatDurationMs } from './formatDurationMs';
 
 describe('formatDurationMs', () => {
   it('formats under a day as HH:MM:SS', () => {

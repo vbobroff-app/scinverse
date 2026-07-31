@@ -1,5 +1,5 @@
 import { vi, afterEach } from 'vitest';
-import { of, Subject, throwError, type Observable } from 'rxjs';
+import { Observable, Subject, of, throwError, timer } from 'rxjs';
 import { OhsStore } from './OhsStore';
 import type { OhsApiClient } from './api';
 import { loadSelectedInstruments } from './selectedInstrumentsStorage';
@@ -16,6 +16,14 @@ import type {
   SessionDto,
   ValidateConnectionResult,
 } from './types';
+
+/** Debounce ленты I12 (должен совпадать с RIBBON_REFRESH_DEBOUNCE_MS в OhsStore). */
+const RIBBON_REFRESH_DEBOUNCE_MS = 150;
+
+/** Дождаться debounce + sync-ответов `of(...)` в pipeline ленты. */
+function flushRibbonRefresh(): void {
+  vi.advanceTimersByTime(RIBBON_REFRESH_DEBOUNCE_MS);
+}
 
 function connection(overrides: Partial<ConnectionDto> = {}): ConnectionDto {
   return {
@@ -166,9 +174,11 @@ describe('OhsStore live merge', () => {
   });
 
   it('двигает счётчик активной колбаски по coverageExtended без перезапроса', () => {
+    vi.useFakeTimers();
     const live = new Subject<LiveEvent>();
     const store = new OhsStore(fakeApi(), live);
     store.start();
+    flushRibbonRefresh();
 
     expect(store.coverage$.value[0].tradeCount).toBe(0);
     live.next({
@@ -181,9 +191,11 @@ describe('OhsStore live merge', () => {
 
     expect(store.coverage$.value[0].tradeCount).toBe(42);
     store.stop();
+    vi.useRealTimers();
   });
 
   it('заполняет activity$ батчем по setActivityContext', () => {
+    vi.useFakeTimers();
     const bucketTs = '2026-01-05T10:00:00.000Z';
     const store = new OhsStore(
       fakeApi({ getTradeActivity: () => of([{ instrumentId: 100, buckets: [bucketTs] }]) }),
@@ -192,12 +204,15 @@ describe('OhsStore live merge', () => {
     store.start();
 
     store.setActivityContext([100], 2);
+    flushRibbonRefresh();
 
     expect(store.activity$.value.byInstrument.get(100)).toEqual([Date.parse(bucketTs)]);
     store.stop();
+    vi.useRealTimers();
   });
 
   it('живой край: coverageExtended добавляет бакет последней сделки', () => {
+    vi.useFakeTimers();
     const live = new Subject<LiveEvent>();
     const store = new OhsStore(
       fakeApi({ getTradeActivity: () => of([{ instrumentId: 100, buckets: [] }]) }),
@@ -205,6 +220,7 @@ describe('OhsStore live merge', () => {
     );
     store.start();
     store.setActivityContext([100], 2);
+    flushRibbonRefresh();
     expect(store.activity$.value.byInstrument.get(100)).toEqual([]);
 
     const ts = '2026-01-05T10:00:17.000Z';
@@ -214,6 +230,64 @@ describe('OhsStore live merge', () => {
     const expected = Math.floor(Date.parse(ts) / bucketMs) * bucketMs;
     expect(byInstrument.get(100)).toEqual([expected]);
     store.stop();
+    vi.useRealTimers();
+  });
+
+  it('I12: залп refresh* → не больше одного тяжёлого запроса одновременно', () => {
+    vi.useFakeTimers();
+    let inflight = 0;
+    let maxInflight = 0;
+    const track = <T>(value: T): Observable<T> =>
+      new Observable<T>((subscriber) => {
+        inflight += 1;
+        maxInflight = Math.max(maxInflight, inflight);
+        let held = true;
+        const release = () => {
+          if (!held) {
+            return;
+          }
+          held = false;
+          inflight -= 1;
+        };
+        const sub = timer(20).subscribe({
+          next: () => {
+            release();
+            subscriber.next(value);
+            subscriber.complete();
+          },
+        });
+        return () => {
+          release();
+          sub.unsubscribe();
+        };
+      });
+
+    const store = new OhsStore(
+      fakeApi({
+        getCoverage: () => track([segment()]),
+        getTradeActivity: () => track([]),
+        getCaptureLiveness: () => track({ intervals: [], gaps: [] }),
+        getLinkLiveness: () => track({ intervals: [], gaps: [] }),
+        getConnectionIncidents: () => track([]),
+      }),
+      new Subject<LiveEvent>(),
+    );
+    store.setLivenessSource(2);
+    store.setActivityContext([100], 2);
+    // Залп как после recover / break (до debounce).
+    store.refreshCoverage();
+    store.refreshActivity();
+    store.refreshLiveness();
+    store.refreshCoverage();
+    store.refreshLiveness();
+
+    flushRibbonRefresh();
+    // Дождаться всей последовательной цепочки (4 шага × 20 ms + запас).
+    vi.advanceTimersByTime(200);
+
+    expect(maxInflight).toBe(1);
+    store.stop();
+    vi.useRealTimers();
   });
 
 });
