@@ -5,7 +5,9 @@
 **Текущий статус:** Thread **DONE**; **11.13a–f DONE**; **I2 RESOLVED**; **crash-dispatch D1–D8 DONE**.
 [issue.md](issue.md) I2 · [incident-journal.md](incident-journal.md) §7 ·
 [crash-dispatch.md](crash-dispatch.md).
-**Обновлено:** 2026-07-30.
+Смежный хвост 7j **I12** (pool / orphan FATAL): клиент **шаги 1–2 DONE**, шаг 3 (pool size)
+**отложен** — [../phase7j/plan.md](../phase7j/plan.md) §7j.22.
+**Обновлено:** 2026-07-31.
 
 ## Статус задач
 
@@ -68,10 +70,12 @@
 | 2026-07-29 | **I2 step3:** crash ingest + manual resolve + connect recovering → fan-out | OhsEndpoints |
 | 2026-07-29 | **I2 RESOLVED:** регрессия parallel crash (unit+ApiTest); критерии приёмки | [issue.md](issue.md) I2 |
 | 2026-07-30 | **Crash dispatch D1–D8 DONE:** `POST /recovery/outage` merge; emit T (`ohs.host.transport:`) + C (`ohs.backend.outage:…:c{id}`); journal только desired; клиент — local Single + LS pending + POST + optimistic ribbon; cutover с client-led crash journal | HostOutage unit 14 · Crash_ Api 3 · web 48 · NC bus 23; [crash-dispatch.md](crash-dispatch.md) |
+| 2026-07-31 | **I12 (7j.22) клиент:** serialize ribbon refresh (`OhsStore` debounce+switchMap+concat); health-ok закрывает все недавние orphan `ohs.unhandled`. `Max Pool Size=100` не трогали | `6871a57` · `327c8fe` · [../phase7j/issue.md](../phase7j/issue.md) I12 |
 
 ## Итог
 
 Лента NC v1 — **готова**. Журнал OHS **11.13a–f DONE**. **I2 fan-out — RESOLVED**.
 **Crash dispatch (Host outage T+C) — DONE.** Вынос atoms/пакета в NC — **gate 11→12**.
 Итог мультиклиент / journal / link / NC — [../incident-model-wrapup.md](../incident-model-wrapup.md)
-(2026-07-31). Хвост смежный 7j: **I12** ([../phase7j/plan.md](../phase7j/plan.md) §7j.22).
+(2026-07-31). Смежный 7j **I12**: клиент mitigation **DONE** (шаги 1–2); Host pool — later
+([../phase7j/plan.md](../phase7j/plan.md) §7j.22).

@@ -10,9 +10,11 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 транспорт системных/внешних событий; необязательно — `user_settings` (phase 10) для персистенции
 состояния панели/фильтров. Влияет на все модули фронта и на серверное логирование.
 
-**Фокус сейчас:** gate **11→12** (вынос NC) / хвосты. **11.13a–f DONE**.
+**Фокус сейчас:** gate **11→12** (вынос NC). **11.13a–f DONE**; crash D1–D8 **DONE**.
 Таблица `incident` в **OHS**; поток `notification` / пакет → NC MFE.
 Thread 11.8–11.12 — **DONE**. Канон — [incident-journal.md](incident-journal.md) §12.
+Смежный **I12** (orphan FATAL / pool) — клиент **DONE**, pool size не поднимали —
+[../phase7j/plan.md](../phase7j/plan.md) §7j.22.
 
 **Ядро UI/шины:** пакет [`packages/notification-center`](../../../packages/notification-center)
 (`@scinverse/notification-center`) — без привязки к OHS.
@@ -141,10 +143,11 @@ Thread 11.8–11.12 — **DONE**. Канон — [incident-journal.md](incident-
 
 **11.13 журнал — DONE.** **I2 RESOLVED** — fan-out OHS→`incident`+NC ([issue.md](issue.md) I2,
 [incident-journal.md](incident-journal.md) §7). **Crash dispatch D1–D8 — DONE**
-([crash-dispatch.md](crash-dispatch.md)). Далее: gate 11→12 / 7j хвосты.
+([crash-dispatch.md](crash-dispatch.md)). Далее: gate 11→12 / 7j.15–16.
 
-**Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 код готов**
-([../phase7j/issue.md](../phase7j/issue.md)); живая приёмка / хвосты 7j.15–16 — не блокер 11.13.
+**Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 ПРИНЯТО**
+([../phase7j/issue.md](../phase7j/issue.md)). **I12** клиент (ribbon pipeline + close-all orphan
+health-ok) — **DONE**; Host `Max Pool Size` — defer. Хвосты UI 7j.15–16 — не блокер 11.
 
 Детали — в [apply.md](apply.md), Thread — [to-threads.md](to-threads.md), журнал —
 [incident-journal.md](incident-journal.md), статус — в [report.md](report.md).

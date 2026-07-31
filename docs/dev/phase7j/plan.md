@@ -10,9 +10,9 @@
 > [report.md](report.md).
 
 **Статус:** инцидентный контур **7j.17–7j.20 + J11a/b/c + I10/I11** — **код + живая приёмка**
-(Adopt crash-inside-break 2026-07-31). Хвост инцидентов: **I12 OPEN** (план ниже, код — после
-wrap-up). Очередь фазы (не инциденты): **7j.15** / **7j.16**. UI NC Thread → **phase 11**
-([../phase11/plan.md](../phase11/plan.md)). Итог модели —
+(Adopt crash-inside-break 2026-07-31). **I12 / 7j.22** — клиент **DONE** (шаги 1–2); Host pool
+size **отложен** (остаётся 100). Очередь фазы (не инциденты): **7j.15** / **7j.16**. UI NC Thread →
+**phase 11** ([../phase11/plan.md](../phase11/plan.md)). Итог модели —
 [../incident-model-wrapup.md](../incident-model-wrapup.md). Зависимости: **7h / 7h.8**, **7c**, **7e**.
 Соседняя **7i** — Auto записи. Gate Admin Front + NC — **11→12**. Детали — [apply.md](apply.md);
 статус — [report.md](report.md); остаток — [todo.md](todo.md). **Обновлено:** 2026-07-31.
@@ -73,34 +73,32 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 | 7j.19 | **Инциденты связи + точность разрыва** (I1–I5) | **КОД ГОТОВ** | [issue.md](issue.md) |
 | 7j.20 | **Инциденты связи v2** + **backend-outage v2** + system NC JSON + **J11a/J11c** abandon schedule | **КОД ГОТОВ** | [incident.md](incident.md) · [nc-availability.md](nc-availability.md) · [todo.md](todo.md) |
 | **7j.21** | **I11:** единый close-break (Manager+Hub); атомарный Adopt; снять костыли `auto:`/лента | **КОД ГОТОВ** · приёмка | [issue.md](issue.md) I11 · [todo.md](todo.md) |
-| **7j.22** | **I12:** pool exhausted → пачка 500 / orphan FATAL | **ПЛАН** (код после wrap-up) | [issue.md](issue.md) I12 · ниже |
+| **7j.22** | **I12:** pool exhausted → пачка 500 / orphan FATAL | **КЛИЕНТ DONE**; pool defer | [issue.md](issue.md) I12 · ниже |
 | **7j.15** | Рыночный/календарный профиль на settings; UI без хардкода MOEX | **ОЧЕРЕДЬ** | [market-profile.md](market-profile.md) |
 | **7j.16** | `date`-авторинг на фронте + пагинация графика по месяцам | **ОЧЕРЕДЬ** | [todo.md](todo.md) |
 
 ## Что осталось в 7j / куда ушло
 
-**Инциденты связи/crash + I11 close-break — код готов, живая приёмка.** Дальше:
+**Инциденты связи/crash + I11 close-break — код готов, живая приёмка.** **I12 клиент — DONE.** Дальше:
 
-1. **7j.22 / I12** — план зафиксирован; код — после итога/рефакторинга ([issue.md](issue.md) I12).
-2. **7j.15 / 7j.16** — market profile / `date`-авторинг ([todo.md](todo.md)).
-3. **UI NC Thread** — **phase 11 DONE** — [../phase11/to-threads.md](../phase11/to-threads.md).
-4. Смежно: **H1/H2** (recording-ribbon, 7h); **7i** Auto записи; **не** WebGL до gate 11→12.
+1. **7j.15 / 7j.16** — market profile / `date`-авторинг ([todo.md](todo.md)).
+2. **UI NC Thread** — **phase 11 DONE** — [../phase11/to-threads.md](../phase11/to-threads.md).
+3. Смежно: **H1/H2** (recording-ribbon, 7h); **7i** Auto записи; **не** WebGL до gate 11→12.
+4. **I12 шаг 3** — Host pool только если снова упрёмся в exhausted приёмкой (`Max Pool Size` пока **100**).
 
-### 7j.22 — I12: пул Npgsql / orphan FATAL (ПЛАН)
+### 7j.22 — I12: пул Npgsql / orphan FATAL (КЛИЕНТ DONE · 2026-07-31)
 
 Симптом: после recover Host **или** break UI залпом дергает coverage/liveness →
 `The connection pool has been exhausted` → пачка `ohs.unhandled` (500); health-probe закрывает
 только один corr → orphan ACTIVE FATAL. Канон эпизодов — [issue.md](issue.md) I12.
 
-**Порядок фикса (не всё сразу; код — после wrap-up 2/3):**
+| # | Слой | Статус | Что |
+|---|------|--------|-----|
+| **1** | **Клиент** | **DONE** `6871a57` | `OhsStore`: `Subject` → `debounceTime(150)` → `switchMap` → `concat(coverage→activity→liveness)`; полный проход на любой триггер; задел под WebGL drag-zoom |
+| **2** | **NC / I8 хвост** | **DONE** `327c8fe` | Пачка single-500 без outage: один health-probe → `closeRecentOrphanUnhandledWithHealthOk` закрывает **все** недавние orphan (окно 15 с) + mock-POST |
+| **3** | **Host / пул** | **DEFER** | `Max Pool Size=100` **не поднимаем**; вернуться только если после (1)(2) на живой приёмке снова exhausted |
 
-| # | Слой | Что | Зачем |
-|---|------|-----|--------|
-| **1** | **Клиент 7h (главное)** | Один RxJS-pipeline на refresh ленты: `Subject` → debounce → `switchMap`/`exhaustMap` → последовательные `coverage` / `link` / `activity` / `incidents`. Повторный вызов отменяет/игнорирует предыдущий залп. Точка: `OhsStore.refreshLiveness` | Убирает причину exhausted |
-| **2** | **NC / I8 хвост** | При пачке single-500 без outage: health-ok закрывает **все** недавние orphan `ohs.unhandled`, не один `corr` | Убирает orphan FATAL, если 500 проскочили |
-| **3** | **Host / пул (по необходимости)** | Лог pool stats при exhausted; проверить долгие hold; `Max Pool Size`/`Timeout` — только если после (1) ещё жмётся | Не маскировать залп одним увеличением пула |
-
-Сознательно **не** первым: просто поднять пул до 200; рестарт Host как «лечение».
+Сознательно **не** делали: поднять пул до 200; рестарт Host как «лечение».
 
 ### 7j.21 — план зачистки I11 (без наращивания костылей)
 

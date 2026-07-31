@@ -1,11 +1,13 @@
 # Phase 11 — Issues: объектная модель NC (Thread / Incident / Group)
 
-Статус: **I1 RESOLVED** (11.8–11.12) · **I2 RESOLVED** (fan-out журнал↔NC). Обновлено: 2026-07-29.
+Статус: **I1 RESOLVED** (11.8–11.12) · **I2 RESOLVED** (fan-out журнал↔NC). Обновлено: 2026-07-31.
 
 Связано: [plan.md](plan.md), [to-threads.md](to-threads.md), [persistence.md](persistence.md),
 журнал инцидентов — [incident-journal.md](incident-journal.md),
 инциденты связи/crash — [../phase7j/incident.md](../phase7j/incident.md),
 [../phase7j/nc-availability.md](../phase7j/nc-availability.md).
+Смежный **I12** (orphan FATAL / pool) — клиент DONE в 7j.22, не issue phase 11 —
+[../phase7j/issue.md](../phase7j/issue.md) I12.
 
 ---
 

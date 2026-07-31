@@ -36,7 +36,7 @@ OHS пишет journal + NC **на одном уровне** (IncidentFanOut); N
 
 | # | Что | Где |
 |---|-----|-----|
-| **I12** | Pool exhausted → пачка 500 / orphan FATAL — **код следующий чат** (§7j.22) | [phase7j/plan.md](phase7j/plan.md) §7j.22 |
+| **I12** | Pool exhausted / orphan FATAL — клиент **DONE** (1)(2); Host pool **DEFER** @100 | [phase7j/plan.md](phase7j/plan.md) §7j.22 · `6871a57` · `327c8fe` |
 | **Приёмка на зелёном Finam** | Часто вне окна шлюза (±2 ч от сессии) — connect ×5 «в пустоту» | ops / расписание |
 
 Wrap-up закоммичен: `6c7c36c` · race/markers `255cc93`. Handoff нового чата — [`docs/promt.md`](../promt.md) §8.
@@ -69,9 +69,9 @@ Wrap-up закоммичен: `6c7c36c` · race/markers `255cc93`. Handoff но�
 | Check | Diff сведён: Adopt Live-only, `request_timeout=10`, NC ok>warn, deploy docs |
 | Refactor | `IsStaleOpenBreak` / `ResolveStaleOpenBreakAsync`; LinkDetect → `LogDebug` |
 | Docs | phase7j plan/todo/issue/report · phase11 report · этот файл · promt §7 |
-| I12 | План приоритетов в [phase7j/plan.md](phase7j/plan.md) §7j.22 — **код отдельно, следующим** |
+| I12 | Клиент: ribbon pipeline + close-all orphan health-ok; pool size не поднимали | `6871a57` · `327c8fe` |
 
-Вне scope этого прохода: 7j.15/16 UI, finam-ws, gate 11→12, код I12.
+Вне scope wrap-up / I12: 7j.15/16 UI, finam-ws, gate 11→12, Host `Max Pool Size` bump.
 
 ---
 
@@ -84,6 +84,6 @@ Wrap-up закоммичен: `6c7c36c` · race/markers `255cc93`. Handoff но�
 - [x] Adopt crash-inside-break (живая приёмка 2026-07-31)  
 - [x] Статусы в phase7j/11 report синхронизированы  
 - [x] Рефактор Adopt + LinkDetect; wrap-up закоммичен  
-- [ ] I12 mitigation (7j.22 код) или явный defer после приёмки плана  
+- [x] I12 клиент mitigation (7j.22 шаги 1–2); Host pool — явный defer @100  
 
-Инцидентный контур 7j+11 **стабилизирован по модели**. Дальше по приоритету: **I12 код** → 7j.15–16 / gate / finam-ws.
+Инцидентный контур 7j+11 **стабилизирован по модели**. Дальше по приоритету: **7j.15–16** / gate 11→12 / finam-ws; Host pool — только если снова exhausted.

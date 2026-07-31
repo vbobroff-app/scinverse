@@ -402,7 +402,9 @@ As-is: атомы → Hub/V025; to-be gate 11→12 — Publisher → серви�
 | **11.13e** | Connection-ribbon←`incident` (+ liveness); Recording←бинарная проекция (merge, без type) | **DONE** — projection + store wire; crash J8 optimistic gap |
 | **11.13f** | Ручное resolve + backfill/регрессия 7j | **DONE** — POST resolve/backfill-open; UI; J8 ingest; ApiTest |
 
-**Вне scope 11.13:** вынос NC-сервиса / перенос V025 (gate 11→12), WebGL, Keycloak, 7j.15/16, I12.
+**Вне scope 11.13:** вынос NC-сервиса / перенос V025 (gate 11→12), WebGL, Keycloak, 7j.15/16.
+**I12** (pool / orphan `ohs.unhandled`) — смежный 7j.22: клиент **DONE** (serialize refresh +
+close-all health-ok); Host pool size не меняли — [../phase7j/plan.md](../phase7j/plan.md) §7j.22.
 
 **Порядок:** a → b → c → (d ∥ e) → f. **I2:** docs ✓ → фасад ✓ → break ✓ → crash ✓ → тесты ✓.
 

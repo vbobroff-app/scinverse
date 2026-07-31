@@ -1,7 +1,7 @@
 # Phase 11 — Crash dispatch: транспорт + слой соединений
 
-**Статус:** `DESIGN AGREED` · **DONE** (D1–D8).  
-**Дата согласования:** 2026-07-30 · план: 2026-07-30 · закрыто: 2026-07-30.
+**Статус:** `DESIGN AGREED` · **DONE** (D1–D8) · **horizon clip** Group∩desired → Incident `:h` (2026-07-31).  
+**Дата согласования:** 2026-07-30 · план: 2026-07-30 · закрыто: 2026-07-30 · clip: 2026-07-31.
 
 **Связано:** [incident-journal.md](incident-journal.md) (§2, §4.3 Crash, A6) ·
 [to-threads.md](to-threads.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
@@ -93,29 +93,36 @@ ohs.host.transport:{outageSeed}
 Для каждого `connectionId`:
 
 ```text
-if desired(schedule, openedAt) → threadKind = incident  (+ journal type=crash)
-else                           → threadKind = group     (NC only)
+if desired(schedule, openedAt) → Incident + journal (полный span)
+else → Group (NC only)
+       if [openedAt, closedAt] ∩ desired ≠ ∅ → дополнительно clipped Incident
+         corr …:c{id}:h, journal на [overlapStart, overlapEnd]
 ```
 
 `desired` — тот же резолвер, что у Auto/break (date > dow > main; TZ расписания).
+Пересечение — `ConnectionScheduleDesiredOverlap` (OHS Domain).
 
-На один outage-окно у connection ровно **одна** нить (Incident **или** Group), не обе.
+На один outage-окно у connection обычно **одна** нить (Incident **или** Group).
+**Исключение (горизонт):** Group стартовал вне окна и заехал в work time → Group (полный span) **+**
+clipped Incident `:h` (только пересечение с desired) — дыра на ганте/в журнале.
 
-### 4.2. Corr (черновик)
+### 4.2. Corr
 
 ```text
-ohs.backend.outage:{outageSeed}:c{connectionId}
+ohs.backend.outage:{outageSeed}:c{connectionId}       — Group или полный Incident
+ohs.backend.outage:{outageSeed}:c{connectionId}:h     — clipped Incident (overlap)
 ```
 
-- один Host-outage → N нитей;
-- фильтр NC по `connectionId` работает;
+- один Host-outage → N нитей (+ опционально `:h` на overlap);
+- фильтр NC по `connectionId` работает; header subject = `connection:{id}` и для `:h`;
 - header Thread содержит / резолвит connection id (и имя, если есть).
 
 ### 4.3. Journal
 
 | threadKind | `incident` row |
 |------------|----------------|
-| incident | да: `type=crash`, `subtype=host_unavailable`, `connection_id`, `owner=admin` |
+| incident (desired at open) | да: полный span, `type=crash` |
+| incident `:h` (overlap) | да: clipped `[overlapStart, overlapEnd]` |
 | group | нет |
 
 Ribbon Connection красит только строки журнала с этим `connection_id` (+ optimistic gap до API).
@@ -374,4 +381,6 @@ NC не знает каталог connections; фильтр только по ч
 
 ---
 
-**Следующий шаг после утверждения плана:** начать **D1** (`HostOutageCoordinator` + endpoint).
+**Статус реализации:** D1–D8 **DONE** (2026-07-30) — см. [report.md](report.md).
+Смежный **I12** (пачка 500 / orphan FATAL после recover|break) — клиент mitigation в 7j.22
+([../phase7j/plan.md](../phase7j/plan.md) §7j.22); не часть crash-dispatch T/C.

@@ -2,7 +2,8 @@
 
 Статус: **КОД ГОТОВ · приёмка на живом (два стека + reload=live)**. §9 (единый corr, health-probe,
 warn-before-ok, persist стека, sort by `ts`) + system expanded JSON (`fd3e93e`). Коммит стека —
-`8bdfc6c`. Внешний NC-server — gate 11→12 / to-be C4. **Обновлено:** 2026-07-26.
+`8bdfc6c`. **I12 §9.3 batch:** close-all orphan на health-ok (`327c8fe`). Внешний NC-server —
+gate 11→12 / to-be C4. **Обновлено:** 2026-07-31.
 
 Связано: [error-handling.md](error-handling.md) (§8/§8.1 — краткая выжимка ссылается сюда),
 [incident.md](incident.md) (инциденты **связи** — отдельная нить), [report.md](report.md).
@@ -327,20 +328,22 @@ swagger **до** reconnect уходит под W3C `requestId` («бешеный
 3. если 500 всё же проскочил с чужим corr — live-fold в corr инцидента + пере-POST того же `id` с
    исправленным corr (persist/reload).
 
-### 9.3. Одиночный 500 (инцидента нет) → health-probe
+### 9.3. Одиночный / пачка 500 (инцидента нет) → health-probe
 
 Инвариант: **любой `ohs.unhandled` обязан закрыться каким-то `ok`** (висящих FATAL нет).
 
 ```
-none + ohs.unhandled (critical, corr=requestId, sender=backend)
-        │  клиент пробит health (getConnections / /health — тот же Kestrel, что WS)
-        ├─ бэк отвечает ──▶ [OK] «Проверка работоспособности: сервер OHS функционирует штатно»
-        │                        corr=requestId  sender=client → нить закрыта
-        └─ не отвечает / дроп WS в grace ──▶ эскалация: adopt requestId, штатный стек простоя (9.2)
+none + ohs.unhandled (critical, corr=requestId, sender=backend)  ×1…N (пачка)
+        │  клиент: один in-flight getConnections (склейка probe)
+        ├─ бэк отвечает ──▶ [OK] «Проверка работоспособности…» на **каждый** недавний orphan corr
+        │                        (не только последний requestId)  sender=client → нити закрыты
+        └─ не отвечает / дроп WS в grace ──▶ эскалация: adopt **последний** requestId, стек простоя (9.2)
 ```
 
-- Health-probe ok — клиент-авторский, но corr бэк-минтованный (`requestId`) → персист группируется с 500.
-- В debug 500 не роняет процесс (бэк устоял) → почти всегда ветка «Проверка ОК». На prod необработанное
+- Health-probe ok — клиент-авторский, corr бэк-минтованный (`requestId`) → персист группируется с 500.
+- **I12 (2026-07-31):** пачка parallel 500 больше не оставляет orphan ACTIVE — закрываются все
+  недавние (окно 15 с) через `closeRecentOrphanUnhandledWithHealthOk` ([issue.md](issue.md) I12).
+- В debug 500 не роняет процесс (бэк устоял) → почти всегда ветка «Проверка…». На prod необработанное
   роняет сервак → ветка эскалации.
 
 ### 9.4. Дедуп: I2 для тиков, discrete строки стека — нет

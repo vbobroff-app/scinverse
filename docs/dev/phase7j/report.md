@@ -1,7 +1,7 @@
 # Phase 7j — report: расписание соединения
 
 **Статус:** инцидентный контур **7j.17–7j.21 + I10/I11 ПРИНЯТО** (Adopt crash-inside-break 2026-07-31).
-Хвост: **I12 / 7j.22 OPEN** (план: RxJS refresh → close-all orphan → pool). Очередь UI: **7j.15 / 7j.16**.
+**I12 / 7j.22** — клиент **DONE** (шаги 1–2); Host pool **DEFER** @100. Очередь UI: **7j.15 / 7j.16**.
 Итог модели — [../incident-model-wrapup.md](../incident-model-wrapup.md). Список — [todo.md](todo.md).
 **Обновлено:** 2026-07-31.
 
@@ -34,12 +34,13 @@
 | 7j.19 | **Инциденты связи + точность разрыва (I1–I5)** | **КОД ГОТОВ** | [issue.md](issue.md); `22cd62d`, `68151e0` |
 | 7j.20 | **Инциденты связи v2 (J1–J8)** + **backend-outage v2 (§9)** + **system NC → JSON** + **J11a/J11c** | **КОД ГОТОВ** · H1/H2 → 7h | [incident.md](incident.md) · [nc-availability.md](nc-availability.md) |
 | 7j.21 | **I11** close-break / атомарный Adopt | **ПРИНЯТО** | [issue.md](issue.md) I11 |
-| 7j.22 | **I12** pool exhausted / orphan FATAL | **ПЛАН** (код после wrap-up) | [plan.md](plan.md) §7j.22 · [issue.md](issue.md) I12 |
+| 7j.22 | **I12** pool exhausted / orphan FATAL | **КЛИЕНТ DONE**; pool defer | [plan.md](plan.md) §7j.22 · [issue.md](issue.md) I12 · `6871a57` · `327c8fe` |
 
 ## Лог выполнения
 
 | Дата | Действие | Результат |
 |------|----------|-----------|
+| 2026-07-31 | **I12 / 7j.22 клиент:** (1) serialize ribbon refresh debounce+switchMap+concat; (2) health-ok closes all recent orphan `ohs.unhandled`. (3) `Max Pool Size=100` не трогали. | `6871a57` · `327c8fe` · [issue.md](issue.md) I12 |
 | 2026-07-31 | **Wrap-up инцидентной модели:** journal ⊥ NC; Adopt Live-only stale-close; `request_timeout=10`; NC ok>warn tiebreak; I12 план 7j.22 (приоритеты). Рефактор: матрица Adopt, LinkDetect→Debug. | [../incident-model-wrapup.md](../incident-model-wrapup.md) · код + docs |
 | 2026-07-27 | **Docs:** актуализация 7j (остаток = 7j.15/16 + J11b); UI NC Thread уехал в phase 11; handoff [`docs/promt.md`](../../promt.md) §8 → phase11. | документы |
 | 2026-07-27 | **J11c `crash` + `abandoned_schedule`:** клиент `abandonBackendOutageBySchedule` + pending persist; Host ingest Release + `MarkCrashAbandonedByScheduleAsync`; optimistic `overlayCrashOutageOnLink`; orphan `backend.recovering` — warn live-only. | **working tree** (не в `368bfb9`) |

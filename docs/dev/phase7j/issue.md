@@ -1,13 +1,13 @@
 # Phase 7j — Issues: инциденты связи и точность разрыва
 
 Статус: **I1–I8 РЕАЛИЗОВАНО** · **I9** — mitigation в vite; prod-checklist OPEN ·
-**I10/I11** — ПРИНЯТО (2026-07-31) · **I12** — OPEN · план 7j.22 (пул Npgsql / orphan ACTIVE 500).
+**I10/I11** — ПРИНЯТО (2026-07-31) · **I12** — клиент **DONE** (7j.22 шаги 1–2); Host pool
+**DEFER** (`Max Pool Size=100`).
 Диагностика I1–I5 — живой тест 23.07.2026; I6/I7 — 24.07.2026; I8 — 25–26.07.2026
 ([nc-availability.md](nc-availability.md)); I9 — 26.07.2026 (после рестарта Host);
-I10 — 27.07.2026 (Thread UI + вложенный crash); I12 — 29.07.2026 (после recover + coverage),
-повтор 30.07.2026 (break / WiFi cut → залп coverage).
-Часть сценариев принята на Finam id=3. Инцидентный контур 7j: хвост **I12**;
-остаток фазы — **7j.15/7j.16** ([todo.md](todo.md)); UI NC Thread → **phase 11**.
+I10 — 27.07.2026 (Thread UI + вложенный crash); I12 — 29–30.07.2026 (эпизоды); код 31.07.2026.
+Часть сценариев принята на Finam id=3. Остаток фазы — **7j.15/7j.16** ([todo.md](todo.md));
+UI NC Thread → **phase 11**.
 
 Связано: [auto-connect.md](auto-connect.md), [error-handling.md](error-handling.md), [report.md](report.md),
 [incident.md](incident.md) (§1.1–1.3, J11), 7h (лента Connection / `link_liveness`),
@@ -646,7 +646,8 @@ Connect-fail: Open link: + Append (Group auto:/connect: только после 
 
 ## I12. Пул Npgsql exhausted → пачка `ohs.unhandled` (500); orphan ACTIVE FATAL
 
-**Статус:** OPEN (2026-07-29; подтверждено **2026-07-30**).
+**Статус:** клиент **DONE** (2026-07-31) · Host pool **DEFER** (лимит 100).
+Эпизоды: 2026-07-29 / 2026-07-30.
 
 **Триггеры (не только рестарт Host):** любой залп тяжёлых coverage/liveness API —
 после outage/recover Host **или** после break (WiFi cut / Finam Degraded→Down), когда UI
@@ -705,20 +706,20 @@ POST /api/coverage/activity
 I8 обещал: «одиночный 500 → health-probe … **висящих FATAL нет**».  
 Для **пачки** параллельных 500 это не выполняется: N `requestId`-нитей, probe знает одну.
 
-### План фикса (приоритет; код — 7j.22 после wrap-up)
+### Фикс (7j.22)
 
-Канон порядка — [plan.md](plan.md) §7j.22:
+Канон — [plan.md](plan.md) §7j.22:
 
-| # | Слой | Что |
-|---|------|-----|
-| **1** | **Клиент 7h (главное)** | Один RxJS-pipeline: debounce + `switchMap`/`exhaustMap` на `coverage` / `link` / `activity` / `incidents` — без параллельного залпа. Точка: `OhsStore.refreshLiveness` |
-| **2** | **NC / I8 хвост** | Пачка single-500 без outage → health-ok закрывает **все** недавние orphan `ohs.unhandled` (не один `corr`) |
-| **3** | **Host / пул (по необходимости)** | Pool stats при exhausted; долгие hold; `Max Pool Size`/`Timeout` — только если после (1) ещё жмётся |
+| # | Слой | Статус | Что |
+|---|------|--------|-----|
+| **1** | **Клиент** | **DONE** `6871a57` | `OhsStore.ribbonRefresh$`: debounce 150 ms → `switchMap` → `concat(coverage→activity→capture→link→incidents)`; полный проход на любой `refresh*` / poll / `setWindow` |
+| **2** | **NC / I8 хвост** | **DONE** `327c8fe` | `probeHealthAfterFatal` (один in-flight) → `closeRecentOrphanUnhandledWithHealthOk` (все orphan за 15 с) + mock-POST; тесты `notifications.orphanFatal.test.ts` |
+| **3** | **Host / пул** | **DEFER** | `Max Pool Size=100` **не поднимаем**; только если снова exhausted на приёмке |
 
-Не первым: просто поднять пул; рестарт Host как лечение.
+Не делали: просто поднять пул; рестарт Host как лечение.
 
-**Затрагивает.** `OhsStore` (RxJS refresh), `GlobalExceptionHandler`, `probeHealthAfterFatal` / §9.3,
-Npgsql connection string / `NpgsqlDataSource`.
+**Затронуто.** `OhsStore` (RxJS refresh + probe), `notifications.ts` (`collectRecentOrphanUnhandledCorrs` /
+`closeRecentOrphanUnhandledWithHealthOk`). Host connection string — без изменений.
 
 **Связано.** I8 ([nc-availability.md](nc-availability.md) §9.3); coverage-лента →
 [../phase7h/issue.md](../phase7h/issue.md) (заметка I12); [plan.md](plan.md) §7j.22; [todo.md](todo.md).
@@ -740,9 +741,9 @@ Npgsql connection string / `NpgsqlDataSource`.
 | I9 | UI пустой: `localhost`→`::1`, IPv6 Kestrel залип | proxy → `127.0.0.1`; prod: bind/health/proxy family | MITIGATION / prod OPEN |
 | I10 | После crash: break `active` + восстановление в Group `auto:` | Adopt open break из V025; catch-up abandon; stale-close только Live | **ПРИНЯТО** (2026-07-31) |
 | I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **ПРИНЯТО** |
-| I12 | Pool exhausted (recover **или** break) → пачка 500; orphan ACTIVE FATAL | 7j.22: (1) RxJS refresh → (2) close-all orphan → (3) pool | **OPEN** · план |
+| I12 | Pool exhausted (recover **или** break) → пачка 500; orphan ACTIVE FATAL | 7j.22: (1)(2) клиент DONE; (3) pool defer @100 | **КЛИЕНТ DONE** |
 
-Остаток 7j: 7j.15/7j.16 ([todo.md](todo.md)); I12 OPEN; I10/I11 — живая приёмка.
+Остаток 7j: 7j.15/7j.16 ([todo.md](todo.md)); I10/I11/I12-клиент — принято/сделано.
 NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).
 Gate Admin Front + NC — 11→12 ([../plan.md](../plan.md)).
 

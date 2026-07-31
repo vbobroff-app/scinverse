@@ -3,7 +3,7 @@
 **Обновлено:** 2026-07-31.
 
 Ядро фазы (**7j.17–7j.20** + **J11a/b/c** + **I10/I11**) — **код + живая приёмка** (Adopt 2026-07-31).
-Хвост инцидентов: **I12 / 7j.22 OPEN** (план в [plan.md](plan.md) §7j.22; код после wrap-up).
+**I12 / 7j.22** — клиент **DONE**; Host pool **DEFER** ([plan.md](plan.md) §7j.22).
 Остаток 7j (не инциденты): **7j.15** / **7j.16**. NC лента Thread — **phase 11 DONE**;
 журнал — **11.13** в **OHS** — [../phase11/incident-journal.md](../phase11/incident-journal.md).
 Итог модели — [../incident-model-wrapup.md](../incident-model-wrapup.md).
@@ -58,6 +58,6 @@ UI пресетов захардкожен под MOEX; рынок (CME и др.
 | **J9 / J10** | per-connection grace / глобальный порог NC | ПЛАН, позже ([incident.md](incident.md) §8) |
 | **H1 / H2** | recording = бинарная проекция `incident`; Degraded рвёт capture | **DONE** · [incident §7](incident.md) |
 | **I9 prod** | bind/health/proxy family после Vite | OPEN checklist ([issue.md](issue.md) I9) |
-| **I12 / 7j.22** | Pool exhausted → пачка 500; orphan ACTIVE FATAL | **OPEN · ПЛАН:** (1) RxJS refresh → (2) close-all orphan → (3) pool · [plan.md](plan.md) §7j.22 · [issue.md](issue.md) I12 |
+| **I12 / 7j.22** | Pool exhausted → пачка 500; orphan ACTIVE FATAL | **КЛИЕНТ DONE** (1)(2); (3) pool defer @100 · [plan.md](plan.md) §7j.22 · [issue.md](issue.md) I12 |
 
 System-уведомления: JSON (`result`/`error_message`/`sender`); user schedule — `lines[]`.

@@ -95,7 +95,7 @@ scinverse/
 | 7g | Слой сделок на Ганте: присутствие торгов по бакетам (лесенка), app-кэш `V008`, `/coverage/activity` | DONE | [phase7g](./dev/phase7g/plan.md) |
 | **7h** | **Честная подложка: recovery (`V009`), живость (`V010`/`V011`), автомат связи + пинг, красная разметка разрывов** | **DONE** | [phase7h/report](./dev/phase7h/report.md), [incident](./dev/phase7h/incident.md) |
 | 7i | «Управление записью»: полуавтомат Auto + Supervisor (MOEX) | IN PROGRESS | [phase7i/apply](./dev/phase7i/apply.md) |
-| **7j** | Расписание + инциденты v2 | **I10/I11 ПРИНЯТО**; хвост **I12 / 7j.22**; очередь 7j.15/16 | [wrap-up](./dev/incident-model-wrapup.md) · [plan §7j.22](./dev/phase7j/plan.md) · [I12](./dev/phase7j/issue.md) |
+| **7j** | Расписание + инциденты v2 | **I10/I11 ПРИНЯТО**; **I12 клиент DONE** (pool defer); очередь 7j.15/16 | [wrap-up](./dev/incident-model-wrapup.md) · [plan §7j.22](./dev/phase7j/plan.md) · [I12](./dev/phase7j/issue.md) |
 | 8 | CI/CD | TODO | — |
 | 9 | Импорт QScalp `.qsh` | TODO | — |
 | 10 | Keycloak + `user_settings` | PLANNED · **обязателен на gate 11→12** | [phase10](./dev/phase10/plan.md) |
@@ -185,9 +185,10 @@ scinverse/
 | TRANSAQ `request_timeout=10` (~8 с Degraded на кабеле) | DONE |
 | NC: при равном ts **ok выше warning** | DONE |
 | CloseBreak sourceId из store; Resolve journal await | DONE (`255cc93`) |
-| **I12 / 7j.22** pool exhausted → пачка FATAL | **OPEN · следующий код** |
+| **I12 / 7j.22** pool exhausted → пачка FATAL | **КЛИЕНТ DONE** (`6871a57` · `327c8fe`); pool defer @100 |
 
-**Коммиты wrap-up:** `6c7c36c` (модель/docs/Adopt/timeout) · `255cc93` (abandon markers + resolve race).  
+**Коммиты wrap-up:** `6c7c36c` · `255cc93`. **I12 клиент:** `6871a57` (ribbon pipeline) ·
+`327c8fe` (close-all orphan health-ok).  
 Unit: **186/186**. Host при `dotnet test` не должен держать DLL (остановить VS/Host).
 
 **To-be:** gate **11→12** (NC MFE + Keycloak); deploy —
@@ -195,73 +196,34 @@ Unit: **186/186**. Host при `dotnet test` не должен держать DL
 
 ---
 
-## 8. ➡️ НОВЫЙ ЧАТ — I12 / 7j.22 pool exhausted (2026-07-31)
+## 8. ➡️ НОВЫЙ ЧАТ — после I12 (2026-07-31)
 
-### Задача чата
+### Где мы
 
-Закрыть **I12**: после recover Host **или** break UI залпом дергает coverage/liveness →
-Npgsql `connection pool has been exhausted` → пачка `ohs.unhandled` (500) → health-probe
-закрывает **один** corr → orphan ACTIVE FATAL в NC.
+Инцидентная модель + **I12 клиент** закрыты. Очередь 7j: **7j.15 / 7j.16**. Gate **11→12** /
+WebGL (12) — later. Host `Max Pool Size=100` — **не поднимать**, пока снова не упрёмся в exhausted.
 
-**План зафиксирован** ([phase7j/plan.md](./dev/phase7j/plan.md) §7j.22) — код ещё не начат:
+| # | I12 слой | Статус |
+|---|----------|--------|
+| 1 | RxJS ribbon refresh (`debounce`+`switchMap`+`concat`) | **DONE** `6871a57` |
+| 2 | health-ok → все недавние orphan `ohs.unhandled` | **DONE** `327c8fe` |
+| 3 | Host pool | **DEFER** @100 |
 
-| # | Слой | Что |
-|---|------|-----|
-| **1** | **Клиент (главное)** | RxJS pipeline: debounce + `switchMap`/`exhaustMap` на `OhsStore.refreshLiveness` (+ coverage/activity) — без параллельного залпа |
-| **2** | **NC / I8** | Пачка single-500 → health-ok закрывает **все** недавние orphan `ohs.unhandled` |
-| **3** | **Host/пул** | Только если после (1) ещё жмётся; не маскировать залп `Max Pool Size` |
+### Прочитай первым
 
-Не смешивать с 7j.15/16 UI, WebGL (12), gate 11→12, finam-ws — если не всплывут как блокер I12.
-
-### Прочитай первым (порядок)
-
-1. Этот файл (§1–§7, §8).
-2. [incident-model-wrapup.md](./dev/incident-model-wrapup.md) — **итог модели** (что уже принято).
-3. [phase7j/plan.md](./dev/phase7j/plan.md) §7j.22 — приоритеты фикса.
-4. [phase7j/issue.md](./dev/phase7j/issue.md) **I12** — эпизоды A/B, симптомы, разрыв с I8 §9.3.
-5. [phase7j/nc-availability.md](./dev/phase7j/nc-availability.md) §9.3 — health-probe / orphan FATAL.
-6. Код клиента: `services/online-history-server/web/src/core/OhsStore.ts` (`refreshLiveness`,
-   `probeHealthAfterFatal`).
-7. Смежно coverage: [phase7h/issue.md](./dev/phase7h/issue.md) (заметка I12).
-8. При необходимости модель инцидентов (не ломать): [phase7j/incident.md](./dev/phase7j/incident.md),
-   [wiki-readme/layers.md](./wiki-readme/layers.md).
-
-### Где мы сейчас
-
-| Контур | Состояние |
-|--------|-----------|
-| **Модель break/crash** | Восстановлена; journal + link + NC peer; мультиклиент `/recovery/outage` |
-| **I10/I11** | ПРИНЯТО: Adopt только при `linkState==Live`; иначе mid-break Adopt |
-| **phase 11** | Thread + 11.13 journal + crash D1–D8 **DONE** |
-| **7j хвост** | **I12 OPEN** ← этот чат; очередь UI 7j.15/16 — позже |
-| **Тесты** | Unit 186 ✓; NC `projectThreads` 12 ✓ (после стопа Host) |
-
-### Модель (кратко — не трогать канон)
-
-```text
-OHS DB:     link_liveness + incident     ← правда ганта / журнала
-NC (as-is): V025 atoms + Thread UI       ← зеркало fan-out, не владелец дыр
-OHS → NC:   IncidentFanOut (один уровень)
-```
+1. Этот файл (§1–§7).
+2. [incident-model-wrapup.md](./dev/incident-model-wrapup.md).
+3. [phase7j/plan.md](./dev/phase7j/plan.md) §7j.22 / [issue.md](./dev/phase7j/issue.md) I12 — итог фикса.
+4. [phase11/report.md](./dev/phase11/report.md) — NC/crash DONE; ссылка на I12.
+5. Очередь UI: [phase7j/todo.md](./dev/phase7j/todo.md) · 7j.15/16.
 
 ### Инварианты (не ломать)
 
 - Journal ⊥ NC; ribbon/`incident` не зависят от выноса NC.
 - **I10:** stale-close open break **только** при `Live`; `null|Degraded|Down|Error` → Adopt.
-- CloseBreak: WS resolve до journal; journal resolve **await** (не fire-and-forget) — `255cc93`.
-- System NC → короткий message + JSON `result`/`sender`; Thread wire/V025 hydrate.
-- Auto×5: Incident open + Single `connection.auto_stopped`; финальный `connect_failed` = `active`.
+- CloseBreak: WS resolve до journal; journal resolve **await** — `255cc93`.
+- Ribbon refresh — только через `OhsStore` pipeline (не параллельный залп coverage/liveness).
 - TRANSAQ: не QuickPath / NetworkChange / вторая DLL; линк-детект = `request_timeout` + `server_status`.
-
-### Ключевые файлы (I12)
-
-| Зона | Путь |
-|------|------|
-| Refresh залп | `web/src/core/OhsStore.ts` → `refreshLiveness` |
-| API coverage | `web/src/core/api.ts` |
-| Health-probe | `OhsStore.probeHealthAfterFatal` · `notifications.ts` |
-| 500 → NC | Host `GlobalExceptionHandler` |
-| Спека | `docs/dev/phase7j/issue.md` I12 · `plan.md` §7j.22 |
 
 ### Запуск
 
@@ -273,24 +235,12 @@ NC:   packages/notification-center → pnpm exec vitest run
 Unit: dotnet test …/Scinverse.Ohs.UnitTests.csproj
 ```
 
-Finam id=3: шлюз часто жив только **±2 ч вокруг сессии** — вне окна connect ×5 «в пустоту» ожидаемо.
-
 ### Соглашения
 
 - PowerShell: `;` не `&&`; коммит-msg → файл UTF-8 **без BOM** + `git commit -F`.
 - Коммит **только по явной просьбе** пользователя.
 - Lint: tsc 0, eslint 0 errors; `dotnet build` Host.
-- Commit style: `fix(ohs-7j): …` / `feat(ohs-web): …` / `docs(7j): …`.
-
-### Вне scope (уже закрыто / другой чат)
-
-| Тема | Где |
-|------|-----|
-| Wrap-up модели инцидентов | [incident-model-wrapup.md](./dev/incident-model-wrapup.md) |
-| Crash dispatch D1–D8 | [phase11/crash-dispatch.md](./dev/phase11/crash-dispatch.md) |
-| Журнал 11.13 / Thread | [phase11/incident-journal.md](./dev/phase11/incident-journal.md) |
-| Deploy / finam-ws | [ohs-connectors-deploy.md](./architecture/ohs-connectors-deploy.md) |
-| 7j.15/16, gate 11→12, WebGL | later |
+- Commit style: `fix(ohs-7j): …` / `feat(ohs-web): …` / `docs(7j): …` / `docs(11): …`.
 
 ---
 
