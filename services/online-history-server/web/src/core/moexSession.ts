@@ -104,6 +104,25 @@ export function prevDate(date: MskDate): MskDate {
   return { year: base.getUTCFullYear(), month: base.getUTCMonth() + 1, day: base.getUTCDate() };
 }
 
+/** Следующий календарный день (по МСК). */
+export function nextDate(date: MskDate): MskDate {
+  const base = new Date(Date.UTC(date.year, date.month - 1, date.day));
+  base.setUTCDate(base.getUTCDate() + 1);
+  return { year: base.getUTCFullYear(), month: base.getUTCMonth() + 1, day: base.getUTCDate() };
+}
+
+/**
+ * Якорный момент горизонта Ганта: «сейчас» или полдень МСК завтрашнего дня (режим D+).
+ * Полдень гарантирует попадание в календарный день «завтра» при любом времени суток.
+ */
+export function horizonNowMs(fromTomorrow: boolean, now: number = Date.now()): number {
+  if (!fromTomorrow) {
+    return now;
+  }
+  const tomorrow = nextDate(mskDateOf(now));
+  return mskInstant(tomorrow.year, tomorrow.month, tomorrow.day, 12, 0);
+}
+
 /** ISO-дата `yyyy-MM-dd` для даты МСК. */
 export function isoDate({ year, month, day }: MskDate): string {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -125,8 +144,9 @@ export function mergeSessionHours(calendar: SessionDto[], api: SessionDto[]): Se
 }
 
 /**
- * Последние `count` календарных сессий (по МСК), заканчивая сегодняшней. Выходные включаются
- * как отдельные слоты (не схлопываются); при `includeWeekends = false` они пропускаются.
+ * Последние `count` календарных сессий (по МСК), заканчивая днём `now` (обычно сегодня;
+ * при D+ — завтра). Выходные включаются как отдельные слоты (не схлопываются);
+ * при `includeWeekends = false` они пропускаются.
  * Часы — эвристика; для D/W поверх накладываются ISS-часы из `/api/sessions`.
  */
 export function recentSessions(

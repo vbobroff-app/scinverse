@@ -45,6 +45,7 @@ import { loadSelectedInstruments, persistSelectedInstruments } from './selectedI
 import { loadViewState, persistViewState, type PersistedSeries } from './viewStateStorage';
 import { DEFAULT_SECTION, type NavSectionId } from './navigation';
 import {
+  horizonNowMs,
   mskDateFromIso,
   mskDateOf,
   mergeSessionHours,
@@ -329,6 +330,8 @@ export class OhsStore {
 
   // --- Таймфрейм и сессионное окно. ---
   readonly timeframe$ = new BehaviorSubject<Timeframe>(DEFAULT_TIMEFRAME);
+  /** D+: якорь горизонта — завтра (для сессий, уходящих за полночь). */
+  readonly dPlus$ = new BehaviorSubject<boolean>(false);
   /** Границы сессий внутри окна (для сепараторов оси); пусто для M/Q/Y/All/range. */
   readonly sessions$ = new BehaviorSubject<SessionDto[]>([]);
   /** Тайм-лайн-фильтр оси: дни недели + окно дня (клиентская пере-проекция). */
@@ -449,6 +452,9 @@ export class OhsStore {
     if (v.timeframe) {
       this.timeframe$.next(v.timeframe);
     }
+    if (typeof v.dPlus === 'boolean') {
+      this.dPlus$.next(v.dPlus);
+    }
     if (v.timeline) {
       this.timelineFilter$.next({
         weekdays: new Set(v.timeline.weekdays),
@@ -503,6 +509,7 @@ export class OhsStore {
       expandedFutures: [...this.expandedFutures$.value],
       expandedSeries,
       timeframe: this.timeframe$.value,
+      dPlus: this.dPlus$.value,
       timeline: {
         weekdays: [...this.timelineFilter$.value.weekdays],
         fullDay: this.timelineFilter$.value.fullDay,
@@ -1156,6 +1163,16 @@ export class OhsStore {
     this.persistView();
   }
 
+  /** D+: при вкл. горизонт считается от завтрашнего дня (сессия может забегать за полночь). */
+  setDPlus(on: boolean): void {
+    if (this.dPlus$.value === on) {
+      return;
+    }
+    this.dPlus$.next(on);
+    this.applyTimeframe(this.timeframe$.value);
+    this.persistView();
+  }
+
   /** Меняет единицу/глубину посессионного таймфрейма (например W2), сохраняя учёт выходных. */
   setSessionsTimeframe(unit: TimeframeUnit, count: number): void {
     const tf = this.timeframe$.value;
@@ -1334,19 +1351,21 @@ export class OhsStore {
   ): void {
     // Выходные для генерации берём из тайм-лайн-фильтра (набор дней недели), а не из tf.
     const iw = this.genIncludeWeekends();
+    // D+: якорь «завтра» — правый край горизонта включает день после сегодня.
+    const anchor = horizonNowMs(this.dPlus$.value);
 
     // Календарные единицы (M/Q/Y) — сдвиг назад на n месяцев/кварталов/лет, но ось тоже
     // посессионная: каждый торговый день — доля, ночь/разрывы схлопнуты (как D/W, только длиннее).
     if (tf.unit === 'M' || tf.unit === 'Q' || tf.unit === 'Y') {
-      const fromDate = shiftMonths(mskDateOf(), monthsPerUnit(tf.unit) * tf.count);
+      const fromDate = shiftMonths(mskDateOf(anchor), monthsPerUnit(tf.unit) * tf.count);
       const fromMs = sessionBounds(fromDate).startMs;
-      this.publishSessions(sessionsFrom(fromMs, iw));
+      this.publishSessions(sessionsFrom(fromMs, iw, anchor));
       return;
     }
 
     // D/W: календарный скелет локально (включая пустые выходные), часы — ISS с бэка.
     const count = sessionCount(tf.unit, tf.count, iw);
-    const calendar = recentSessions(count, iw);
+    const calendar = recentSessions(count, iw, anchor);
     this.api.getSessions(count, iw, HOME_ENGINE).subscribe({
       next: (api) => this.publishSessions(mergeSessionHours(calendar, api)),
       error: (err) => {
@@ -1357,7 +1376,8 @@ export class OhsStore {
   }
 
   private applyAllTimeframe(): void {
-    const toMs = todaySession().endMs;
+    const anchor = horizonNowMs(this.dPlus$.value);
+    const toMs = sessionBounds(mskDateOf(anchor)).endMs;
     this.sessions$.next([]);
     this.api.getCoverageExtent().subscribe({
       next: (extent) => {

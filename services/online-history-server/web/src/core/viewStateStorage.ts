@@ -42,6 +42,8 @@ export interface PersistedViewState {
   expandedSeries: PersistedSeries[];
   /** Горизонт Ганта (D1/W2/M/… / All / диапазон). */
   timeframe?: Timeframe;
+  /** D+: якорь горизонта — завтра (сессия может забегать за полночь). */
+  dPlus?: boolean;
   /** Нижний тайм-лайн-фильтр оси: дни недели + окно дня/сессии. */
   timeline?: PersistedTimeline;
   /** Стандарт времени отображения (ось/тултипы). */
@@ -200,6 +202,7 @@ export function loadViewState(): PersistedViewState {
       expandedFutures: asNumberArray(parsed.expandedFutures),
       expandedSeries: asSeries(parsed.expandedSeries),
       timeframe: parseTimeframe(parsed.timeframe),
+      dPlus: typeof parsed.dPlus === 'boolean' ? parsed.dPlus : undefined,
       timeline: parseTimeline(parsed.timeline),
       displayTz: parseDisplayTz(parsed.displayTz),
       crosshair: typeof parsed.crosshair === 'boolean' ? parsed.crosshair : undefined,

@@ -30,6 +30,7 @@ function formatDm(iso: string): string {
 export function TimeframePanel() {
   const store = useOhsStore();
   const tf = useBehavior(store.timeframe$);
+  const dPlus = useBehavior(store.dPlus$);
 
   const [openMenu, setOpenMenu] = useState(false);
   const [openRange, setOpenRange] = useState(false);
@@ -109,7 +110,12 @@ export function TimeframePanel() {
       <div className={styles.chipWrap}>
         <button
           type="button"
-          className={[styles.chip, tf.kind === 'sessions' ? styles.chipActive : ''].filter(Boolean).join(' ')}
+          className={[
+            styles.chip,
+            tf.kind === 'sessions' || tf.kind === 'all' ? styles.chipActive : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
           onClick={() => {
             setOpenRange(false);
             setOpenMenu((o) => !o);
@@ -117,11 +123,39 @@ export function TimeframePanel() {
           aria-expanded={openMenu}
           title="Горизонт истории"
         >
-          {triggerLabel}
+          {tf.kind === 'all' ? 'All' : triggerLabel}
         </button>
 
         {openMenu && (
           <div className={styles.menu}>
+            <div className={styles.group}>
+              <div className={styles.tiles}>
+                <button
+                  type="button"
+                  className={[styles.tile, styles.tileWide, dPlus ? styles.tileActive : '']
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={() => store.setDPlus(!dPlus)}
+                  aria-pressed={dPlus}
+                  title="Горизонт от завтрашнего дня (сессия за полночь)"
+                >
+                  D+
+                </button>
+                <button
+                  type="button"
+                  className={[styles.tile, styles.tileWide, tf.kind === 'all' ? styles.tileActive : '']
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={() => {
+                    store.setTimeframe({ kind: 'all' });
+                    setOpenMenu(false);
+                  }}
+                  title="Всё покрытие"
+                >
+                  All
+                </button>
+              </div>
+            </div>
             {GROUPS.map(({ unit, max }) => (
               <div key={unit} className={styles.group}>
                 <div className={styles.tiles}>
@@ -145,19 +179,6 @@ export function TimeframePanel() {
           </div>
         )}
       </div>
-
-      <button
-        type="button"
-        className={[styles.chip, tf.kind === 'all' ? styles.chipActive : ''].filter(Boolean).join(' ')}
-        onClick={() => {
-          store.setTimeframe({ kind: 'all' });
-          setOpenMenu(false);
-          setOpenRange(false);
-        }}
-        title="Всё покрытие"
-      >
-        All
-      </button>
 
       <SessionFilter />
     </div>

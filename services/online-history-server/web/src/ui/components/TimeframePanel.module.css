@@ -110,6 +110,13 @@
   color: var(--color-accent);
 }
 
+/* D+ / All — шире обычных плиток горизонта. */
+.tileWide {
+  min-width: 44px;
+  padding: 3px 10px;
+  font-weight: 600;
+}
+
 /* Календарь диапазона — тоже вверх. */
 .rangePop {
   position: absolute;

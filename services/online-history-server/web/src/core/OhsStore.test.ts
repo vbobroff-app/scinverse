@@ -552,6 +552,30 @@ describe('OhsStore timeframe → window', () => {
     store.stop();
   });
 
+  it('D+: D2 — завтра и сегодня (якорь сдвинут вперёд)', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    store.start();
+
+    store.setTimeframe({ kind: 'sessions', unit: 'D', count: 2, includeWeekends: true });
+    store.setDPlus(true);
+
+    expect(store.dPlus$.value).toBe(true);
+    expect(store.sessions$.value.map((s) => s.date)).toEqual(['2026-07-08', '2026-07-09']);
+    store.stop();
+  });
+
+  it('D+ выкл: D2 — сегодня и вчера', () => {
+    const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
+    store.start();
+
+    store.setDPlus(true);
+    store.setTimeframe({ kind: 'sessions', unit: 'D', count: 2, includeWeekends: true });
+    store.setDPlus(false);
+
+    expect(store.sessions$.value.map((s) => s.date)).toEqual(['2026-07-07', '2026-07-08']);
+    store.stop();
+  });
+
   it('W1 с выходными: 7 календарных сессий, выходные — отдельные слоты (не схлопнуты)', () => {
     const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
     store.start();
