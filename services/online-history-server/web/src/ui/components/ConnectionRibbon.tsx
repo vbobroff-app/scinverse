@@ -1,8 +1,11 @@
-import { memo } from 'react';
+import { memo, type MouseEvent as ReactMouseEvent } from 'react';
 import type { CoverageWindow } from '../../core/OhsStore';
 import {
   SCHEDULE_TZ_OFFSET_MIN,
+  buildScheduleDesiredSegs,
   buildScheduleMaskSegs,
+  enumerateDesiredWindows,
+  formatScheduleDesiredTooltip,
   formatScheduleIdleTooltip,
   scheduleVoidIntervals,
 } from '../../core/connectionSchedule';
@@ -15,7 +18,6 @@ import type {
   LivenessIntervalDto,
   SessionDto,
 } from '../../core/types';
-import { DEFAULT_LINK_RECOVER_GRACE_SEC, resolveEscalatedMs } from './connectionRibbonGaps';
 import {
   journalHasOverlappingCrash,
   projectConnectionIncidents,
@@ -23,10 +25,15 @@ import {
 } from './incidentRibbonProjection';
 import styles from './ConnectionRibbon.module.css';
 
+export type RibbonTipHandlers = {
+  onTip: (label: string, clientX: number) => void;
+  onTipClear: () => void;
+};
+
 interface Props {
   window: CoverageWindow;
   sessions?: SessionDto[];
-  /** Интервалы «сервер работает» (голубое) на подключение (source). */
+  /** Интервалы «система подключена» (голубое) на подключение (source). */
   intervals?: LivenessIntervalDto[];
   /**
    * Периоды «связь не жива» из link_liveness.
@@ -40,7 +47,7 @@ interface Props {
   nowMs?: number;
   /** Смещение отображаемого ТЗ от UTC (мин) — для подписи времени в тултипах. */
   tzOffsetMin?: number;
-  /** T = LinkRecoverGraceSeconds (жёлтое ≤ T). С API `/coverage/link`. */
+  /** @deprecated жёлтая склейка убрана; оставлен для совместимости вызовов. */
   linkRecoverGraceSeconds?: number;
   /** Вертикаль «сейчас» на правом краю live-ленты (настройка провайдера). */
   showNowMarker?: boolean;
@@ -52,23 +59,16 @@ interface Props {
   showScheduleMask?: boolean;
   /** Живые правила расписания connection (для void mask). */
   scheduleRules?: readonly ConnectionScheduleRuleDto[];
+  /** Кастомный тултип (стиль линейки), ниже мыши — в родителе. */
+  tip?: RibbonTipHandlers;
 }
 
-/** Не-инцидент (серое, без маркеров): отключил оператор / плановое по расписанию. */
+/** Не-инцидент (серое, без маркеров): отключил оператор / плановый простой. */
 const GREY_CAUSES = new Set(['disconnected', 'scheduled']);
 
 function isIncident(cause: string): boolean {
   return !GREY_CAUSES.has(cause);
 }
-
-const CAUSE_LABEL: Record<string, string> = {
-  disconnected: 'Отключено',
-  scheduled: 'Плановое отключение по расписанию',
-  degraded: 'Восстановление связи (TRANSAQ)',
-  server_down: 'Обрыв связи (сервер не отвечает)',
-  ping_failed: 'Связь потеряна (пинг)',
-  interrupted: 'Прервано (краш/рестарт бэка)',
-};
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -79,27 +79,55 @@ function hhmm(ms: number, offMin: number): string {
   return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
 }
 
-function gapClass(cause: string): string {
-  if (GREY_CAUSES.has(cause)) return styles.idle;
-  if (cause === 'degraded') return styles.lost;
-  if (cause === 'interrupted') return styles.down;
-  return styles.supervisor;
+function tipRange(fromMs: number, toMs: number, open: boolean, offMin: number): string {
+  return `${hhmm(fromMs, offMin)}–${open ? 'сейчас' : hhmm(toMs, offMin)}`;
+}
+
+function tipLabel(label: string, time: string): string {
+  return `${label} · ${time}`;
 }
 
 function kindClass(kind: IncidentRibbonKind): string {
-  if (kind === 'transaq') return styles.lost;
-  if (kind === 'crash') return styles.down;
-  return styles.supervisor;
+  return kind === 'crash' ? styles.crashBar : styles.breakBar;
 }
 
-/** Ongoing optimistic crash (to=null). Исторический `interrupted` от RecoverOpenIntervals/рестарта
- * Host НЕ красим — иначе длинная красная штриховка без journal/NC инцидента. */
+function legacyBodyClass(cause: string): string {
+  return cause === 'interrupted' ? styles.crashBar : styles.breakBar;
+}
+
+function legacyBodyLabel(cause: string): string {
+  return cause === 'interrupted' ? 'Сервер недоступен' : 'Отсутствие связи';
+}
+
+function greyLabel(cause: string): string {
+  if (cause === 'scheduled') {
+    return 'Плановый простой по расписанию';
+  }
+  return 'Отключено';
+}
+
+type TipBind = {
+  onMouseEnter: (e: ReactMouseEvent) => void;
+  onMouseMove: (e: ReactMouseEvent) => void;
+  onMouseLeave: () => void;
+};
+
+function bindTip(
+  label: string,
+  tip?: RibbonTipHandlers,
+): TipBind | { title: string } {
+  if (!tip) {
+    return { title: label };
+  }
+  return {
+    onMouseEnter: (e: ReactMouseEvent) => tip.onTip(label, e.clientX),
+    onMouseMove: (e: ReactMouseEvent) => tip.onTip(label, e.clientX),
+    onMouseLeave: () => tip.onTipClear(),
+  };
+}
 
 /**
- * Connection: слои снизу вверх — liveness → break/crash → markers → schedule mask.
- * - Лента связи (`showLinkRibbon`): голубое + серое idle из `link_liveness`.
- * - Инциденты (`showIncidents`): journal / legacy gaps + маркеры (не зависят от живности).
- * - Маска простоя (`showScheduleMask`): void вне desired, ⊥ SessionFilter.
+ * Connection: слои снизу вверх — liveness → break → crash → markers → schedule mask (§5.2).
  */
 export const ConnectionRibbon = memo(function ConnectionRibbon({
   window,
@@ -109,23 +137,19 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   incidents,
   nowMs,
   tzOffsetMin = 180,
-  linkRecoverGraceSeconds = DEFAULT_LINK_RECOVER_GRACE_SEC,
   showNowMarker = true,
   showLinkRibbon = true,
   showIncidents = true,
   showScheduleMask = true,
   scheduleRules,
+  tip,
 }: Props) {
   const windowFromMs = Date.parse(window.from);
   const windowToMs = Date.parse(window.to);
   const liveEdgeMs = Math.min(nowMs ?? windowToMs, windowToMs);
   const pct = makeProjector(windowFromMs, windowToMs, sessions);
-  const graceSec =
-    linkRecoverGraceSeconds > 0 ? linkRecoverGraceSeconds : DEFAULT_LINK_RECOVER_GRACE_SEC;
   const useJournal = showIncidents && incidents != null;
-  const journalPaint = useJournal
-    ? projectConnectionIncidents(incidents, liveEdgeMs, graceSec)
-    : null;
+  const journalPaint = useJournal ? projectConnectionIncidents(incidents, liveEdgeMs) : null;
   const journalList = incidents ?? [];
   const optimisticCrashGaps = useJournal
     ? gaps?.filter((g) => {
@@ -139,26 +163,57 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
         return !journalHasOverlappingCrash(journalList, from, liveEdgeMs, liveEdgeMs);
       })
     : undefined;
-  const maskSegs =
-    showScheduleMask && scheduleRules && scheduleRules.length > 0
-      ? sessions && sessions.length > 0
-        ? buildScheduleMaskSegs(scheduleRules, sessions, pct)
-        : scheduleVoidIntervals(scheduleRules, windowFromMs, windowToMs).map((v) => {
-            const leftPct = pct(v.fromMs);
-            return {
-              leftPct,
-              widthPct: pct(v.toMs) - leftPct,
-              fromMs: v.fromMs,
-              toMs: v.toMs,
-            };
-          })
-      : [];
+  const rulesForMask =
+    showScheduleMask && scheduleRules && scheduleRules.length > 0 ? scheduleRules : null;
+  const maskSegs = rulesForMask
+    ? sessions && sessions.length > 0
+      ? buildScheduleMaskSegs(rulesForMask, sessions, pct)
+      : scheduleVoidIntervals(rulesForMask, windowFromMs, windowToMs).map((v) => {
+          const leftPct = pct(v.fromMs);
+          return {
+            leftPct,
+            widthPct: pct(v.toMs) - leftPct,
+            fromMs: v.fromMs,
+            toMs: v.toMs,
+          };
+        })
+    : [];
+  const desiredSegs = rulesForMask
+    ? sessions && sessions.length > 0
+      ? buildScheduleDesiredSegs(rulesForMask, sessions, pct)
+      : enumerateDesiredWindows(rulesForMask, windowFromMs, windowToMs).map((v) => {
+          const leftPct = pct(v.fromMs);
+          return {
+            leftPct,
+            widthPct: pct(v.toMs) - leftPct,
+            fromMs: v.fromMs,
+            toMs: v.toMs,
+          };
+        })
+    : [];
+
+  const breakBodies = journalPaint?.bodies.filter((b) => b.kind === 'break') ?? [];
+  const crashBodies = journalPaint?.bodies.filter((b) => b.kind === 'crash') ?? [];
 
   return (
     <div className={styles.track}>
+      {desiredSegs.map((seg, i) =>
+        seg.widthPct > 0 ? (
+          <div
+            key={`des${i}`}
+            className={styles.scheduleDesiredBase}
+            style={{ left: `${seg.leftPct}%`, width: `${seg.widthPct}%` }}
+            {...bindTip(
+              formatScheduleDesiredTooltip(seg.fromMs, seg.toMs, SCHEDULE_TZ_OFFSET_MIN),
+              tip,
+            )}
+          />
+        ) : null,
+      )}
+
       {showNowMarker ? <span className={styles.nowLine} /> : null}
 
-      {/* —— слой связи (link_liveness): только голубое + серое —— */}
+      {/* 1. link_liveness */}
       {showLinkRibbon
         ? (intervals ?? []).map((liv, i) => {
             const fromMs = Date.parse(liv.from);
@@ -168,6 +223,10 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             const left = pct(fromMs);
             const widthPct = pct(toMs) - left;
             if (widthPct <= 0) return null;
+            const label = tipLabel(
+              'Система подключена',
+              tipRange(fromMs, toMs, liv.open, tzOffsetMin),
+            );
             return (
               <div
                 key={`c${i}`}
@@ -175,7 +234,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
                   .filter(Boolean)
                   .join(' ')}
                 style={{ left: `${left}%`, width: `${widthPct}%` }}
-                title={`Сервер работает · ${hhmm(fromMs, tzOffsetMin)}–${liv.open ? 'сейчас' : hhmm(toMs, tzOffsetMin)}`}
+                {...bindTip(label, tip)}
               />
             );
           })
@@ -188,36 +247,30 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
               const from = Date.parse(gap.from);
               const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
               const left = pct(from);
+              const label = tipLabel(
+                greyLabel(gap.cause),
+                tipRange(from, to, !gap.to, tzOffsetMin),
+              );
               return (
                 <div
                   key={`grey${i}`}
                   className={[styles.bar, styles.idle].join(' ')}
                   style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
-                  title={`${CAUSE_LABEL[gap.cause] ?? gap.cause} · ${hhmm(from, tzOffsetMin)}–${gap.to ? hhmm(to, tzOffsetMin) : 'сейчас'}`}
+                  {...bindTip(label, tip)}
                 />
               );
             })
         : null}
 
-      {/* —— слой инцидентов: journal или legacy gaps (только если галка включена) —— */}
-      {useJournal ? (
-        <>
-          {optimisticCrashGaps?.map((gap, i) => {
-            const from = Date.parse(gap.from);
-            const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
-            const left = pct(from);
-            return (
-              <div
-                key={`crash-gap${i}`}
-                className={[styles.bar, styles.down].join(' ')}
-                style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
-                title={`${CAUSE_LABEL.interrupted} · ${hhmm(from, tzOffsetMin)}–${gap.to ? hhmm(to, tzOffsetMin) : 'сейчас'}`}
-              />
-            );
-          })}
-
-          {journalPaint!.bodies.map((body, i) => {
+      {/* 2. break */}
+      {useJournal
+        ? breakBodies.map((body, i) => {
             const left = pct(body.fromMs);
+            const open = body.toMs >= liveEdgeMs;
+            const label = tipLabel(
+              body.label,
+              tipRange(body.fromMs, body.toMs, open, tzOffsetMin),
+            );
             return (
               <div
                 key={`ib${body.corrUid}-${i}`}
@@ -225,110 +278,184 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
                 style={{
                   left: `${left}%`,
                   width: `${Math.max(0.3, pct(body.toMs) - left)}%`,
-                  zIndex: body.z,
                 }}
-                title={`${body.label} · ${hhmm(body.fromMs, tzOffsetMin)}–${hhmm(body.toMs, tzOffsetMin)}`}
+                {...bindTip(label, tip)}
               />
             );
-          })}
+          })
+        : null}
 
-          {journalPaint!.markers.map((m, i) =>
-            m.kind === 'start' ? (
+      {showIncidents && !useJournal
+        ? gaps?.map((gap, i) => {
+            if (GREY_CAUSES.has(gap.cause) || gap.cause === 'interrupted') {
+              return null;
+            }
+            if (!isIncident(gap.cause)) {
+              return null;
+            }
+            const from = Date.parse(gap.from);
+            const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
+            const left = pct(from);
+            const label = tipLabel(
+              'Отсутствие связи',
+              tipRange(from, to, !gap.to, tzOffsetMin),
+            );
+            return (
+              <div
+                key={`g${i}`}
+                className={[styles.bar, styles.breakBar].join(' ')}
+                style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
+                {...bindTip(label, tip)}
+              />
+            );
+          })
+        : null}
+
+      {/* 3. crash (поверх break) */}
+      {useJournal
+        ? crashBodies.map((body, i) => {
+            const left = pct(body.fromMs);
+            const open = body.toMs >= liveEdgeMs;
+            const label = tipLabel(
+              body.label,
+              tipRange(body.fromMs, body.toMs, open, tzOffsetMin),
+            );
+            return (
+              <div
+                key={`ic${body.corrUid}-${i}`}
+                className={[styles.bar, kindClass(body.kind)].join(' ')}
+                style={{
+                  left: `${left}%`,
+                  width: `${Math.max(0.3, pct(body.toMs) - left)}%`,
+                }}
+                {...bindTip(label, tip)}
+              />
+            );
+          })
+        : null}
+
+      {useJournal
+        ? optimisticCrashGaps?.map((gap, i) => {
+            const from = Date.parse(gap.from);
+            const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
+            const left = pct(from);
+            const label = tipLabel(
+              'Сервер недоступен',
+              tipRange(from, to, !gap.to, tzOffsetMin),
+            );
+            return (
+              <div
+                key={`crash-gap${i}`}
+                className={[styles.bar, styles.crashBar].join(' ')}
+                style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
+                {...bindTip(label, tip)}
+              />
+            );
+          })
+        : null}
+
+      {showIncidents && !useJournal
+        ? gaps?.map((gap, i) => {
+            if (gap.cause !== 'interrupted') {
+              return null;
+            }
+            const from = Date.parse(gap.from);
+            const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
+            const left = pct(from);
+            const label = tipLabel(
+              legacyBodyLabel(gap.cause),
+              tipRange(from, to, !gap.to, tzOffsetMin),
+            );
+            return (
+              <div
+                key={`gi${i}`}
+                className={[styles.bar, legacyBodyClass(gap.cause)].join(' ')}
+                style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
+                {...bindTip(label, tip)}
+              />
+            );
+          })
+        : null}
+
+      {/* 4. markers */}
+      {useJournal
+        ? journalPaint!.markers.map((m, i) => {
+            const label = tipLabel(m.label, hhmm(m.atMs, tzOffsetMin));
+            return m.kind === 'start' ? (
               <span
                 key={`is${m.corrUid}-${i}`}
                 className={styles.startMarker}
-                style={{ left: `${pct(m.atMs)}%`, zIndex: 20 }}
-                title={`${m.label} · ${hhmm(m.atMs, tzOffsetMin)}`}
+                style={{ left: `${pct(m.atMs)}%` }}
+                {...bindTip(label, tip)}
               />
             ) : (
               <span
                 key={`ir${m.corrUid}-${i}`}
                 className={styles.recover}
-                style={{ left: `${pct(m.atMs)}%`, zIndex: 20 }}
-                title={`${m.label} · ${hhmm(m.atMs, tzOffsetMin)}`}
+                style={{ left: `${pct(m.atMs)}%` }}
+                {...bindTip(label, tip)}
               />
-            ),
-          )}
+            );
+          })
+        : null}
 
-          {optimisticCrashGaps?.map((gap, i) => (
+      {useJournal
+        ? optimisticCrashGaps?.map((gap, i) => (
             <span
               key={`crash-s${i}`}
               className={styles.startMarker}
-              style={{ left: `${pct(Date.parse(gap.from))}%`, zIndex: 20 }}
-              title={`Потеря связи · ${hhmm(Date.parse(gap.from), tzOffsetMin)}`}
+              style={{ left: `${pct(Date.parse(gap.from))}%` }}
+              {...bindTip(
+                tipLabel('Системный сбой', hhmm(Date.parse(gap.from), tzOffsetMin)),
+                tip,
+              )}
             />
-          ))}
-        </>
-      ) : null}
+          ))
+        : null}
 
       {showIncidents && !useJournal
-        ? gaps?.flatMap((gap, i) => {
-            if (GREY_CAUSES.has(gap.cause)) {
-              return [];
+        ? gaps?.map((gap, i) => {
+            if (!isIncident(gap.cause)) {
+              return null;
             }
             const from = Date.parse(gap.from);
-            const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
-            const label = CAUSE_LABEL[gap.cause] ?? gap.cause;
-            const escMs = resolveEscalatedMs(gap, from, to, graceSec);
-
-            if (escMs === null || !isIncident(gap.cause)) {
-              const left = pct(from);
-              return [
-                <div
-                  key={`g${i}`}
-                  className={[styles.bar, gapClass(gap.cause)].join(' ')}
-                  style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
-                  title={`${label} · ${hhmm(from, tzOffsetMin)}–${gap.to ? hhmm(to, tzOffsetMin) : 'сейчас'}`}
-                />,
-              ];
-            }
-
-            const leftA = pct(from);
-            const leftB = pct(escMs);
-            return [
-              <div
-                key={`g${i}a`}
-                className={[styles.bar, gapClass(gap.cause)].join(' ')}
-                style={{ left: `${leftA}%`, width: `${Math.max(0.3, leftB - leftA)}%` }}
-                title={`${label} · ${hhmm(from, tzOffsetMin)}–${hhmm(escMs, tzOffsetMin)}`}
-              />,
-              <div
-                key={`g${i}b`}
-                className={[styles.bar, styles.supervisor].join(' ')}
-                style={{ left: `${leftB}%`, width: `${Math.max(0.3, pct(to) - leftB)}%` }}
-                title={`Восстановление связи (супервизор) · ${hhmm(escMs, tzOffsetMin)}–${gap.to ? hhmm(to, tzOffsetMin) : 'сейчас'}`}
-              />,
-            ];
+            const startLabel =
+              gap.cause === 'interrupted'
+                ? tipLabel('Системный сбой', hhmm(from, tzOffsetMin))
+                : tipLabel('Потеря связи', hhmm(from, tzOffsetMin));
+            return (
+              <span
+                key={`s${i}`}
+                className={styles.startMarker}
+                style={{ left: `${pct(from)}%` }}
+                {...bindTip(startLabel, tip)}
+              />
+            );
           })
         : null}
 
       {showIncidents && !useJournal
-        ? gaps?.map((gap, i) =>
-            isIncident(gap.cause) ? (
-              <span
-                key={`s${i}`}
-                className={styles.startMarker}
-                style={{ left: `${pct(Date.parse(gap.from))}%`, zIndex: 20 }}
-                title={`Потеря связи · ${hhmm(Date.parse(gap.from), tzOffsetMin)}`}
-              />
-            ) : null,
-          )
-        : null}
-
-      {showIncidents && !useJournal
-        ? gaps?.map((gap, i) =>
-            gap.to && isIncident(gap.cause) && !gap.abandoned ? (
+        ? gaps?.map((gap, i) => {
+            if (!gap.to || !isIncident(gap.cause) || gap.abandoned) {
+              return null;
+            }
+            const to = Date.parse(gap.to);
+            const recoverLabel =
+              gap.cause === 'interrupted'
+                ? tipLabel('Система восстановлена', hhmm(to, tzOffsetMin))
+                : tipLabel('Связь восстановлена', hhmm(to, tzOffsetMin));
+            return (
               <span
                 key={`r${i}`}
                 className={styles.recover}
-                style={{ left: `${pct(Date.parse(gap.to))}%`, zIndex: 20 }}
-                title={`Связь восстановлена · ${hhmm(Date.parse(gap.to), tzOffsetMin)}`}
+                style={{ left: `${pct(to)}%` }}
+                {...bindTip(recoverLabel, tip)}
               />
-            ) : null,
-          )
+            );
+          })
         : null}
 
-      {/* —— schedule void mask (верхний слой; не клипует journal) —— */}
+      {/* 5. schedule void mask */}
       {maskSegs.map((seg, i) => {
         if (seg.widthPct <= 0) return null;
         return (
@@ -336,7 +463,10 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             key={`void${i}`}
             className={styles.scheduleMask}
             style={{ left: `${seg.leftPct}%`, width: `${seg.widthPct}%` }}
-            title={formatScheduleIdleTooltip(seg.fromMs, seg.toMs, SCHEDULE_TZ_OFFSET_MIN)}
+            {...bindTip(
+              formatScheduleIdleTooltip(seg.fromMs, seg.toMs, SCHEDULE_TZ_OFFSET_MIN),
+              tip,
+            )}
           />
         );
       })}

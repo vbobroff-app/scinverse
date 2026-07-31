@@ -4,7 +4,6 @@ import {
   journalHasOverlappingCrash,
   mergeIncidentReds,
   projectConnectionIncidents,
-  resolveIncidentEscalatedMs,
 } from './incidentRibbonProjection';
 
 function breakIncident(partial: Partial<IncidentDto> & Pick<IncidentDto, 'corrUid' | 'openedAt'>): IncidentDto {
@@ -21,36 +20,8 @@ function breakIncident(partial: Partial<IncidentDto> & Pick<IncidentDto, 'corrUi
   };
 }
 
-describe('resolveIncidentEscalatedMs', () => {
-  const from = Date.parse('2026-07-29T10:00:00.000Z');
-  const to = from + 120_000;
-
-  it('uses escalatedAt capped by T', () => {
-    const esc = new Date(from + 90_000).toISOString();
-    expect(
-      resolveIncidentEscalatedMs(
-        { type: 'break', owner: 'transaq', subtype: 'degraded', escalatedAt: esc },
-        from,
-        to,
-        60,
-      ),
-    ).toBe(from + 60_000);
-  });
-
-  it('returns null for immediate supervisor break', () => {
-    expect(
-      resolveIncidentEscalatedMs(
-        { type: 'break', owner: 'supervisor', subtype: 'down', escalatedAt: null },
-        from,
-        to,
-        60,
-      ),
-    ).toBeNull();
-  });
-});
-
 describe('projectConnectionIncidents', () => {
-  it('paints short recovered break as-is (MVP — no micro-flap filter)', () => {
+  it('paints short recovered break as single red (no yellow stitch)', () => {
     const paint = projectConnectionIncidents(
       [
         breakIncident({
@@ -64,13 +35,16 @@ describe('projectConnectionIncidents', () => {
         }),
       ],
       Date.parse('2026-07-29T15:00:00.000Z'),
-      60,
     );
     expect(paint.bodies).toHaveLength(1);
-    expect(paint.markers.map((m) => m.kind)).toEqual(['start', 'recover']);
+    expect(paint.bodies[0]).toMatchObject({
+      kind: 'break',
+      label: 'Отсутствие связи',
+    });
+    expect(paint.markers.map((m) => m.label)).toEqual(['Потеря связи', 'Связь восстановлена']);
   });
 
-  it('splits yellow|red on escalatedAt and adds recover marker', () => {
+  it('does not split yellow|red on escalatedAt — one solid break body', () => {
     const opened = '2026-07-29T10:00:00.000Z';
     const esc = '2026-07-29T10:00:40.000Z';
     const closed = '2026-07-29T10:02:00.000Z';
@@ -88,17 +62,18 @@ describe('projectConnectionIncidents', () => {
         }),
       ],
       Date.parse(closed),
-      60,
     );
 
-    expect(paint.bodies).toHaveLength(2);
-    expect(paint.bodies[0].kind).toBe('transaq');
-    expect(paint.bodies[1].kind).toBe('supervisor');
-    expect(paint.markers.filter((m) => m.kind === 'start')).toHaveLength(1);
-    expect(paint.markers.filter((m) => m.kind === 'recover')).toHaveLength(1);
+    expect(paint.bodies).toHaveLength(1);
+    expect(paint.bodies[0]).toMatchObject({
+      kind: 'break',
+      fromMs: Date.parse(opened),
+      toMs: Date.parse(closed),
+      label: 'Отсутствие связи',
+    });
   });
 
-  it('paints crash above break (higher z)', () => {
+  it('paints crash above break (higher z) with crash labels', () => {
     const paint = projectConnectionIncidents(
       [
         breakIncident({
@@ -113,14 +88,18 @@ describe('projectConnectionIncidents', () => {
           closedAt: '2026-07-29T10:03:00.000Z',
           type: 'crash',
           subject: 'ohs.backend.outage',
+          closeOutcome: 'recovered',
         }),
       ],
       Date.parse('2026-07-29T10:05:00.000Z'),
     );
 
     const crash = paint.bodies.find((b) => b.kind === 'crash');
-    const br = paint.bodies.find((b) => b.kind === 'supervisor');
+    const br = paint.bodies.find((b) => b.kind === 'break');
     expect(crash!.z).toBeGreaterThan(br!.z);
+    expect(crash!.label).toBe('Сервер недоступен');
+    expect(paint.markers.filter((m) => m.label === 'Системный сбой')).toHaveLength(1);
+    expect(paint.markers.filter((m) => m.label === 'Система восстановлена')).toHaveLength(1);
   });
 });
 

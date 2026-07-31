@@ -312,6 +312,31 @@ export function buildScheduleMaskSegs(
   });
 }
 
+/**
+ * Desired-окна (чёрная база) для посессионной оси — те же rules, что void mask.
+ * Геометрия клипуется в сутки колонки; fromMs/toMs — полное окно open+duration (тултип overnight).
+ */
+export function buildScheduleDesiredSegs(
+  rules: readonly ConnectionScheduleRuleDto[],
+  sessions: readonly AxisDay[],
+  pct: (ms: number) => number,
+  offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
+): ScheduleMaskPaintSeg[] {
+  if (!hasLiveRules(rules) || sessions.length === 0) {
+    return [];
+  }
+  return sessions.flatMap((s) => desiredPaintSegsForDay(rules, s, pct, offsetMin));
+}
+
+/** Подпись тултипа desired: «Окно соединения HH:MM – HH:MM». */
+export function formatScheduleDesiredTooltip(
+  fromMs: number,
+  toMs: number,
+  offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
+): string {
+  return `Окно соединения ${hhmmWall(fromMs, offsetMin)} – ${hhmmWall(toMs, offsetMin)}`;
+}
+
 /** Подпись тултипа void: «Окно простоя HH:MM – HH:MM» (стенные часы TZ расписания). */
 export function formatScheduleIdleTooltip(
   fromMs: number,
@@ -319,6 +344,72 @@ export function formatScheduleIdleTooltip(
   offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
 ): string {
   return `Окно простоя ${hhmmWall(fromMs, offsetMin)} – ${hhmmWall(toMs, offsetMin)}`;
+}
+
+/**
+ * Desired ∩ сутки колонки → paint; tip = полный span окна (open+durationMin).
+ * Учитывает overnight с дня открытия «вчера».
+ */
+function desiredPaintSegsForDay(
+  rules: readonly ConnectionScheduleRuleDto[],
+  session: AxisDay,
+  pct: (ms: number) => number,
+  offsetMin: number,
+): ScheduleMaskPaintSeg[] {
+  if (!session.date) {
+    return [];
+  }
+  const dayStart = mskMidnightMsFromIso(session.date);
+  const dayEnd = dayStart + DAY_MS;
+  const s0 = Date.parse(session.start);
+  const s1 = Date.parse(session.end);
+  if (!Number.isFinite(s0) || !Number.isFinite(s1) || !(s0 < s1)) {
+    return [];
+  }
+  const slotL = pct(s0);
+  const slotW = Math.max(0, pct(s1) - slotL);
+  if (slotW <= 0) {
+    return [];
+  }
+
+  const dayWall = wallClockInTz(new Date(dayStart), offsetMin);
+  dayWall.setHours(0, 0, 0, 0);
+  const prevWall = new Date(dayWall);
+  prevWall.setDate(prevWall.getDate() - 1);
+
+  const out: ScheduleMaskPaintSeg[] = [];
+  for (const openDay of [prevWall, dayWall]) {
+    const winner = resolveWinnerForDate(rules, openDay);
+    if (!winner || winner.mode !== 'window' || winner.open == null || winner.durationMin == null) {
+      continue;
+    }
+    const openMin = hmsToMin(winner.open);
+    const fullFrom =
+      Date.UTC(
+        openDay.getFullYear(),
+        openDay.getMonth(),
+        openDay.getDate(),
+        Math.floor(openMin / 60),
+        openMin % 60,
+      ) -
+      offsetMin * 60_000;
+    const fullTo = fullFrom + winner.durationMin * 60_000;
+    const from = Math.max(fullFrom, dayStart);
+    const to = Math.min(fullTo, dayEnd);
+    if (!(from < to)) {
+      continue;
+    }
+    const widthPct = ((to - from) / DAY_MS) * slotW;
+    if (widthPct > 0) {
+      out.push({
+        leftPct: slotL + ((from - dayStart) / DAY_MS) * slotW,
+        widthPct,
+        fromMs: fullFrom,
+        toMs: fullTo,
+      });
+    }
+  }
+  return out;
 }
 
 function hhmmWall(ms: number, offsetMin: number): string {

@@ -7,6 +7,15 @@
   overflow: hidden;
 }
 
+/* Hit-target desired при маске → «Окно соединения …» (под liveness/void). */
+.scheduleDesiredBase {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 0;
+  pointer-events: auto;
+}
+
 .nowLine {
   position: absolute;
   top: 0;
@@ -26,51 +35,35 @@
   pointer-events: auto;
 }
 
-/* Сервер работает — голубая сплошная. */
+/* link_liveness — голубая / серая (слой 1). */
 .connected {
   background: #3aa0e0;
   z-index: 1;
 }
 
-/* Открытый (текущий) интервал связи мягко пульсирует. */
 .live {
   animation: connPulse 1.6s ease-in-out infinite;
 }
 
-/* Отключено пользователем — серое, не разрыв. */
 .idle {
   background: var(--color-text-muted);
   opacity: 0.5;
-  z-index: 2;
+  z-index: 1;
 }
 
-/* Восстановление средствами TRANSAQ (degraded) — линк дёрнулся, коннектор сам чинит: жёлтая. */
-.lost {
-  z-index: 3;
+/* break — жёлтая лента (слой 2); маркеры break по-прежнему красный/зелёный. */
+.breakBar {
+  z-index: 2;
   background: #e0a92e;
 }
 
-/* Перехват супервизором (server_down/ping_failed) — сплошная красная. */
-.supervisor {
+/* crash — красная лента поверх break (слой 3). */
+.crashBar {
   z-index: 3;
   background: #dc3545;
 }
 
-/* Недоступность процесса/бэка (interrupted, краш/рестарт) — красная штриховка (отличаем от супервизора). */
-.down {
-  z-index: 3;
-  background: repeating-linear-gradient(
-    -45deg,
-    transparent,
-    transparent 2px,
-    rgba(220, 53, 69, 0.9) 2px,
-    rgba(220, 53, 69, 0.9) 4px
-  );
-  background-color: rgba(220, 53, 69, 0.55);
-}
-
-/* Schedule void mask — поверх liveness / break / crash / markers (z-order §5.2).
-   Полупрозрачный slate «disabled»; маркеры/ленты проглядывают. */
+/* Schedule void mask — поверх liveness / break / crash / markers (§5.2). */
 .scheduleMask {
   position: absolute;
   top: 0;
@@ -80,7 +73,7 @@
   z-index: 30;
 }
 
-/* Маркеры 1px — всегда поверх тел инцидентов (z тел ≤ 3). */
+/* Маркеры 1px — поверх тел (слой 4). */
 .startMarker {
   position: absolute;
   top: 0;
@@ -93,7 +86,6 @@
   z-index: 20;
 }
 
-/* Связь восстановлена — зелёный вертикальный маркер (1px) на конце инцидента. */
 .recover {
   position: absolute;
   top: 0;

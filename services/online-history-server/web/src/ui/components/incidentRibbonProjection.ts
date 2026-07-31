@@ -1,16 +1,16 @@
 import type { IncidentDto } from '../../core/types';
-import { DEFAULT_LINK_RECOVER_GRACE_SEC } from './connectionRibbonGaps';
 
-/** Вид тела на Connection-ленте (полная семантика журнала). */
-export type IncidentRibbonKind = 'transaq' | 'supervisor' | 'crash';
+/** Вид тела на Connection-ленте. */
+export type IncidentRibbonKind = 'break' | 'crash';
 
 export interface IncidentRibbonBody {
   corrUid: string;
   fromMs: number;
   toMs: number;
   kind: IncidentRibbonKind;
+  /** Подпись тела без времени (время добавляет Ribbon). */
   label: string;
-  /** crash рисуется поверх break. */
+  /** break=2, crash=3 — поверх связи (§5.2). */
   z: number;
 }
 
@@ -26,44 +26,8 @@ export interface IncidentRibbonPaint {
   markers: IncidentRibbonMarker[];
 }
 
-/**
- * Момент жёлтое→красное из полей журнала (аналог resolveEscalatedMs для gaps).
- * Сразу supervisor / без жёлтой фазы → null (всё тело красное).
- */
-export function resolveIncidentEscalatedMs(
-  incident: Pick<IncidentDto, 'escalatedAt' | 'owner' | 'subtype' | 'type'>,
-  fromMs: number,
-  toMs: number,
-  graceSec: number = DEFAULT_LINK_RECOVER_GRACE_SEC,
-): number | null {
-  if (incident.type === 'crash') {
-    return null;
-  }
-
-  const graceMs = (graceSec > 0 ? graceSec : DEFAULT_LINK_RECOVER_GRACE_SEC) * 1000;
-  const maxEsc = fromMs + graceMs;
-
-  if (incident.escalatedAt) {
-    const esc = Date.parse(incident.escalatedAt);
-    if (Number.isFinite(esc) && esc > fromMs && esc < toMs) {
-      const t = Math.min(esc, maxEsc);
-      return t > fromMs && t < toMs ? t : null;
-    }
-  }
-
-  // Жёлтая фаза только пока owner=transaq / subtype=degraded.
-  const yellowOwner =
-    incident.owner === 'transaq' || incident.subtype === 'degraded';
-  if (!yellowOwner) {
-    return null;
-  }
-
-  if (maxEsc > fromMs && maxEsc < toMs) {
-    return maxEsc;
-  }
-
-  return null;
-}
+const Z_BREAK = 2;
+const Z_CRASH = 3;
 
 function episodeEndMs(incident: IncidentDto, nowMs: number): number {
   if (incident.closedAt) {
@@ -73,21 +37,13 @@ function episodeEndMs(incident: IncidentDto, nowMs: number): number {
   return nowMs;
 }
 
-function breakLabel(incident: IncidentDto): string {
-  if (incident.subtype === 'degraded' || incident.owner === 'transaq') {
-    return 'Восстановление связи (TRANSAQ)';
-  }
-  return incident.title || 'Обрыв связи';
-}
-
 /**
- * Connection-лента: тела + 1px маркеры из журнала `incident` as-is (MVP, без фильтра микро-flap).
- * break снизу, crash сверху (z). Grey (disconnected/scheduled) сюда не входит.
+ * Connection-лента: тела + 1px маркеры из журнала `incident`.
+ * break — жёлтая лента на весь span; crash — красная поверх (z). Маркеры — отдельно.
  */
 export function projectConnectionIncidents(
   incidents: readonly IncidentDto[],
   nowMs: number,
-  graceSec: number = DEFAULT_LINK_RECOVER_GRACE_SEC,
 ): IncidentRibbonPaint {
   const bodies: IncidentRibbonBody[] = [];
   const markers: IncidentRibbonMarker[] = [];
@@ -102,11 +58,12 @@ export function projectConnectionIncidents(
       continue;
     }
 
+    const isCrash = incident.type === 'crash';
     markers.push({
       corrUid: incident.corrUid,
       atMs: fromMs,
       kind: 'start',
-      label: incident.type === 'crash' ? 'Недоступность системы' : 'Потеря связи',
+      label: isCrash ? 'Системный сбой' : 'Потеря связи',
     });
 
     if (
@@ -118,35 +75,18 @@ export function projectConnectionIncidents(
         corrUid: incident.corrUid,
         atMs: Date.parse(incident.closedAt),
         kind: 'recover',
-        label: incident.type === 'crash' ? 'Система восстановлена' : 'Связь восстановлена',
+        label: isCrash ? 'Система восстановлена' : 'Связь восстановлена',
       });
     }
 
-    if (incident.type === 'crash') {
+    if (isCrash) {
       bodies.push({
         corrUid: incident.corrUid,
         fromMs,
         toMs,
         kind: 'crash',
-        label: incident.title || 'Недоступность бэка',
-        z: 2,
-      });
-      continue;
-    }
-
-    const escMs = resolveIncidentEscalatedMs(incident, fromMs, toMs, graceSec);
-    if (escMs == null) {
-      const kind: IncidentRibbonKind =
-        incident.owner === 'transaq' || incident.subtype === 'degraded'
-          ? 'transaq'
-          : 'supervisor';
-      bodies.push({
-        corrUid: incident.corrUid,
-        fromMs,
-        toMs,
-        kind,
-        label: kind === 'transaq' ? breakLabel(incident) : 'Восстановление связи (супервизор)',
-        z: 1,
+        label: 'Сервер недоступен',
+        z: Z_CRASH,
       });
       continue;
     }
@@ -154,18 +94,10 @@ export function projectConnectionIncidents(
     bodies.push({
       corrUid: incident.corrUid,
       fromMs,
-      toMs: escMs,
-      kind: 'transaq',
-      label: breakLabel(incident),
-      z: 1,
-    });
-    bodies.push({
-      corrUid: incident.corrUid,
-      fromMs: escMs,
       toMs,
-      kind: 'supervisor',
-      label: 'Восстановление связи (супервизор)',
-      z: 1,
+      kind: 'break',
+      label: 'Отсутствие связи',
+      z: Z_BREAK,
     });
   }
 

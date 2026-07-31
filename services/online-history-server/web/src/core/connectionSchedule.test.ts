@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   SCHEDULE_TZ_OFFSET_MIN,
+  buildScheduleDesiredSegs,
   buildScheduleMaskSegs,
   enumerateDesiredWindows,
+  formatScheduleDesiredTooltip,
   formatScheduleIdleTooltip,
   projectScheduleMaskSegs,
   scheduleVoidIntervals,
@@ -128,6 +130,41 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
     expect(formatScheduleIdleTooltip(msk(2026, 7, 30, 1), msk(2026, 7, 30, 6, 50))).toBe(
       'Окно простоя 01:00 – 06:50',
     );
+    expect(formatScheduleDesiredTooltip(msk(2026, 7, 30, 6), msk(2026, 7, 31, 1))).toBe(
+      'Окно соединения 06:00 – 01:00',
+    );
+  });
+
+  it('buildScheduleDesiredSegs: tip keeps full overnight window', () => {
+    const rules = [
+      rule({
+        scopeKind: 'main',
+        mode: 'window',
+        open: '06:00:00',
+        durationMin: 19 * 60,
+        effectiveFrom: '2020-01-01T00:00:00Z',
+      }),
+    ];
+    const sessions = [
+      {
+        date: '2026-07-31',
+        start: new Date(msk(2026, 7, 31, 8, 50)).toISOString(),
+        end: new Date(msk(2026, 7, 31, 23, 50)).toISOString(),
+      },
+    ];
+    const pct = makeProjector(
+      Date.parse(sessions[0]!.start),
+      Date.parse(sessions[0]!.end),
+      sessions,
+    );
+    const segs = buildScheduleDesiredSegs(rules, sessions, pct);
+    expect(segs.length).toBeGreaterThanOrEqual(1);
+    const overnight = segs.find((s) => s.fromMs === msk(2026, 7, 31, 6));
+    expect(overnight).toMatchObject({
+      fromMs: msk(2026, 7, 31, 6),
+      toMs: msk(2026, 8, 1, 1),
+    });
+    expect(overnight!.widthPct).toBeGreaterThan(5);
   });
 
   it('OnSessions: schedule 08:50–20:00 + overnight → void 01:00–08:50 tomorrow', () => {
