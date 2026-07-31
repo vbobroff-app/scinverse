@@ -212,6 +212,31 @@ export function scheduleVoidIntervals(
   return invertHalfOpen(desired, rangeFromMs, rangeToMs);
 }
 
+/**
+ * Void по каждому слоту оси (день/сессия), включая «завтра» при D+.
+ * Считаем отдельно на слот — иначе overnight-void схлопывается в шов посессионной шкалы
+ * и день справа остаётся без маски.
+ */
+export function scheduleVoidIntervalsOnSessions(
+  rules: readonly ConnectionScheduleRuleDto[],
+  sessions: readonly { start: string; end: string }[],
+  offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
+): ScheduleMsInterval[] {
+  if (!hasLiveRules(rules) || sessions.length === 0) {
+    return [];
+  }
+  const out: ScheduleMsInterval[] = [];
+  for (const s of sessions) {
+    const fromMs = Date.parse(s.start);
+    const toMs = Date.parse(s.end);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || !(fromMs < toMs)) {
+      continue;
+    }
+    out.push(...scheduleVoidIntervals(rules, fromMs, toMs, offsetMin));
+  }
+  return out;
+}
+
 /** Подпись тултипа void: «Окно простоя HH:MM – HH:MM» (стенные часы TZ расписания). */
 export function formatScheduleIdleTooltip(
   fromMs: number,

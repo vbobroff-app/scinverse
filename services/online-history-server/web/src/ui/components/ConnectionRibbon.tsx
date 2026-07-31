@@ -4,6 +4,7 @@ import {
   SCHEDULE_TZ_OFFSET_MIN,
   formatScheduleIdleTooltip,
   scheduleVoidIntervals,
+  scheduleVoidIntervalsOnSessions,
 } from '../../core/connectionSchedule';
 import { livenessEndMs } from '../../core/coverageGeometry';
 import { makeProjector } from '../../core/sessionProjection';
@@ -98,7 +99,7 @@ function kindClass(kind: IncidentRibbonKind): string {
  * Connection: слои снизу вверх — liveness → break/crash → markers → schedule mask.
  * - Лента связи (`showLinkRibbon`): голубое + серое idle из `link_liveness`.
  * - Инциденты (`showIncidents`): journal / legacy gaps + маркеры (не зависят от живности).
- * - Маска расписания (`showScheduleMask`): void вне desired, ⊥ SessionFilter.
+ * - Маска простоя (`showScheduleMask`): void вне desired, ⊥ SessionFilter.
  */
 export const ConnectionRibbon = memo(function ConnectionRibbon({
   window,
@@ -140,7 +141,9 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
     : undefined;
   const voids =
     showScheduleMask && scheduleRules && scheduleRules.length > 0
-      ? scheduleVoidIntervals(scheduleRules, windowFromMs, windowToMs, SCHEDULE_TZ_OFFSET_MIN)
+      ? sessions && sessions.length > 0
+        ? scheduleVoidIntervalsOnSessions(scheduleRules, sessions, SCHEDULE_TZ_OFFSET_MIN)
+        : scheduleVoidIntervals(scheduleRules, windowFromMs, windowToMs, SCHEDULE_TZ_OFFSET_MIN)
       : [];
 
   return (

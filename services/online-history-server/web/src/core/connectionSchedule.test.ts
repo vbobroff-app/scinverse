@@ -4,6 +4,7 @@ import {
   enumerateDesiredWindows,
   formatScheduleIdleTooltip,
   scheduleVoidIntervals,
+  scheduleVoidIntervalsOnSessions,
   type ScheduleMsInterval,
 } from './connectionSchedule';
 import type { ConnectionScheduleRuleDto } from './types';
@@ -124,5 +125,30 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
     expect(formatScheduleIdleTooltip(msk(2026, 7, 30, 1), msk(2026, 7, 30, 6, 50))).toBe(
       'Окно простоя 01:00 – 06:50',
     );
+  });
+
+  it('OnSessions: voids include tomorrow slot (D+ horizon)', () => {
+    // Сегодня + завтра как две доли оси (как D2 + D+).
+    const sessions = [
+      {
+        start: new Date(msk(2026, 7, 30, 8, 50)).toISOString(),
+        end: new Date(msk(2026, 7, 30, 23, 50)).toISOString(),
+      },
+      {
+        start: new Date(msk(2026, 7, 31, 8, 50)).toISOString(),
+        end: new Date(msk(2026, 7, 31, 23, 50)).toISOString(),
+      },
+    ];
+    const voids = scheduleVoidIntervalsOnSessions([main9to18], sessions);
+    // На завтрашней доле — вечерний простой после 18:00.
+    expect(voids).toContainEqual({
+      fromMs: msk(2026, 7, 31, 18),
+      toMs: msk(2026, 7, 31, 23, 50),
+    });
+    // И утренний до 09:00 на завтра.
+    expect(voids).toContainEqual({
+      fromMs: msk(2026, 7, 31, 8, 50),
+      toMs: msk(2026, 7, 31, 9),
+    });
   });
 });
