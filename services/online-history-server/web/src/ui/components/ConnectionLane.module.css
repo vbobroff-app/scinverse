@@ -3,7 +3,7 @@
   display: grid;
   grid-template-columns: minmax(250px, 315px) 1fr;
   gap: var(--spacing-sm);
-  height: 52px;
+  height: 58px;
   padding: 0 12px 8px 0;
   box-sizing: border-box;
 }
@@ -54,17 +54,86 @@
 }
 
 .right {
+  position: relative;
   display: flex;
   align-items: center;
   height: 100%;
   padding: var(--spacing-xs) var(--spacing-md);
+  padding-bottom: 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg-panel);
   min-width: 0;
 }
 
-.right > * {
+.right > :first-child {
   flex: 1;
   min-width: 0;
+}
+
+/* Линейка у нижнего бордюра .right (не на колбаске). */
+.ruler {
+  position: absolute;
+  left: var(--spacing-md);
+  right: var(--spacing-md);
+  bottom: 0;
+  height: 10px;
+  pointer-events: auto;
+}
+
+.tick {
+  position: absolute;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 9px;
+  margin-left: -4px;
+  height: 8px;
+  pointer-events: none;
+}
+
+.tickMark {
+  width: 1px;
+  background: var(--color-text-muted);
+  opacity: 0.55;
+}
+
+.tickMinor .tickMark {
+  height: 3px;
+}
+
+.tickMajor .tickMark {
+  height: 6px;
+  opacity: 0.8;
+}
+
+/* Кастомный тултип линейки — визуально как NC Tip; ниже линейки. */
+.rulerTip {
+  position: absolute;
+  top: calc(100% + 4px);
+  z-index: 50;
+  transform: translateX(-50%);
+  max-width: 260px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border, #373a40);
+  background: var(--color-bg-panel, #25262b);
+  color: var(--color-text-secondary, #adb5bd);
+  font-size: 12px;
+  font-family: var(--font-family, system-ui, sans-serif);
+  line-height: 1.35;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  animation: rulerTipIn 0.12s ease-out;
+}
+
+@keyframes rulerTipIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
