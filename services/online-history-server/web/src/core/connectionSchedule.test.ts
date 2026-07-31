@@ -129,8 +129,8 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
     );
   });
 
-  it('OnSessions: calendar-day voids include morning idle before MOEX open', () => {
-    // Торговые слоты 08:50–23:50, но void считаем по суткам (01:00–08:50 не теряется).
+  it('OnSessions: schedule 08:50–20:00 + overnight → void 01:00–08:50 tomorrow', () => {
+    // Ось может быть MOEX-слотами — на void это не влияет, только connection schedule.
     const sessions = [
       {
         date: '2026-07-30',
@@ -143,21 +143,32 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
         end: new Date(msk(2026, 7, 31, 23, 50)).toISOString(),
       },
     ];
-    // Overnight: open 10:00, duration 15h → до 01:00 следующего дня.
-    const overnight = rule({
+    // Рабочее окно 08:50–20:00 (= 670 мин); хвост с вчера до 01:00 — отдельное overnight-правило.
+    const dayWindow = rule({
       scopeKind: 'main',
       mode: 'window',
+      open: '08:50:00',
+      durationMin: 670,
+      effectiveFrom: '2020-01-01T00:00:00Z',
+    });
+    // Вчера 10:00 + 15ч → сегодня 01:00 (для 30-го open day).
+    const overnight = rule({
+      scopeKind: 'date',
+      mode: 'window',
+      dateFrom: '2026-07-30',
+      dateTo: '2026-07-30',
       open: '10:00:00',
       durationMin: 15 * 60,
+      effectiveFrom: '2020-01-02T00:00:00Z',
     });
-    const voids = scheduleVoidIntervalsOnSessions([overnight], sessions);
+    const voids = scheduleVoidIntervalsOnSessions([dayWindow, overnight], sessions);
     expect(voids).toContainEqual({
       fromMs: msk(2026, 7, 31, 1),
-      toMs: msk(2026, 7, 31, 10),
+      toMs: msk(2026, 7, 31, 8, 50),
     });
   });
 
-  it('projectScheduleMaskSegs: pre-session 01:00–08:50 gets positive width', () => {
+  it('projectScheduleMaskSegs: maps calendar void 01:00–08:50 onto day column', () => {
     const session = {
       date: '2026-07-31',
       start: new Date(msk(2026, 7, 31, 8, 50)).toISOString(),
@@ -175,7 +186,7 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
         session,
       ],
     );
-    // Прямой pct схлопывает pre-session в шов (width≈0).
+    // Ось схлопывает 01:00–08:50 в шов.
     expect(pct(msk(2026, 7, 31, 8, 50)) - pct(msk(2026, 7, 31, 1))).toBe(0);
 
     const segs = projectScheduleMaskSegs(
@@ -184,7 +195,8 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
       pct,
     );
     expect(segs).toHaveLength(1);
-    expect(segs[0]!.widthPct).toBeGreaterThan(1);
+    // ~7h50 / 24ч доли колонки.
+    expect(segs[0]!.widthPct).toBeGreaterThan(10);
     expect(segs[0]!.fromMs).toBe(msk(2026, 7, 31, 1));
     expect(segs[0]!.toMs).toBe(msk(2026, 7, 31, 8, 50));
   });

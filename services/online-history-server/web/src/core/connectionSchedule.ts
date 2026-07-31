@@ -215,9 +215,8 @@ export function scheduleVoidIntervals(
 }
 
 /**
- * Void по календарным суткам каждого слота оси (`session.date`), включая «завтра» при D+.
- * Важно: не клиповать к торговым 08:50–23:50 — иначе простой 01:00–08:50 (хвост overnight)
- * пропадает на посессионной шкале.
+ * Void по календарным суткам каждого дня оси (`session.date`) — только connection schedule.
+ * Ось (SessionFilter) даёт лишь список дней; MOEX-часы на расчёт простоя не влияют.
  */
 export function scheduleVoidIntervalsOnSessions(
   rules: readonly ConnectionScheduleRuleDto[],
@@ -248,10 +247,9 @@ export interface ScheduleMaskPaintSeg {
 }
 
 /**
- * Проекция void → полосы на посессионной оси.
- * In-session: обычный pct (паритет с liveness).
- * Pre-session (до session.start, напр. 01:00–08:50): слева доли дня —
- * иначе шов посессионной шкалы даёт width=0.
+ * Void (из schedule) → полосы в колонке дня на оси.
+ * Сутки [00:00, 24:00) линейно кладутся на долю дня (`session.start`…`end` — только геометрия колонки).
+ * Так 01:00–08:50 видно даже если SessionFilter схлопнул ночь.
  */
 export function projectScheduleMaskSegs(
   voids: readonly ScheduleMsInterval[],
@@ -259,6 +257,7 @@ export function projectScheduleMaskSegs(
   pct: (ms: number) => number,
 ): ScheduleMaskPaintSeg[] {
   const dayStart = mskMidnightMsFromIso(session.date);
+  const dayEnd = dayStart + DAY_MS;
   const s0 = Date.parse(session.start);
   const s1 = Date.parse(session.end);
   if (!Number.isFinite(s0) || !Number.isFinite(s1) || !(s0 < s1)) {
@@ -267,31 +266,21 @@ export function projectScheduleMaskSegs(
   const slotL = pct(s0);
   const slotR = pct(s1);
   const slotW = Math.max(0, slotR - slotL);
-  const sessionDur = s1 - s0;
-  const preSpan = s0 - dayStart;
-  // Полоса слева доли ≈ доля pre-session в длительности торговой сессии.
-  const preBandW = preSpan > 0 ? Math.min(slotW, (preSpan / sessionDur) * slotW) : 0;
+  if (slotW <= 0) {
+    return [];
+  }
+
   const out: ScheduleMaskPaintSeg[] = [];
-
   for (const v of voids) {
-    if (preBandW > 0) {
-      const preFrom = Math.max(v.fromMs, dayStart);
-      const preTo = Math.min(v.toMs, s0);
-      if (preFrom < preTo) {
-        const leftPct = slotL + ((preFrom - dayStart) / preSpan) * preBandW;
-        const widthPct = Math.max(0.3, ((preTo - preFrom) / preSpan) * preBandW);
-        out.push({ leftPct, widthPct, fromMs: preFrom, toMs: preTo });
-      }
+    const from = Math.max(v.fromMs, dayStart);
+    const to = Math.min(v.toMs, dayEnd);
+    if (!(from < to)) {
+      continue;
     }
-
-    const inFrom = Math.max(v.fromMs, s0);
-    const inTo = Math.min(v.toMs, s1);
-    if (inFrom < inTo) {
-      const leftPct = pct(inFrom);
-      const widthPct = pct(inTo) - leftPct;
-      if (widthPct > 0) {
-        out.push({ leftPct, widthPct, fromMs: inFrom, toMs: inTo });
-      }
+    const leftPct = slotL + ((from - dayStart) / DAY_MS) * slotW;
+    const widthPct = ((to - from) / DAY_MS) * slotW;
+    if (widthPct > 0) {
+      out.push({ leftPct, widthPct, fromMs: from, toMs: to });
     }
   }
   return out;
