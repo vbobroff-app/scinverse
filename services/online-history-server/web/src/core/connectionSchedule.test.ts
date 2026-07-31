@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   SCHEDULE_TZ_OFFSET_MIN,
+  buildScheduleMaskSegs,
   enumerateDesiredWindows,
   formatScheduleIdleTooltip,
   projectScheduleMaskSegs,
@@ -166,6 +167,63 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
       fromMs: msk(2026, 7, 31, 1),
       toMs: msk(2026, 7, 31, 8, 50),
     });
+  });
+
+  it('D+: today void 01:00–06:00 and tomorrow void 01:00–08:50 both paint', () => {
+    // main: 06:00 + 19ч → до 01:00 следующего дня; завтра date: 08:50–20:00.
+    const rules = [
+      rule({
+        scopeKind: 'main',
+        mode: 'window',
+        open: '06:00:00',
+        durationMin: 19 * 60,
+        effectiveFrom: '2020-01-01T00:00:00Z',
+      }),
+      rule({
+        scopeKind: 'date',
+        mode: 'window',
+        dateFrom: '2026-08-01',
+        dateTo: '2026-08-01',
+        open: '08:50:00',
+        durationMin: 670,
+        effectiveFrom: '2020-01-02T00:00:00Z',
+      }),
+    ];
+    const sessions = [
+      {
+        date: '2026-07-31',
+        start: new Date(msk(2026, 7, 31, 8, 50)).toISOString(),
+        end: new Date(msk(2026, 7, 31, 23, 50)).toISOString(),
+      },
+      {
+        date: '2026-08-01',
+        start: new Date(msk(2026, 8, 1, 8, 50)).toISOString(),
+        end: new Date(msk(2026, 8, 1, 23, 50)).toISOString(),
+      },
+    ];
+    const pct = makeProjector(
+      Date.parse(sessions[0]!.start),
+      Date.parse(sessions[1]!.end),
+      sessions,
+    );
+    const segs = buildScheduleMaskSegs(rules, sessions, pct);
+    expect(segs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fromMs: msk(2026, 7, 31, 1),
+          toMs: msk(2026, 7, 31, 6),
+        }),
+        expect.objectContaining({
+          fromMs: msk(2026, 8, 1, 1),
+          toMs: msk(2026, 8, 1, 8, 50),
+          leftPct: expect.any(Number),
+          widthPct: expect.any(Number),
+        }),
+      ]),
+    );
+    const tom = segs.find((s) => s.fromMs === msk(2026, 8, 1, 1));
+    expect(tom!.widthPct).toBeGreaterThan(5);
+    expect(tom!.leftPct).toBeGreaterThan(40);
   });
 
   it('projectScheduleMaskSegs: maps calendar void 01:00–08:50 onto day column', () => {

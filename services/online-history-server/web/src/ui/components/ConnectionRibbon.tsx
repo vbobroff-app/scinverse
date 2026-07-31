@@ -2,12 +2,11 @@ import { memo } from 'react';
 import type { CoverageWindow } from '../../core/OhsStore';
 import {
   SCHEDULE_TZ_OFFSET_MIN,
+  buildScheduleMaskSegs,
   formatScheduleIdleTooltip,
-  projectScheduleMaskSegs,
   scheduleVoidIntervals,
 } from '../../core/connectionSchedule';
 import { livenessEndMs } from '../../core/coverageGeometry';
-import { mskMidnightMsFromIso } from '../../core/moexSession';
 import { makeProjector } from '../../core/sessionProjection';
 import type {
   CaptureGapDto,
@@ -143,23 +142,8 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   const maskSegs =
     showScheduleMask && scheduleRules && scheduleRules.length > 0
       ? sessions && sessions.length > 0
-        ? sessions.flatMap((s) => {
-            const dayStart = mskMidnightMsFromIso(s.date);
-            const dayEnd = dayStart + 24 * 60 * 60_000;
-            const dayVoids = scheduleVoidIntervals(
-              scheduleRules,
-              dayStart,
-              dayEnd,
-              SCHEDULE_TZ_OFFSET_MIN,
-            );
-            return projectScheduleMaskSegs(dayVoids, s, pct);
-          })
-        : scheduleVoidIntervals(
-            scheduleRules,
-            windowFromMs,
-            windowToMs,
-            SCHEDULE_TZ_OFFSET_MIN,
-          ).map((v) => {
+        ? buildScheduleMaskSegs(scheduleRules, sessions, pct)
+        : scheduleVoidIntervals(scheduleRules, windowFromMs, windowToMs).map((v) => {
             const leftPct = pct(v.fromMs);
             return {
               leftPct,

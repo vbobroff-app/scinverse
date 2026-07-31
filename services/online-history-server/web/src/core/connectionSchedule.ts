@@ -214,13 +214,15 @@ export function scheduleVoidIntervals(
   return invertHalfOpen(desired, rangeFromMs, rangeToMs);
 }
 
+type AxisDay = { date: string; start: string; end: string };
+
 /**
- * Void по календарным суткам каждого дня оси (`session.date`) — только connection schedule.
- * Ось (SessionFilter) даёт лишь список дней; MOEX-часы на расчёт простоя не влияют.
+ * Void по календарным суткам каждого дня оси (`session.date`).
+ * Только connection schedule; часы SessionFilter/MOEX на простой не влияют.
  */
 export function scheduleVoidIntervalsOnSessions(
   rules: readonly ConnectionScheduleRuleDto[],
-  sessions: readonly { date: string; start: string; end: string }[],
+  sessions: readonly AxisDay[],
   offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
 ): ScheduleMsInterval[] {
   if (!hasLiveRules(rules) || sessions.length === 0) {
@@ -232,8 +234,7 @@ export function scheduleVoidIntervalsOnSessions(
       continue;
     }
     const dayStart = mskMidnightMsFromIso(s.date);
-    const dayEnd = dayStart + DAY_MS;
-    out.push(...scheduleVoidIntervals(rules, dayStart, dayEnd, offsetMin));
+    out.push(...scheduleVoidIntervals(rules, dayStart, dayStart + DAY_MS, offsetMin));
   }
   return out;
 }
@@ -247,13 +248,12 @@ export interface ScheduleMaskPaintSeg {
 }
 
 /**
- * Void (из schedule) → полосы в колонке дня на оси.
- * Сутки [00:00, 24:00) линейно кладутся на долю дня (`session.start`…`end` — только геометрия колонки).
- * Так 01:00–08:50 видно даже если SessionFilter схлопнул ночь.
+ * Void → полосы в колонке дня: сутки [00:00, 24:00) линейно на [session.start, session.end).
+ * Нужно, чтобы простой до open (01:00–08:50) не схлопывался в шов SessionFilter.
  */
 export function projectScheduleMaskSegs(
   voids: readonly ScheduleMsInterval[],
-  session: { date: string; start: string; end: string },
+  session: AxisDay,
   pct: (ms: number) => number,
 ): ScheduleMaskPaintSeg[] {
   const dayStart = mskMidnightMsFromIso(session.date);
@@ -264,8 +264,7 @@ export function projectScheduleMaskSegs(
     return [];
   }
   const slotL = pct(s0);
-  const slotR = pct(s1);
-  const slotW = Math.max(0, slotR - slotL);
+  const slotW = Math.max(0, pct(s1) - slotL);
   if (slotW <= 0) {
     return [];
   }
@@ -277,13 +276,40 @@ export function projectScheduleMaskSegs(
     if (!(from < to)) {
       continue;
     }
-    const leftPct = slotL + ((from - dayStart) / DAY_MS) * slotW;
     const widthPct = ((to - from) / DAY_MS) * slotW;
     if (widthPct > 0) {
-      out.push({ leftPct, widthPct, fromMs: from, toMs: to });
+      out.push({
+        leftPct: slotL + ((from - dayStart) / DAY_MS) * slotW,
+        widthPct,
+        fromMs: from,
+        toMs: to,
+      });
     }
   }
   return out;
+}
+
+/**
+ * Маска простоя для посессионной оси: void по каждому `session.date` → paint segs.
+ * Без sessions / rules → [].
+ */
+export function buildScheduleMaskSegs(
+  rules: readonly ConnectionScheduleRuleDto[],
+  sessions: readonly AxisDay[],
+  pct: (ms: number) => number,
+  offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
+): ScheduleMaskPaintSeg[] {
+  if (!hasLiveRules(rules) || sessions.length === 0) {
+    return [];
+  }
+  return sessions.flatMap((s) => {
+    if (!s.date) {
+      return [];
+    }
+    const dayStart = mskMidnightMsFromIso(s.date);
+    const dayVoids = scheduleVoidIntervals(rules, dayStart, dayStart + DAY_MS, offsetMin);
+    return projectScheduleMaskSegs(dayVoids, s, pct);
+  });
 }
 
 /** Подпись тултипа void: «Окно простоя HH:MM – HH:MM» (стенные часы TZ расписания). */
