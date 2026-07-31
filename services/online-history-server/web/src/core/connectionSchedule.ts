@@ -1,3 +1,4 @@
+import { mskMidnightMsFromIso } from './moexSession';
 import type { ConnectionScheduleRuleDto } from './types';
 
 /**
@@ -9,6 +10,7 @@ import type { ConnectionScheduleRuleDto } from './types';
  */
 
 const DAY_MIN = 24 * 60;
+const DAY_MS = DAY_MIN * 60_000;
 
 /**
  * Смещение TZ расписания от UTC в минутах. Расписание хранится в `Europe/Moscow`
@@ -213,13 +215,13 @@ export function scheduleVoidIntervals(
 }
 
 /**
- * Void по каждому слоту оси (день/сессия), включая «завтра» при D+.
- * Считаем отдельно на слот — иначе overnight-void схлопывается в шов посессионной шкалы
- * и день справа остаётся без маски.
+ * Void по календарным суткам каждого слота оси (`session.date`), включая «завтра» при D+.
+ * Важно: не клиповать к торговым 08:50–23:50 — иначе простой 01:00–08:50 (хвост overnight)
+ * пропадает на посессионной шкале.
  */
 export function scheduleVoidIntervalsOnSessions(
   rules: readonly ConnectionScheduleRuleDto[],
-  sessions: readonly { start: string; end: string }[],
+  sessions: readonly { date: string; start: string; end: string }[],
   offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
 ): ScheduleMsInterval[] {
   if (!hasLiveRules(rules) || sessions.length === 0) {
@@ -227,12 +229,70 @@ export function scheduleVoidIntervalsOnSessions(
   }
   const out: ScheduleMsInterval[] = [];
   for (const s of sessions) {
-    const fromMs = Date.parse(s.start);
-    const toMs = Date.parse(s.end);
-    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || !(fromMs < toMs)) {
+    if (!s.date) {
       continue;
     }
-    out.push(...scheduleVoidIntervals(rules, fromMs, toMs, offsetMin));
+    const dayStart = mskMidnightMsFromIso(s.date);
+    const dayEnd = dayStart + DAY_MS;
+    out.push(...scheduleVoidIntervals(rules, dayStart, dayEnd, offsetMin));
+  }
+  return out;
+}
+
+/** Сегмент маски для отрисовки (left/width в % оси). */
+export interface ScheduleMaskPaintSeg {
+  leftPct: number;
+  widthPct: number;
+  fromMs: number;
+  toMs: number;
+}
+
+/**
+ * Проекция void → полосы на посессионной оси.
+ * In-session: обычный pct (паритет с liveness).
+ * Pre-session (до session.start, напр. 01:00–08:50): слева доли дня —
+ * иначе шов посессионной шкалы даёт width=0.
+ */
+export function projectScheduleMaskSegs(
+  voids: readonly ScheduleMsInterval[],
+  session: { date: string; start: string; end: string },
+  pct: (ms: number) => number,
+): ScheduleMaskPaintSeg[] {
+  const dayStart = mskMidnightMsFromIso(session.date);
+  const s0 = Date.parse(session.start);
+  const s1 = Date.parse(session.end);
+  if (!Number.isFinite(s0) || !Number.isFinite(s1) || !(s0 < s1)) {
+    return [];
+  }
+  const slotL = pct(s0);
+  const slotR = pct(s1);
+  const slotW = Math.max(0, slotR - slotL);
+  const sessionDur = s1 - s0;
+  const preSpan = s0 - dayStart;
+  // Полоса слева доли ≈ доля pre-session в длительности торговой сессии.
+  const preBandW = preSpan > 0 ? Math.min(slotW, (preSpan / sessionDur) * slotW) : 0;
+  const out: ScheduleMaskPaintSeg[] = [];
+
+  for (const v of voids) {
+    if (preBandW > 0) {
+      const preFrom = Math.max(v.fromMs, dayStart);
+      const preTo = Math.min(v.toMs, s0);
+      if (preFrom < preTo) {
+        const leftPct = slotL + ((preFrom - dayStart) / preSpan) * preBandW;
+        const widthPct = Math.max(0.3, ((preTo - preFrom) / preSpan) * preBandW);
+        out.push({ leftPct, widthPct, fromMs: preFrom, toMs: preTo });
+      }
+    }
+
+    const inFrom = Math.max(v.fromMs, s0);
+    const inTo = Math.min(v.toMs, s1);
+    if (inFrom < inTo) {
+      const leftPct = pct(inFrom);
+      const widthPct = pct(inTo) - leftPct;
+      if (widthPct > 0) {
+        out.push({ leftPct, widthPct, fromMs: inFrom, toMs: inTo });
+      }
+    }
   }
   return out;
 }

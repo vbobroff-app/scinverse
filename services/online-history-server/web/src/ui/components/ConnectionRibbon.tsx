@@ -1,13 +1,14 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import type { CoverageWindow } from '../../core/OhsStore';
 import {
   SCHEDULE_TZ_OFFSET_MIN,
   formatScheduleIdleTooltip,
+  projectScheduleMaskSegs,
   scheduleVoidIntervals,
-  scheduleVoidIntervalsOnSessions,
 } from '../../core/connectionSchedule';
 import { livenessEndMs } from '../../core/coverageGeometry';
-import { makeProjector } from '../../core/sessionProjection';
+import { mskMidnightMsFromIso, tzDateOf } from '../../core/moexSession';
+import { makeInverseProjector, makeProjector } from '../../core/sessionProjection';
 import type {
   CaptureGapDto,
   ConnectionScheduleRuleDto,
@@ -15,6 +16,7 @@ import type {
   LivenessIntervalDto,
   SessionDto,
 } from '../../core/types';
+import { useElementWidth } from '../hooks/useElementWidth';
 import { DEFAULT_LINK_RECOVER_GRACE_SEC, resolveEscalatedMs } from './connectionRibbonGaps';
 import {
   journalHasOverlappingCrash,
@@ -22,6 +24,16 @@ import {
   type IncidentRibbonKind,
 } from './incidentRibbonProjection';
 import styles from './ConnectionRibbon.module.css';
+
+/** Шаг minor-тиков по ширине трека; каждый 5-й — major. */
+const RULER_MINOR_PX = 8;
+const RULER_MAJOR_EVERY = 5;
+
+interface RulerTick {
+  left: number;
+  major: boolean;
+  title: string;
+}
 
 interface Props {
   window: CoverageWindow;
@@ -79,6 +91,40 @@ function hhmm(ms: number, offMin: number): string {
   return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
 }
 
+/** Подпись тика: HH:mm; на длинном горизонте — dd.MM HH:mm. */
+function tickTitle(ms: number, offMin: number, withDate: boolean): string {
+  const time = hhmm(ms, offMin);
+  if (!withDate) {
+    return time;
+  }
+  const d = tzDateOf(ms, offMin);
+  return `${pad2(d.day)}.${pad2(d.month)} ${time}`;
+}
+
+/** Равномерная линейка по ширине трека; время — через inverse projector оси. */
+function buildRulerTicks(
+  widthPx: number,
+  fromMs: number,
+  toMs: number,
+  sessions: SessionDto[] | undefined,
+  tzOffsetMin: number,
+): RulerTick[] {
+  const w = widthPx > 0 ? widthPx : 600;
+  const steps = Math.max(2, Math.floor(w / RULER_MINOR_PX));
+  const inv = makeInverseProjector(fromMs, toMs, sessions);
+  const withDate = toMs - fromMs > 36 * 60 * 60_000 || (sessions?.length ?? 0) > 1;
+  const out: RulerTick[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const left = (i / steps) * 100;
+    out.push({
+      left,
+      major: i % RULER_MAJOR_EVERY === 0,
+      title: tickTitle(inv(left), tzOffsetMin, withDate),
+    });
+  }
+  return out;
+}
+
 function gapClass(cause: string): string {
   if (GREY_CAUSES.has(cause)) return styles.idle;
   if (cause === 'degraded') return styles.lost;
@@ -116,10 +162,15 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   showScheduleMask = true,
   scheduleRules,
 }: Props) {
+  const [trackRef, trackWidth] = useElementWidth<HTMLDivElement>();
   const windowFromMs = Date.parse(window.from);
   const windowToMs = Date.parse(window.to);
   const liveEdgeMs = Math.min(nowMs ?? windowToMs, windowToMs);
   const pct = makeProjector(windowFromMs, windowToMs, sessions);
+  const rulerTicks = useMemo(
+    () => buildRulerTicks(trackWidth, windowFromMs, windowToMs, sessions, tzOffsetMin),
+    [trackWidth, windowFromMs, windowToMs, sessions, tzOffsetMin],
+  );
   const graceSec =
     linkRecoverGraceSeconds > 0 ? linkRecoverGraceSeconds : DEFAULT_LINK_RECOVER_GRACE_SEC;
   const useJournal = showIncidents && incidents != null;
@@ -139,15 +190,38 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
         return !journalHasOverlappingCrash(journalList, from, liveEdgeMs, liveEdgeMs);
       })
     : undefined;
-  const voids =
+  const maskSegs =
     showScheduleMask && scheduleRules && scheduleRules.length > 0
       ? sessions && sessions.length > 0
-        ? scheduleVoidIntervalsOnSessions(scheduleRules, sessions, SCHEDULE_TZ_OFFSET_MIN)
-        : scheduleVoidIntervals(scheduleRules, windowFromMs, windowToMs, SCHEDULE_TZ_OFFSET_MIN)
+        ? sessions.flatMap((s) => {
+            const dayStart = mskMidnightMsFromIso(s.date);
+            const dayEnd = dayStart + 24 * 60 * 60_000;
+            const dayVoids = scheduleVoidIntervals(
+              scheduleRules,
+              dayStart,
+              dayEnd,
+              SCHEDULE_TZ_OFFSET_MIN,
+            );
+            return projectScheduleMaskSegs(dayVoids, s, pct);
+          })
+        : scheduleVoidIntervals(
+            scheduleRules,
+            windowFromMs,
+            windowToMs,
+            SCHEDULE_TZ_OFFSET_MIN,
+          ).map((v) => {
+            const leftPct = pct(v.fromMs);
+            return {
+              leftPct,
+              widthPct: pct(v.toMs) - leftPct,
+              fromMs: v.fromMs,
+              toMs: v.toMs,
+            };
+          })
       : [];
 
   return (
-    <div className={styles.track}>
+    <div className={styles.track} ref={trackRef}>
       {showNowMarker ? <span className={styles.nowLine} /> : null}
 
       {/* —— слой связи (link_liveness): только голубое + серое —— */}
@@ -321,19 +395,29 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
         : null}
 
       {/* —— schedule void mask (верхний слой; не клипует journal) —— */}
-      {voids.map((v, i) => {
-        const left = pct(v.fromMs);
-        const widthPct = pct(v.toMs) - left;
-        if (widthPct <= 0) return null;
+      {maskSegs.map((seg, i) => {
+        if (seg.widthPct <= 0) return null;
         return (
           <div
             key={`void${i}`}
             className={styles.scheduleMask}
-            style={{ left: `${left}%`, width: `${widthPct}%` }}
-            title={formatScheduleIdleTooltip(v.fromMs, v.toMs, SCHEDULE_TZ_OFFSET_MIN)}
+            style={{ left: `${seg.leftPct}%`, width: `${seg.widthPct}%` }}
+            title={formatScheduleIdleTooltip(seg.fromMs, seg.toMs, SCHEDULE_TZ_OFFSET_MIN)}
           />
         );
       })}
+
+      {/* —— линейка тиков у нижнего края (время в title при hover) —— */}
+      {rulerTicks.map((t, i) => (
+        <span
+          key={`tick${i}`}
+          className={[styles.tick, t.major ? styles.tickMajor : styles.tickMinor].join(' ')}
+          style={{ left: `${t.left}%` }}
+          title={t.title}
+        >
+          <span className={styles.tickMark} />
+        </span>
+      ))}
     </div>
   );
 });

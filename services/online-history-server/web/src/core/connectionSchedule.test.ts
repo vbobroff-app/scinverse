@@ -3,10 +3,12 @@ import {
   SCHEDULE_TZ_OFFSET_MIN,
   enumerateDesiredWindows,
   formatScheduleIdleTooltip,
+  projectScheduleMaskSegs,
   scheduleVoidIntervals,
   scheduleVoidIntervalsOnSessions,
   type ScheduleMsInterval,
 } from './connectionSchedule';
+import { makeProjector } from './sessionProjection';
 import type { ConnectionScheduleRuleDto } from './types';
 
 function rule(partial: Partial<ConnectionScheduleRuleDto> & Pick<ConnectionScheduleRuleDto, 'scopeKind' | 'mode'>): ConnectionScheduleRuleDto {
@@ -127,28 +129,63 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
     );
   });
 
-  it('OnSessions: voids include tomorrow slot (D+ horizon)', () => {
-    // Сегодня + завтра как две доли оси (как D2 + D+).
+  it('OnSessions: calendar-day voids include morning idle before MOEX open', () => {
+    // Торговые слоты 08:50–23:50, но void считаем по суткам (01:00–08:50 не теряется).
     const sessions = [
       {
+        date: '2026-07-30',
         start: new Date(msk(2026, 7, 30, 8, 50)).toISOString(),
         end: new Date(msk(2026, 7, 30, 23, 50)).toISOString(),
       },
       {
+        date: '2026-07-31',
         start: new Date(msk(2026, 7, 31, 8, 50)).toISOString(),
         end: new Date(msk(2026, 7, 31, 23, 50)).toISOString(),
       },
     ];
-    const voids = scheduleVoidIntervalsOnSessions([main9to18], sessions);
-    // На завтрашней доле — вечерний простой после 18:00.
-    expect(voids).toContainEqual({
-      fromMs: msk(2026, 7, 31, 18),
-      toMs: msk(2026, 7, 31, 23, 50),
+    // Overnight: open 10:00, duration 15h → до 01:00 следующего дня.
+    const overnight = rule({
+      scopeKind: 'main',
+      mode: 'window',
+      open: '10:00:00',
+      durationMin: 15 * 60,
     });
-    // И утренний до 09:00 на завтра.
+    const voids = scheduleVoidIntervalsOnSessions([overnight], sessions);
     expect(voids).toContainEqual({
-      fromMs: msk(2026, 7, 31, 8, 50),
-      toMs: msk(2026, 7, 31, 9),
+      fromMs: msk(2026, 7, 31, 1),
+      toMs: msk(2026, 7, 31, 10),
     });
+  });
+
+  it('projectScheduleMaskSegs: pre-session 01:00–08:50 gets positive width', () => {
+    const session = {
+      date: '2026-07-31',
+      start: new Date(msk(2026, 7, 31, 8, 50)).toISOString(),
+      end: new Date(msk(2026, 7, 31, 23, 50)).toISOString(),
+    };
+    const pct = makeProjector(
+      msk(2026, 7, 30, 8, 50),
+      msk(2026, 7, 31, 23, 50),
+      [
+        {
+          date: '2026-07-30',
+          start: new Date(msk(2026, 7, 30, 8, 50)).toISOString(),
+          end: new Date(msk(2026, 7, 30, 23, 50)).toISOString(),
+        },
+        session,
+      ],
+    );
+    // Прямой pct схлопывает pre-session в шов (width≈0).
+    expect(pct(msk(2026, 7, 31, 8, 50)) - pct(msk(2026, 7, 31, 1))).toBe(0);
+
+    const segs = projectScheduleMaskSegs(
+      [{ fromMs: msk(2026, 7, 31, 1), toMs: msk(2026, 7, 31, 8, 50) }],
+      session,
+      pct,
+    );
+    expect(segs).toHaveLength(1);
+    expect(segs[0]!.widthPct).toBeGreaterThan(1);
+    expect(segs[0]!.fromMs).toBe(msk(2026, 7, 31, 1));
+    expect(segs[0]!.toMs).toBe(msk(2026, 7, 31, 8, 50));
   });
 });
