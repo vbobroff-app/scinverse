@@ -73,3 +73,5 @@
 
 Лента NC v1 — **готова**. Журнал OHS **11.13a–f DONE**. **I2 fan-out — RESOLVED**.
 **Crash dispatch (Host outage T+C) — DONE.** Вынос atoms/пакета в NC — **gate 11→12**.
+Итог мультиклиент / journal / link / NC — [../incident-model-wrapup.md](../incident-model-wrapup.md)
+(2026-07-31). Хвост смежный 7j: **I12** ([../phase7j/plan.md](../phase7j/plan.md) §7j.22).

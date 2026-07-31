@@ -1,10 +1,12 @@
 # Phase 7j — TODO (что осталось)
 
-**Обновлено:** 2026-07-29.
+**Обновлено:** 2026-07-31.
 
-Ядро фазы (**7j.17–7j.20** + **J11a/b/c** + **I10/I11**) по сценариям инцидентов — **код готов**.
+Ядро фазы (**7j.17–7j.20** + **J11a/b/c** + **I10/I11**) — **код + живая приёмка** (Adopt 2026-07-31).
+Хвост инцидентов: **I12 / 7j.22 OPEN** (план в [plan.md](plan.md) §7j.22; код после wrap-up).
 Остаток 7j (не инциденты): **7j.15** / **7j.16**. NC лента Thread — **phase 11 DONE**;
-журнал инцидентов — **11.13** таблица `incident` в **OHS** (atoms → NC на gate) — [../phase11/incident-journal.md](../phase11/incident-journal.md).
+журнал — **11.13** в **OHS** — [../phase11/incident-journal.md](../phase11/incident-journal.md).
+Итог модели — [../incident-model-wrapup.md](../incident-model-wrapup.md).
 
 ---
 
@@ -50,12 +52,12 @@ UI пресетов захардкожен под MOEX; рынок (CME и др.
 | **J11c** | `crash` + `abandoned_schedule` (клиент orchestrate + Host Release/ribbon) + optimistic ribbon overlay | **КОД ГОТОВ** (working tree 2026-07-27; закоммитить в чате phase11 или отдельно) |
 | **I11 / 7j.21** | Рассинхрон Manager↔Hub; единый close-break; атомарный Adopt; снять костыли `auto:`/лента | **КОД ГОТОВ** — живая приёмка ([issue.md](issue.md) I11) |
 | **J11b** | `abandoned_manual` (ручной off при open break) — часть I11 close-break | **КОД ГОТОВ** (I11 B1) |
-| **I10** | После crash/рестарта: adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ**; Adopt атомарный (I11 B2) |
+| **I10** | После crash/рестарта: adopt open break; stale-close только Live | **ПРИНЯТО** 2026-07-31 ([issue.md](issue.md) I10) |
 | **UI outage mask** | При crash open: тумблер «OHS недоступен» (жёлтый) + AUTO жёлтый | **КОД ГОТОВ** (`backendOutage$`) |
 | **I6 regress** | ConnectAsync без ре-подписки → recovered без сделок | **КОД ГОТОВ** |
 | **J9 / J10** | per-connection grace / глобальный порог NC | ПЛАН, позже ([incident.md](incident.md) §8) |
 | **H1 / H2** | recording = бинарная проекция `incident`; Degraded рвёт capture | **DONE** · [incident §7](incident.md) |
 | **I9 prod** | bind/health/proxy family после Vite | OPEN checklist ([issue.md](issue.md) I9) |
-| **I12** | Pool exhausted → пачка 500; orphan ACTIVE FATAL (recover или break) | **OPEN** ([issue.md](issue.md) I12): RxJS sync refresh; смежно coverage 7h |
+| **I12 / 7j.22** | Pool exhausted → пачка 500; orphan ACTIVE FATAL | **OPEN · ПЛАН:** (1) RxJS refresh → (2) close-all orphan → (3) pool · [plan.md](plan.md) §7j.22 · [issue.md](issue.md) I12 |
 
 System-уведомления: JSON (`result`/`error_message`/`sender`); user schedule — `lines[]`.

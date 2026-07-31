@@ -686,6 +686,25 @@ public sealed class ConnectionManager(
         }
 
         var hadState = _linkStates.TryGetValue(connectionId, out var previous);
+        var prevSince = _linkSince.TryGetValue(connectionId, out var since) ? since : (DateTimeOffset?)null;
+        var lastData = GetLastData(connectionId);
+        var nowWall = DateTimeOffset.UtcNow;
+        var silentSec = lastData is { } ld ? (nowWall - ld).TotalSeconds : (double?)null;
+        var heldSec = prevSince is { } ps ? (change.At - ps).TotalSeconds : (double?)null;
+        // Debug: диагностика latency soft-disconnect; в Information/Warning — шум на каждом тике.
+        logger.LogDebug(
+            "LinkDetect: conn={ConnectionId} {Prev}→{Next} eventAt={At:HH:mm:ss.fff} wall={Wall:HH:mm:ss.fff} " +
+            "heldPrev={HeldSec:0.#}s silentData={SilentSec} status={Status} detail={Detail}",
+            connectionId,
+            hadState ? previous.ToString() : "null",
+            change.State,
+            change.At,
+            nowWall,
+            heldSec,
+            silentSec is { } s ? $"{s:0.#}s" : "n/a",
+            GetStatus(connectionId),
+            change.Detail);
+
         _linkStates[connectionId] = change.State;
         _linkSince[connectionId] = change.At;
         PublishLinkState(connectionId, change);

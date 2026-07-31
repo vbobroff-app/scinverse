@@ -1,10 +1,10 @@
 # Phase 7j — Инциденты: модель, владение, хранение, визуализация
 
-Статус: **J1–J8 + J11a/b/c + I10 + I11 КОД ГОТОВ** · живая приёмка I11 · **H1/H2 DONE**.
-Модель 2026-07-24; горизонт/исходы/виды 2026-07-26; abandon schedule (break+crash) 2026-07-26…27;
-I10 — 2026-07-27.
-Живая приёмка части сценариев на Finam id=3. Данные/запись — 7h ([../phase7h/incident.md](../phase7h/incident.md)).
-Обновлено: 2026-07-27.
+Статус: **J1–J8 + J11a/b/c + I10 + I11 ПРИНЯТО** (Adopt crash-inside-break 2026-07-31) ·
+**H1/H2 DONE** · хвост **I12 / 7j.22 OPEN** (план). Итог —
+[../incident-model-wrapup.md](../incident-model-wrapup.md).
+Данные/запись — 7h ([../phase7h/incident.md](../phase7h/incident.md)).
+Обновлено: 2026-07-31.
 
 Связано: [auto-connect.md](auto-connect.md), [issue.md](issue.md) (I1–I10),
 [nc-availability.md](nc-availability.md) (вид **`crash`** / Host Unavailable), [v2-exceptions.md](v2-exceptions.md)
@@ -252,8 +252,11 @@ Gap &gt; T без маркера — дефект; Host catch-up на close → 
 Finam server ──①── TRANSAQ (коннектор/DLL) ──②── OHS (host)
 ```
 
+As-is (dev): DLL и Host в одном Windows-процессе. **Prod to-be** и второй коннектор без DLL
+(`finam-ws`): [`docs/architecture/ohs-connectors-deploy.md`](../../architecture/ohs-connectors-deploy.md).
+
 - **Плечо ①** (провайдер ↔ коннектор): линк к Finam. Первичный владелец восстановления — **TRANSAQ**
-  (его встроенный авто-recover, `recover="true"`).
+  (его встроенный авто-recover, `recover="true"`; рычаг `request_timeout` в `connect`).
 - **Плечо ②** (коннектор ↔ наш процесс/сессия): подъём/держание сессии. Владелец — **супервизор**
   (`connect ×5`). Падение самого Host — вид **`crash`**, не фаза `break` (§0a).
 

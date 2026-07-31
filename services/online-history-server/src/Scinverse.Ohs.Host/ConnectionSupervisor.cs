@@ -547,45 +547,13 @@ public sealed class ConnectionSupervisor(
         var subject = ConnectionManager.LinkIncidentSubject(connectionId);
         var linkState = connections.GetLinkState(connectionId);
 
-        // Связь уже Live (или ещё не в break): stale open в V025 нельзя Adopt —
-        // иначе Hub занимает слот без lost, а NC остаётся ACTIVE. Закрываем recovered.
-        if (linkState is not (
-            ConnectorLinkState.Degraded or ConnectorLinkState.Down or ConnectorLinkState.Error))
+        // Матрица после рестарта (I10 regress 2026-07-31):
+        //   Live              → stale-close (open в V025 устарел, связь уже up)
+        //   null|Degraded|Down|Error → Adopt mid-break (тот же corr; ×5 без второго break)
+        if (IsStaleOpenBreak(linkState))
         {
-            if (!notifications.Adopt(subject, open.CorrelationId, open.Status))
-            {
-                logger.LogWarning(
-                    "ConnectionSupervisor: skip stale-close {Corr} для {ConnectionId} — Hub.Adopt отказал (link={Link})",
-                    open.CorrelationId, connectionId, linkState?.ToString() ?? "null");
-                return;
-            }
-
-            var label = ConnectionManager.ConnLabelSystem(connectionId);
-            await fanOut
-                .ApplyAsync(
-                    new IncidentStep(
-                        IncidentStepKind.Resolve,
-                        subject,
-                        DateTimeOffset.UtcNow,
-                        CorrUid: open.CorrelationId,
-                        ConnectionId: connectionId,
-                        CloseOutcome: NotificationThreadData.OutcomeRecovered,
-                        Severity: "ok",
-                        NcCode: "connection.recovered",
-                        NcMessage: $"{label}: связь восстановлена",
-                        NcSeverity: "ok",
-                        NcData: new
-                        {
-                            connectionId,
-                            result = "Восстановлено (stale audit close)",
-                            sender = "supervisor",
-                            closeOutcome = NotificationThreadData.OutcomeRecovered,
-                        }),
-                    cancellationToken)
+            await ResolveStaleOpenBreakAsync(connectionId, subject, open, cancellationToken)
                 .ConfigureAwait(false);
-            logger.LogWarning(
-                "ConnectionSupervisor: closed stale audit break {Corr} для {ConnectionId} (link={Link})",
-                open.CorrelationId, connectionId, linkState?.ToString() ?? "null");
             return;
         }
 
@@ -625,6 +593,52 @@ public sealed class ConnectionSupervisor(
         logger.LogInformation(
             "ConnectionSupervisor: adopted open break {Corr} (status={Status}, since={Since:o}) для {ConnectionId}",
             open.CorrelationId, open.Status, open.OpenedAt, connectionId);
+    }
+
+    /// <summary>Stale-close только при реальном Live; null после crash ≠ «не в break».</summary>
+    private static bool IsStaleOpenBreak(ConnectorLinkState? linkState) =>
+        linkState == ConnectorLinkState.Live;
+
+    private async Task ResolveStaleOpenBreakAsync(
+        long connectionId,
+        string subject,
+        OpenLinkIncident open,
+        CancellationToken cancellationToken)
+    {
+        if (!notifications.Adopt(subject, open.CorrelationId, open.Status))
+        {
+            logger.LogWarning(
+                "ConnectionSupervisor: skip stale-close {Corr} для {ConnectionId} — Hub.Adopt отказал (link=Live)",
+                open.CorrelationId, connectionId);
+            return;
+        }
+
+        var label = ConnectionManager.ConnLabelSystem(connectionId);
+        await fanOut
+            .ApplyAsync(
+                new IncidentStep(
+                    IncidentStepKind.Resolve,
+                    subject,
+                    DateTimeOffset.UtcNow,
+                    CorrUid: open.CorrelationId,
+                    ConnectionId: connectionId,
+                    CloseOutcome: NotificationThreadData.OutcomeRecovered,
+                    Severity: "ok",
+                    NcCode: "connection.recovered",
+                    NcMessage: $"{label}: связь восстановлена",
+                    NcSeverity: "ok",
+                    NcData: new
+                    {
+                        connectionId,
+                        result = "Восстановлено (stale audit close)",
+                        sender = "supervisor",
+                        closeOutcome = NotificationThreadData.OutcomeRecovered,
+                    }),
+                cancellationToken)
+            .ConfigureAwait(false);
+        logger.LogWarning(
+            "ConnectionSupervisor: closed stale audit break {Corr} для {ConnectionId} (link=Live)",
+            open.CorrelationId, connectionId);
     }
 
     /// <summary>

@@ -1,7 +1,7 @@
 # Phase 7j — Issues: инциденты связи и точность разрыва
 
 Статус: **I1–I8 РЕАЛИЗОВАНО** · **I9** — mitigation в vite; prod-checklist OPEN ·
-**I10/I11** — КОД ГОТОВ · **I12** — OPEN (пул Npgsql / orphan ACTIVE 500).
+**I10/I11** — ПРИНЯТО (2026-07-31) · **I12** — OPEN · план 7j.22 (пул Npgsql / orphan ACTIVE 500).
 Диагностика I1–I5 — живой тест 23.07.2026; I6/I7 — 24.07.2026; I8 — 25–26.07.2026
 ([nc-availability.md](nc-availability.md)); I9 — 26.07.2026 (после рестарта Host);
 I10 — 27.07.2026 (Thread UI + вложенный crash); I12 — 29.07.2026 (после recover + coverage),
@@ -429,6 +429,12 @@ health/readiness, runbook рестарта Host. Код доменной мод�
 
 **Статус:** КОД ГОТОВ (2026-07-27). Живая приёмка — после рестарта Host с open break.
 
+**Регресс 2026-07-31 (crash inside break):** `TryAdoptOpenBreakFromAuditAsync` при
+`linkState=null` (после рестарта ещё нет сессии) ошибочно делал **stale-close →
+`connection.recovered`**, хотя кабель всё ещё вынут → первый break RESOLVED (ложный OK),
+затем ×5 открывали **второй** break. To-be: stale-close **только** при `linkState=Live`;
+`null|Degraded|Down|Error` → Adopt в тот же corr. Фикс в `ConnectionSupervisor`.
+
 **Симптом (Thread UI, phase 11).** Вложенный по времени сценарий:
 
 ```text
@@ -699,19 +705,23 @@ POST /api/coverage/activity
 I8 обещал: «одиночный 500 → health-probe … **висящих FATAL нет**».  
 Для **пачки** параллельных 500 это не выполняется: N `requestId`-нитей, probe знает одну.
 
-### Направления фикса (не делать всё сразу)
+### План фикса (приоритет; код — 7j.22 после wrap-up)
 
-| Слой | Что |
-|------|-----|
-| **A. Инфра / Host** | Найти утечку/долгие hold соединений; при необходимости поднять `Timeout` / `Max Pool Size`; логировать pool stats при exhausted |
-| **B. Клиент 7h (основной)** | Синхронизация и обработка refresh ленты **средствами RxJS** (уже в стеке web): один pipeline на `coverage` / `link` / `activity` / `liveness` — `switchMap`/`exhaustMap`/`concatMap`, debounce после recover, без параллельного залпа. Точка: `OhsStore.refreshLiveness` + подписчики coverage |
-| **C. NC / I8 хвост** | При пачке single-500 без outage: закрывать **все** недавние orphan `ohs.unhandled` одним health-ok **или** фолдить пачку под один corr |
+Канон порядка — [plan.md](plan.md) §7j.22:
+
+| # | Слой | Что |
+|---|------|-----|
+| **1** | **Клиент 7h (главное)** | Один RxJS-pipeline: debounce + `switchMap`/`exhaustMap` на `coverage` / `link` / `activity` / `incidents` — без параллельного залпа. Точка: `OhsStore.refreshLiveness` |
+| **2** | **NC / I8 хвост** | Пачка single-500 без outage → health-ok закрывает **все** недавние orphan `ohs.unhandled` (не один `corr`) |
+| **3** | **Host / пул (по необходимости)** | Pool stats при exhausted; долгие hold; `Max Pool Size`/`Timeout` — только если после (1) ещё жмётся |
+
+Не первым: просто поднять пул; рестарт Host как лечение.
 
 **Затрагивает.** `OhsStore` (RxJS refresh), `GlobalExceptionHandler`, `probeHealthAfterFatal` / §9.3,
 Npgsql connection string / `NpgsqlDataSource`.
 
 **Связано.** I8 ([nc-availability.md](nc-availability.md) §9.3); coverage-лента →
-[../phase7h/issue.md](../phase7h/issue.md) (заметка I12); [todo.md](todo.md).
+[../phase7h/issue.md](../phase7h/issue.md) (заметка I12); [plan.md](plan.md) §7j.22; [todo.md](todo.md).
 
 ---
 
@@ -728,9 +738,9 @@ Npgsql connection string / `NpgsqlDataSource`.
 | I7 | Гонка хартбитов / duplicate key | `pg_advisory_xact_lock` в Heartbeat | РЕАЛИЗОВАНО |
 | I8 | Простой бэка: live ≠ reload | Sender + единый corr + персист стека + warn-before-ok | РЕАЛИЗОВАНО |
 | I9 | UI пустой: `localhost`→`::1`, IPv6 Kestrel залип | proxy → `127.0.0.1`; prod: bind/health/proxy family | MITIGATION / prod OPEN |
-| I10 | После crash: break `active` + восстановление в Group `auto:` | Adopt open break из V025; catch-up abandon вне окна | **КОД ГОТОВ** |
-| I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **КОД ГОТОВ** (живая приёмка) |
-| I12 | Pool exhausted (recover **или** break) → пачка 500; orphan ACTIVE FATAL | RxJS sync refresh coverage; pool; close-all single 500 | **OPEN** |
+| I10 | После crash: break `active` + восстановление в Group `auto:` | Adopt open break из V025; catch-up abandon; stale-close только Live | **ПРИНЯТО** (2026-07-31) |
+| I11 | Рассинхрон Manager↔Hub; костыли `auto:`/лента | Единый close-break; атомарный Adopt; снять proxy/fallback | **ПРИНЯТО** |
+| I12 | Pool exhausted (recover **или** break) → пачка 500; orphan ACTIVE FATAL | 7j.22: (1) RxJS refresh → (2) close-all orphan → (3) pool | **OPEN** · план |
 
 Остаток 7j: 7j.15/7j.16 ([todo.md](todo.md)); I12 OPEN; I10/I11 — живая приёмка.
 NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).

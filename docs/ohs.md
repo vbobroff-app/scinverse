@@ -34,6 +34,9 @@ OHS относится к **🔵 холодному контуру** систе�
 
 ## 3. Источник данных: TRANSAQ Connector
 
+> **Развёртывание и второй коннектор (Finam Trade API WS):**  
+> [`architecture/ohs-connectors-deploy.md`](./architecture/ohs-connectors-deploy.md) — Linux prod + Windows-агент DLL; next = `IMarketConnector` `finam-ws`.
+
 Коннектор — нативная DLL. Схема взаимодействия (из примера `connector.cs`):
 
 - `Initialize(path, logLevel)` / `UnInitialize()` — старт/стоп библиотеки;

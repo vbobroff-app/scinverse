@@ -266,12 +266,34 @@ function sortOldestFirst(events: readonly NotificationEvent[]): NotificationEven
       if (ta !== tb) {
         return ta - tb;
       }
+      // Один ts: ok = результирующий → позже в oldest-first → сверху после reverse в UI.
+      const ra = severityStackRank(a.e.severity);
+      const rb = severityStackRank(b.e.severity);
+      if (ra !== rb) {
+        return ra - rb;
+      }
       if (a.e.id !== b.e.id) {
         return a.e.id < b.e.id ? -1 : 1;
       }
       return a.index - b.index;
     })
     .map(({ e }) => e);
+}
+
+/** Больше = «новее» в стеке при равном ts (ok выше warning в UI). */
+function severityStackRank(severity: string): number {
+  switch (severity) {
+    case 'ok':
+      return 4;
+    case 'critical':
+      return 3;
+    case 'error':
+      return 2;
+    case 'warning':
+      return 1;
+    default:
+      return 0;
+  }
 }
 
 function maxTs(events: readonly NotificationEvent[]): string {

@@ -94,6 +94,12 @@ Scinverse как система; снаружи брокер, биржа, пот
 
 Парсер/нормализатор OHS — ACL TRANSAQ/Plaza2 → канон `(ticker, board)`, `price_ticks`.
 
+### 3.3a. Коннекторы и OS-развёртывание OHS
+
+TRANSAQ DLL — Windows-only. **Prod to-be:** Linux (API/UI/БД) + маленький Windows-агент только с DLL;
+следующая реализация стрима без DLL — второй `IMarketConnector` (**Finam Trade API WebSocket**).
+Полностью: [`../ohs-connectors-deploy.md`](../ohs-connectors-deploy.md).
+
 ### 3.4. Цена в шагах (ticks)
 
 Хранение и передача цены — `price_ticks`; отображение через `min_step` (см. `ohs.md`).

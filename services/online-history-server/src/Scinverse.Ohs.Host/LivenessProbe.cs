@@ -92,6 +92,18 @@ public sealed class LivenessProbe(
 
             if (!recordings.HasRecordingsOnConnection(session.ConnectionId))
             {
+                // Stall/ping watchdog только при активной записи — без неё ждём server_status от DLL.
+                if (session.Connector.IsConnected
+                    && linkState is null or ConnectorLinkState.Live
+                    && connections.GetLastData(session.ConnectionId) is { } idleAt
+                    && now - idleAt > _probeInterval)
+                {
+                    logger.LogDebug(
+                        "LinkDetect: no-recording skip stall conn={ConnectionId} silent={SilentSec:0.#}s " +
+                        "(ждём server_status)",
+                        session.ConnectionId, (now - idleAt).TotalSeconds);
+                }
+
                 continue;
             }
 
@@ -127,7 +139,8 @@ public sealed class LivenessProbe(
             }
 
             var lastData = connections.GetLastData(session.ConnectionId);
-            var dataFresh = lastData is not null && now - lastData.Value <= _probeInterval;
+            var silentSec = lastData is { } ld ? (now - ld).TotalSeconds : double.PositiveInfinity;
+            var dataFresh = lastData is not null && silentSec <= _probeInterval.TotalSeconds;
 
             if (dataFresh)
             {
@@ -138,13 +151,33 @@ public sealed class LivenessProbe(
             // Сессионная тишина — активный пинг (страховка «тихой смерти» DLL).
             if (!session.Connector.IsConnected)
             {
+                logger.LogWarning(
+                    "LinkDetect: stall-tick conn={ConnectionId} silent={SilentSec:0.#}s IsConnected=false → PingFailed",
+                    session.ConnectionId, silentSec);
                 await CloseIfOpenAsync(
                     session.ConnectionId, CaptureCloseReason.PingFailed, now, cancellationToken)
                     .ConfigureAwait(false);
                 continue;
             }
 
+            var probeStarted = time.GetUtcNow();
             var pingOk = await ProbeAsync(session.Connector, cancellationToken).ConfigureAwait(false);
+            var probeMs = (time.GetUtcNow() - probeStarted).TotalMilliseconds;
+            // Transaq: get_servtime_difference с ProbeTimeoutSeconds (дефолт 3 с).
+            // Без таймаута SendCommand на обрыве кабеля висит ~20–50 с и может вернуть
+            // stale success — UI тогда ждёт только server_status (~20 с). VPN рвёт сразу.
+            logger.LogWarning(
+                "LinkDetect: stall-tick conn={ConnectionId} silent={SilentSec:0.#}s link={Link} " +
+                "IsConnected={Connected} pingOk={PingOk} probeMs={ProbeMs:0} " +
+                "incidentOpen={Incident}",
+                session.ConnectionId,
+                silentSec,
+                linkState?.ToString() ?? "null",
+                session.Connector.IsConnected,
+                pingOk,
+                probeMs,
+                connections.GetIncidentSince(session.ConnectionId) is not null);
+
             if (pingOk)
             {
                 await HeartbeatAsync(session.SourceId, now, cancellationToken).ConfigureAwait(false);
@@ -152,7 +185,7 @@ public sealed class LivenessProbe(
             else
             {
                 logger.LogWarning(
-                    "Пинг подключения {ConnectionId} ({Source}) не прошёл — закрываем живость",
+                    "LinkDetect: ping FAIL conn={ConnectionId} ({Source}) — ReportStall + close capture",
                     session.ConnectionId, session.Connector.SourceCode);
                 await CloseIfOpenAsync(
                     session.ConnectionId, CaptureCloseReason.PingFailed, now, cancellationToken)

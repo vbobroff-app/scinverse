@@ -41,6 +41,9 @@ public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe
     private volatile TaskCompletionSource<string>? _securityProbe;
     private volatile string? _securityProbeSeccode;
 
+    /// <summary>In-flight SendCommand probe — DLL сериализует команды; не стартуем второй, пока висит первый.</summary>
+    private Task<bool>? _probeTask;
+
     public TransaqConnector(TransaqConnectorOptions options)
     {
         _options = options;
@@ -89,7 +92,9 @@ public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe
             .Append("<port>").Append(_options.Port).Append("</port>")
             .Append("<rqdelay>100</rqdelay>")
             .Append("<session_timeout>60</session_timeout>")
-            .Append("<request_timeout>20</request_timeout>")
+            .Append("<request_timeout>")
+            .Append(_options.RequestTimeoutSeconds > 0 ? _options.RequestTimeoutSeconds : 10)
+            .Append("</request_timeout>")
             .Append("</command>")
             .ToString();
 
@@ -205,22 +210,121 @@ public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe
         }
     }
 
-    public Task<bool> ProbeConnectionAsync(CancellationToken cancellationToken)
+    public async Task<bool> ProbeConnectionAsync(CancellationToken cancellationToken)
     {
         if (!IsConnected)
         {
-            return Task.FromResult(false);
+            return false;
+        }
+
+        var timeoutSec = _options.ProbeTimeoutSeconds > 0 ? _options.ProbeTimeoutSeconds : 3;
+        var timeout = TimeSpan.FromSeconds(timeoutSec);
+
+        // Уже висит SendCommand (обрыв кабеля → DLL ждёт TCP ~20–50 с): не шлём второй,
+        // ждём тот же task ещё timeout — иначе stall-тик блокируется на минуту.
+        var inFlight = _probeTask;
+        if (inFlight is { IsCompleted: false })
+        {
+            try
+            {
+                return await inFlight.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                Console.WriteLine(
+                    $"[LinkDetect] Transaq probe: BUSY+TIMEOUT >{timeoutSec}s " +
+                    $"(prev SendCommand still in DLL), IsConnected={IsConnected}, link={_currentLinkState}");
+                return false;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+        }
+
+        var sendTask = Task.Run(SendServtimeProbe, CancellationToken.None);
+        _probeTask = sendTask;
+        try
+        {
+            return await sendTask.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            Console.WriteLine(
+                $"[LinkDetect] Transaq probe: TIMEOUT >{timeoutSec}s " +
+                $"(DLL ещё в SendCommand — считаем линк мёртвым), " +
+                $"IsConnected={IsConnected}, link={_currentLinkState}");
+            return false;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Синхронный SendCommand get_servtime_difference. Ответ — в result XML
+    /// (<c>success</c> + <c>diff</c>), не в колбэке. На живом линке ~50–100 мс; на обрыве
+    /// кабеля DLL может блокировать поток десятки секунд и вернуть stale success.
+    /// </summary>
+    private bool SendServtimeProbe()
+    {
+        try
+        {
+            var xml = SendCommandRaw("<command id=\"get_servtime_difference\"/>");
+            var ok = IsServtimeProbeSuccess(xml);
+            Console.WriteLine(
+                $"[LinkDetect] Transaq probe: SendCommand {(ok ? "ok" : "FAIL")} " +
+                $"diff={ExtractServtimeDiff(xml) ?? "n/a"}, " +
+                $"IsConnected={IsConnected}, link={_currentLinkState}");
+            return ok;
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.WriteLine($"[LinkDetect] Transaq probe: SendCommand FAIL: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static bool IsServtimeProbeSuccess(string? resultXml)
+    {
+        if (string.IsNullOrWhiteSpace(resultXml))
+        {
+            return false;
         }
 
         try
         {
-            // Лёгкая синхронная команда: ответ success=true → связь жива.
-            EnsureSuccess(SendCommand("<command id=\"get_servtime_difference\"/>"), "probe");
-            return Task.FromResult(true);
+            var root = XDocument.Parse(resultXml).Root;
+            var success = root?.Attribute("success")?.Value;
+            if (string.Equals(success, "false", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // diff обязателен: иначе это не ответ servtime (пустой/чужой result).
+            return root?.Attribute("diff") is not null;
         }
-        catch (InvalidOperationException)
+        catch (System.Xml.XmlException)
         {
-            return Task.FromResult(false);
+            return false;
+        }
+    }
+
+    private static string? ExtractServtimeDiff(string? resultXml)
+    {
+        if (string.IsNullOrWhiteSpace(resultXml))
+        {
+            return null;
+        }
+
+        try
+        {
+            return XDocument.Parse(resultXml).Root?.Attribute("diff")?.Value;
+        }
+        catch (System.Xml.XmlException)
+        {
+            return null;
         }
     }
 
@@ -374,6 +478,9 @@ public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe
         var state = TransaqServerStatusParser.ToLinkState(parsed);
         var at = DateTimeOffset.UtcNow;
         IsConnected = state is ConnectorLinkState.Live or ConnectorLinkState.Degraded;
+        Console.WriteLine(
+            $"[LinkDetect] server_status connected={parsed.Connected} recover={parsed.Recover} " +
+            $"→ {state} (prev={_currentLinkState}) at={at:HH:mm:ss.fff} text={parsed.Text}");
         PublishLinkState(state, at, parsed.Text);
     }
 
@@ -384,7 +491,10 @@ public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe
             return;
         }
 
+        var prev = _currentLinkState;
         _currentLinkState = state;
+        Console.WriteLine(
+            $"[LinkDetect] PublishLinkState {prev}→{state} at={at:HH:mm:ss.fff} detail={detail}");
         _linkState.Writer.TryWrite(new ConnectorLinkStateChange(state, at, detail));
     }
 

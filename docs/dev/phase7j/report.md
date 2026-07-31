@@ -1,8 +1,9 @@
 # Phase 7j — report: расписание соединения
 
-**Статус:** инцидентный контур **7j.17–7j.20 + J11a/J11c КОД ГОТОВ**. Хвост: **J11b** (`abandoned_manual`).
-Очередь фазы (расписание UI): **7j.15 / 7j.16**. UI NC Thread → **phase 11**. Список —
-[todo.md](todo.md). **Обновлено:** 2026-07-27.
+**Статус:** инцидентный контур **7j.17–7j.21 + I10/I11 ПРИНЯТО** (Adopt crash-inside-break 2026-07-31).
+Хвост: **I12 / 7j.22 OPEN** (план: RxJS refresh → close-all orphan → pool). Очередь UI: **7j.15 / 7j.16**.
+Итог модели — [../incident-model-wrapup.md](../incident-model-wrapup.md). Список — [todo.md](todo.md).
+**Обновлено:** 2026-07-31.
 
 Актуальный статус фазы. Обновляется по мере выполнения задач из [plan.md](plan.md) /
 [apply.md](apply.md). Якорная модель + слоистые исключения — [v2-exceptions.md](v2-exceptions.md).
@@ -31,12 +32,15 @@
 | 7j.17 | **Обработка исключений расписания:** атомарный `POST …/schedule/batch` (Saga) + глобальный `IExceptionHandler` + severity-модель (applied=info / cleared=warning / recreated=ok, 2a/2b) + попап без оптимизма (баннер + Retry); удалены одиночные rule/cancel/compose | DONE | см. [error-handling.md](error-handling.md); коммиты `86bd497`, `e1ed5b7` |
 | 7j.18 | **Auto-connect NC & incident hardening:** имя `Подключение {id} («{name}»)` в supervisor/manager, `connected=ok`, `connecting=warning+underway`, общий corr авто-серии, `connection.auto_error` | **КОД ГОТОВ** | [auto-connect.md](auto-connect.md) |
 | 7j.19 | **Инциденты связи + точность разрыва (I1–I5)** | **КОД ГОТОВ** | [issue.md](issue.md); `22cd62d`, `68151e0` |
-| 7j.20 | **Инциденты связи v2 (J1–J8)** + **backend-outage v2 (§9)** + **system NC → JSON** + **J11a/J11c** | **КОД ГОТОВ** · H1/H2 → 7h · J11b TODO | [incident.md](incident.md) · [nc-availability.md](nc-availability.md); `368bfb9` + working tree crash-abandon |
+| 7j.20 | **Инциденты связи v2 (J1–J8)** + **backend-outage v2 (§9)** + **system NC → JSON** + **J11a/J11c** | **КОД ГОТОВ** · H1/H2 → 7h | [incident.md](incident.md) · [nc-availability.md](nc-availability.md) |
+| 7j.21 | **I11** close-break / атомарный Adopt | **ПРИНЯТО** | [issue.md](issue.md) I11 |
+| 7j.22 | **I12** pool exhausted / orphan FATAL | **ПЛАН** (код после wrap-up) | [plan.md](plan.md) §7j.22 · [issue.md](issue.md) I12 |
 
 ## Лог выполнения
 
 | Дата | Действие | Результат |
 |------|----------|-----------|
+| 2026-07-31 | **Wrap-up инцидентной модели:** journal ⊥ NC; Adopt Live-only stale-close; `request_timeout=10`; NC ok>warn tiebreak; I12 план 7j.22 (приоритеты). Рефактор: матрица Adopt, LinkDetect→Debug. | [../incident-model-wrapup.md](../incident-model-wrapup.md) · код + docs |
 | 2026-07-27 | **Docs:** актуализация 7j (остаток = 7j.15/16 + J11b); UI NC Thread уехал в phase 11; handoff [`docs/promt.md`](../../promt.md) §8 → phase11. | документы |
 | 2026-07-27 | **J11c `crash` + `abandoned_schedule`:** клиент `abandonBackendOutageBySchedule` + pending persist; Host ingest Release + `MarkCrashAbandonedByScheduleAsync`; optimistic `overlayCrashOutageOnLink`; orphan `backend.recovering` — warn live-only. | **working tree** (не в `368bfb9`) |
 | 2026-07-26 | **`break` timeout-close (J11a):** спад desired → `TryAbandonIncidentByScheduleAsync` — NC `connection.incident_closed`; маркер `scheduled` + `Abandoned` (без green). Также: Append/corr stack, Degraded→Down owner ribbon, discrete NC lost/auto_error. Коммит `368bfb9`. | Host + LinkLiveness ✓ |

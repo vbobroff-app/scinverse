@@ -28,8 +28,8 @@ public interface IMarketConnector : IAsyncDisposable
     Task DisconnectAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Дешёвая проверка связи в сессионной тишине (phase 7h.2). Синхронный ответ SendCommand или
-    /// <see cref="IsConnected"/> для демо-коннекторов.
+    /// Проверка связи в сессионной тишине (phase 7h.2). Для TRANSAQ — <c>get_servtime_difference</c>
+    /// с таймаутом (не только локальный ack DLL). Демо — <see cref="IsConnected"/>.
     /// </summary>
     Task<bool> ProbeConnectionAsync(CancellationToken cancellationToken);
 }

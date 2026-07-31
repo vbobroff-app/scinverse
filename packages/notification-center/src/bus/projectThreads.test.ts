@@ -164,6 +164,36 @@ describe('projectThreads', () => {
     ]);
   });
 
+  it('same ts: ok Entry sorts after warning (UI reverse → ok above warn)', () => {
+    const corr = 'auto:connection:3:connect:1';
+    const ts = '2026-07-30T12:48:05.000Z';
+    const items = projectThreads([
+      evt({
+        id: 'zzz-warn',
+        correlationId: corr,
+        code: 'connection.connecting',
+        message: 'подключаю…',
+        severity: 'warning',
+        status: 'underway',
+        ts,
+        data: { threadKindHint: 'group' },
+      }),
+      evt({
+        id: 'aaa-ok',
+        correlationId: corr,
+        code: 'connection.connected',
+        message: 'связь установлена',
+        severity: 'ok',
+        status: 'resolved',
+        ts,
+        data: { threadKindHint: 'group' },
+      }),
+    ]);
+    const t = threadOf(items, corr);
+    // oldest-first: warn → ok; ThreadBlock reverse → ok сверху.
+    expect(t.notifications.map((n) => n.severity)).toEqual(['warning', 'ok']);
+  });
+
   it('threadKindHint group wins over open-code heuristic', () => {
     const corr = 'connection:c3:link';
     const items = projectThreads([

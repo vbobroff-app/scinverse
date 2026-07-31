@@ -17,7 +17,7 @@
 
 | Причина «десктопности» софта | Как закрыто в Scinverse |
 | :--- | :--- |
-| Коннекторы брокеров — нативные Windows-DLL (Plaza2, QUIK, Transaq) | Коннекторы живут в C#-сервере (OHS/Агент); клиент их не касается |
+| Коннекторы брокеров — нативные Windows-DLL (Plaza2, QUIK, Transaq) | Коннекторы живут в C#-сервере (OHS/Агент); клиент их не касается. Prod to-be: Linux API/UI/БД + Windows-агент под DLL; стрим без DLL — `IMarketConnector` Finam WS — см. [`architecture/ohs-connectors-deploy.md`](./architecture/ohs-connectors-deploy.md) |
 | Латентность ручного клика «цена → ордер» | Торгует автоматический C#-агент в горячем контуре; UI не на критическом пути |
 | Локальный тяжёлый компьют (бэктест) | Исследования — на Python (отдельный контур) |
 

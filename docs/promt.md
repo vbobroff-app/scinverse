@@ -170,20 +170,18 @@ scinverse/
 
 **OHS MVP** (монолит Host + admin web + пакет NC) — активная разработка.
 
-- **7j инциденты** (связь break/crash, abandon, CloseBreak/Adopt, Auto×5 operator Singles) —
-  **код готов**; очередь: 7j.15/16; хвост **I12 OPEN** (пул Npgsql / orphan FATAL после recover —
-  RxJS sync coverage). См. [todo](./dev/phase7j/todo.md) · [issue I12](./dev/phase7j/issue.md).
-- **phase 11 лента Thread** (11.1–11.12, ★/⊘, dock settings, тесты 11.7) — **DONE**.
-- **11.13 журнал DONE; H1/J8/backfill-recent DONE.** **I2 RESOLVED** — fan-out OHS→journal+NC
-  ([phase11/issue.md](./dev/phase11/issue.md) I2).
-- **Фокус:** слои Connection-ганта раздельно (`link_liveness` ≠ `incident`); инвариант
-  `ts`: источник — liveness/`IncidentStep.At`, NC **копирует** (Hub `ts?`, FanOut, Connect
-  `ReadyAt`). Спека: [incident-journal §3.0a](./dev/phase11/incident-journal.md).
-- **Crash dispatch (DESIGN AGREED + PLAN DRAFT, код не начат):** транспорт + слой соединений —
-  [crash-dispatch.md](./dev/phase11/crash-dispatch.md) §11–§14 (D1–D8).
+- **Инцидентная модель восстановлена** (мультиклиент, `incident` ⊥ NC, `link_liveness` для ганта):
+  итог — [incident-model-wrapup.md](./dev/incident-model-wrapup.md) (2026-07-31).
+- **7j инциденты** — **приняты** (I10/I11 Adopt Live-only; `request_timeout=10`); очередь UI
+  7j.15/16; хвост **I12 / 7j.22 OPEN** — план: (1) RxJS refresh → (2) close-all orphan → (3) pool.
+  См. [plan §7j.22](./dev/phase7j/plan.md) · [issue I12](./dev/phase7j/issue.md).
+- **phase 11** Thread + **11.13 journal** + **crash dispatch D1–D8** — **DONE**.
+  **I2 RESOLVED** — fan-out OHS→journal+NC.
+- **Следующий код-хвост:** I12 (после wrap-up). Затем gate **11→12** / finam-ws (FUTURE).
 
 **To-be:** `notification`/пакет → отдельный NC (MFE, своя БД) на **gate 11→12**;
 `link_liveness` + `incident` остаются в OHS. Admin/Product + Keycloak — C4.
+Deploy TRANSAQ — [ohs-connectors-deploy.md](./architecture/ohs-connectors-deploy.md).
 
 ---
 
@@ -264,7 +262,8 @@ Admin:      ribbon/журнал←OHS · док ленты←NC (MFE)
 
 | Тема | Где |
 |------|-----|
-| I12 pool exhausted + orphan ACTIVE 500; RxJS sync coverage | [phase7j/issue.md I12](./dev/phase7j/issue.md) |
+| I12 pool exhausted + orphan ACTIVE 500 — план 7j.22 (RxJS → close-all → pool) | [phase7j/plan.md §7j.22](./dev/phase7j/plan.md) · [issue I12](./dev/phase7j/issue.md) |
+| Итог модели инцидентов (wrap-up 2026-07-31) | [incident-model-wrapup.md](./dev/incident-model-wrapup.md) |
 | Auto×5 operator Singles + sort WARN/Incident | коммит `4d921c4`; `ConnectionSupervisor`, `projectThreads` |
 
 ### Ключевые файлы
