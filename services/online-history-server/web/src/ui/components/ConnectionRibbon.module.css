@@ -70,12 +70,12 @@
 }
 
 /* Schedule void mask — поверх liveness / break / crash / markers (z-order §5.2).
-   Полупрозрачный veil на --color-bg: маркеры и ленты проглядывают. */
+   Полупрозрачный slate «disabled»; маркеры/ленты проглядывают. */
 .scheduleMask {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: color-mix(in srgb, var(--color-bg) 80%, transparent);
+  background: #58798c8a;
   pointer-events: auto;
   z-index: 30;
 }
