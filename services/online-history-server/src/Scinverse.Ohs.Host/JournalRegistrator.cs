@@ -112,7 +112,44 @@ public sealed class JournalRegistrator(
                     return true;
                 }
 
-                // Гонка parallel mock-POST: recovered раньше unavailable — ждём open, иначе terminal INSERT.
+                var isCrash = corrUid.StartsWith("ohs.backend.outage:", StringComparison.Ordinal);
+                Incident Terminal() => new()
+                {
+                    CorrUid = corrUid,
+                    Module = "connection",
+                    Type = isCrash ? "crash" : "break",
+                    Status = "resolved",
+                    CloseOutcome = closeOutcome,
+                    OpenedAt = closedAt,
+                    ClosedAt = closedAt,
+                    Subject = SubjectFromCorr(corrUid),
+                    Severity = severity ?? (isCrash ? "ok" : "error"),
+                    Title = title ?? (isCrash ? "Система восстановлена" : "Связь восстановлена"),
+                    LastActivityAt = closedAt,
+                    Subtype = isCrash ? "host_unavailable" : "down",
+                    Owner = isCrash ? "admin" : "supervisor",
+                };
+
+                // recovered раньше open (FanOut Resolve fire-and-forget): сразу terminal INSERT,
+                // иначе CrashOpen успевает вставить active, пока мы крутим Delay.
+                if (await store.GetAsync(corrUid, cancellationToken).ConfigureAwait(false) is null)
+                {
+                    if (await store.OpenAsync(Terminal(), cancellationToken).ConfigureAwait(false))
+                    {
+                        return true;
+                    }
+
+                    // Conflict: parallel CrashOpen уже вставил active → Resolve.
+                    if (await store
+                            .ResolveAsync(
+                                corrUid, closedAt, closeOutcome, title, severity, resolvedBy, cancellationToken)
+                            .ConfigureAwait(false))
+                    {
+                        return true;
+                    }
+                }
+
+                // Гонка: open ещё в полёте — короткий retry, затем terminal.
                 for (var i = 0; i < 10; i++)
                 {
                     await Task.Delay(30, cancellationToken).ConfigureAwait(false);
@@ -125,27 +162,7 @@ public sealed class JournalRegistrator(
                     }
                 }
 
-                var isCrash = corrUid.StartsWith("ohs.backend.outage:", StringComparison.Ordinal);
-                return await store
-                    .OpenAsync(
-                        new Incident
-                        {
-                            CorrUid = corrUid,
-                            Module = "connection",
-                            Type = isCrash ? "crash" : "break",
-                            Status = "resolved",
-                            CloseOutcome = closeOutcome,
-                            OpenedAt = closedAt,
-                            ClosedAt = closedAt,
-                            Subject = SubjectFromCorr(corrUid),
-                            Severity = severity ?? (isCrash ? "ok" : "error"),
-                            Title = title ?? (isCrash ? "Система восстановлена" : "Связь восстановлена"),
-                            LastActivityAt = closedAt,
-                            Subtype = isCrash ? "host_unavailable" : "down",
-                            Owner = isCrash ? "admin" : "supervisor",
-                        },
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                return await store.OpenAsync(Terminal(), cancellationToken).ConfigureAwait(false);
             });
 
     /// <summary>Open crash (client-led outage / J8) — module=connection, type=crash.</summary>

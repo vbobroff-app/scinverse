@@ -117,20 +117,20 @@ public sealed class IncidentFanOut(
         return corr;
     }
 
-    private Task<string?> ApplyResolveAsync(IncidentStep step, CancellationToken cancellationToken)
+    private async Task<string?> ApplyResolveAsync(IncidentStep step, CancellationToken cancellationToken)
     {
         // Corr снимаем до Hub.Resolve — после terminal open в памяти хаба уже нет.
         var corr = ResolveCorr(step);
+        // WS recovered/closed ДО journal (как open) — но journal ждём: иначе CrashOpen
+        // успевает вставить active, пока resolve крутится в фоне.
         EmitNcResolve(step);
         if (step.SkipJournal || corr is null)
         {
-            return Task.FromResult(corr);
+            return corr;
         }
 
-        // recovered в WS уже ушёл; journal/bind — фон (пул БД не тормозит close).
-        var corrUid = corr;
-        _ = CompleteResolveJournalAsync(step, corrUid, cancellationToken);
-        return Task.FromResult<string?>(corrUid);
+        await CompleteResolveJournalAsync(step, corr, cancellationToken).ConfigureAwait(false);
+        return corr;
     }
 
     private async Task CompleteResolveJournalAsync(

@@ -968,7 +968,8 @@ public sealed class ConnectionManager(
             return true;
         }
 
-        short? sourceId = _sourceIds.TryGetValue(connectionId, out var cached) ? cached : null;
+        // Кэш сессии или store (abandon без живого Connect — unit / offline).
+        var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
 
         // Пропущенный grace-tick: Live/abandon после T при owner=transaq → boundary на since+T.
         if (LinkOwnership.CatchUpEscalationAt(owner, incidentStart, atTs, RecoverGrace) is { } catchUpAt
