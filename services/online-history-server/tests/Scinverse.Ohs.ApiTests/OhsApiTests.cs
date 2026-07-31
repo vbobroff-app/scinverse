@@ -544,8 +544,8 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
     }
 
     /// <summary>
-    /// Enabled connection + date-window на локальный день <paramref name="atUtc"/> (MSK),
-    /// чтобы HostOutageConnectionEmitter классифицировал Incident.
+    /// Enabled connection + date-window на локальный день <paramref name="atUtc"/> (MSK).
+    /// Окно больше не нужно для journal (P3 always-Incident); оставляем для паритета Auto/стенда.
     /// </summary>
     private static async Task<long> SeedDesiredCrashConnectionAsync(
         HttpClient http, IOhsApi api, string name, DateTimeOffset atUtc)

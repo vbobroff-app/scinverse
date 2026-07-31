@@ -126,22 +126,7 @@ Crash Host **проецируется** на C (fan-out) после оживле
 
 ---
 
-## 6. Crash dispatch: as-is vs to-be
-
-### As-is (код сейчас)
-
-```text
-WS drop → local Single
-WS up + POST × clients → Host merge
-  └── C: ∀ enabled connection
-        ├── desired@open → Incident + journal
-        └── иначе → Group + NC (без journal)
-```
-
-Документ: [`crash-dispatch.md`](../dev/phase11/crash-dispatch.md).  
-Ветка `:h` (clipped Incident) — **отклонена**, в коде нет.
-
-### To-be
+## 6. Crash dispatch (P3)
 
 ```text
 WS drop → local Single
@@ -149,6 +134,10 @@ WS up + POST × clients → Host merge
   └── C: ∀ enabled connection → Incident + journal (полный span)
 UI / Writers: schedule mask + Cutter поверх фактов
 ```
+
+**As-was (до P3):** `desired@open` → Incident+journal, иначе Group без journal.  
+Документ: [`crash-dispatch.md`](../dev/phase11/crash-dispatch.md).  
+Ветка `:h` (clipped Incident) — **отклонена**, в коде нет.
 
 ```mermaid
 sequenceDiagram
@@ -192,7 +181,7 @@ sequenceDiagram
 |----------|--------|
 | [`schedule-projection.md`](../dev/phase11/schedule-projection.md) | **канон to-be** факты ⊥ mask/Cutter |
 | [`plan-schedule-projection.md`](../dev/phase11/plan-schedule-projection.md) | порядок миграции |
-| [`crash-dispatch.md`](../dev/phase11/crash-dispatch.md) | Host crash as-is |
+| [`crash-dispatch.md`](../dev/phase11/crash-dispatch.md) | Host crash (P3 always-Incident) |
 | [`incident.md`](incident.md) | продукт: что такое инцидент |
 | [`incident-journal.md`](../dev/phase11/incident-journal.md) | таблица `incident`, ленты |
 | [`to-threads.md`](../dev/phase11/to-threads.md) | Single / Thread / Incident / Group |

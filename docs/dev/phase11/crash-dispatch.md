@@ -1,11 +1,11 @@
 # Phase 11 — Crash dispatch: транспорт + слой соединений
 
-**Статус:** `DONE` (D1–D8) · **as-is classification by schedule** ·  
-**`:h` clip — ОТКЛОНЁН** (docs ниже исторические; кода нет, WIP откатан 2026-07-31).
+**Статус:** `DONE` (D1–D8) · **P3 always-Incident на слое C** (2026-07-31) ·  
+**`:h` clip — ОТКЛОНЁН** (кода нет, WIP откатан).
 
-**To-be канон (факты ⊥ schedule):** [`schedule-projection.md`](schedule-projection.md) ·
+**Канон (факты ⊥ schedule):** [`schedule-projection.md`](schedule-projection.md) ·
 план [`plan-schedule-projection.md`](plan-schedule-projection.md).  
-Этот файл — **as-is / исторический контракт** до switchover (P3–P4 плана).
+Ниже: контракт crash-dispatch; классификация Group по `desired@open` — **as-was** (снята в P3).
 
 **Связано:** [incident-journal.md](incident-journal.md) · [to-threads.md](to-threads.md) ·
 wiki [`incident.md`](../../wiki-readme/incident.md) · [`layers.md`](../../wiki-readme/layers.md) ·
@@ -31,7 +31,7 @@ wiki [`incident.md`](../../wiki-readme/incident.md) · [`layers.md`](../../wiki-
 | Слой | Имя | Контекст | `connectionId` | Journal | NC |
 |------|-----|----------|----------------|---------|-----|
 | **T** | **Транспортный** (admin ↔ OHS) | слот для общих system-уведомлений; **crash-стек T Group не пишем** | **нет** | **нет** | local Single FATAL на клиенте; durable T Group — off |
-| **C** | **Слой соединений** (connection / provider) | влияние простоя Host на каждый enabled connection | **обязателен** | только **Incident** | Incident **или** Group на каждый id |
+| **C** | **Слой соединений** (connection / provider) | влияние простоя Host на каждый enabled connection | **обязателен** | **Incident** (полный span) | **всегда Incident** на каждый enabled id |
 
 В UI connection ≈ провайдер; в спеке канон — **слой соединений** (ключ всегда `connectionId`).
 
@@ -46,10 +46,11 @@ WS drop (N admin clients)
         ▼
   Supervisor (дедуп)
         ├── слой T: NC Group — не эмитим (слот на будущее)
-        └── слой C: ∀ enabled connection
-              ├── desired → Incident + journal + NC  (снимает local Single)
-              └── иначе  → Group + NC (без journal)
+        └── слой C: ∀ enabled connection → Incident + journal + NC
+              (schedule = mask/Cutter снаружи; не классификатор)
 ```
+
+**As-was (до P3):** `desired@open` → Incident+journal, иначе Group без journal.
 
 ---
 
@@ -95,25 +96,23 @@ ohs.host.transport:{outageSeed}
 Для каждого `connectionId`:
 
 ```text
-# AS-IS (код сейчас)
-if desired(schedule, openedAt) → Incident + journal (полный span)
-else → Group (NC only)
-
-# TO-BE — см. schedule-projection.md
+# КОД СЕЙЧАС (P3) — см. schedule-projection.md
 ∀ enabled → Incident + journal (полный span); mask/Cutter снаружи
+
+# AS-WAS (до P3)
+if desired(schedule, openedAt) → Incident + journal
+else → Group (NC only)
 
 # ОТКЛОНЕНО (не реализовывать)
 else → Group + clipped Incident …:c{id}:h на ∩ desired
 ```
 
-`desired` as-is — тот же резолвер, что у Auto/break (date > dow > main; TZ расписания).
-
-На один outage-окно у connection as-is **одна** нить (Incident **или** Group).
+На один outage-окно у connection — **одна** нить Incident (полный span).
 
 ### 4.2. Corr
 
 ```text
-ohs.backend.outage:{outageSeed}:c{connectionId}       — as-is: Group или Incident
+ohs.backend.outage:{outageSeed}:c{connectionId}       — всегда Incident (P3)
 # …:c{id}:h  — ОТКЛОНЕНО, не использовать
 ```
 
@@ -303,7 +302,7 @@ POST /api/recovery/outage
 |-----|-----|---------------------|
 | **D1** | `HostOutageCoordinator` + `POST /api/recovery/outage` — **DONE** | Unit: два clientId → один seed; min from; один close |
 | **D2** | Emit **слой T**: `HostOutageTransportEmitter` → Hub Ingest open/close, hint=group, без journal — **DONE** | Unit: 2 атома, без connectionId; merge не дублирует open |
-| **D3** | Emit **слой C**: ∀ enabled connection; `desired` через `ConnectionScheduleResolver`; Incident→Hub Ingest+journal; Group→Hub only — **DONE** | Unit: N enabled → N corr `:c{id}`; journal только desired |
+| **D3** | Emit **слой C**: ∀ enabled → Incident+journal (P3: без `desired` classification) — **DONE** | Unit: N enabled → N corr `:c{id}` + N journal |
 | **D4** | Снять client-led journal path для crash из `POST /notifications` — **DONE** | ApiTests: journal через `/recovery/outage`; client `backend.unavailable` → NC only |
 | **D5** | Клиент: WS down → **локальная Single** (не Thread); убрать `openBackendOutage` Thread+queue атомов crash — **DONE** | vitest: Single без Thread; dismiss на hydrate `ohs.host.transport:` |
 | **D5a** | NC фильтр «Соединение» (show/hide Id) — **DONE** | Скрыть id=1; без id в data остаётся видимым |
@@ -336,8 +335,8 @@ POST /api/recovery/outage
 | Уровень | Сценарии |
 |---------|----------|
 | Unit coordinator | merge 2 clients; seed=minFrom; second close no-op; вне MergeWindow → новый эпизод |
-| Unit/Api fan-out | 0 enabled → только T; 1 desired + 1 idle → 1 journal + 2 C threads + 1 T |
-| Api | идемпотентный повтор POST; Group C без строки incident |
+| Unit/Api fan-out | 0 enabled → noop C; N enabled → N Incident+journal (вне окна тоже) |
+| Api | идемпотентный повтор POST; journal на каждый enabled |
 | Web vitest | Single on drop; POST body; dismiss Single when transport Group arrives in backlog |
 
 ### 13.5. Риски и смягчение
@@ -352,7 +351,7 @@ POST /api/recovery/outage
 ### 13.6. Критерий приёмки (done)
 
 1. Два admin POST на один outage → **один** T Group в NC.
-2. Два enabled connection (desired / не desired) → Incident+journal и Group без journal; оба с `connectionId`.
+2. Два enabled connection (в окне / вне окна) → **оба** Incident+journal с `connectionId` (P3).
 3. Локальная Single до POST; после hydrate нет дубля с T.
 4. В `incident` нет строк без `connection_id` для новых crash.
 5. Break-сценарии 7j не регрессируют.

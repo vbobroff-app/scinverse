@@ -1,18 +1,16 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Scinverse.Ohs.Domain;
-using Scinverse.Ohs.Domain.Moex;
 
 namespace Scinverse.Ohs.Host;
 
 /// <summary>
-/// Слой C (crash-dispatch D3): ∀ enabled connection — NC с fixed corr
-/// <c>ohs.backend.outage:{seed}:c{id}</c>; journal только при desired (Incident).
+/// Слой C (crash-dispatch / schedule-as-projection P3): ∀ enabled connection —
+/// NC Incident + journal с fixed corr <c>ohs.backend.outage:{seed}:c{id}</c>.
+/// Расписание не классифицирует (mask/Cutter снаружи).
 /// </summary>
 public sealed class HostOutageConnectionEmitter(
     IConnectionStore connections,
-    IConnectionScheduleStore schedules,
-    IMarketCalendar calendar,
     NotificationHub hub,
     IJournalRegistrator journal,
     ILogger<HostOutageConnectionEmitter> logger)
@@ -57,23 +55,17 @@ public sealed class HostOutageConnectionEmitter(
 
             try
             {
-                // Классификация нити эпизода — по openedAt (как на Open); close той же нити.
-                var desired = await IsDesiredAsync(connection.ConnectionId, result.OpenedAt, cancellationToken)
-                    .ConfigureAwait(false);
                 var corr = CorrUid(result.OutageSeed, connection.ConnectionId);
-                var hint = desired
-                    ? NotificationThreadData.KindIncident
-                    : NotificationThreadData.KindGroup;
 
                 if (result.OpenedEmitted)
                 {
-                    await EmitOpenAsync(connection.ConnectionId, corr, hint, desired, result.OpenedAt, cancellationToken)
+                    await EmitOpenAsync(connection.ConnectionId, corr, result.OpenedAt, cancellationToken)
                         .ConfigureAwait(false);
                 }
 
                 if (result.ClosedEmitted && result.ClosedAt is { } closedAt)
                 {
-                    await EmitCloseAsync(connection.ConnectionId, corr, desired, closedAt, cancellationToken)
+                    await EmitCloseAsync(connection.ConnectionId, corr, closedAt, cancellationToken)
                         .ConfigureAwait(false);
                 }
             }
@@ -90,8 +82,6 @@ public sealed class HostOutageConnectionEmitter(
     private Task EmitOpenAsync(
         long connectionId,
         string corr,
-        string hint,
-        bool desired,
         DateTimeOffset openedAt,
         CancellationToken cancellationToken)
     {
@@ -100,7 +90,7 @@ public sealed class HostOutageConnectionEmitter(
             sender = "client",
             kind = "crash",
             connectionId,
-            threadKindHint = hint,
+            threadKindHint = NotificationThreadData.KindIncident,
         });
         var openMessage = MessageFor(connectionId, OpenMessageBase);
         hub.Ingest(
@@ -108,17 +98,12 @@ public sealed class HostOutageConnectionEmitter(
             openedAt,
             CodeUnavailable,
             openMessage,
-            severity: desired ? "critical" : "error",
+            severity: "critical",
             sourceType: "system",
             module: Module,
             data: openData,
             status: "active",
             correlationId: corr);
-
-        if (!desired)
-        {
-            return Task.CompletedTask;
-        }
 
         return journal.RegisterCrashOpenAsync(
             corr, openedAt, connectionId, openMessage, cancellationToken);
@@ -127,7 +112,6 @@ public sealed class HostOutageConnectionEmitter(
     private Task EmitCloseAsync(
         long connectionId,
         string corr,
-        bool wasIncident,
         DateTimeOffset closedAt,
         CancellationToken cancellationToken)
     {
@@ -151,11 +135,6 @@ public sealed class HostOutageConnectionEmitter(
             status: "resolved",
             correlationId: corr);
 
-        if (!wasIncident)
-        {
-            return Task.CompletedTask;
-        }
-
         return journal.RegisterBreakResolvedAsync(
             corr,
             closedAt,
@@ -163,59 +142,5 @@ public sealed class HostOutageConnectionEmitter(
             closeMessage,
             "ok",
             cancellationToken);
-    }
-
-    /// <summary>Тот же desired, что у Auto/break: schedule + trading day календаря.</summary>
-    private async Task<bool> IsDesiredAsync(
-        long connectionId, DateTimeOffset atUtc, CancellationToken cancellationToken)
-    {
-        var state = await schedules.GetStateAsync(connectionId, cancellationToken).ConfigureAwait(false);
-        if (state.LiveRules.Count == 0)
-        {
-            return false;
-        }
-
-        var settings = state.Settings;
-        var local = ToLocal(atUtc, settings.Tz);
-        var localTime = TimeOnly.FromDateTime(local.DateTime);
-        var localDate = DateOnly.FromDateTime(local.DateTime);
-        var tradingByDay = new Dictionary<DateOnly, bool>();
-        foreach (var openDay in new[] { localDate.AddDays(-1), localDate })
-        {
-            var sessions = await calendar
-                .ShapeSessionsAsync(settings.Engine, [openDay], cancellationToken)
-                .ConfigureAwait(false);
-            tradingByDay[openDay] = sessions.Count > 0;
-        }
-
-        return ConnectionScheduleResolver.IsConnectDesired(
-            state.LiveRules,
-            settings.Engine,
-            localDate,
-            localTime,
-            (_, day) => tradingByDay.GetValueOrDefault(day));
-    }
-
-    private static DateTimeOffset ToLocal(DateTimeOffset utc, string tz)
-    {
-        if (string.Equals(tz, "Europe/Moscow", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(tz, "MSK", StringComparison.OrdinalIgnoreCase))
-        {
-            return utc.ToOffset(MoexSchedule.MoscowOffset);
-        }
-
-        try
-        {
-            var zone = TimeZoneInfo.FindSystemTimeZoneById(tz);
-            return TimeZoneInfo.ConvertTime(utc, zone);
-        }
-        catch (TimeZoneNotFoundException)
-        {
-            return utc.ToOffset(MoexSchedule.MoscowOffset);
-        }
-        catch (InvalidTimeZoneException)
-        {
-            return utc.ToOffset(MoexSchedule.MoscowOffset);
-        }
     }
 }

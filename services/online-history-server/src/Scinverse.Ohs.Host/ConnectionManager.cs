@@ -1201,7 +1201,7 @@ public sealed class ConnectionManager(
     {
         var subject = LinkIncidentSubject(connectionId);
         var isNew = _incidentSince.TryAdd(connectionId, atTs);
-        // Host открывает break только пока сессия жива (= горизонт desired) → Incident.
+        // Break open → всегда Incident + journal (P3). Desired влияет на Auto connect, не на SkipJournal.
         var lostData = new
         {
             connectionId,

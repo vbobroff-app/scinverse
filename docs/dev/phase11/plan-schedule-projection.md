@@ -69,10 +69,10 @@
 
 | Шаг | Что | Критерий |
 |-----|-----|----------|
-| P3.1 | Crash fan-out: для каждого enabled connection → Incident + journal **всегда** | нет ветки Group по `desired@open` |
-| P3.2 | Break: убедиться, что нет скрытых «вне горизонта → не journal» | unit |
-| P3.3 | NC: outage threads всегда Incident; фильтр `connectionId` | vitest projectThreads |
-| P3.4 | Обновить crash-dispatch §4 как as-was / to-be pointer | docs |
+| P3.1 | Crash fan-out: для каждого enabled connection → Incident + journal **всегда** | нет ветки Group по `desired@open` — **DONE** |
+| P3.2 | Break: убедиться, что нет скрытых «вне горизонта → не journal» | open path всегда Incident (desired ≠ SkipJournal) — **DONE** |
+| P3.3 | NC: outage threads всегда Incident; фильтр `connectionId` | vitest projectThreads — **DONE** |
+| P3.4 | Обновить crash-dispatch §4 как as-was / to-be pointer | docs — **DONE** |
 
 **Переходный момент:** на ганте без маски ночные crash станут видимы полностью — это **правильно**;
 маска (P2) должна уже быть, иначе UX-шок. **Порядок: P2 перед или сразу с P3.**

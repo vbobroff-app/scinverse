@@ -157,12 +157,31 @@ describe('projectThreads', () => {
     ]);
     const t = threadOf(items, corr);
     expect(t.subject).toBe('connection:3');
+    expect(t.threadKind).toBe('incident');
     // Как break: title = connection:{id}; message без изменений («Подключение 3: …»).
     expect(t.header.title).toBe('connection:3');
     expect(t.notifications.map((n) => n.message)).toEqual([
       'Подключение 3: Сервер OHS недоступен, жду восстановления',
       closeMsg,
     ]);
+  });
+
+  it('P3: crash :c{id} stays Incident (filterable by connectionId)', () => {
+    const corr = 'ohs.backend.outage:1720000000000:c9';
+    const items = projectThreads([
+      evt({
+        id: 'o1',
+        correlationId: corr,
+        code: 'backend.unavailable',
+        status: 'active',
+        severity: 'critical',
+        data: { connectionId: 9, threadKindHint: 'incident', kind: 'crash' },
+      }),
+    ]);
+    const t = threadOf(items, corr);
+    expect(t.threadKind).toBe('incident');
+    expect(t.subject).toBe('connection:9');
+    expect(t.notifications[0]?.data).toMatchObject({ connectionId: 9 });
   });
 
   it('same ts: ok Entry sorts after warning (UI reverse → ok above warn)', () => {
