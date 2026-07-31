@@ -70,12 +70,12 @@
 }
 
 /* Schedule void mask — поверх liveness / break / crash / markers (z-order §5.2).
-   Палитра: page bg + muted (как dim/scrim в schedule popover), не сырой black. */
+   Полупрозрачный veil на --color-bg: маркеры и ленты проглядывают. */
 .scheduleMask {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: color-mix(in srgb, var(--color-bg) 72%, var(--color-text-muted));
+  background: color-mix(in srgb, var(--color-bg) 80%, transparent);
   pointer-events: auto;
   z-index: 30;
 }
