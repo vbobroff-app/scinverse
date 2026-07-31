@@ -1,8 +1,19 @@
 import { memo } from 'react';
 import type { CoverageWindow } from '../../core/OhsStore';
+import {
+  SCHEDULE_TZ_OFFSET_MIN,
+  formatScheduleIdleTooltip,
+  scheduleVoidIntervals,
+} from '../../core/connectionSchedule';
 import { livenessEndMs } from '../../core/coverageGeometry';
 import { makeProjector } from '../../core/sessionProjection';
-import type { CaptureGapDto, IncidentDto, LivenessIntervalDto, SessionDto } from '../../core/types';
+import type {
+  CaptureGapDto,
+  ConnectionScheduleRuleDto,
+  IncidentDto,
+  LivenessIntervalDto,
+  SessionDto,
+} from '../../core/types';
 import { DEFAULT_LINK_RECOVER_GRACE_SEC, resolveEscalatedMs } from './connectionRibbonGaps';
 import {
   journalHasOverlappingCrash,
@@ -36,6 +47,10 @@ interface Props {
   showLinkRibbon?: boolean;
   /** Слой цветных эпизодов + маркеров из `incident`. */
   showIncidents?: boolean;
+  /** Верхний void-слой вне desired (schedule-as-projection). */
+  showScheduleMask?: boolean;
+  /** Живые правила расписания connection (для void mask). */
+  scheduleRules?: readonly ConnectionScheduleRuleDto[];
 }
 
 /** Не-инцидент (серое, без маркеров): отключил оператор / плановое по расписанию. */
@@ -80,9 +95,10 @@ function kindClass(kind: IncidentRibbonKind): string {
  * Host НЕ красим — иначе длинная красная штриховка без journal/NC инцидента. */
 
 /**
- * Connection: два независимых слоя.
+ * Connection: слои снизу вверх — liveness → break/crash → markers → schedule mask.
  * - Лента связи (`showLinkRibbon`): голубое + серое idle из `link_liveness`.
  * - Инциденты (`showIncidents`): journal / legacy gaps + маркеры (не зависят от живности).
+ * - Маска расписания (`showScheduleMask`): void вне desired, ⊥ SessionFilter.
  */
 export const ConnectionRibbon = memo(function ConnectionRibbon({
   window,
@@ -96,6 +112,8 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   showNowMarker = true,
   showLinkRibbon = true,
   showIncidents = true,
+  showScheduleMask = true,
+  scheduleRules,
 }: Props) {
   const windowFromMs = Date.parse(window.from);
   const windowToMs = Date.parse(window.to);
@@ -120,6 +138,10 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
         return !journalHasOverlappingCrash(journalList, from, liveEdgeMs, liveEdgeMs);
       })
     : undefined;
+  const voids =
+    showScheduleMask && scheduleRules && scheduleRules.length > 0
+      ? scheduleVoidIntervals(scheduleRules, windowFromMs, windowToMs, SCHEDULE_TZ_OFFSET_MIN)
+      : [];
 
   return (
     <div className={styles.track}>
@@ -294,6 +316,21 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             ) : null,
           )
         : null}
+
+      {/* —— schedule void mask (верхний слой; не клипует journal) —— */}
+      {voids.map((v, i) => {
+        const left = pct(v.fromMs);
+        const widthPct = pct(v.toMs) - left;
+        if (widthPct <= 0) return null;
+        return (
+          <div
+            key={`void${i}`}
+            className={styles.scheduleMask}
+            style={{ left: `${left}%`, width: `${widthPct}%` }}
+            title={formatScheduleIdleTooltip(v.fromMs, v.toMs, SCHEDULE_TZ_OFFSET_MIN)}
+          />
+        );
+      })}
     </div>
   );
 });

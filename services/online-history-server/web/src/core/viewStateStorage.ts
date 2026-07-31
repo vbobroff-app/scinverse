@@ -58,6 +58,8 @@ export interface PersistedViewState {
   showLinkRibbon?: boolean;
   /** Слой инцидентов (`incident`) на Connection. */
   showIncidents?: boolean;
+  /** Schedule void mask вне desired на Connection. */
+  showScheduleMask?: boolean;
 }
 
 const EMPTY: PersistedViewState = {
@@ -206,6 +208,8 @@ export function loadViewState(): PersistedViewState {
       showNowMarker: typeof parsed.showNowMarker === 'boolean' ? parsed.showNowMarker : undefined,
       showLinkRibbon: typeof parsed.showLinkRibbon === 'boolean' ? parsed.showLinkRibbon : undefined,
       showIncidents: typeof parsed.showIncidents === 'boolean' ? parsed.showIncidents : undefined,
+      showScheduleMask:
+        typeof parsed.showScheduleMask === 'boolean' ? parsed.showScheduleMask : undefined,
     };
   } catch {
     return { ...EMPTY };

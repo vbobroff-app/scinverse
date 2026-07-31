@@ -14,6 +14,7 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
   const showNowMarker = useBehavior(store.showNowMarker$);
   const showLinkRibbon = useBehavior(store.showLinkRibbon$);
   const showIncidents = useBehavior(store.showIncidents$);
+  const showScheduleMask = useBehavior(store.showScheduleMask$);
   const ohsUnavailable = useBehavior(store.backendOutage$);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -117,6 +118,14 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
                       onChange={() => store.setShowIncidents(!showIncidents)}
                     />
                     Инциденты
+                  </label>
+                  <label className={styles.settingsCheck}>
+                    <input
+                      type="checkbox"
+                      checked={showScheduleMask}
+                      onChange={() => store.setShowScheduleMask(!showScheduleMask)}
+                    />
+                    Маска расписания
                   </label>
                 </div>
               </div>

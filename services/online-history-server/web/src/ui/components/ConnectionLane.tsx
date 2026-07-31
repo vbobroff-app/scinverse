@@ -24,6 +24,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const showNowMarker = useBehavior(store.showNowMarker$);
   const showLinkRibbon = useBehavior(store.showLinkRibbon$);
   const showIncidents = useBehavior(store.showIncidents$);
+  const showScheduleMask = useBehavior(store.showScheduleMask$);
   const connectionSchedules = useBehavior(store.connectionSchedule$);
   const ohsUnavailable = useBehavior(store.backendOutage$);
   const now = useNow(1000);
@@ -90,6 +91,8 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
             showNowMarker={showNowMarker}
             showLinkRibbon={showLinkRibbon}
             showIncidents={showIncidents}
+            showScheduleMask={showScheduleMask}
+            scheduleRules={rules}
           />
         </div>
       </div>

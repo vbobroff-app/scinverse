@@ -75,6 +75,7 @@ describe('viewStateStorage', () => {
       showNowMarker: false,
       showLinkRibbon: false,
       showIncidents: false,
+      showScheduleMask: false,
     });
 
     const v = loadViewState();
@@ -91,6 +92,7 @@ describe('viewStateStorage', () => {
     expect(v.showNowMarker).toBe(false);
     expect(v.showLinkRibbon).toBe(false);
     expect(v.showIncidents).toBe(false);
+    expect(v.showScheduleMask).toBe(false);
   });
 
   it('отбрасывает невалидные таймфрейм/тайм-лайн/ТЗ', () => {

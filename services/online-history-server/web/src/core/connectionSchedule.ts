@@ -145,3 +145,121 @@ export function isConnectedNow(
 export function hasLiveRules(rules: readonly ConnectionScheduleRuleDto[]): boolean {
   return rules.length > 0;
 }
+
+/** Полуоткрытый интервал в epoch ms: [fromMs, toMs). */
+export interface ScheduleMsInterval {
+  fromMs: number;
+  toMs: number;
+}
+
+/**
+ * Абсолютные desired-окна connection, пересекающие [rangeFromMs, rangeToMs).
+ * Та же семантика, что Auto/`isConnectedNow` (date > dow > main; без trading calendar).
+ * Без live-rules → [].
+ */
+export function enumerateDesiredWindows(
+  rules: readonly ConnectionScheduleRuleDto[],
+  rangeFromMs: number,
+  rangeToMs: number,
+  offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
+): ScheduleMsInterval[] {
+  if (!hasLiveRules(rules) || !(rangeFromMs < rangeToMs)) {
+    return [];
+  }
+
+  const startWall = wallClockInTz(new Date(rangeFromMs), offsetMin);
+  startWall.setHours(0, 0, 0, 0);
+  startWall.setDate(startWall.getDate() - 1);
+
+  const endWall = wallClockInTz(new Date(rangeToMs), offsetMin);
+  endWall.setHours(0, 0, 0, 0);
+
+  const raw: ScheduleMsInterval[] = [];
+  for (let d = new Date(startWall); d.getTime() <= endWall.getTime(); d.setDate(d.getDate() + 1)) {
+    const winner = resolveWinnerForDate(rules, d);
+    if (!winner || winner.mode !== 'window' || winner.open == null || winner.durationMin == null) {
+      continue;
+    }
+    const openMin = hmsToMin(winner.open);
+    const fromMs =
+      Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(openMin / 60), openMin % 60) -
+      offsetMin * 60_000;
+    const toMs = fromMs + winner.durationMin * 60_000;
+    const clipFrom = Math.max(fromMs, rangeFromMs);
+    const clipTo = Math.min(toMs, rangeToMs);
+    if (clipFrom < clipTo) {
+      raw.push({ fromMs: clipFrom, toMs: clipTo });
+    }
+  }
+
+  return mergeHalfOpen(raw);
+}
+
+/**
+ * Void-интервалы вне desired внутри [rangeFromMs, rangeToMs) — для UI mask.
+ * Нет live-rules → [] (маску не рисуем).
+ */
+export function scheduleVoidIntervals(
+  rules: readonly ConnectionScheduleRuleDto[],
+  rangeFromMs: number,
+  rangeToMs: number,
+  offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
+): ScheduleMsInterval[] {
+  if (!hasLiveRules(rules) || !(rangeFromMs < rangeToMs)) {
+    return [];
+  }
+  const desired = enumerateDesiredWindows(rules, rangeFromMs, rangeToMs, offsetMin);
+  return invertHalfOpen(desired, rangeFromMs, rangeToMs);
+}
+
+/** Подпись тултипа void: «Окно простоя HH:MM – HH:MM» (стенные часы TZ расписания). */
+export function formatScheduleIdleTooltip(
+  fromMs: number,
+  toMs: number,
+  offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
+): string {
+  return `Окно простоя ${hhmmWall(fromMs, offsetMin)} – ${hhmmWall(toMs, offsetMin)}`;
+}
+
+function hhmmWall(ms: number, offsetMin: number): string {
+  const d = wallClockInTz(new Date(ms), offsetMin);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function mergeHalfOpen(intervals: ScheduleMsInterval[]): ScheduleMsInterval[] {
+  if (intervals.length === 0) {
+    return [];
+  }
+  const sorted = [...intervals].sort((a, b) => a.fromMs - b.fromMs);
+  const out: ScheduleMsInterval[] = [{ ...sorted[0]! }];
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i]!;
+    const last = out[out.length - 1]!;
+    if (cur.fromMs <= last.toMs) {
+      last.toMs = Math.max(last.toMs, cur.toMs);
+    } else {
+      out.push({ ...cur });
+    }
+  }
+  return out;
+}
+
+function invertHalfOpen(
+  desired: readonly ScheduleMsInterval[],
+  rangeFromMs: number,
+  rangeToMs: number,
+): ScheduleMsInterval[] {
+  const voids: ScheduleMsInterval[] = [];
+  let cursor = rangeFromMs;
+  for (const d of desired) {
+    if (d.fromMs > cursor) {
+      voids.push({ fromMs: cursor, toMs: d.fromMs });
+    }
+    cursor = Math.max(cursor, d.toMs);
+  }
+  if (cursor < rangeToMs) {
+    voids.push({ fromMs: cursor, toMs: rangeToMs });
+  }
+  return voids;
+}

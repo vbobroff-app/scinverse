@@ -354,6 +354,8 @@ export class OhsStore {
   readonly showLinkRibbon$ = new BehaviorSubject<boolean>(true);
   /** Слой инцидентов (`incident`) на Connection. */
   readonly showIncidents$ = new BehaviorSubject<boolean>(true);
+  /** Верхний void-слой вне desired на Connection (schedule-as-projection). */
+  readonly showScheduleMask$ = new BehaviorSubject<boolean>(true);
 
   /** Раскрытые серии, ожидающие регидрации после перезагрузки (одноразово, см. hydrateExpanded). */
   private pendingSeriesHydration: PersistedSeries[] = [];
@@ -475,6 +477,9 @@ export class OhsStore {
     if (typeof v.showIncidents === 'boolean') {
       this.showIncidents$.next(v.showIncidents);
     }
+    if (typeof v.showScheduleMask === 'boolean') {
+      this.showScheduleMask$.next(v.showScheduleMask);
+    }
   }
 
   /** Снимок представления каталога для localStorage (из текущих сабджектов). */
@@ -510,6 +515,7 @@ export class OhsStore {
       showNowMarker: this.showNowMarker$.value,
       showLinkRibbon: this.showLinkRibbon$.value,
       showIncidents: this.showIncidents$.value,
+      showScheduleMask: this.showScheduleMask$.value,
     });
   }
 
@@ -1237,6 +1243,14 @@ export class OhsStore {
   setShowIncidents(on: boolean): void {
     if (this.showIncidents$.value !== on) {
       this.showIncidents$.next(on);
+      this.persistView();
+    }
+  }
+
+  /** Показывать / скрывать schedule void mask на Connection (⊥ SessionFilter). */
+  setShowScheduleMask(on: boolean): void {
+    if (this.showScheduleMask$.value !== on) {
+      this.showScheduleMask$.next(on);
       this.persistView();
     }
   }
