@@ -69,12 +69,13 @@
   background-color: rgba(220, 53, 69, 0.55);
 }
 
-/* Schedule void mask — поверх liveness / break / crash / markers (z-order §5.2). */
+/* Schedule void mask — поверх liveness / break / crash / markers (z-order §5.2).
+   Палитра: page bg + muted (как dim/scrim в schedule popover), не сырой black. */
 .scheduleMask {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: color-mix(in srgb, var(--color-bg) 72%, var(--color-text-muted));
   pointer-events: auto;
   z-index: 30;
 }
