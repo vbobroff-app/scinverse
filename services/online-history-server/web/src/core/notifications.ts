@@ -580,6 +580,48 @@ export function healthCheckOk(correlationId: string): NotificationDto {
 }
 
 /**
+ * I12 / §9.3: недавние orphan `ohs.unhandled` (critical) без terminal `resolved` на corr.
+ * Пачка parallel 500 → N разных requestId; health-ok должен закрыть все, не один.
+ */
+export function collectRecentOrphanUnhandledCorrs(opts: {
+  withinMs: number;
+  nowMs?: number;
+}): string[] {
+  const nowMs = opts.nowMs ?? Date.now();
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const e of notificationBus.events) {
+    if (e.code !== 'ohs.unhandled' || (e.severity ?? '') !== 'critical') {
+      continue;
+    }
+    const corr = e.correlationId;
+    if (!corr || seen.has(corr)) {
+      continue;
+    }
+    seen.add(corr);
+    const ts = Date.parse(e.ts);
+    if (!Number.isFinite(ts) || nowMs - ts > opts.withinMs) {
+      continue;
+    }
+    if (notificationBus.statusOf(corr) === 'resolved') {
+      continue;
+    }
+    result.push(corr);
+  }
+  return result;
+}
+
+/**
+ * I12: health-probe ok → закрыть все недавние orphan FATAL (локальная шина + DTO для mock-POST).
+ */
+export function closeRecentOrphanUnhandledWithHealthOk(opts: {
+  withinMs: number;
+  nowMs?: number;
+}): NotificationDto[] {
+  return collectRecentOrphanUnhandledCorrs(opts).map((corr) => healthCheckOk(corr));
+}
+
+/**
  * Single INFO после backend.recovered: Auto×N стоп при open break (не в link-corr).
  * Локальная шина + DTO для mock-POST.
  */

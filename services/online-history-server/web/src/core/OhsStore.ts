@@ -382,9 +382,12 @@ export class OhsStore {
   private outageCorr: string | null = null;
   // true после open/500/дропа из warning — пока не эмитнули recovering; resolve без warn запрещён.
   private outageNeedsWarnBeforeOk = false;
-  // Одиночный 500 без инцидента (§9.3): corr/время для health-probe и adopt при дропе.
+  // Одиночный/пачка 500 без инцидента (§9.3 / I12): последний corr+время для adopt при дропе;
+  // health-probe закрывает все недавние orphan на шине (не только этот corr).
   private pendingFatalCorr: string | null = null;
   private pendingFatalAt: number | null = null;
+  /** Склеить пачку getConnections-probe в один in-flight (I12). */
+  private healthProbeInFlight = false;
   /** Кэш desired расписания на время crash-outage — ловим спад true→false → abandoned_schedule. */
   private outageScheduleDesired: boolean | null = null;
   /**
@@ -879,7 +882,7 @@ export class OhsStore {
         if (corr !== null) {
           this.pendingFatalCorr = corr;
           this.pendingFatalAt = Date.now();
-          this.probeHealthAfterFatal(corr);
+          this.probeHealthAfterFatal();
         }
         return;
       }
@@ -888,25 +891,37 @@ export class OhsStore {
   }
 
   /**
-   * Одиночный 500 (§9.3): пробим health. Бэк ответил → закрываем «проверкой ОК» под ТЕМ ЖЕ corr (requestId)
-   * и персистим её mock-POST'ом (сам 500 персистит бэк). Если к моменту ответа инцидент уже начался (бэк
-   * упал, WS дропнул) — не трогаем: инцидент наследовал corr (adopt) и идёт своим чередом. Бэк не ответил —
-   * эскалацию сделает onBackendDrop; pendingFatal живёт до окна adopt (нет дропа → останется одиночный FATAL).
+   * Single/batch 500 без outage (§9.3 / I12): пробим health один раз на пачку.
+   * Бэк ответил → health-ok на **все** недавние orphan `ohs.unhandled` (не только последний corr) +
+   * mock-POST каждого ok. Если к ответу уже outage — не трогаем (adopt идёт своим чередом).
+   * Бэк не ответил — эскалацию сделает onBackendDrop; pendingFatal живёт до окна adopt.
    */
-  private probeHealthAfterFatal(corr: string): void {
+  private probeHealthAfterFatal(): void {
+    if (this.healthProbeInFlight) {
+      return;
+    }
+    this.healthProbeInFlight = true;
     this.api.getConnections().subscribe({
       next: () => {
-        if (this.outageStart !== null || this.pendingFatalCorr !== corr) {
+        this.healthProbeInFlight = false;
+        if (this.outageStart !== null) {
           return;
         }
-        this.pendingFatalCorr = null;
-        this.pendingFatalAt = null;
         void import('./notifications').then((m) => {
-          const okDto = m.healthCheckOk(corr);
-          this.api.postNotification(okDto).subscribe({ error: (err) => console.error('postNotification', err) });
+          const okDtos = m.closeRecentOrphanUnhandledWithHealthOk({
+            withinMs: BACKEND_FATAL_ADOPT_WINDOW_MS,
+          });
+          this.pendingFatalCorr = null;
+          this.pendingFatalAt = null;
+          for (const okDto of okDtos) {
+            this.api
+              .postNotification(okDto)
+              .subscribe({ error: (err) => console.error('postNotification', err) });
+          }
         });
       },
       error: () => {
+        this.healthProbeInFlight = false;
         // Бэк не ответил — вероятно упал; инцидент заведёт onBackendDrop (adopt corr).
       },
     });
