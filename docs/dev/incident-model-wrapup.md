@@ -36,9 +36,10 @@ OHS пишет journal + NC **на одном уровне** (IncidentFanOut); N
 
 | # | Что | Где |
 |---|-----|-----|
-| **I12** | Pool exhausted → пачка 500 / orphan FATAL после recover или break | [phase7j/issue.md](phase7j/issue.md) I12 |
-| **Коммиты / история** | Рабочее дерево: Adopt-фикс, `request_timeout`, NC ok>warn, docs deploy — не сведены в чистые коммиты | git |
-| **Приёмка на зелёном Finam** | Сейчас часто вне окна шлюза (±2 ч от сессии) — connect ×5 «в пустоту» | ops / расписание |
+| **I12** | Pool exhausted → пачка 500 / orphan FATAL — **код следующий чат** (§7j.22) | [phase7j/plan.md](phase7j/plan.md) §7j.22 |
+| **Приёмка на зелёном Finam** | Часто вне окна шлюза (±2 ч от сессии) — connect ×5 «в пустоту» | ops / расписание |
+
+Wrap-up закоммичен: `6c7c36c` · race/markers `255cc93`. Handoff нового чата — [`docs/promt.md`](../promt.md) §8.
 
 ### Хвосты плана (не блокируют модель инцидентов)
 
