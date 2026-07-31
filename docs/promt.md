@@ -27,6 +27,8 @@ REST/WebSocket наружу + админ-фронт для управления 
 scinverse/
 ├─ README.md                     # обзор монорепо (+ mermaid)
 ├─ docs/                         # docs-as-code — см. §3; вход нового чата = docs/promt.md §8
+├─ docs/wiki-readme/             # продукт: incident.md, layers.md
+├─ docs/dev/phase11/schedule-projection.md  # канон to-be: факты ⊥ mask/Cutter
 ├─ docs/architecture/c4/         # C4 PlantUML to-be (NC, dual front, Keycloak)
 ├─ docs/architecture/ohs-connectors-deploy.md  # TRANSAQ Windows-агент / finam-ws to-be
 ├─ tools/plantuml/               # Local plantuml.jar (gitignore) + README
@@ -99,7 +101,7 @@ scinverse/
 | 8 | CI/CD | TODO | — |
 | 9 | Импорт QScalp `.qsh` | TODO | — |
 | 10 | Keycloak + `user_settings` | PLANNED · **обязателен на gate 11→12** | [phase10](./dev/phase10/plan.md) |
-| **11** | NC Thread + journal + **crash dispatch D1–D8** | **DONE**; далее gate 11→12 | [report](./dev/phase11/report.md) · [crash-dispatch](./dev/phase11/crash-dispatch.md) |
+| **11** | NC Thread + journal + crash D1–D8 | DONE as-is; **next: schedule-projection** | [schedule-projection](./dev/phase11/schedule-projection.md) · [plan](./dev/phase11/plan-schedule-projection.md) · [crash as-is](./dev/phase11/crash-dispatch.md) |
 | **11→12** | **Gate:** вынос Admin Front + NC (MFE, Keycloak) по to-be C4 | FUTURE | [dev/plan.md](./dev/plan.md) §gate · [arch](./architecture/c4/arch.md) |
 | 12 | Гант WebGL2 + LOD — **только после gate** | FUTURE | [phase12](./dev/phase12/plan.md) |
 
@@ -191,39 +193,71 @@ scinverse/
 `327c8fe` (close-all orphan health-ok).  
 Unit: **186/186**. Host при `dotnet test` не должен держать DLL (остановить VS/Host).
 
-**To-be:** gate **11→12** (NC MFE + Keycloak); deploy —
+**Следующий фокус:** schedule-as-projection — §8 ниже.  
+**Later:** gate **11→12** (NC MFE + Keycloak); deploy —
 [ohs-connectors-deploy.md](./architecture/ohs-connectors-deploy.md) (Windows-агент DLL, finam-ws later).
 
 ---
 
-## 8. ➡️ НОВЫЙ ЧАТ — после I12 (2026-07-31)
+## 8. ➡️ НОВЫЙ ЧАТ — schedule-as-projection (2026-07-31)
 
-### Где мы
+### Задача чата
 
-Инцидентная модель + **I12 клиент** закрыты. Очередь 7j: **7j.15 / 7j.16**. Gate **11→12** /
-WebGL (12) — later. Host `Max Pool Size=100` — **не поднимать**, пока снова не упрёмся в exhausted.
+Реализовать переход на идеологию **«факты независимо от расписания; schedule = маска / Cutter»**
+по плану [`dev/phase11/plan-schedule-projection.md`](./dev/phase11/plan-schedule-projection.md).
+Код as-is ещё классифицирует Incident vs Group по `desired@open` — **не углублять** эту ветку;
+`:h` clip в journal — **отклонён** (WIP откатан, кода нет).
 
-| # | I12 слой | Статус |
-|---|----------|--------|
-| 1 | RxJS ribbon refresh (`debounce`+`switchMap`+`concat`) | **DONE** `6871a57` |
-| 2 | health-ok → все недавние orphan `ohs.unhandled` | **DONE** `327c8fe` |
-| 3 | Host pool | **DEFER** @100 |
+### Где мы (baseline)
 
-### Прочитай первым
+| Тема | Статус |
+|------|--------|
+| Incident journal + NC fan-out, crash D1–D8 | DONE (as-is schedule classification) |
+| I12 ribbon pool / orphan FATAL | клиент DONE; pool **DEFER** @100 |
+| Adopt Live-only / CloseBreak race / NC crash header | DONE |
+| ScheduleCutter / UI void mask / always-Incident | **NOT STARTED** — этот чат |
+| Gate 11→12, WebGL 12, 7j.15/16 | later, не смешивать |
 
-1. Этот файл (§1–§7).
-2. [incident-model-wrapup.md](./dev/incident-model-wrapup.md).
-3. [phase7j/plan.md](./dev/phase7j/plan.md) §7j.22 / [issue.md](./dev/phase7j/issue.md) I12 — итог фикса.
-4. [phase11/report.md](./dev/phase11/report.md) — NC/crash DONE; ссылка на I12.
-5. Очередь UI: [phase7j/todo.md](./dev/phase7j/todo.md) · 7j.15/16.
+Чистый baseline после docs-коммита идеологии. Перед кодом: `git status` clean.
+
+### Прочитай первым (порядок)
+
+1. Этот файл (§1–§7 + этот §8).
+2. **Канон to-be:** [`schedule-projection.md`](./dev/phase11/schedule-projection.md).
+3. **План шагов P0→P5:** [`plan-schedule-projection.md`](./dev/phase11/plan-schedule-projection.md).
+4. Wiki: [`incident.md`](./wiki-readme/incident.md) · [`layers.md`](./wiki-readme/layers.md).
+5. As-is (не ломать вслепую): [`incident-journal.md`](./dev/phase11/incident-journal.md) §2,
+   [`crash-dispatch.md`](./dev/phase11/crash-dispatch.md) (помечен as-is / `:h` rejected).
+6. Инварианты wrap-up: [`incident-model-wrapup.md`](./dev/incident-model-wrapup.md).
+
+### Идеология в одном абзаце
+
+Регистрируем каждый data-affecting failure (crash / break / релевантный 500) **честно**, полный span,
+**всегда Incident** в NC + journal. Расписание не решает «инцидент или Group». UI — **void mask**
+(~0.8 чёрный) вне desired на Connection-треке (⊥ SessionFilter). Writers — **ScheduleCutter**
+(`gaps ∩ desired`, type-agnostic). Supervisor Auto connect/disconnect остаётся;
+`abandoned_schedule` и Group-outage — выключить **после** mask/Cutter. 2NF crash journal — later.
+
+### Порядок работ (деликатно)
+
+```text
+P1 ScheduleCutter + unit          ← начать здесь
+P2 UI schedule void mask          ← до или вместе с P3
+P3 always-Incident + full journal
+P4 remove Group outage + abandon
+P5 optional 2NF incident_connection
+```
+
+**Не** начинать с переписывания `HostOutageConnectionEmitter` и **не** воскрешать `:h`.
 
 ### Инварианты (не ломать)
 
 - Journal ⊥ NC; ribbon/`incident` не зависят от выноса NC.
-- **I10:** stale-close open break **только** при `Live`; `null|Degraded|Down|Error` → Adopt.
+- **I10:** stale-close open break **только** при `Live`.
 - CloseBreak: WS resolve до journal; journal resolve **await** — `255cc93`.
-- Ribbon refresh — только через `OhsStore` pipeline (не параллельный залп coverage/liveness).
-- TRANSAQ: не QuickPath / NetworkChange / вторая DLL; линк-детект = `request_timeout` + `server_status`.
+- Ribbon refresh — только через `OhsStore` pipeline (I12).
+- TRANSAQ: `request_timeout=10`; не QuickPath / NetworkChange / вторая DLL.
+- Host `Max Pool Size=100` — не поднимать без новой боли exhausted.
 
 ### Запуск
 
@@ -240,9 +274,16 @@ Unit: dotnet test …/Scinverse.Ohs.UnitTests.csproj
 - PowerShell: `;` не `&&`; коммит-msg → файл UTF-8 **без BOM** + `git commit -F`.
 - Коммит **только по явной просьбе** пользователя.
 - Lint: tsc 0, eslint 0 errors; `dotnet build` Host.
-- Commit style: `fix(ohs-7j): …` / `feat(ohs-web): …` / `docs(7j): …` / `docs(11): …`.
+- Commit style: `feat(ohs): …` / `feat(ohs-web): …` / `feat(ohs-11): …` / `docs(11): …`.
+- Отвечать по-русски, если пользователь пишет по-русски.
+
+### Критерий «готово» для чата
+
+Пройти acceptance §9 в `schedule-projection.md` хотя бы по P1–P3 на стенде; P4 — когда стабильно;
+P5 не обязателен в первом проходе.
 
 ---
+
 
 
 ## 9. Справка: провайдеры (phase 7e, DONE)

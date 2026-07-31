@@ -10,10 +10,14 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 транспорт системных/внешних событий; необязательно — `user_settings` (phase 10) для персистенции
 состояния панели/фильтров. Влияет на все модули фронта и на серверное логирование.
 
-**Фокус сейчас:** gate **11→12** (вынос NC). **11.13a–f DONE**; crash D1–D8 **DONE**.
-Таблица `incident` в **OHS**; поток `notification` / пакет → NC MFE.
-Thread 11.8–11.12 — **DONE**. Канон — [incident-journal.md](incident-journal.md) §12.
-Смежный **I12** (orphan FATAL / pool) — клиент **DONE**, pool size не поднимали —
+**Фокус сейчас:** переход **schedule-as-projection** (факты ⊥ mask/Cutter) —
+[schedule-projection.md](schedule-projection.md) · план [plan-schedule-projection.md](plan-schedule-projection.md) ·
+handoff [`promt.md`](../../promt.md) §8. Параллельно gate **11→12** (later).
+
+**11.13a–f DONE**; crash D1–D8 **DONE** (as-is classification). Таблица `incident` в **OHS**;
+поток `notification` / пакет → NC MFE. Thread 11.8–11.12 — **DONE**.
+Канон journal as-is — [incident-journal.md](incident-journal.md); продукт to-be — wiki
+[`incident.md`](../../wiki-readme/incident.md). **I12** клиент **DONE**, pool defer —
 [../phase7j/plan.md](../phase7j/plan.md) §7j.22.
 
 **Ядро UI/шины:** пакет [`packages/notification-center`](../../../packages/notification-center)
@@ -24,8 +28,8 @@ Thread 11.8–11.12 — **DONE**. Канон — [incident-journal.md](incident-
 Опции дока (группировать / схлоп тиков) — [dock-settings.md](dock-settings.md);
 маркеры ★/⊘ и фильтр «Выбор» — [nc-marks.md](nc-marks.md).
 Журнал инцидентов — [incident-journal.md](incident-journal.md);
-**crash dispatch** (транспорт + слой соединений, DESIGN AGREED) —
-[crash-dispatch.md](crash-dispatch.md);
+**to-be schedule projection** — [schedule-projection.md](schedule-projection.md);
+**crash dispatch** (as-is DONE; `:h` отклонён) — [crash-dispatch.md](crash-dispatch.md);
 продуктовое определение — [`docs/wiki-readme/incident.md`](../../wiki-readme/incident.md).
 
 ## Мотивация

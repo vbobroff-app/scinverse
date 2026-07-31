@@ -5,7 +5,8 @@
 
 **Связано:** [plan.md](plan.md) §11.13 · [issue.md](issue.md) I2 · [to-threads.md](to-threads.md) ·
 [persistence.md](persistence.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
-продюсер [../phase7j/incident.md](../phase7j/incident.md) · handoff [`promt.md`](../../promt.md) §8.
+продюсер [../phase7j/incident.md](../phase7j/incident.md) · handoff [`promt.md`](../../promt.md) §8 ·
+**to-be идеология** [`schedule-projection.md`](schedule-projection.md).
 
 **Не путать с phase 7h:** [`../phase7h/incident.md`](../phase7h/incident.md) — SUPERSEDED
 как канон платформенного «инцидента». `link_liveness` остаётся слоем **живости**.
@@ -25,6 +26,15 @@
 
 ## 2. Продуктовое определение
 
+### 2.0. To-be (канон) — читать первым
+
+> Полная модель: [`schedule-projection.md`](schedule-projection.md) · wiki [`incident.md`](../../wiki-readme/incident.md).
+
+Инцидент = **честный факт** data-affecting сбоя; расписание — **маска / Cutter**, не классификатор.
+Journal пишет полный span; NC — всегда Incident; вне окна — void mask, не «нет строки».
+
+### 2.1. As-is (код сейчас; deprecate)
+
 > Инцидент — нарушение работы **во время работы** (горизонт расписания или живой коннектор).  
 > Сбой вне горизонта — только уведомление / Group в ленте NC, **не** строка журнала.
 
@@ -33,6 +43,8 @@
 | Сбой в горизонте / при живом коннекторе | **да** | Thread Incident |
 | Сбой вне горизонта | **нет** | Group / notify |
 | Single без corr | нет | Single |
+
+Миграция: [`plan-schedule-projection.md`](plan-schedule-projection.md).
 
 ---
 

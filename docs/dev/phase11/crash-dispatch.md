@@ -1,26 +1,28 @@
 # Phase 11 — Crash dispatch: транспорт + слой соединений
 
-**Статус:** `DESIGN AGREED` · **DONE** (D1–D8) · **horizon clip** Group∩desired → Incident `:h` (2026-07-31).  
-**Дата согласования:** 2026-07-30 · план: 2026-07-30 · закрыто: 2026-07-30 · clip: 2026-07-31.
+**Статус:** `DONE` (D1–D8) · **as-is classification by schedule** ·  
+**`:h` clip — ОТКЛОНЁН** (docs ниже исторические; кода нет, WIP откатан 2026-07-31).
 
-**Связано:** [incident-journal.md](incident-journal.md) (§2, §4.3 Crash, A6) ·
-[to-threads.md](to-threads.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
+**To-be канон (факты ⊥ schedule):** [`schedule-projection.md`](schedule-projection.md) ·
+план [`plan-schedule-projection.md`](plan-schedule-projection.md).  
+Этот файл — **as-is / исторический контракт** до switchover (P3–P4 плана).
+
+**Связано:** [incident-journal.md](incident-journal.md) · [to-threads.md](to-threads.md) ·
+wiki [`incident.md`](../../wiki-readme/incident.md) · [`layers.md`](../../wiki-readme/layers.md) ·
 продюсер [../phase7j/incident.md](../phase7j/incident.md) · [plan.md](plan.md).
 
-**As-is (до этой спеки):** один клиентский corr `ohs.backend.outage:{ms}` → один NC Thread +
-одна строка `incident` с опциональным `connection_id`. Ломается при N connections с разным
-schedule и при нескольких admin-клиентах.
+**До D1–D8:** один клиентский corr `ohs.backend.outage:{ms}` → один NC Thread +
+одна строка `incident` с опциональным `connection_id`. Ломалось при N connections и нескольких admin.
 
 ---
 
 ## 1. Зачем
 
-Падение Host (WS drop) — **один факт**. Impact и классификация Incident vs Group зависят от
-**расписания конкретного connection**. Несколько admin-клиентов шлют POST независимо — их
-нужно схлопнуть, не размножая «транспортные» нити.
+Падение Host (WS drop) — **один факт**. **As-is:** impact и классификация Incident vs Group
+зависят от расписания connection. **To-be:** расписание не классифицирует — см. schedule-projection.
 
-Цель: жёсткая привязка провайдерского crash к `connectionId`; транспорт admin↔OHS — отдельный
-слой без `connectionId`; journal только для Incident на соединениях.
+Несколько admin-клиентов шлют POST независимо — их нужно схлопнуть, не размножая
+«транспортные» нити. Цель D1–D8: привязка crash к `connectionId`; T без journal-строки.
 
 ---
 
@@ -93,37 +95,38 @@ ohs.host.transport:{outageSeed}
 Для каждого `connectionId`:
 
 ```text
+# AS-IS (код сейчас)
 if desired(schedule, openedAt) → Incident + journal (полный span)
 else → Group (NC only)
-       if [openedAt, closedAt] ∩ desired ≠ ∅ → дополнительно clipped Incident
-         corr …:c{id}:h, journal на [overlapStart, overlapEnd]
+
+# TO-BE — см. schedule-projection.md
+∀ enabled → Incident + journal (полный span); mask/Cutter снаружи
+
+# ОТКЛОНЕНО (не реализовывать)
+else → Group + clipped Incident …:c{id}:h на ∩ desired
 ```
 
-`desired` — тот же резолвер, что у Auto/break (date > dow > main; TZ расписания).
-Пересечение — `ConnectionScheduleDesiredOverlap` (OHS Domain).
+`desired` as-is — тот же резолвер, что у Auto/break (date > dow > main; TZ расписания).
 
-На один outage-окно у connection обычно **одна** нить (Incident **или** Group).
-**Исключение (горизонт):** Group стартовал вне окна и заехал в work time → Group (полный span) **+**
-clipped Incident `:h` (только пересечение с desired) — дыра на ганте/в журнале.
+На один outage-окно у connection as-is **одна** нить (Incident **или** Group).
 
 ### 4.2. Corr
 
 ```text
-ohs.backend.outage:{outageSeed}:c{connectionId}       — Group или полный Incident
-ohs.backend.outage:{outageSeed}:c{connectionId}:h     — clipped Incident (overlap)
+ohs.backend.outage:{outageSeed}:c{connectionId}       — as-is: Group или Incident
+# …:c{id}:h  — ОТКЛОНЕНО, не использовать
 ```
 
-- один Host-outage → N нитей (+ опционально `:h` на overlap);
-- фильтр NC по `connectionId` работает; header subject = `connection:{id}` и для `:h`;
-- header Thread содержит / резолвит connection id (и имя, если есть).
+- один Host-outage → N нитей слоя C;
+- фильтр NC по `connectionId`; header subject = `connection:{id}` (как break).
 
 ### 4.3. Journal
 
-| threadKind | `incident` row |
-|------------|----------------|
+| threadKind | `incident` row (as-is) |
+|------------|------------------------|
 | incident (desired at open) | да: полный span, `type=crash` |
-| incident `:h` (overlap) | да: clipped `[overlapStart, overlapEnd]` |
 | group | нет |
+| `:h` clipped | **не существует** (отклонено) |
 
 Ribbon Connection красит только строки журнала с этим `connection_id` (+ optimistic gap до API).
 
