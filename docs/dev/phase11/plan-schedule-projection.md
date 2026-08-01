@@ -86,7 +86,7 @@
 | Шаг | Что | Критерий |
 |-----|-----|----------|
 | P4.1 | Убрать Group emit для connection outages | нет SkipJournal Group path |
-| P4.2 | Выключить `abandoned_schedule` close / классификатор | Auto stop ≠ resolve incident |
+| P4.2 | Выключить `abandoned_schedule` close / классификатор | Auto stop ≠ resolve incident — **DONE** (Supervisor + client; API legacy) |
 | P4.3 | Вычистить упоминания `:h` / `ConnectionScheduleDesiredOverlap` из docs и мёртвого кода | grep clean |
 | P4.4 | Wiki/layers sequenceDiagram → to-be | sync |
 

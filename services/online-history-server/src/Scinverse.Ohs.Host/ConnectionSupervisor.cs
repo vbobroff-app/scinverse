@@ -249,28 +249,23 @@ public sealed class ConnectionSupervisor(
         {
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
-            // Открытый break → closing-warn в том же corr + клип ленты (Abandoned); иначе обычный info.
-            var abandoned = await connections
-                .TryAbandonIncidentByScheduleAsync(connectionId, nowUtc, cancellationToken)
-                .ConfigureAwait(false);
+            // P4.2: Auto disconnect ≠ resolve. Break/crash остаются open до recovered / manual.
+            // (раньше: TryAbandonIncidentByScheduleAsync → abandoned_schedule)
             if (isConnected)
             {
                 await connections.DisconnectAsync(connectionId, cancellationToken, LinkCloseReason.Scheduled)
                     .ConfigureAwait(false);
-                if (!abandoned)
-                {
-                    var label = await connections.ResolveLabelAsync(connectionId, cancellationToken)
-                        .ConfigureAwait(false);
-                    notifications.Publish(
-                        "connection.schedule_disconnect",
-                        $"{label}: плановое отключение по расписанию",
-                        "info",
-                        data: new { connectionId, sender = "supervisor" });
-                }
+                var label = await connections.ResolveLabelAsync(connectionId, cancellationToken)
+                    .ConfigureAwait(false);
+                notifications.Publish(
+                    "connection.schedule_disconnect",
+                    $"{label}: плановое отключение по расписанию",
+                    "info",
+                    data: new { connectionId, sender = "supervisor" });
 
                 logger.LogInformation(
-                    "ConnectionSupervisor: disconnect {ConnectionId} (out of schedule window{Abandoned})",
-                    connectionId, abandoned ? ", break abandoned" : "");
+                    "ConnectionSupervisor: disconnect {ConnectionId} (out of schedule window; incident left open)",
+                    connectionId);
             }
 
             return;

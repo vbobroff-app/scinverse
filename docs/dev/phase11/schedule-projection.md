@@ -140,7 +140,7 @@ crash на N `:c{id}` — допустимый as-is; цель 2NF — отде�
 | Journal только «в горизонте» | deprecate |
 | Clipped Incident `:h` (Group∩desired) | **отклонён**; docs в crash-dispatch помечены obsolete; кода нет |
 | Group для outages в NC | deprecate |
-| `abandoned_schedule` | выключить **последним**, после Cutter + mask |
+| `abandoned_schedule` | **выключен** в live-path (P4.2): Auto disconnect не resolve; outcome остаётся в journal/API истории |
 
 Пока as-is код живёт — поведение продуктово «старое»; новые фичи не углублять в эту ветку.
 

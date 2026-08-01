@@ -31,8 +31,9 @@ public sealed class ConnectionManagerIncidentTests
     }
 
     [Fact]
-    public async Task EnsureBreak_then_abandon_schedule_resolves_hub_and_clears_manager()
+    public async Task Legacy_abandon_schedule_API_still_resolves_if_called()
     {
+        // P4.2: Supervisor больше не зовёт этот путь; API оставлен для истории/тестов.
         var (manager, hub, link) = CreateSut();
         var since = DateTimeOffset.Parse("2026-07-28T10:00:00Z");
         var end = since.AddMinutes(3);

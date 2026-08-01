@@ -1099,8 +1099,8 @@ public sealed class ConnectionManager(
     }
 
     /// <summary>
-    /// Закрывает открытый <c>break</c> по окончании окна расписания (desired true→false):
-    /// NC warning + маркер <c>scheduled</c> (<c>Abandoned</c>, без green). Нет open → false.
+    /// Legacy: закрыть break как <c>abandoned_schedule</c>.
+    /// P4.2: Supervisor больше не вызывает (Auto stop ≠ resolve). Оставлено для тестов / истории API.
     /// </summary>
     public Task<bool> TryAbandonIncidentByScheduleAsync(
         long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken) =>
