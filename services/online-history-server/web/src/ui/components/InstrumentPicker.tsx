@@ -337,7 +337,8 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const window = useBehavior(store.window$);
   const sessions = useBehavior(store.sessions$);
   const tzOffsetMin = useBehavior(store.displayTz$).offsetMin;
-  const showIncidents = useBehavior(store.showIncidents$);
+  const showBreakIncidents = useBehavior(store.showBreakIncidents$);
+  const showCrashIncidents = useBehavior(store.showCrashIncidents$);
   const now = useNow(1000);
 
   // Подключением считаем оба «живых» статуса: active (идут данные) и waiting (тишина).
@@ -353,16 +354,20 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
     [sources],
   );
 
-  /** Recording binary red ← журнал incident; выкл. «Инциденты» → без red из журнала. */
-  const incidentReds = useMemo(
-    () =>
-      showIncidents && link.incidents != null
-        ? mergeIncidentReds(link.incidents, now)
-        : showIncidents
-          ? null
-          : [],
-    [link.incidents, now, showIncidents],
-  );
+  /** Recording binary red ← journal; фильтр по тумблерам break/crash Connection. */
+  const incidentReds = useMemo(() => {
+    const showAny = showBreakIncidents || showCrashIncidents;
+    if (!showAny) {
+      return [];
+    }
+    if (link.incidents == null) {
+      return null;
+    }
+    const filtered = link.incidents.filter((i) =>
+      i.type === 'crash' ? showCrashIncidents : showBreakIncidents,
+    );
+    return mergeIncidentReds(filtered, now);
+  }, [link.incidents, now, showBreakIncidents, showCrashIncidents]);
 
   const recordingByInstrument = useMemo(
     () => new Map(recordings.map((r) => [r.instrumentId, r])),

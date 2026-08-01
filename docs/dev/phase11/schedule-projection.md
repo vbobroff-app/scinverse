@@ -140,7 +140,8 @@ crash на N `:c{id}` — допустимый as-is; цель 2NF — отде�
 | Journal только «в горизонте» | **снято** (P3): полный span |
 | Clipped Incident `:h` (Group∩desired) | **отклонён**; docs в crash-dispatch помечены obsolete; кода нет |
 | Group для outages в NC | **снято** (P4.1); Group auto-connect оставлен |
-| `abandoned_schedule` | **выключен** в live-path (P4.2): Auto disconnect не resolve; outcome остаётся в journal/API истории |
+| `abandoned_schedule` | **снят**: live API нет; backfill `Abandoned` больше не пишет этот outcome (gap → `active`; клип — Cutter/mask) |
+| `abandoned_manual` | **оставить**: операторский resolve (UI / API) — единственный штатный способ закрыть эпизод без `recovered` |
 
 Пока as-is код живёт — поведение продуктово «старое»; новые фичи не углублять в эту ветку.
 
@@ -154,6 +155,8 @@ crash на N `:c{id}` — допустимый as-is; цель 2NF — отде�
 3. SessionFilter moex и mask-toggle независимы.
 4. Auto disconnect в конце окна не создаёт ложный «resolve инцидента» через abandon.
 5. Unit/vitest на Cutter; UI tooltip void; регресс ribbon / I10 Adopt Live-only.
+6. Оператор может закрыть open incident через UI → `abandoned_manual` (без green); иначе
+   после P4 эпизоды без recover зависают в `active`.
 
 ---
 

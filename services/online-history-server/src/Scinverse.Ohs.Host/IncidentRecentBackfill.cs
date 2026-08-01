@@ -5,6 +5,9 @@ namespace Scinverse.Ohs.Host;
 /// <summary>
 /// J4 (scoped): gaps <c>link_liveness</c> за вчера+сегодня (МСК) → строки журнала <c>incident</c>.
 /// Не полная история; forward + open-adopt остаются отдельно.
+/// Клип по расписанию — <c>ScheduleCutter</c> / UI mask, не journal-resolve.
+/// Gap с <see cref="LinkGap.Abandoned"/> (стык с scheduled/disconnected) → <c>active</c>, без
+/// <c>abandoned_schedule</c>; без green закрывает только оператор (<c>abandoned_manual</c>).
 /// </summary>
 public static class IncidentRecentBackfill
 {
@@ -68,13 +71,12 @@ public static class IncidentRecentBackfill
         var isCrash = gap.Cause == LinkCloseReason.Interrupted;
         var (owner, subtype) = ResolveOwnerSubtype(gap);
         var openedAt = gap.From.ToUniversalTime();
-        var closedAt = gap.To?.ToUniversalTime();
+        // Abandoned = клип ленты маркером scheduled/disconnected, не journal close (P4 / Cutter).
+        // Иначе gap.To → recovered (green).
+        var closedAt = gap.Abandoned ? null : gap.To?.ToUniversalTime();
         var resolved = closedAt is not null;
-        var closeOutcome = resolved
-            ? (gap.Abandoned
-                ? NotificationThreadData.OutcomeAbandonedSchedule
-                : NotificationThreadData.OutcomeRecovered)
-            : null;
+        var closeOutcome = resolved ? NotificationThreadData.OutcomeRecovered : null;
+        var lastActivity = (closedAt ?? gap.To?.ToUniversalTime() ?? openedAt);
 
         return new Incident
         {
@@ -90,7 +92,7 @@ public static class IncidentRecentBackfill
             Title = isCrash
                 ? "backfill: прерывание связи (краш/рестарт)"
                 : "backfill: разрыв связи",
-            LastActivityAt = closedAt ?? openedAt,
+            LastActivityAt = lastActivity,
             ConnectionId = connectionId,
             SourceId = gap.SourceId,
             EscalatedAt = gap.EscalatedAt?.ToUniversalTime(),

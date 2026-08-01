@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { isThreadItem } from '@scinverse/notification-center';
 import {
-  abandonBackendOutageBySchedule,
   hydrateServerBacklog,
   notificationBus,
   openBackendOutage,
@@ -39,17 +38,7 @@ describe('11.12 notifications Thread hints + hydrate', () => {
   it('P4.1: openBackendOutage defaults to Incident (no Group-by-desired)', () => {
     openBackendOutage(1_720_000_000_000, 'ohs.backend.outage:g');
     expect(notificationBus.items.filter(isThreadItem)[0]?.threadKind).toBe('incident');
-
-    // Legacy helper still stamps abandoned_schedule if called; default open hint = incident.
-    const dtos = abandonBackendOutageBySchedule(
-      1_720_000_000_000,
-      1_720_000_100_000,
-      'ohs.backend.outage:g',
-      1,
-      'Conn',
-    );
-    expect(dtos[1]?.data).toMatchObject({ closeOutcome: 'abandoned_schedule', kind: 'crash' });
-    expect(dtos[0]?.data).toMatchObject({ threadKindHint: 'incident' });
+    expect(notificationBus.events[0]?.data).toMatchObject({ threadKindHint: 'incident' });
   });
 
   it('hydrateServerBacklog builds Thread from flat V025-shaped DTOs', () => {

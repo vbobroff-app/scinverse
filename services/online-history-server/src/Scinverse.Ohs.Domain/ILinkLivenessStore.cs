@@ -121,8 +121,9 @@ public sealed record LinkGap
     public LinkCloseReason? EscalatedCause { get; init; }
 
     /// <summary>
-    /// Правый край — конец окна расписания / плановый stop (маркер <see cref="LinkCloseReason.Scheduled"/>
-    /// или <see cref="LinkCloseReason.Disconnected"/>), не возврат в Live. На ленте: без зелёного маркера.
+    /// Правый край — стык с маркером <see cref="LinkCloseReason.Scheduled"/> /
+    /// <see cref="LinkCloseReason.Disconnected"/> (не green recover). Только геометрия ленты;
+    /// journal close по расписанию не следует (P4; клип потребителей — ScheduleCutter / mask).
     /// </summary>
     public bool Abandoned { get; init; }
 }

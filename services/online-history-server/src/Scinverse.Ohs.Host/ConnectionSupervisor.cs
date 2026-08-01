@@ -249,8 +249,7 @@ public sealed class ConnectionSupervisor(
         {
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
-            // P4.2: Auto disconnect ≠ resolve. Break/crash остаются open до recovered / manual.
-            // (раньше: TryAbandonIncidentByScheduleAsync → abandoned_schedule)
+            // P4: Auto disconnect ≠ resolve. Break/crash remain open until recovered / manual.
             if (isConnected)
             {
                 await connections.DisconnectAsync(connectionId, cancellationToken, LinkCloseReason.Scheduled)

@@ -41,7 +41,7 @@ interface Props {
    * Цветные причины — только в слое инцидентов (journal или legacy fallback).
    */
   gaps?: CaptureGapDto[];
-  /** Журнал `incident` (11.13e). `null`/`undefined` + showIncidents → legacy gaps. */
+  /** Журнал `incident` (11.13e). `null`/`undefined` + break/crash on → legacy gaps. */
   incidents?: IncidentDto[] | null;
   /** Текущее время (ms) — правый край открытого интервала связи. */
   nowMs?: number;
@@ -53,8 +53,10 @@ interface Props {
   showNowMarker?: boolean;
   /** Слой голубого/серого из `link_liveness`. */
   showLinkRibbon?: boolean;
-  /** Слой цветных эпизодов + маркеров из `incident`. */
-  showIncidents?: boolean;
+  /** Жёлтый break (`type=break`) + маркеры. */
+  showBreakIncidents?: boolean;
+  /** Красный crash (`type=crash`) + маркеры / optimistic. */
+  showCrashIncidents?: boolean;
   /** Верхний void-слой вне desired (schedule-as-projection). */
   showScheduleMask?: boolean;
   /** Живые правила расписания connection (для void mask). */
@@ -139,7 +141,8 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   tzOffsetMin = 180,
   showNowMarker = true,
   showLinkRibbon = true,
-  showIncidents = true,
+  showBreakIncidents = true,
+  showCrashIncidents = true,
   showScheduleMask = true,
   scheduleRules,
   tip,
@@ -148,21 +151,29 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   const windowToMs = Date.parse(window.to);
   const liveEdgeMs = Math.min(nowMs ?? windowToMs, windowToMs);
   const pct = makeProjector(windowFromMs, windowToMs, sessions);
-  const useJournal = showIncidents && incidents != null;
-  const journalPaint = useJournal ? projectConnectionIncidents(incidents, liveEdgeMs) : null;
-  const journalList = incidents ?? [];
-  const optimisticCrashGaps = useJournal
-    ? gaps?.filter((g) => {
-        if (g.cause !== 'interrupted' || g.to != null) {
-          return false;
-        }
-        const from = Date.parse(g.from);
-        if (!Number.isFinite(from)) {
-          return false;
-        }
-        return !journalHasOverlappingCrash(journalList, from, liveEdgeMs, liveEdgeMs);
-      })
-    : undefined;
+  const showAnyIncidents = showBreakIncidents || showCrashIncidents;
+  const useJournal = showAnyIncidents && incidents != null;
+  const journalList = useJournal
+    ? incidents!.filter((i) =>
+        i.type === 'crash' ? showCrashIncidents : showBreakIncidents,
+      )
+    : [];
+  const journalPaint = useJournal
+    ? projectConnectionIncidents(journalList, liveEdgeMs)
+    : null;
+  const optimisticCrashGaps =
+    useJournal && showCrashIncidents
+      ? gaps?.filter((g) => {
+          if (g.cause !== 'interrupted' || g.to != null) {
+            return false;
+          }
+          const from = Date.parse(g.from);
+          if (!Number.isFinite(from)) {
+            return false;
+          }
+          return !journalHasOverlappingCrash(incidents ?? [], from, liveEdgeMs, liveEdgeMs);
+        })
+      : undefined;
   const rulesForMask =
     showScheduleMask && scheduleRules && scheduleRules.length > 0 ? scheduleRules : null;
   const maskSegs = rulesForMask
@@ -265,7 +276,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
         : null}
 
       {/* 2. break */}
-      {useJournal
+      {useJournal && showBreakIncidents
         ? breakBodies.map((body, i) => {
             const left = pct(body.fromMs);
             const open = body.toMs >= liveEdgeMs;
@@ -287,7 +298,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           })
         : null}
 
-      {showIncidents && !useJournal
+      {showBreakIncidents && !useJournal
         ? gaps?.map((gap, i) => {
             if (GREY_CAUSES.has(gap.cause) || gap.cause === 'interrupted') {
               return null;
@@ -314,7 +325,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
         : null}
 
       {/* 3. crash (поверх break) */}
-      {useJournal
+      {useJournal && showCrashIncidents
         ? crashBodies.map((body, i) => {
             const left = pct(body.fromMs);
             const open = body.toMs >= liveEdgeMs;
@@ -336,7 +347,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           })
         : null}
 
-      {useJournal
+      {useJournal && showCrashIncidents
         ? optimisticCrashGaps?.map((gap, i) => {
             const from = Date.parse(gap.from);
             const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
@@ -356,7 +367,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           })
         : null}
 
-      {showIncidents && !useJournal
+      {showCrashIncidents && !useJournal
         ? gaps?.map((gap, i) => {
             if (gap.cause !== 'interrupted') {
               return null;
@@ -401,7 +412,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           })
         : null}
 
-      {useJournal
+      {useJournal && showCrashIncidents
         ? optimisticCrashGaps?.map((gap, i) => (
             <span
               key={`crash-s${i}`}
@@ -415,9 +426,12 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           ))
         : null}
 
-      {showIncidents && !useJournal
+      {showAnyIncidents && !useJournal
         ? gaps?.map((gap, i) => {
             if (!isIncident(gap.cause)) {
+              return null;
+            }
+            if (gap.cause === 'interrupted' ? !showCrashIncidents : !showBreakIncidents) {
               return null;
             }
             const from = Date.parse(gap.from);
@@ -436,9 +450,12 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           })
         : null}
 
-      {showIncidents && !useJournal
+      {showAnyIncidents && !useJournal
         ? gaps?.map((gap, i) => {
             if (!gap.to || !isIncident(gap.cause) || gap.abandoned) {
+              return null;
+            }
+            if (gap.cause === 'interrupted' ? !showCrashIncidents : !showBreakIncidents) {
               return null;
             }
             const to = Date.parse(gap.to);

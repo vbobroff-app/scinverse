@@ -86,7 +86,7 @@
 | Шаг | Что | Критерий |
 |-----|-----|----------|
 | P4.1 | Убрать Group emit для connection outages | нет SkipJournal Group path — **DONE** (Host P3 + client default Incident; Auto Group connect оставлен) |
-| P4.2 | Выключить `abandoned_schedule` close / классификатор | Auto stop ≠ resolve incident — **DONE** (Supervisor + client; API legacy) |
+| P4.2 | Выключить `abandoned_schedule` close / классификатор | Auto stop ≠ resolve; live API сняты; backfill `Abandoned`→`active` (не schedule-resolve) — **DONE**. **`abandoned_manual` + UI resolve не трогать** |
 | P4.3 | Вычистить упоминания `:h` / `ConnectionScheduleDesiredOverlap` из docs и мёртвого кода | grep clean — **DONE** (в коде не было; docs/promt sync) |
 | P4.4 | Wiki/layers sequenceDiagram → to-be | sync — **DONE** |
 
@@ -137,6 +137,10 @@ SessionFilter moex.
 - CloseBreak: WS resolve до journal; journal resolve await (`255cc93`).
 - Ribbon refresh только через OhsStore pipeline (I12).
 - TRANSAQ: `request_timeout=10`; без QuickPath / второй DLL.
+- **`abandoned_manual` + UI resolve** — обязательны и остаются после P4. Без ручного закрытия
+  open break/crash могут висеть `active` бесконечно. Не вырезать вместе с schedule-abandon.
+- Journal **не** режется расписанием: клип — `ScheduleCutter` / UI mask. Backfill не синтезирует
+  `abandoned_schedule` из ribbon `Abandoned`.
 
 ---
 

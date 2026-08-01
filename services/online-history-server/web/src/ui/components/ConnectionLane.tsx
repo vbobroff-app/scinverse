@@ -56,7 +56,8 @@ interface RibbonSnap {
   rules: ConnectionScheduleRuleDto[];
   showNowMarker: boolean;
   showLinkRibbon: boolean;
-  showIncidents: boolean;
+  showBreakIncidents: boolean;
+  showCrashIncidents: boolean;
   showScheduleMask: boolean;
   tzOffsetMin: number;
   linkRecoverGraceSeconds?: number;
@@ -77,7 +78,8 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const tzOffsetMin = useBehavior(store.displayTz$).offsetMin;
   const showNowMarker = useBehavior(store.showNowMarker$);
   const showLinkRibbon = useBehavior(store.showLinkRibbon$);
-  const showIncidents = useBehavior(store.showIncidents$);
+  const showBreakIncidents = useBehavior(store.showBreakIncidents$);
+  const showCrashIncidents = useBehavior(store.showCrashIncidents$);
   const showScheduleMask = useBehavior(store.showScheduleMask$);
   const connectionSchedules = useBehavior(store.connectionSchedule$);
   const ohsUnavailable = useBehavior(store.backendOutage$);
@@ -116,7 +118,8 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
     rules,
     showNowMarker,
     showLinkRibbon,
-    showIncidents,
+    showBreakIncidents,
+    showCrashIncidents,
     showScheduleMask,
     tzOffsetMin,
     linkRecoverGraceSeconds: link.linkRecoverGraceSeconds,
@@ -337,7 +340,8 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
             linkRecoverGraceSeconds={view.linkRecoverGraceSeconds}
             showNowMarker={view.showNowMarker}
             showLinkRibbon={view.showLinkRibbon}
-            showIncidents={view.showIncidents}
+            showBreakIncidents={view.showBreakIncidents}
+            showCrashIncidents={view.showCrashIncidents}
             showScheduleMask={view.showScheduleMask}
             scheduleRules={view.rules}
             tip={tipHandlers}

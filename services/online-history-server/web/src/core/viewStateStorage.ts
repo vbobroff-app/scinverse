@@ -58,8 +58,15 @@ export interface PersistedViewState {
   showNowMarker?: boolean;
   /** Слой голубого/серого из `link_liveness` на Connection. */
   showLinkRibbon?: boolean;
-  /** Слой инцидентов (`incident`) на Connection. */
+  /**
+   * @deprecated → `showBreakIncidents` / `showCrashIncidents`.
+   * При load: если новых ключей нет, оба наследуют это значение.
+   */
   showIncidents?: boolean;
+  /** Жёлтый break (`incident.type=break`) на Connection. */
+  showBreakIncidents?: boolean;
+  /** Красный crash (`incident.type=crash`) на Connection. */
+  showCrashIncidents?: boolean;
   /** Schedule void mask вне desired на Connection. */
   showScheduleMask?: boolean;
 }
@@ -211,6 +218,18 @@ export function loadViewState(): PersistedViewState {
       showNowMarker: typeof parsed.showNowMarker === 'boolean' ? parsed.showNowMarker : undefined,
       showLinkRibbon: typeof parsed.showLinkRibbon === 'boolean' ? parsed.showLinkRibbon : undefined,
       showIncidents: typeof parsed.showIncidents === 'boolean' ? parsed.showIncidents : undefined,
+      showBreakIncidents:
+        typeof parsed.showBreakIncidents === 'boolean'
+          ? parsed.showBreakIncidents
+          : typeof parsed.showIncidents === 'boolean'
+            ? parsed.showIncidents
+            : undefined,
+      showCrashIncidents:
+        typeof parsed.showCrashIncidents === 'boolean'
+          ? parsed.showCrashIncidents
+          : typeof parsed.showIncidents === 'boolean'
+            ? parsed.showIncidents
+            : undefined,
       showScheduleMask:
         typeof parsed.showScheduleMask === 'boolean' ? parsed.showScheduleMask : undefined,
     };

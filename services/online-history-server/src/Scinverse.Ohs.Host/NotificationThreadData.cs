@@ -108,7 +108,14 @@ public static class NotificationThreadData
                 return OutcomeAbandonedManual;
             }
 
-            return OutcomeAbandonedSchedule;
+            // Hydrate only: historical client/POST with reason=schedule_end (live path removed in P4).
+            if (string.Equals(reason, "schedule_end", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "abandoned_schedule", StringComparison.OrdinalIgnoreCase))
+            {
+                return OutcomeAbandonedSchedule;
+            }
+
+            return null;
         }
 
         return null;

@@ -237,7 +237,8 @@ Unit: **186/186**. Host при `dotnet test` не должен держать DL
 **всегда Incident** в NC + journal. Расписание не решает «инцидент или Group». UI — **void mask**
 (~0.8 чёрный) вне desired на Connection-треке (⊥ SessionFilter). Writers — **ScheduleCutter**
 (`gaps ∩ desired`, type-agnostic). Supervisor Auto connect/disconnect остаётся;
-`abandoned_schedule` и Group-outage на Auto stop **выключены** (P4). 2NF crash journal — later (P5).
+`abandoned_schedule` и Group-outage на Auto stop **сняты** (P4; live API удалены).
+`abandoned_manual` + UI resolve **обязательны** (иначе active висят вечно). 2NF — later (P5).
 
 ### Порядок работ (деликатно)
 

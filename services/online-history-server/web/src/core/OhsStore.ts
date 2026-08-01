@@ -352,10 +352,12 @@ export class OhsStore {
   readonly showFilters$ = new BehaviorSubject<boolean>(true);
   /** Показывать now-маркер на лентах Connection/Recording (шестерёнка провайдера, сохраняется). */
   readonly showNowMarker$ = new BehaviorSubject<boolean>(true);
-  /** Слой ленты связи (`link_liveness`) на Connection. */
+  /** Слой ленты соединения (`link_liveness`) на Connection. */
   readonly showLinkRibbon$ = new BehaviorSubject<boolean>(true);
-  /** Слой инцидентов (`incident`) на Connection. */
-  readonly showIncidents$ = new BehaviorSubject<boolean>(true);
+  /** Жёлтый break на Connection. */
+  readonly showBreakIncidents$ = new BehaviorSubject<boolean>(true);
+  /** Красный crash (сервер) на Connection. */
+  readonly showCrashIncidents$ = new BehaviorSubject<boolean>(true);
   /** Верхний void-слой вне desired на Connection (schedule-as-projection). */
   readonly showScheduleMask$ = new BehaviorSubject<boolean>(true);
 
@@ -477,8 +479,11 @@ export class OhsStore {
     if (typeof v.showLinkRibbon === 'boolean') {
       this.showLinkRibbon$.next(v.showLinkRibbon);
     }
-    if (typeof v.showIncidents === 'boolean') {
-      this.showIncidents$.next(v.showIncidents);
+    if (typeof v.showBreakIncidents === 'boolean') {
+      this.showBreakIncidents$.next(v.showBreakIncidents);
+    }
+    if (typeof v.showCrashIncidents === 'boolean') {
+      this.showCrashIncidents$.next(v.showCrashIncidents);
     }
     if (typeof v.showScheduleMask === 'boolean') {
       this.showScheduleMask$.next(v.showScheduleMask);
@@ -518,7 +523,8 @@ export class OhsStore {
       showFilters: this.showFilters$.value,
       showNowMarker: this.showNowMarker$.value,
       showLinkRibbon: this.showLinkRibbon$.value,
-      showIncidents: this.showIncidents$.value,
+      showBreakIncidents: this.showBreakIncidents$.value,
+      showCrashIncidents: this.showCrashIncidents$.value,
       showScheduleMask: this.showScheduleMask$.value,
     });
   }
@@ -1160,7 +1166,7 @@ export class OhsStore {
     }
   }
 
-  /** Показывать / скрывать слой ленты связи (`link_liveness`). */
+  /** Показывать / скрывать слой ленты соединения (`link_liveness`). */
   setShowLinkRibbon(on: boolean): void {
     if (this.showLinkRibbon$.value !== on) {
       this.showLinkRibbon$.next(on);
@@ -1168,10 +1174,18 @@ export class OhsStore {
     }
   }
 
-  /** Показывать / скрывать слой инцидентов (`incident`) на Connection. */
-  setShowIncidents(on: boolean): void {
-    if (this.showIncidents$.value !== on) {
-      this.showIncidents$.next(on);
+  /** Показывать / скрывать жёлтый break на Connection. */
+  setShowBreakIncidents(on: boolean): void {
+    if (this.showBreakIncidents$.value !== on) {
+      this.showBreakIncidents$.next(on);
+      this.persistView();
+    }
+  }
+
+  /** Показывать / скрывать красный crash на Connection. */
+  setShowCrashIncidents(on: boolean): void {
+    if (this.showCrashIncidents$.value !== on) {
+      this.showCrashIncidents$.next(on);
       this.persistView();
     }
   }

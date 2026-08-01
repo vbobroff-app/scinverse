@@ -708,13 +708,10 @@ public static class OhsEndpoints
         // Mock-POST внешнего NC (7j.20): клиент публикует уже сформированное событие с собственным id и,
         // возможно, ПРОШЛЫМ ts (backdated) — напр. недоступность бэка детектит клиент, а POST уходит по
         // реконнекту. Сейчас пишем в тот же хаб/аудит-лог; позже тот же контракт уйдёт во внешний сервис.
-        api.MapPost("/notifications", async (
+        api.MapPost("/notifications", (
             IngestNotificationRequest req,
             NotificationHub hub,
-            ClientRecoveryGate recoveryGate,
-            ConnectionManager connections,
-            IIncidentFanOut fanOut,
-            CancellationToken ct) =>
+            ClientRecoveryGate recoveryGate) =>
         {
             if (string.IsNullOrWhiteSpace(req.Id)
                 || string.IsNullOrWhiteSpace(req.Code)
@@ -747,40 +744,11 @@ public static class OhsEndpoints
             // 7j.20: recover клиента снимает стартовый барьер супервизора — Auto-реконнект пойдёт только
             // теперь, когда «Система восстановлена» уже в NC (порядок в ленте: recover → connecting). Плюс
             // снимаем штамп corr (§9.2): инцидент закрыт, следующие 500 — снова одиночные под requestId.
-            // Crash schedule-end (client mock-POST) — тот же Release, без зелёного recovered.
             // Journal resolve crash — слой C на /recovery/outage (не client backend.recovered).
             if (string.Equals(req.Code, "backend.recovered", StringComparison.Ordinal))
             {
                 recoveryGate.Release();
                 recoveryGate.ClearActiveIncident();
-            }
-            else if (string.Equals(req.Code, "connection.incident_closed", StringComparison.Ordinal)
-                     && IsCrashScheduleEnd(req.Data))
-            {
-                recoveryGate.Release();
-                recoveryGate.ClearActiveIncident();
-                if (TryGetDataConnectionId(req.Data) is { } connectionId)
-                {
-                    await connections
-                        .MarkCrashAbandonedByScheduleAsync(connectionId, req.Ts, ct)
-                        .ConfigureAwait(false);
-                }
-
-                if (!string.IsNullOrWhiteSpace(req.CorrelationId))
-                {
-                    var crashCorr = req.CorrelationId!;
-                    await fanOut
-                        .ApplyAsync(
-                            new IncidentStep(
-                                IncidentStepKind.Resolve,
-                                SubjectFromCorrelationId(crashCorr),
-                                req.Ts,
-                                CorrUid: crashCorr,
-                                CloseOutcome: NotificationThreadData.OutcomeAbandonedSchedule,
-                                Severity: "warning"),
-                            ct)
-                        .ConfigureAwait(false);
-                }
             }
 
             return Results.Accepted();
@@ -1678,47 +1646,5 @@ public static class OhsEndpoints
         LinkCloseReason.Degraded => "degraded",
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
-
-    /// <summary>corr = subject:uid → subject (для fan-out после client Ingest).</summary>
-    private static string SubjectFromCorrelationId(string correlationId)
-    {
-        var i = correlationId.LastIndexOf(':');
-        return i > 0 ? correlationId[..i] : correlationId;
-    }
-
-    private static bool IsCrashScheduleEnd(JsonElement? data)
-    {
-        if (data is not { } el || el.ValueKind != JsonValueKind.Object)
-        {
-            return false;
-        }
-
-        if (!el.TryGetProperty("kind", out var kind) || kind.GetString() != "crash")
-        {
-            return false;
-        }
-
-        return el.TryGetProperty("reason", out var reason) && reason.GetString() == "schedule_end";
-    }
-
-    private static long? TryGetDataConnectionId(JsonElement? data)
-    {
-        if (data is not { } el || el.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        if (!el.TryGetProperty("connectionId", out var idEl))
-        {
-            return null;
-        }
-
-        return idEl.ValueKind switch
-        {
-            JsonValueKind.Number when idEl.TryGetInt64(out var n) => n,
-            JsonValueKind.String when long.TryParse(idEl.GetString(), out var s) => s,
-            _ => null,
-        };
-    }
 
 }

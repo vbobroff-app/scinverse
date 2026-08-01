@@ -111,9 +111,9 @@ public sealed class JournalRegistratorTests
         corr.Should().StartWith("connection:7:link:");
         store.ByCorr[corr].Status.Should().Be("active");
 
-        (await manager.TryAbandonIncidentByScheduleAsync(7, end, CancellationToken.None)).Should().BeTrue();
+        (await manager.TryAbandonIncidentByManualAsync(7, end, CancellationToken.None)).Should().BeTrue();
         store.ByCorr[corr].Status.Should().Be("resolved");
-        store.ByCorr[corr].CloseOutcome.Should().Be(NotificationThreadData.OutcomeAbandonedSchedule);
+        store.ByCorr[corr].CloseOutcome.Should().Be(NotificationThreadData.OutcomeAbandonedManual);
     }
 
     private sealed class FakeIncidentStore : IIncidentStore

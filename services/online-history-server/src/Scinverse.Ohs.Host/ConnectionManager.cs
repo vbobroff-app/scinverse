@@ -878,7 +878,7 @@ public sealed class ConnectionManager(
 
     /// <summary>
     /// I11: единый close-break — сначала Hub.Resolve (WS), потом Manager clear + маркеры ленты.
-    /// Исходы: <c>recovered</c> / <c>abandoned_schedule</c> / <c>abandoned_manual</c>.
+    /// Исходы: <c>recovered</c> / <c>abandoned_manual</c>. (P4: <c>abandoned_schedule</c> снят.)
     /// </summary>
     private async Task<bool> CloseBreakAsync(
         long connectionId,
@@ -900,25 +900,6 @@ public sealed class ConnectionManager(
 
         IncidentStep resolveStep = closeOutcome switch
         {
-            NotificationThreadData.OutcomeAbandonedSchedule => new IncidentStep(
-                IncidentStepKind.Resolve,
-                subject,
-                atTs,
-                ConnectionId: connectionId,
-                CloseOutcome: closeOutcome,
-                Severity: "warning",
-                NcCode: "connection.incident_closed",
-                NcMessage: $"{label}: инцидент закрыт по окончании окна расписания",
-                NcSeverity: "warning",
-                NcData: new
-                {
-                    connectionId,
-                    kind = "break",
-                    reason = "schedule_end",
-                    sender = "supervisor",
-                    result = $"Закрыто по окончании окна расписания; {gapLine}",
-                    closeOutcome,
-                }),
             NotificationThreadData.OutcomeAbandonedManual => new IncidentStep(
                 IncidentStepKind.Resolve,
                 subject,
@@ -990,18 +971,12 @@ public sealed class ConnectionManager(
             }
         }
 
-        LinkCloseReason? ribbonMarker = closeOutcome switch
-        {
-            NotificationThreadData.OutcomeAbandonedSchedule => LinkCloseReason.Scheduled,
-            NotificationThreadData.OutcomeAbandonedManual => LinkCloseReason.Disconnected,
-            _ => null,
-        };
-        if (ribbonMarker is { } markerReason && sourceId is { } sid)
+        if (closeOutcome == NotificationThreadData.OutcomeAbandonedManual && sourceId is { } sid)
         {
             try
             {
                 await linkLiveness
-                    .InsertBoundaryMarkerAsync(sid, markerReason, atTs, cancellationToken)
+                    .InsertBoundaryMarkerAsync(sid, LinkCloseReason.Disconnected, atTs, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1010,23 +985,17 @@ public sealed class ConnectionManager(
             }
         }
 
-        switch (closeOutcome)
+        if (closeOutcome == NotificationThreadData.OutcomeAbandonedManual)
         {
-            case NotificationThreadData.OutcomeAbandonedSchedule:
-                logger.LogInformation(
-                    "Подключение {ConnectionId}: break-инцидент закрыт по окончании окна расписания (с {Start:o} по {End:o})",
-                    connectionId, incidentStart, atTs);
-                break;
-            case NotificationThreadData.OutcomeAbandonedManual:
-                logger.LogInformation(
-                    "Подключение {ConnectionId}: break-инцидент закрыт вручную (с {Start:o} по {End:o})",
-                    connectionId, incidentStart, atTs);
-                break;
-            default:
-                logger.LogInformation(
-                    "Подключение {ConnectionId}: break-инцидент recovered (с {Start:o} по {End:o}, owner={Owner})",
-                    connectionId, incidentStart, atTs, owner);
-                break;
+            logger.LogInformation(
+                "Подключение {ConnectionId}: break-инцидент закрыт вручную (с {Start:o} по {End:o})",
+                connectionId, incidentStart, atTs);
+        }
+        else
+        {
+            logger.LogInformation(
+                "Подключение {ConnectionId}: break-инцидент recovered (с {Start:o} по {End:o}, owner={Owner})",
+                connectionId, incidentStart, atTs, owner);
         }
 
         return true;
@@ -1099,15 +1068,6 @@ public sealed class ConnectionManager(
     }
 
     /// <summary>
-    /// Legacy: закрыть break как <c>abandoned_schedule</c>.
-    /// P4.2: Supervisor больше не вызывает (Auto stop ≠ resolve). Оставлено для тестов / истории API.
-    /// </summary>
-    public Task<bool> TryAbandonIncidentByScheduleAsync(
-        long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken) =>
-        CloseBreakAsync(
-            connectionId, atTs, NotificationThreadData.OutcomeAbandonedSchedule, cancellationToken);
-
-    /// <summary>
     /// J11b / I11: ручной off при открытом break — Manager+Hub вместе,
     /// <c>abandoned_manual</c>, маркер <c>disconnected</c> (без green). Нет open → false.
     /// </summary>
@@ -1115,22 +1075,6 @@ public sealed class ConnectionManager(
         long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken) =>
         CloseBreakAsync(
             connectionId, atTs, NotificationThreadData.OutcomeAbandonedManual, cancellationToken);
-
-    /// <summary>
-    /// Клиент закрыл crash по schedule_end (mock-POST): маркер <c>scheduled</c> на ленте —
-    /// клип штриховки без green (<c>Abandoned</c>). Не трогает NC (уже ingest'нут).
-    /// </summary>
-    public async Task MarkCrashAbandonedByScheduleAsync(
-        long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
-    {
-        var sourceId = await ResolveSourceIdAsync(connectionId, cancellationToken).ConfigureAwait(false);
-        if (sourceId is { } sid)
-        {
-            await linkLiveness
-                .InsertBoundaryMarkerAsync(sid, LinkCloseReason.Scheduled, atTs, cancellationToken)
-                .ConfigureAwait(false);
-        }
-    }
 
     private async Task<short?> ResolveSourceIdAsync(long connectionId, CancellationToken cancellationToken)
     {

@@ -110,8 +110,9 @@ public sealed class IncidentRecentBackfillTests
     }
 
     [Fact]
-    public void TryMap_abandoned_gap_uses_abandoned_schedule()
+    public void TryMap_abandoned_gap_stays_active_no_schedule_resolve()
     {
+        // Schedule/manual ribbon clip ≠ journal close; Cutter clips for consumers.
         var gap = new LinkGap
         {
             SourceId = 1,
@@ -124,7 +125,10 @@ public sealed class IncidentRecentBackfillTests
         var to = new DateTimeOffset(2026, 7, 29, 12, 0, 0, TimeSpan.Zero);
 
         var row = IncidentRecentBackfill.TryMap(2, gap, from, to);
-        row!.CloseOutcome.Should().Be("abandoned_schedule");
-        row.Status.Should().Be("resolved");
+        row.Should().NotBeNull();
+        row!.Status.Should().Be("active");
+        row.CloseOutcome.Should().BeNull();
+        row.ClosedAt.Should().BeNull();
+        row.LastActivityAt.Should().Be(gap.To);
     }
 }

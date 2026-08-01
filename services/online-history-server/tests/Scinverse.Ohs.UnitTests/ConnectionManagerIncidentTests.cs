@@ -31,47 +31,27 @@ public sealed class ConnectionManagerIncidentTests
     }
 
     [Fact]
-    public async Task Legacy_abandon_schedule_API_still_resolves_if_called()
-    {
-        // P4.2: Supervisor больше не зовёт этот путь; API оставлен для истории/тестов.
-        var (manager, hub, link) = CreateSut();
-        var since = DateTimeOffset.Parse("2026-07-28T10:00:00Z");
-        var end = since.AddMinutes(3);
-
-        manager.EnsureBreakIncidentOnConnectFailure(ConnId, since, "Подключение 7 («t»)").Should().BeTrue();
-        manager.EnsureBreakIncidentOnConnectFailure(ConnId, since, "x").Should().BeFalse();
-
-        (await manager.TryAbandonIncidentByScheduleAsync(ConnId, end, CancellationToken.None))
-            .Should().BeTrue();
-        (await manager.TryAbandonIncidentByScheduleAsync(ConnId, end, CancellationToken.None))
-            .Should().BeFalse("уже закрыто");
-
-        manager.GetIncidentSince(ConnId).Should().BeNull();
-        var closed = hub.List().Last(e => e.Code == "connection.incident_closed");
-        closed.Status.Should().Be("resolved");
-        closed.Severity.Should().Be("warning");
-        DataString(closed, "closeOutcome").Should().Be(NotificationThreadData.OutcomeAbandonedSchedule);
-        DataString(closed, "reason").Should().Be("schedule_end");
-        link.Markers.Should().ContainSingle(m =>
-            m.SourceId == 1 && m.Reason == LinkCloseReason.Scheduled && m.At == end);
-    }
-
-    [Fact]
     public async Task EnsureBreak_then_abandon_manual_writes_disconnected_marker()
     {
         var (manager, hub, link) = CreateSut();
         var since = DateTimeOffset.Parse("2026-07-28T11:00:00Z");
         var end = since.AddMinutes(1);
 
-        manager.EnsureBreakIncidentOnConnectFailure(ConnId, since, "Подключение 7").Should().BeTrue();
+        manager.EnsureBreakIncidentOnConnectFailure(ConnId, since, "Подключение 7 («t»)").Should().BeTrue();
+        manager.EnsureBreakIncidentOnConnectFailure(ConnId, since, "x").Should().BeFalse();
         (await manager.TryAbandonIncidentByManualAsync(ConnId, end, CancellationToken.None))
             .Should().BeTrue();
+        (await manager.TryAbandonIncidentByManualAsync(ConnId, end, CancellationToken.None))
+            .Should().BeFalse("уже закрыто");
 
         manager.GetIncidentSince(ConnId).Should().BeNull();
         var closed = hub.List().Last(e => e.Code == "connection.incident_closed");
+        closed.Status.Should().Be("resolved");
+        closed.Severity.Should().Be("warning");
         DataString(closed, "closeOutcome").Should().Be(NotificationThreadData.OutcomeAbandonedManual);
         DataString(closed, "reason").Should().Be("manual_off");
-        link.Markers.Should().ContainSingle(m => m.Reason == LinkCloseReason.Disconnected && m.At == end);
+        link.Markers.Should().ContainSingle(m =>
+            m.SourceId == 1 && m.Reason == LinkCloseReason.Disconnected && m.At == end);
     }
 
     [Fact]

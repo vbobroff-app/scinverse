@@ -74,7 +74,8 @@ describe('viewStateStorage', () => {
       showFilters: false,
       showNowMarker: false,
       showLinkRibbon: false,
-      showIncidents: false,
+      showBreakIncidents: false,
+      showCrashIncidents: true,
       showScheduleMask: false,
     });
 
@@ -91,8 +92,16 @@ describe('viewStateStorage', () => {
     expect(v.showFilters).toBe(false);
     expect(v.showNowMarker).toBe(false);
     expect(v.showLinkRibbon).toBe(false);
-    expect(v.showIncidents).toBe(false);
+    expect(v.showBreakIncidents).toBe(false);
+    expect(v.showCrashIncidents).toBe(true);
     expect(v.showScheduleMask).toBe(false);
+  });
+
+  it('мигрирует legacy showIncidents → break+crash', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ showIncidents: false }));
+    const v = loadViewState();
+    expect(v.showBreakIncidents).toBe(false);
+    expect(v.showCrashIncidents).toBe(false);
   });
 
   it('отбрасывает невалидные таймфрейм/тайм-лайн/ТЗ', () => {

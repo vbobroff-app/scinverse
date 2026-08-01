@@ -13,7 +13,8 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
   const showFilters = useBehavior(store.showFilters$);
   const showNowMarker = useBehavior(store.showNowMarker$);
   const showLinkRibbon = useBehavior(store.showLinkRibbon$);
-  const showIncidents = useBehavior(store.showIncidents$);
+  const showBreakIncidents = useBehavior(store.showBreakIncidents$);
+  const showCrashIncidents = useBehavior(store.showCrashIncidents$);
   const showScheduleMask = useBehavior(store.showScheduleMask$);
   const ohsUnavailable = useBehavior(store.backendOutage$);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -109,15 +110,23 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
                       checked={showLinkRibbon}
                       onChange={() => store.setShowLinkRibbon(!showLinkRibbon)}
                     />
-                    Лента связи
+                    Лента соединения
                   </label>
                   <label className={styles.settingsCheck}>
                     <input
                       type="checkbox"
-                      checked={showIncidents}
-                      onChange={() => store.setShowIncidents(!showIncidents)}
+                      checked={showBreakIncidents}
+                      onChange={() => store.setShowBreakIncidents(!showBreakIncidents)}
                     />
-                    Инциденты
+                    Инциденты связи
+                  </label>
+                  <label className={styles.settingsCheck}>
+                    <input
+                      type="checkbox"
+                      checked={showCrashIncidents}
+                      onChange={() => store.setShowCrashIncidents(!showCrashIncidents)}
+                    />
+                    Инциденты сервера
                   </label>
                   <label className={styles.settingsCheck}>
                     <input
