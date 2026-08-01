@@ -449,12 +449,17 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
             openRes.StatusCode.Should().Be(System.Net.HttpStatusCode.Accepted);
         }
 
-        var corr = $"ohs.backend.outage:{openedAt.ToUnixTimeMilliseconds()}:c{connectionId}";
+        // P5.2: one crash corr (no :c{id}); scope via incident_connection.
+        var corr = $"ohs.backend.outage:{openedAt.ToUnixTimeMilliseconds()}";
         var openRow = await api.GetIncidentAsync(corr);
         openRow.Should().NotBeNull();
         openRow!.Type.Should().Be("crash");
         openRow.Status.Should().Be("active");
-        openRow.ConnectionId.Should().Be(connectionId);
+        openRow.ConnectionId.Should().BeNull();
+
+        var byConnection = await api.GetConnectionIncidentsAsync(
+            connectionId, openedAt.AddMinutes(-1), openedAt.AddMinutes(1));
+        byConnection.Should().Contain(i => i.CorrUid == corr && i.Type == "crash");
 
         using (var closeRes = await http.PostAsJsonAsync(
                    "/api/recovery/outage",
@@ -511,7 +516,6 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         var closedAt = openedAt.AddMinutes(3);
         var connectionId = await SeedDesiredCrashConnectionAsync(
             http, api, "crash-d4-parallel", openedAt);
-        var corr = $"ohs.backend.outage:{openedAt.ToUnixTimeMilliseconds()}:c{connectionId}";
 
         var openTask = http.PostAsJsonAsync(
             "/api/recovery/outage",
@@ -524,11 +528,35 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         openRes.StatusCode.Should().Be(System.Net.HttpStatusCode.Accepted);
         closeRes.StatusCode.Should().Be(System.Net.HttpStatusCode.Accepted);
 
+        // Seed = min(from) после merge; при close-first emit идёт со seed close.from до Rebind —
+        // corr берём из ответа, не из openedAt.
+        var openBody = await openRes.Content.ReadFromJsonAsync<JsonElement>();
+        var closeBody = await closeRes.Content.ReadFromJsonAsync<JsonElement>();
+        var seeds = new[]
+            {
+                openBody.GetProperty("outageSeed").GetInt64(),
+                closeBody.GetProperty("outageSeed").GetInt64(),
+            }
+            .Distinct()
+            .ToArray();
+
         IncidentDto? row = null;
+        string? corr = null;
         for (var i = 0; i < 20; i++)
         {
-            row = await api.GetIncidentAsync(corr);
-            if (row is { Status: "resolved" })
+            foreach (var seed in seeds)
+            {
+                var candidate = $"ohs.backend.outage:{seed}";
+                var got = await api.GetIncidentAsync(candidate);
+                if (got is { Status: "resolved" })
+                {
+                    row = got;
+                    corr = candidate;
+                    break;
+                }
+            }
+
+            if (row is not null)
             {
                 break;
             }
@@ -537,10 +565,14 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         }
 
         row.Should().NotBeNull();
+        corr.Should().NotBeNullOrEmpty();
         row!.Type.Should().Be("crash");
         row.Status.Should().Be("resolved");
         row.CloseOutcome.Should().Be("recovered");
-        row.ConnectionId.Should().Be(connectionId);
+        row.ConnectionId.Should().BeNull();
+        var byConnection = await api.GetConnectionIncidentsAsync(
+            connectionId, openedAt.AddMinutes(-1), closedAt.AddMinutes(1));
+        byConnection.Should().Contain(i => i.CorrUid == corr && i.Status == "resolved");
     }
 
     /// <summary>

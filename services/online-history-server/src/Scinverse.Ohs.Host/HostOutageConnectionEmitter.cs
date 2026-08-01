@@ -5,9 +5,9 @@ using Scinverse.Ohs.Domain;
 namespace Scinverse.Ohs.Host;
 
 /// <summary>
-/// Слой C (crash-dispatch / schedule-as-projection P3): ∀ enabled connection —
-/// NC Incident + journal с fixed corr <c>ohs.backend.outage:{seed}:c{id}</c>.
-/// Расписание не классифицирует (mask/Cutter снаружи).
+/// Слой C (P5.2): один transport crash + scope N enabled connections.
+/// Corr <c>ohs.backend.outage:{seed}</c> (без <c>:c{id}</c>); NC — один Thread;
+/// journal — 1 строка + <c>incident_connection</c>. Mask/Cutter снаружи.
 /// </summary>
 public sealed class HostOutageConnectionEmitter(
     IConnectionStore connections,
@@ -21,11 +21,16 @@ public sealed class HostOutageConnectionEmitter(
     public const string OpenMessageBase = "Сервер OHS недоступен, жду восстановления";
     public const string CloseMessageBase = "Система восстановлена";
 
-    /// <summary>Текст Entry/журнала с привязкой к connection (иначе N нитей выглядят как дубль).</summary>
+    /// <summary>Legacy per-connection message (до P5.2); emit использует <see cref="OpenMessageBase"/>.</summary>
     public static string MessageFor(long connectionId, string body) =>
         $"Подключение {connectionId}: {body}";
 
-    public static string CorrUid(long outageSeed, long connectionId) =>
+    /// <summary>Transport corr слоя C (P5): без per-connection суффикса.</summary>
+    public static string CorrUid(long outageSeed) =>
+        $"ohs.backend.outage:{outageSeed}";
+
+    /// <summary>Legacy `:c{id}` — только для чтения старых тестов/hydrate; emit не использует.</summary>
+    public static string LegacyCorrUid(long outageSeed, long connectionId) =>
         $"ohs.backend.outage:{outageSeed}:c{connectionId}";
 
     public async Task ApplyAsync(HostOutageReportResult result, CancellationToken cancellationToken = default)
@@ -46,42 +51,37 @@ public sealed class HostOutageConnectionEmitter(
             return;
         }
 
-        foreach (var connection in list)
+        var enabledIds = list.Where(c => c.Enabled).Select(c => c.ConnectionId).Distinct().ToArray();
+        if (enabledIds.Length == 0)
         {
-            if (!connection.Enabled)
+            return;
+        }
+
+        var corr = CorrUid(result.OutageSeed);
+
+        try
+        {
+            if (result.OpenedEmitted)
             {
-                continue;
+                await EmitOpenAsync(corr, enabledIds, result.OpenedAt, cancellationToken)
+                    .ConfigureAwait(false);
             }
 
-            try
+            if (result.ClosedEmitted && result.ClosedAt is { } closedAt)
             {
-                var corr = CorrUid(result.OutageSeed, connection.ConnectionId);
-
-                if (result.OpenedEmitted)
-                {
-                    await EmitOpenAsync(connection.ConnectionId, corr, result.OpenedAt, cancellationToken)
-                        .ConfigureAwait(false);
-                }
-
-                if (result.ClosedEmitted && result.ClosedAt is { } closedAt)
-                {
-                    await EmitCloseAsync(connection.ConnectionId, corr, closedAt, cancellationToken)
-                        .ConfigureAwait(false);
-                }
+                await EmitCloseAsync(corr, enabledIds, closedAt, cancellationToken)
+                    .ConfigureAwait(false);
             }
-            catch (Exception ex)
-            {
-                logger.LogWarning(
-                    ex,
-                    "HostOutageConnectionEmitter failed for connection {ConnectionId}",
-                    connection.ConnectionId);
-            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "HostOutageConnectionEmitter failed for corr {CorrUid}", corr);
         }
     }
 
     private Task EmitOpenAsync(
-        long connectionId,
         string corr,
+        IReadOnlyList<long> connectionIds,
         DateTimeOffset openedAt,
         CancellationToken cancellationToken)
     {
@@ -89,15 +89,14 @@ public sealed class HostOutageConnectionEmitter(
         {
             sender = "client",
             kind = "crash",
-            connectionId,
+            connectionIds,
             threadKindHint = NotificationThreadData.KindIncident,
         });
-        var openMessage = MessageFor(connectionId, OpenMessageBase);
         hub.Ingest(
             Guid.NewGuid().ToString("N"),
             openedAt,
             CodeUnavailable,
-            openMessage,
+            OpenMessageBase,
             severity: "critical",
             sourceType: "system",
             module: Module,
@@ -105,13 +104,13 @@ public sealed class HostOutageConnectionEmitter(
             status: "active",
             correlationId: corr);
 
-        return journal.RegisterCrashOpenAsync(
-            corr, openedAt, connectionId, openMessage, cancellationToken);
+        return journal.RegisterCrashOpenWithScopeAsync(
+            corr, openedAt, connectionIds, OpenMessageBase, cancellationToken);
     }
 
     private Task EmitCloseAsync(
-        long connectionId,
         string corr,
+        IReadOnlyList<long> connectionIds,
         DateTimeOffset closedAt,
         CancellationToken cancellationToken)
     {
@@ -119,15 +118,14 @@ public sealed class HostOutageConnectionEmitter(
         {
             sender = "client",
             kind = "crash",
-            connectionId,
+            connectionIds,
             closeOutcome = NotificationThreadData.OutcomeRecovered,
         });
-        var closeMessage = MessageFor(connectionId, CloseMessageBase);
         hub.Ingest(
             Guid.NewGuid().ToString("N"),
             closedAt,
             CodeRecovered,
-            closeMessage,
+            CloseMessageBase,
             severity: "ok",
             sourceType: "system",
             module: Module,
@@ -139,7 +137,7 @@ public sealed class HostOutageConnectionEmitter(
             corr,
             closedAt,
             NotificationThreadData.OutcomeRecovered,
-            closeMessage,
+            CloseMessageBase,
             "ok",
             cancellationToken);
     }

@@ -36,15 +36,39 @@ export function readConnectionId(data: Record<string, unknown> | null | undefine
   return undefined;
 }
 
+/** P5.2: `data.connectionIds` (transport crash scope) + legacy `connectionId`. */
+export function readConnectionIds(data: Record<string, unknown> | null | undefined): number[] {
+  if (!data) {
+    return [];
+  }
+  const out = new Set<number>();
+  const single = readConnectionId(data);
+  if (single != null) {
+    out.add(single);
+  }
+  const raw = data.connectionIds;
+  if (Array.isArray(raw)) {
+    for (const el of raw) {
+      if (typeof el === 'number' && Number.isSafeInteger(el) && el >= 1) {
+        out.add(el);
+      } else if (typeof el === 'string') {
+        const id = parseConnectionFilterId(el);
+        if (id != null) {
+          out.add(id);
+        }
+      }
+    }
+  }
+  return [...out];
+}
+
 function itemConnectionIds(item: NotificationItem): number[] {
   if (item.itemKind === 'single') {
-    const id = readConnectionId(item.data);
-    return id != null ? [id] : [];
+    return readConnectionIds(item.data);
   }
   const ids = new Set<number>();
   for (const e of item.notifications) {
-    const id = readConnectionId(e.data);
-    if (id != null) {
+    for (const id of readConnectionIds(e.data)) {
       ids.add(id);
     }
   }

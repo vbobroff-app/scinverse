@@ -48,6 +48,16 @@ public interface IJournalRegistrator
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// P5.2: open transport crash (<c>connection_id</c> null) + replace <c>incident_connection</c> scope.
+    /// </summary>
+    Task RegisterCrashOpenWithScopeAsync(
+        string corrUid,
+        DateTimeOffset openedAt,
+        IReadOnlyList<long> connectionIds,
+        string title,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Проставить <c>connection_id</c> если null (crash без привязки → гант Connection).
     /// </summary>
     Task BindConnectionIdIfNullAsync(

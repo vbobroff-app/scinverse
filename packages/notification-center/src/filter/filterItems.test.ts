@@ -122,6 +122,27 @@ describe('filterItems', () => {
     expect(visible[0]?.itemKind === 'thread' && visible[0].uid).toBe('c1');
   });
 
+  it('P5.2: connectionIds on transport crash match show/hide filter', () => {
+    const items = projectThreads([
+      evt({
+        id: 'a',
+        correlationId: 'ohs.backend.outage:42',
+        code: 'backend.unavailable',
+        data: { connectionIds: [1, 3], kind: 'crash', threadKindHint: 'incident' },
+        message: 'down',
+      }),
+    ]);
+    expect(
+      filterItems(items, { connection: { showIdText: '3', hideIdText: '' } }),
+    ).toHaveLength(1);
+    expect(
+      filterItems(items, { connection: { showIdText: '2', hideIdText: '' } }),
+    ).toHaveLength(0);
+    expect(
+      filterItems(items, { connection: { showIdText: '', hideIdText: '1' } }),
+    ).toHaveLength(0);
+  });
+
   it('connection hide Id excludes matching threads; keeps no-id', () => {
     const items = projectThreads([
       evt({

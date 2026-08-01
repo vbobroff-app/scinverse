@@ -12,7 +12,7 @@ public sealed class HostOutageConnectionEmitterTests
     private static readonly DateTimeOffset InsideWindow = new(2026, 7, 30, 10, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task Open_close_always_incident_and_journals_per_enabled_connection()
+    public async Task Open_close_one_transport_thread_and_scope_per_enabled()
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());
         var journal = new RecordingJournal();
@@ -24,67 +24,29 @@ public sealed class HostOutageConnectionEmitterTests
             connections, hub, journal, NullLogger<HostOutageConnectionEmitter>.Instance);
         var coord = new HostOutageCoordinator();
 
-        // Вне окна расписания — всё равно Incident + journal (P3).
         var open = coord.Report("a", OutsideWindow, to: null);
         await emitter.ApplyAsync(open);
         var close = coord.Report("a", OutsideWindow, OutsideWindow.AddMinutes(2));
         await emitter.ApplyAsync(close);
 
+        var corr = HostOutageConnectionEmitter.CorrUid(open.OutageSeed);
         var list = hub.List();
-        list.Should().HaveCount(4); // 2 conn × open+close; disabled skipped
-        list.Select(e => e.CorrelationId).Distinct().Should().BeEquivalentTo(
-        [
-            HostOutageConnectionEmitter.CorrUid(open.OutageSeed, 1),
-            HostOutageConnectionEmitter.CorrUid(open.OutageSeed, 3),
-        ]);
+        list.Should().HaveCount(2); // 1 open + 1 close
+        list.Select(e => e.CorrelationId).Distinct().Should().Equal(corr);
 
-        foreach (var evt in list.Where(e => e.Code == HostOutageConnectionEmitter.CodeUnavailable))
-        {
-            DataString(evt, "threadKindHint").Should().Be(NotificationThreadData.KindIncident);
-            evt.Severity.Should().Be("critical");
-            DataLong(evt, "connectionId").Should().NotBeNull();
-        }
+        var openEvt = list.Single(e => e.Code == HostOutageConnectionEmitter.CodeUnavailable);
+        DataString(openEvt, "threadKindHint").Should().Be(NotificationThreadData.KindIncident);
+        openEvt.Severity.Should().Be("critical");
+        openEvt.Message.Should().Be(HostOutageConnectionEmitter.OpenMessageBase);
+        DataLongArray(openEvt, "connectionIds").Should().BeEquivalentTo([1L, 3L]);
 
-        journal.CrashOpens.Should().BeEquivalentTo(
-        [
-            (HostOutageConnectionEmitter.CorrUid(open.OutageSeed, 1), 1L),
-            (HostOutageConnectionEmitter.CorrUid(open.OutageSeed, 3), 3L),
-        ]);
-        journal.Resolves.Should().BeEquivalentTo(
-        [
-            HostOutageConnectionEmitter.CorrUid(open.OutageSeed, 1),
-            HostOutageConnectionEmitter.CorrUid(open.OutageSeed, 3),
-        ]);
+        journal.CrashOpens.Should().ContainSingle().Which.Should().Be((corr, (long?)null));
+        journal.Scopes.Should().ContainSingle().Which.Should().BeEquivalentTo((corr, new long[] { 1, 3 }));
+        journal.Resolves.Should().Equal(corr);
     }
 
     [Fact]
-    public async Task Message_binds_connection_id_on_open_and_close()
-    {
-        var hub = new NotificationHub(new WebSocketBroadcaster());
-        var journal = new RecordingJournal();
-        var emitter = new HostOutageConnectionEmitter(
-            new FakeConnectionStore(Conn(3, enabled: true)),
-            hub,
-            journal,
-            NullLogger<HostOutageConnectionEmitter>.Instance);
-        var coord = new HostOutageCoordinator();
-
-        var open = coord.Report("a", InsideWindow, to: null);
-        await emitter.ApplyAsync(open);
-        await emitter.ApplyAsync(coord.Report("a", InsideWindow, InsideWindow.AddMinutes(1)));
-
-        var seed = open.OutageSeed;
-        var corr = HostOutageConnectionEmitter.CorrUid(seed, 3);
-        hub.List().Single(e => e.Code == HostOutageConnectionEmitter.CodeUnavailable)
-            .Message.Should().Be(HostOutageConnectionEmitter.MessageFor(3, HostOutageConnectionEmitter.OpenMessageBase));
-        hub.List().Single(e => e.Code == HostOutageConnectionEmitter.CodeRecovered)
-            .Message.Should().Be(HostOutageConnectionEmitter.MessageFor(3, HostOutageConnectionEmitter.CloseMessageBase));
-        journal.CrashOpens.Should().ContainSingle().Which.Should().Be((corr, 3L));
-        journal.Resolves.Should().ContainSingle().Which.Should().Be(corr);
-    }
-
-    [Fact]
-    public async Task Merge_second_client_does_not_duplicate_c_opens()
+    public async Task Merge_second_client_does_not_duplicate_opens()
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());
         var journal = new RecordingJournal();
@@ -101,6 +63,7 @@ public sealed class HostOutageConnectionEmitterTests
 
         hub.List().Count(e => e.Code == HostOutageConnectionEmitter.CodeUnavailable).Should().Be(1);
         journal.CrashOpens.Should().HaveCount(1);
+        journal.Scopes.Should().HaveCount(1);
         journal.Resolves.Should().HaveCount(1);
     }
 
@@ -119,6 +82,7 @@ public sealed class HostOutageConnectionEmitterTests
 
         hub.List().Should().BeEmpty();
         journal.CrashOpens.Should().BeEmpty();
+        journal.Scopes.Should().BeEmpty();
     }
 
     private static ConnectorConnection Conn(long id, bool enabled) => new()
@@ -143,24 +107,28 @@ public sealed class HostOutageConnectionEmitterTests
             : null;
     }
 
-    private static long? DataLong(NotificationDto evt, string key)
+    private static long[] DataLongArray(NotificationDto evt, string key)
     {
         if (evt.Data is not { } data || data.ValueKind != JsonValueKind.Object)
         {
-            return null;
+            return [];
         }
 
-        if (!data.TryGetProperty(key, out var p))
+        if (!data.TryGetProperty(key, out var p) || p.ValueKind != JsonValueKind.Array)
         {
-            return null;
+            return [];
         }
 
-        return p.ValueKind switch
-        {
-            JsonValueKind.Number => p.TryGetInt64(out var n) ? n : null,
-            JsonValueKind.String => long.TryParse(p.GetString(), out var n) ? n : null,
-            _ => null,
-        };
+        return p.EnumerateArray()
+            .Select(el => el.ValueKind switch
+            {
+                JsonValueKind.Number when el.TryGetInt64(out var n) => n,
+                JsonValueKind.String when long.TryParse(el.GetString(), out var s) => s,
+                _ => (long?)null,
+            })
+            .Where(n => n is not null)
+            .Select(n => n!.Value)
+            .ToArray();
     }
 
     private sealed class FakeConnectionStore(params ConnectorConnection[] rows) : IConnectionStore
@@ -191,6 +159,7 @@ public sealed class HostOutageConnectionEmitterTests
     private sealed class RecordingJournal : IJournalRegistrator
     {
         public List<(string Corr, long? ConnId)> CrashOpens { get; } = [];
+        public List<(string Corr, long[] Ids)> Scopes { get; } = [];
         public List<string> Resolves { get; } = [];
 
         public Task RegisterBreakOpenAsync(
@@ -219,6 +188,15 @@ public sealed class HostOutageConnectionEmitterTests
             CancellationToken cancellationToken)
         {
             CrashOpens.Add((corrUid, connectionId));
+            return Task.CompletedTask;
+        }
+
+        public Task RegisterCrashOpenWithScopeAsync(
+            string corrUid, DateTimeOffset openedAt, IReadOnlyList<long> connectionIds, string title,
+            CancellationToken cancellationToken)
+        {
+            CrashOpens.Add((corrUid, null));
+            Scopes.Add((corrUid, connectionIds.ToArray()));
             return Task.CompletedTask;
         }
 

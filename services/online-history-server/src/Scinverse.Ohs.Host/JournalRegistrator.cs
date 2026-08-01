@@ -206,6 +206,25 @@ public sealed class JournalRegistrator(
                 return inserted;
             });
 
+    public Task RegisterCrashOpenWithScopeAsync(
+        string corrUid,
+        DateTimeOffset openedAt,
+        IReadOnlyList<long> connectionIds,
+        string title,
+        CancellationToken cancellationToken) =>
+        SafeAsync(
+            corrUid,
+            "crash-open-scope",
+            async () =>
+            {
+                await RegisterCrashOpenAsync(corrUid, openedAt, connectionId: null, title, cancellationToken)
+                    .ConfigureAwait(false);
+                await store
+                    .ReplaceConnectionScopeAsync(corrUid, connectionIds, cancellationToken)
+                    .ConfigureAwait(false);
+                return true;
+            });
+
     public Task BindConnectionIdIfNullAsync(
         string corrUid, long connectionId, CancellationToken cancellationToken) =>
         SafeAsync(
@@ -299,6 +318,11 @@ public sealed class NullJournalRegistrator : IJournalRegistrator
 
     public Task RegisterCrashOpenAsync(
         string corrUid, DateTimeOffset openedAt, long? connectionId, string title,
+        CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task RegisterCrashOpenWithScopeAsync(
+        string corrUid, DateTimeOffset openedAt, IReadOnlyList<long> connectionIds, string title,
         CancellationToken cancellationToken) =>
         Task.CompletedTask;
 
