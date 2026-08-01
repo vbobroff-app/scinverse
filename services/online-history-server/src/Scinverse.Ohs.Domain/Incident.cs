@@ -35,6 +35,9 @@ public sealed record Incident
 
     public required DateTimeOffset LastActivityAt { get; init; }
 
+    /// <summary>
+    /// Break: 1:1 connection. Crash (P5): обычно null — scope в <c>incident_connection</c>.
+    /// </summary>
     public long? ConnectionId { get; init; }
 
     public short? SourceId { get; init; }

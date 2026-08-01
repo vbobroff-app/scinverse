@@ -43,4 +43,15 @@ public interface IIncidentStore
 
     /// <summary>Список newest-first по <c>opened_at</c> (лимит по умолчанию 100).</summary>
     Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// P5: заменить scope crash (<c>incident_connection</c>). Идемпотентно: DELETE + INSERT.
+    /// Пустой список → только очистка scope.
+    /// </summary>
+    Task ReplaceConnectionScopeAsync(
+        string corrUid, IReadOnlyList<long> connectionIds, CancellationToken cancellationToken);
+
+    /// <summary>P5: connection_id из scope (порядок вставок не гарантирован).</summary>
+    Task<IReadOnlyList<long>> ListConnectionScopeAsync(
+        string corrUid, CancellationToken cancellationToken);
 }

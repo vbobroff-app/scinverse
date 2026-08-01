@@ -168,7 +168,16 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
             WHERE (@module IS NULL OR module = @module)
               AND (@status IS NULL OR status = @status)
               AND (@type IS NULL OR type = @type)
-              AND (@connectionId IS NULL OR connection_id = @connectionId)
+              AND (
+                  @connectionId IS NULL
+                  OR connection_id = @connectionId
+                  OR EXISTS (
+                      SELECT 1
+                      FROM incident_connection ic
+                      WHERE ic.corr_uid = incident.corr_uid
+                        AND ic.connection_id = @connectionId
+                  )
+              )
               AND (@from IS NULL OR closed_at IS NULL OR closed_at > @from)
               AND (@to IS NULL OR opened_at < @to)
             ORDER BY opened_at DESC
@@ -186,6 +195,53 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
             },
             cancellationToken: cancellationToken));
         return rows.Select(ToIncident).ToList();
+    }
+
+    public async Task ReplaceConnectionScopeAsync(
+        string corrUid, IReadOnlyList<long> connectionIds, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tx = await connection.BeginTransactionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM incident_connection WHERE corr_uid = @corrUid;",
+            new { corrUid },
+            transaction: tx,
+            cancellationToken: cancellationToken));
+
+        if (connectionIds.Count > 0)
+        {
+            var rows = connectionIds
+                .Distinct()
+                .Select(id => new { corrUid, connectionId = id })
+                .ToArray();
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO incident_connection (corr_uid, connection_id)
+                VALUES (@corrUid, @connectionId)
+                ON CONFLICT DO NOTHING;
+                """,
+                rows,
+                transaction: tx,
+                cancellationToken: cancellationToken));
+        }
+
+        await tx.CommitAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<long>> ListConnectionScopeAsync(
+        string corrUid, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var ids = await connection.QueryAsync<long>(new CommandDefinition(
+            """
+            SELECT connection_id
+            FROM incident_connection
+            WHERE corr_uid = @corrUid
+            ORDER BY connection_id;
+            """,
+            new { corrUid },
+            cancellationToken: cancellationToken));
+        return ids.ToList();
     }
 
     private sealed record Row(

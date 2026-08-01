@@ -20,7 +20,7 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
     public async Task InitializeAsync()
     {
         await using var connection = await _fixture.DataSource.OpenConnectionAsync();
-        await connection.ExecuteAsync("TRUNCATE incident;");
+        await connection.ExecuteAsync("TRUNCATE incident CASCADE;");
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -145,6 +145,68 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
         (await _store.UpdateOpenAsync(BreakOpen("missing", t0), CancellationToken.None)).Should().BeFalse();
         (await _store.ResolveAsync("missing", t0, "recovered", null, null, null, CancellationToken.None))
             .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ReplaceConnectionScope_and_Query_via_join()
+    {
+        // P5: crash без connection_id на строке; scope → incident_connection.
+        await using var db = await _fixture.DataSource.OpenConnectionAsync();
+        var a = await db.ExecuteScalarAsync<long>(
+            """
+            INSERT INTO connector_connection (source_id, name, kind, settings)
+            VALUES (2, @name, 'synthetic', '{}')
+            RETURNING connection_id;
+            """,
+            new { name = $"test-scope-a-{Guid.NewGuid():N}" });
+        var b = await db.ExecuteScalarAsync<long>(
+            """
+            INSERT INTO connector_connection (source_id, name, kind, settings)
+            VALUES (2, @name, 'synthetic', '{}')
+            RETURNING connection_id;
+            """,
+            new { name = $"test-scope-b-{Guid.NewGuid():N}" });
+
+        var t0 = new DateTimeOffset(2026, 8, 1, 10, 0, 0, TimeSpan.Zero);
+        var corr = "ohs.backend.outage:1001";
+        var crash = new Incident
+        {
+            CorrUid = corr,
+            Module = "connection",
+            Type = "crash",
+            Status = "active",
+            OpenedAt = t0,
+            Subject = "ohs.backend.outage:1001",
+            Severity = "critical",
+            Title = "host down",
+            LastActivityAt = t0,
+            ConnectionId = null,
+            Subtype = "host_unavailable",
+            Owner = "admin",
+        };
+        (await _store.OpenAsync(crash, CancellationToken.None)).Should().BeTrue();
+
+        await _store.ReplaceConnectionScopeAsync(corr, [a, b], CancellationToken.None);
+        (await _store.ListConnectionScopeAsync(corr, CancellationToken.None))
+            .Should().Equal(new[] { a, b }.OrderBy(x => x).ToArray());
+
+        var forB = await _store.QueryAsync(
+            new IncidentQuery { ConnectionId = b, Module = "connection", Limit = 50 },
+            CancellationToken.None);
+        forB.Should().ContainSingle(i => i.CorrUid == corr);
+
+        var forA = await _store.QueryAsync(
+            new IncidentQuery { ConnectionId = a, Module = "connection", Limit = 50 },
+            CancellationToken.None);
+        forA.Should().ContainSingle(i => i.CorrUid == corr);
+
+        await _store.ReplaceConnectionScopeAsync(corr, [b], CancellationToken.None);
+        (await _store.ListConnectionScopeAsync(corr, CancellationToken.None)).Should().Equal(b);
+
+        var after = await _store.QueryAsync(
+            new IncidentQuery { ConnectionId = a, Module = "connection", Limit = 50 },
+            CancellationToken.None);
+        after.Should().NotContain(i => i.CorrUid == corr);
     }
 
     private static Incident BreakOpen(

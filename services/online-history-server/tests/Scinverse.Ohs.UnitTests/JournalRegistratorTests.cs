@@ -201,6 +201,14 @@ public sealed class JournalRegistratorTests
 
         public Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<Incident>>(ByCorr.Values.ToList());
+
+        public Task ReplaceConnectionScopeAsync(
+            string corrUid, IReadOnlyList<long> connectionIds, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task<IReadOnlyList<long>> ListConnectionScopeAsync(
+            string corrUid, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<long>>([]);
     }
 
     private sealed class ThrowingIncidentStore : IIncidentStore
@@ -228,6 +236,14 @@ public sealed class JournalRegistratorTests
             throw new InvalidOperationException("db down");
 
         public Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("db down");
+
+        public Task ReplaceConnectionScopeAsync(
+            string corrUid, IReadOnlyList<long> connectionIds, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("db down");
+
+        public Task<IReadOnlyList<long>> ListConnectionScopeAsync(
+            string corrUid, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("db down");
     }
 

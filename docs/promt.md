@@ -143,7 +143,7 @@ scinverse/
 
 ## 5. Как запустить (локально)
 
-- **БД:** TimescaleDB из `docker-compose`, миграции DbUp (**до V028**).
+- **БД:** TimescaleDB из `docker-compose`, миграции DbUp (**до V029** · `incident_connection`).
 - **Backend:** VS или `dotnet run` (`Scinverse.Ohs.Host`); секреты — `appsettings.Local.json`.
 - **Frontend:** `services/online-history-server/web` → `pnpm install`, `pnpm dev --port 5174`
   (прокси `/api` + `/ws`). Тесты: `pnpm exec vitest run`, `pnpm exec tsc --noEmit`.

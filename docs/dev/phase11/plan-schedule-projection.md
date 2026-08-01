@@ -120,7 +120,7 @@
 | Шаг | Что | Критерий |
 |-----|-----|----------|
 | P5.0 | Docs (этот блок + pointers в speке/promt) | **DONE** (docs) |
-| P5.1 | DDL `incident_connection` + store open/query/resolve | unit/integration |
+| P5.1 | DDL `incident_connection` + store scope + Query join | **DONE** (`V029`, Replace/List scope, Query via join) |
 | P5.2 | Emit 1+N; GET connection incidents = break ∪ crash-via-join; ribbon crash | N enabled → 1 incident + N scope |
 | P5.3 | Cutover стенд: purge NC (+ Host restart); journal legacy crash — purge/migrate per D6 | UI без старых `:c{id}` Threads |
 | P5.4 | Убрать emit `:c{id}`; sync crash-dispatch / incident-journal | grep clean |

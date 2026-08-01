@@ -411,5 +411,13 @@ public sealed class IncidentFanOutTests
                 return Task.FromResult<IReadOnlyList<Incident>>(ByCorr.Values.ToList());
             }
         }
+
+        public Task ReplaceConnectionScopeAsync(
+            string corrUid, IReadOnlyList<long> connectionIds, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task<IReadOnlyList<long>> ListConnectionScopeAsync(
+            string corrUid, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<long>>([]);
     }
 }
