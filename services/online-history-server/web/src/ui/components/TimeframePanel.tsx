@@ -74,7 +74,9 @@ export function TimeframePanel() {
     [tf],
   );
 
-  const triggerLabel = `${current.unit}${current.count}`;
+  // D+ на основной панели: D1 → D1+, All → All+.
+  const triggerLabel = `${current.unit}${current.count}${dPlus ? '+' : ''}`;
+  const horizonLabel = tf.kind === 'all' ? `All${dPlus ? '+' : ''}` : triggerLabel;
 
   return (
     <div className={styles.panel} ref={rootRef}>
@@ -123,7 +125,7 @@ export function TimeframePanel() {
           aria-expanded={openMenu}
           title="Горизонт истории"
         >
-          {tf.kind === 'all' ? 'All' : triggerLabel}
+          {horizonLabel}
         </button>
 
         {openMenu && (

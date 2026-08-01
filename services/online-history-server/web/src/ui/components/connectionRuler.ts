@@ -13,7 +13,7 @@ const MINORS_PER_MAJOR = 4;
 /** Минимальный визуальный шаг major (px); иначе берём следующий «красивый» шаг. */
 const MIN_MAJOR_PX = 28;
 /** Магнит к major-тику (px). */
-const MAJOR_SNAP_PX = 2;
+const MAJOR_SNAP_PX = 1;
 
 /**
  * «Красивые» major-шаги: major/4 даёт ровный minor
