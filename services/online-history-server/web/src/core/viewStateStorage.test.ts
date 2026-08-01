@@ -77,6 +77,7 @@ describe('viewStateStorage', () => {
       showBreakIncidents: false,
       showCrashIncidents: true,
       showScheduleMask: false,
+      showWorkGaps: true,
     });
 
     const v = loadViewState();
@@ -95,6 +96,7 @@ describe('viewStateStorage', () => {
     expect(v.showBreakIncidents).toBe(false);
     expect(v.showCrashIncidents).toBe(true);
     expect(v.showScheduleMask).toBe(false);
+    expect(v.showWorkGaps).toBe(true);
   });
 
   it('мигрирует legacy showIncidents → break+crash', () => {

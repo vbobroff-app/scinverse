@@ -69,6 +69,11 @@ export interface PersistedViewState {
   showCrashIncidents?: boolean;
   /** Schedule void mask вне desired на Connection. */
   showScheduleMask?: boolean;
+  /**
+   * Цветные эпизоды из gaps `link_liveness` (не journal).
+   * Mutex с showBreak/CrashIncidents: при true инциденты off.
+   */
+  showWorkGaps?: boolean;
 }
 
 const EMPTY: PersistedViewState = {
@@ -232,6 +237,7 @@ export function loadViewState(): PersistedViewState {
             : undefined,
       showScheduleMask:
         typeof parsed.showScheduleMask === 'boolean' ? parsed.showScheduleMask : undefined,
+      showWorkGaps: typeof parsed.showWorkGaps === 'boolean' ? parsed.showWorkGaps : undefined,
     };
   } catch {
     return { ...EMPTY };

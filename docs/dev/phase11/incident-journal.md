@@ -412,7 +412,7 @@ As-is: атомы → Hub/V025; to-be gate 11→12 — Publisher → серви�
 | **11.13b** | **JournalRegistrator**: Open/handover/close/Adopt → UPSERT `incident` (не TradeWriter / не recording-лента); crash J8 | **DONE** — break-пути + unit; crash open — 11.13f |
 | **11.13c** | OHS API `GET /api/incidents` (+ окно для ribbon) | **DONE** — list/detail/by-connection + `durationMs` |
 | **11.13d** | UI экран журнала в Admin Front (OHS web) | **DONE** — раздел «Журнал инцидентов» (`messages`) |
-| **11.13e** | Connection-ribbon←`incident` (+ liveness); Recording←бинарная проекция (merge, без type) | **DONE** — projection + store wire; crash J8 optimistic gap |
+| **11.13e** | Connection-ribbon←`incident` (+ liveness); Recording←бинарная проекция (merge, без type) | **DONE** — Settings «Гэпы в работе» (`showWorkGaps` → `paintGapsAsIncidents`); mutex с тумблерами инцидентов; default journal |
 | **11.13f** | Ручное resolve + backfill/регрессия 7j | **DONE** — POST resolve/backfill-open; UI; J8 ingest; ApiTest |
 
 **Вне scope 11.13:** вынос NC-сервиса / перенос V025 (gate 11→12), WebGL, Keycloak, 7j.15/16.

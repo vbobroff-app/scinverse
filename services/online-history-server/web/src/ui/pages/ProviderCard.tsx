@@ -15,6 +15,7 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
   const showLinkRibbon = useBehavior(store.showLinkRibbon$);
   const showBreakIncidents = useBehavior(store.showBreakIncidents$);
   const showCrashIncidents = useBehavior(store.showCrashIncidents$);
+  const showWorkGaps = useBehavior(store.showWorkGaps$);
   const showScheduleMask = useBehavior(store.showScheduleMask$);
   const ohsUnavailable = useBehavior(store.backendOutage$);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -87,15 +88,7 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
             {settingsOpen && (
               <div className={styles.settingsPopover} role="menu" aria-label="Настройки провайдера">
                 <div className={styles.settingsSection}>
-                  <span className={styles.settingsSectionTitle}>Показывать</span>
-                  <label className={styles.settingsCheck}>
-                    <input
-                      type="checkbox"
-                      checked={showFilters}
-                      onChange={() => store.setShowFilters(!showFilters)}
-                    />
-                    Панель фильтров
-                  </label>
+                  <span className={styles.settingsSectionTitle}>Общие</span>
                   <label className={styles.settingsCheck}>
                     <input
                       type="checkbox"
@@ -104,6 +97,9 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
                     />
                     Now-маркер
                   </label>
+                </div>
+                <div className={styles.settingsSection}>
+                  <span className={styles.settingsSectionTitle}>Связь</span>
                   <label className={styles.settingsCheck}>
                     <input
                       type="checkbox"
@@ -135,6 +131,25 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
                       onChange={() => store.setShowScheduleMask(!showScheduleMask)}
                     />
                     Маска расписания
+                  </label>
+                  <label className={styles.settingsCheck}>
+                    <input
+                      type="checkbox"
+                      checked={showWorkGaps}
+                      onChange={() => store.setShowWorkGaps(!showWorkGaps)}
+                    />
+                    Гэпы в работе
+                  </label>
+                </div>
+                <div className={styles.settingsSection}>
+                  <span className={styles.settingsSectionTitle}>Запись</span>
+                  <label className={styles.settingsCheck}>
+                    <input
+                      type="checkbox"
+                      checked={showFilters}
+                      onChange={() => store.setShowFilters(!showFilters)}
+                    />
+                    Панель фильтров
                   </label>
                 </div>
               </div>

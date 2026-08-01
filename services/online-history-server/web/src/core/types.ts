@@ -396,6 +396,8 @@ export interface BackfillOpenIncidentsResultDto {
   adopted: number;
   skipped: number;
   failed: number;
+  /** Open journal breaks, для которых создан artificial NC atom. */
+  seeded?: number;
 }
 
 export interface BackfillRecentIncidentsResultDto {

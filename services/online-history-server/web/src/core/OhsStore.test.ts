@@ -126,6 +126,40 @@ afterEach(() => {
   localStorage.removeItem('ohs:viewState');
 });
 
+describe('OhsStore showWorkGaps mutex', () => {
+  it('вкл. Гэпы снимает Инциденты связи/сервера', () => {
+    const store = new OhsStore(fakeApi());
+    expect(store.showBreakIncidents$.value).toBe(true);
+    expect(store.showCrashIncidents$.value).toBe(true);
+    store.setShowWorkGaps(true);
+    expect(store.showWorkGaps$.value).toBe(true);
+    expect(store.showBreakIncidents$.value).toBe(false);
+    expect(store.showCrashIncidents$.value).toBe(false);
+  });
+
+  it('вкл. любого инцидента снимает Гэпы', () => {
+    const store = new OhsStore(fakeApi());
+    store.setShowWorkGaps(true);
+    store.setShowBreakIncidents(true);
+    expect(store.showWorkGaps$.value).toBe(false);
+    expect(store.showBreakIncidents$.value).toBe(true);
+
+    store.setShowWorkGaps(true);
+    store.setShowCrashIncidents(true);
+    expect(store.showWorkGaps$.value).toBe(false);
+    expect(store.showCrashIncidents$.value).toBe(true);
+  });
+
+  it('выкл. Гэпов не возвращает инциденты', () => {
+    const store = new OhsStore(fakeApi());
+    store.setShowWorkGaps(true);
+    store.setShowWorkGaps(false);
+    expect(store.showWorkGaps$.value).toBe(false);
+    expect(store.showBreakIncidents$.value).toBe(false);
+    expect(store.showCrashIncidents$.value).toBe(false);
+  });
+});
+
 describe('OhsStore live merge', () => {
   it('обновляет статус подключения по connectionStatusChanged', () => {
     const live = new Subject<LiveEvent>();

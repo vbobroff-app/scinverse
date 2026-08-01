@@ -126,8 +126,8 @@ export interface LinkLivenessState {
   /** T (сек) для clamp жёлтой фазы; с `/coverage/link`. */
   linkRecoverGraceSeconds?: number;
   /**
-   * Эпизоды журнала `incident` для окна (11.13e). `undefined` — ещё не грузили / сброс
-   * (лента Connection в legacy-режиме gaps); массив — источник цветных эпизодов + Recording red.
+   * Эпизоды журнала `incident` для окна (11.13e). `undefined` — ещё не грузили;
+   * массив — канон цветных эпизодов Connection (+ Recording red). Gaps→цвет — флаг UI off.
    */
   incidents?: IncidentDto[];
 }
@@ -360,6 +360,11 @@ export class OhsStore {
   readonly showCrashIncidents$ = new BehaviorSubject<boolean>(true);
   /** Верхний void-слой вне desired на Connection (schedule-as-projection). */
   readonly showScheduleMask$ = new BehaviorSubject<boolean>(true);
+  /**
+   * Гэпы в работе: цвет break/crash из `link_liveness` gaps (не journal).
+   * Mutex с showBreak/CrashIncidents — default off.
+   */
+  readonly showWorkGaps$ = new BehaviorSubject<boolean>(false);
 
   /** Раскрытые серии, ожидающие регидрации после перезагрузки (одноразово, см. hydrateExpanded). */
   private pendingSeriesHydration: PersistedSeries[] = [];
@@ -410,6 +415,8 @@ export class OhsStore {
    * D7: optimistic crash на ленте Connection для **всех** connections$ (при смене active
    * тот же from/to накладывается на link выбранного). Journal crash → UI глушит gap
    * (`journalHasOverlappingCrash`); снимаем tracker, когда API/journal закрыли эпизод.
+   * Пока `toMs == null` (бэк мёртв) — лента заморожена: не ходим в API link/incidents,
+   * держим кэш + эмуляцию; после клипа/recover — полный refresh.
    */
   private crashOptimistic: { fromMs: number; toMs: number | null } | null = null;
 
@@ -488,6 +495,14 @@ export class OhsStore {
     if (typeof v.showScheduleMask === 'boolean') {
       this.showScheduleMask$.next(v.showScheduleMask);
     }
+    if (typeof v.showWorkGaps === 'boolean') {
+      this.showWorkGaps$.next(v.showWorkGaps);
+    }
+    // Mutex: гэпы побеждают сохранённые инциденты.
+    if (this.showWorkGaps$.value) {
+      this.showBreakIncidents$.next(false);
+      this.showCrashIncidents$.next(false);
+    }
   }
 
   /** Снимок представления каталога для localStorage (из текущих сабджектов). */
@@ -526,6 +541,7 @@ export class OhsStore {
       showBreakIncidents: this.showBreakIncidents$.value,
       showCrashIncidents: this.showCrashIncidents$.value,
       showScheduleMask: this.showScheduleMask$.value,
+      showWorkGaps: this.showWorkGaps$.value,
     });
   }
 
@@ -1174,18 +1190,34 @@ export class OhsStore {
     }
   }
 
-  /** Показывать / скрывать жёлтый break на Connection. */
+  /** Показывать / скрывать жёлтый break на Connection (вкл. снимает Гэпы в работе). */
   setShowBreakIncidents(on: boolean): void {
+    let changed = false;
     if (this.showBreakIncidents$.value !== on) {
       this.showBreakIncidents$.next(on);
+      changed = true;
+    }
+    if (on && this.showWorkGaps$.value) {
+      this.showWorkGaps$.next(false);
+      changed = true;
+    }
+    if (changed) {
       this.persistView();
     }
   }
 
-  /** Показывать / скрывать красный crash на Connection. */
+  /** Показывать / скрывать красный crash на Connection (вкл. снимает Гэпы в работе). */
   setShowCrashIncidents(on: boolean): void {
+    let changed = false;
     if (this.showCrashIncidents$.value !== on) {
       this.showCrashIncidents$.next(on);
+      changed = true;
+    }
+    if (on && this.showWorkGaps$.value) {
+      this.showWorkGaps$.next(false);
+      changed = true;
+    }
+    if (changed) {
       this.persistView();
     }
   }
@@ -1194,6 +1226,31 @@ export class OhsStore {
   setShowScheduleMask(on: boolean): void {
     if (this.showScheduleMask$.value !== on) {
       this.showScheduleMask$.next(on);
+      this.persistView();
+    }
+  }
+
+  /**
+   * Гэпы в работе: цвет из link_liveness gaps.
+   * Вкл. снимает Инциденты связи/сервера; выкл. их сам не возвращает.
+   */
+  setShowWorkGaps(on: boolean): void {
+    let changed = false;
+    if (this.showWorkGaps$.value !== on) {
+      this.showWorkGaps$.next(on);
+      changed = true;
+    }
+    if (on) {
+      if (this.showBreakIncidents$.value) {
+        this.showBreakIncidents$.next(false);
+        changed = true;
+      }
+      if (this.showCrashIncidents$.value) {
+        this.showCrashIncidents$.next(false);
+        changed = true;
+      }
+    }
+    if (changed) {
       this.persistView();
     }
   }
@@ -1932,6 +1989,11 @@ export class OhsStore {
       this.clearLivenessState();
       return of(null);
     }
+    // Outage open: кэш ленты (journal + liveness) + optimistic crash — без API.
+    // Иначе poll/refresh при мёртвом бэке затирал incidents в [] и оставлял одну эмуляцию.
+    if (this.crashOptimistic !== null && this.crashOptimistic.toMs === null) {
+      return of(null);
+    }
     const { from, to } = this.window$.value;
     const connectionId = this.activeConnectionId$.value;
     return this.api.getCaptureLiveness({ from, to, sourceId }).pipe(
@@ -1995,7 +2057,7 @@ export class OhsStore {
           }),
           catchError((err) => {
             console.error('getConnectionIncidents', err);
-            this.link$.next({ ...this.link$.value, incidents: [] });
+            // Не затираем кэш journal пустым ответом (outage / краткий сбой API).
             return of(null);
           }),
         );

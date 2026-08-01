@@ -58,6 +58,7 @@ interface RibbonSnap {
   showLinkRibbon: boolean;
   showBreakIncidents: boolean;
   showCrashIncidents: boolean;
+  showWorkGaps: boolean;
   showScheduleMask: boolean;
   tzOffsetMin: number;
   linkRecoverGraceSeconds?: number;
@@ -80,6 +81,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const showLinkRibbon = useBehavior(store.showLinkRibbon$);
   const showBreakIncidents = useBehavior(store.showBreakIncidents$);
   const showCrashIncidents = useBehavior(store.showCrashIncidents$);
+  const showWorkGaps = useBehavior(store.showWorkGaps$);
   const showScheduleMask = useBehavior(store.showScheduleMask$);
   const connectionSchedules = useBehavior(store.connectionSchedule$);
   const ohsUnavailable = useBehavior(store.backendOutage$);
@@ -120,6 +122,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
     showLinkRibbon,
     showBreakIncidents,
     showCrashIncidents,
+    showWorkGaps,
     showScheduleMask,
     tzOffsetMin,
     linkRecoverGraceSeconds: link.linkRecoverGraceSeconds,
@@ -342,6 +345,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
             showLinkRibbon={view.showLinkRibbon}
             showBreakIncidents={view.showBreakIncidents}
             showCrashIncidents={view.showCrashIncidents}
+            paintGapsAsIncidents={view.showWorkGaps}
             showScheduleMask={view.showScheduleMask}
             scheduleRules={view.rules}
             tip={tipHandlers}

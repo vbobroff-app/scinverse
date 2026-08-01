@@ -37,11 +37,11 @@ interface Props {
   intervals?: LivenessIntervalDto[];
   /**
    * Периоды «связь не жива» из link_liveness.
-   * Слой связи: только серое (disconnected/scheduled).
-   * Цветные причины — только в слое инцидентов (journal или legacy fallback).
+   * Всегда: серое idle + optimistic crash overlay.
+   * Цветные break/crash из gaps — только если `paintGapsAsIncidents` (off by default).
    */
   gaps?: CaptureGapDto[];
-  /** Журнал `incident` (11.13e). `null`/`undefined` + break/crash on → legacy gaps. */
+  /** Журнал `incident` — канон цветных эпизодов (когда `paintGapsAsIncidents` off). */
   incidents?: IncidentDto[] | null;
   /** Текущее время (ms) — правый край открытого интервала связи. */
   nowMs?: number;
@@ -57,6 +57,12 @@ interface Props {
   showBreakIncidents?: boolean;
   /** Красный crash (`type=crash`) + маркеры / optimistic. */
   showCrashIncidents?: boolean;
+  /**
+   * Рисовать break/crash из gaps (cause→цвет), а не из journal.
+   * Default **off**: journal = факты поломок; gaps = срез живности.
+   * On — предпросмотр/восстановление по liveness (механизм сохранён, UI выключен).
+   */
+  paintGapsAsIncidents?: boolean;
   /** Верхний void-слой вне desired (schedule-as-projection). */
   showScheduleMask?: boolean;
   /** Живые правила расписания connection (для void mask). */
@@ -65,10 +71,10 @@ interface Props {
   tip?: RibbonTipHandlers;
 }
 
-/** Не-инцидент (серое, без маркеров): отключил оператор / плановый простой. */
+/** Серое idle на слое связи (не инцидент): оператор / плановый простой. */
 const GREY_CAUSES = new Set(['disconnected', 'scheduled']);
 
-function isIncident(cause: string): boolean {
+function isIncidentCause(cause: string): boolean {
   return !GREY_CAUSES.has(cause);
 }
 
@@ -93,11 +99,11 @@ function kindClass(kind: IncidentRibbonKind): string {
   return kind === 'crash' ? styles.crashBar : styles.breakBar;
 }
 
-function legacyBodyClass(cause: string): string {
+function gapIncidentBodyClass(cause: string): string {
   return cause === 'interrupted' ? styles.crashBar : styles.breakBar;
 }
 
-function legacyBodyLabel(cause: string): string {
+function gapIncidentBodyLabel(cause: string): string {
   return cause === 'interrupted' ? 'Сервер недоступен' : 'Восстановление связи';
 }
 
@@ -143,6 +149,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   showLinkRibbon = true,
   showBreakIncidents = true,
   showCrashIncidents = true,
+  paintGapsAsIncidents = false,
   showScheduleMask = true,
   scheduleRules,
   tip,
@@ -152,17 +159,20 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   const liveEdgeMs = Math.min(nowMs ?? windowToMs, windowToMs);
   const pct = makeProjector(windowFromMs, windowToMs, sessions);
   const showAnyIncidents = showBreakIncidents || showCrashIncidents;
-  const useJournal = showAnyIncidents && incidents != null;
-  const journalList = useJournal
+  // Default: journal. Flag on: gaps→цвет (оба cause); journal не красим. Тумблеры break/crash в UI сняты mutex'ом.
+  const useGapIncidents = paintGapsAsIncidents;
+  const useJournalIncidents = !paintGapsAsIncidents && incidents != null && showAnyIncidents;
+  const journalList = useJournalIncidents
     ? incidents!.filter((i) =>
         i.type === 'crash' ? showCrashIncidents : showBreakIncidents,
       )
     : [];
-  const journalPaint = useJournal
+  const journalPaint = useJournalIncidents
     ? projectConnectionIncidents(journalList, liveEdgeMs)
     : null;
+  // D7: open interrupted overlay — не то же самое, что paintGapsAsIncidents.
   const optimisticCrashGaps =
-    useJournal && showCrashIncidents
+    showCrashIncidents && !useGapIncidents
       ? gaps?.filter((g) => {
           if (g.cause !== 'interrupted' || g.to != null) {
             return false;
@@ -275,8 +285,8 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             })
         : null}
 
-      {/* 2. break */}
-      {useJournal && showBreakIncidents
+      {/* 2. break — journal (default) или gaps (paintGapsAsIncidents) */}
+      {useJournalIncidents && showBreakIncidents
         ? breakBodies.map((body, i) => {
             const left = pct(body.fromMs);
             const open = body.toMs >= liveEdgeMs;
@@ -304,17 +314,17 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           })
         : null}
 
-      {showBreakIncidents && !useJournal
+      {useGapIncidents
         ? gaps?.map((gap, i) => {
             if (GREY_CAUSES.has(gap.cause) || gap.cause === 'interrupted') {
               return null;
             }
-            if (!isIncident(gap.cause)) {
+            if (!isIncidentCause(gap.cause)) {
               return null;
             }
             const from = Date.parse(gap.from);
             const open = gap.to == null;
-            const to = open ? liveEdgeMs : Date.parse(gap.to);
+            const to = open ? liveEdgeMs : Date.parse(gap.to!);
             const left = pct(from);
             const label = tipLabel(
               'Восстановление связи',
@@ -338,7 +348,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
         : null}
 
       {/* 3. crash (поверх break) */}
-      {useJournal && showCrashIncidents
+      {useJournalIncidents && showCrashIncidents
         ? crashBodies.map((body, i) => {
             const left = pct(body.fromMs);
             const open = body.toMs >= liveEdgeMs;
@@ -366,11 +376,11 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           })
         : null}
 
-      {useJournal && showCrashIncidents
+      {showCrashIncidents
         ? optimisticCrashGaps?.map((gap, i) => {
             const from = Date.parse(gap.from);
             const open = gap.to == null;
-            const to = open ? liveEdgeMs : Date.parse(gap.to);
+            const to = open ? liveEdgeMs : Date.parse(gap.to!);
             const left = pct(from);
             const label = tipLabel(
               'Сервер недоступен',
@@ -393,7 +403,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           })
         : null}
 
-      {showCrashIncidents && !useJournal
+      {useGapIncidents
         ? gaps?.map((gap, i) => {
             if (gap.cause !== 'interrupted') {
               return null;
@@ -402,13 +412,13 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
             const left = pct(from);
             const label = tipLabel(
-              legacyBodyLabel(gap.cause),
+              gapIncidentBodyLabel(gap.cause),
               tipRange(from, to, !gap.to, tzOffsetMin),
             );
             return (
               <div
                 key={`gi${i}`}
-                className={[styles.bar, legacyBodyClass(gap.cause)].join(' ')}
+                className={[styles.bar, gapIncidentBodyClass(gap.cause)].join(' ')}
                 style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
                 {...bindTip(label, tip)}
               />
@@ -417,7 +427,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
         : null}
 
       {/* 4. markers */}
-      {useJournal
+      {useJournalIncidents
         ? journalPaint!.markers.map((m, i) => {
             const label = tipLabel(m.label, hhmm(m.atMs, tzOffsetMin));
             return m.kind === 'start' ? (
@@ -438,7 +448,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           })
         : null}
 
-      {useJournal && showCrashIncidents
+      {showCrashIncidents
         ? optimisticCrashGaps?.map((gap, i) => (
             <span
               key={`crash-s${i}`}
@@ -452,12 +462,9 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           ))
         : null}
 
-      {showAnyIncidents && !useJournal
+      {useGapIncidents
         ? gaps?.map((gap, i) => {
-            if (!isIncident(gap.cause)) {
-              return null;
-            }
-            if (gap.cause === 'interrupted' ? !showCrashIncidents : !showBreakIncidents) {
+            if (!isIncidentCause(gap.cause)) {
               return null;
             }
             const from = Date.parse(gap.from);
@@ -476,12 +483,9 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
           })
         : null}
 
-      {showAnyIncidents && !useJournal
+      {useGapIncidents
         ? gaps?.map((gap, i) => {
-            if (!gap.to || !isIncident(gap.cause) || gap.abandoned) {
-              return null;
-            }
-            if (gap.cause === 'interrupted' ? !showCrashIncidents : !showBreakIncidents) {
+            if (!gap.to || !isIncidentCause(gap.cause) || gap.abandoned) {
               return null;
             }
             const to = Date.parse(gap.to);

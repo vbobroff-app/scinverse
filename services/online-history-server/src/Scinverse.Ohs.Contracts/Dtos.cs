@@ -477,8 +477,11 @@ public sealed class IncidentQueryParams
 /// <summary>Тело <c>POST /api/incidents/{corr}/resolve</c> — ручное <c>abandoned_manual</c>.</summary>
 public sealed record ResolveIncidentRequest(string? ResolvedBy);
 
-/// <summary>Итог <c>POST /api/incidents/backfill-open</c> — open break из V025 → journal.</summary>
-public sealed record BackfillOpenIncidentsResultDto(int Adopted, int Skipped, int Failed);
+/// <summary>
+/// Итог <c>POST /api/incidents/backfill-open</c> — seed Hub/Manager из journal + зеркало NC
+/// для open break без atom (<c>Seeded</c>).
+/// </summary>
+public sealed record BackfillOpenIncidentsResultDto(int Adopted, int Skipped, int Failed, int Seeded = 0);
 
 /// <summary>
 /// Итог <c>POST /api/incidents/backfill-recent</c> — gaps link_liveness за вчера+сегодня (МСК) → journal.

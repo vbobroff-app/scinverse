@@ -178,13 +178,16 @@ Thread UI сделал видимым разрыв **open break + crash + Group 
 2. Supervisor: `TryAdoptOpenBreakFromJournalAsync` (Manager first; Hub = session seed).
 3. FanOut: mint corr до Hub; отказ NC не откатывает journal.
 4. Manager хранит `_incidentCorr`; close/resolve без Hub-oracle.
-5. `backfill-open` = seed Hub/Manager **из journal**, не V025→journal.
+5. `backfill-open` = seed Hub/Manager **из journal**, не V025→journal;
+   плюс **зеркало NC**: каждый open journal break без atom → artificial `connection.lost`
+   (`source=journal_nc_mirror`). Hub session по-прежнему один (newest) на subject.
 
 ### Критерий
 
 - [x] NC purge + Host restart + open journal break → adopt того же corr, не второй break.
 - [x] Stale-close Live не гейтится отказом Hub.Adopt.
 - [x] Manual resolve при open Manager не требует совпадения Hub corr.
+- [x] Два open в journal / один в NC → `backfill-open` досевает недостающий atom (стенд 2026-08-01).
 
 ### Связано
 

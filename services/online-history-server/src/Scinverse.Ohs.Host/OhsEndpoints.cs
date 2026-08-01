@@ -540,11 +540,13 @@ public static class OhsEndpoints
                 : Results.Ok(ToIncidentDto(updated, now));
         });
 
-        // I13: seed Hub/Manager session из journal open breaks (не V025→journal).
+        // I13: seed Hub/Manager из journal open breaks + зеркало NC, если atom отсутствует
+        // (journal SoT; после purge/ошибок journal может держать N open на connection, Hub — один).
         api.MapPost("/incidents/backfill-open", async (
             IConnectionStore connections,
             IIncidentStore store,
             ConnectionManager manager,
+            NotificationHub hub,
             INotificationPublisher notifications,
             IIncidentFanOut fanOut,
             CancellationToken ct) =>
@@ -552,14 +554,35 @@ public static class OhsEndpoints
             var adopted = 0;
             var skipped = 0;
             var failed = 0;
+            var seeded = 0;
+            var knownCorrs = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var corr in hub.List(500).Select(n => n.CorrelationId))
+            {
+                if (!string.IsNullOrWhiteSpace(corr))
+                {
+                    knownCorrs.Add(corr);
+                }
+            }
+
             foreach (var connection in await connections.ListAsync(ct).ConfigureAwait(false))
             {
-                Incident? row;
+                IReadOnlyList<Incident> openRows;
                 try
                 {
-                    row = await store
-                        .FindOpenBreakAsync(connection.ConnectionId, ct)
+                    var all = await store
+                        .QueryAsync(
+                            new IncidentQuery
+                            {
+                                Module = "connection",
+                                Type = "break",
+                                ConnectionId = connection.ConnectionId,
+                                Limit = 100,
+                            },
+                            ct)
                         .ConfigureAwait(false);
+                    openRows = all
+                        .Where(r => r.Status is "active" or "recovering")
+                        .ToList();
                 }
                 catch
                 {
@@ -567,22 +590,66 @@ public static class OhsEndpoints
                     continue;
                 }
 
-                if (row is null)
+                if (openRows.Count == 0)
                 {
                     skipped++;
                     continue;
                 }
 
+                // Зеркало NC: каждый open journal corr без atom → artificial connection.lost.
+                foreach (var row in openRows)
+                {
+                    if (knownCorrs.Contains(row.CorrUid))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        var subject = row.Subject
+                            ?? ConnectionManager.LinkIncidentSubject(connection.ConnectionId);
+                        var hubStatus = row.Status == "recovering" ? "underway" : "active";
+                        notifications.Publish(
+                            code: "connection.lost",
+                            message: string.IsNullOrWhiteSpace(row.Title)
+                                ? $"Соединение {connection.ConnectionId}: разрыв связи"
+                                : row.Title!,
+                            severity: string.IsNullOrWhiteSpace(row.Severity) ? "error" : row.Severity!,
+                            sourceType: "system",
+                            module: "ohs.connection",
+                            data: new
+                            {
+                                connectionId = connection.ConnectionId,
+                                kind = "break",
+                                threadKindHint = "incident",
+                                sender = row.Owner ?? "supervisor",
+                                source = "journal_nc_mirror",
+                            },
+                            status: hubStatus,
+                            correlationId: row.CorrUid,
+                            subject: subject,
+                            ts: row.OpenedAt);
+                        knownCorrs.Add(row.CorrUid);
+                        seeded++;
+                    }
+                    catch
+                    {
+                        failed++;
+                    }
+                }
+
+                // Hub/Manager session — только newest open (один subject → один live corr).
+                var newest = openRows.OrderByDescending(r => r.OpenedAt).First();
                 try
                 {
-                    var open = OpenLinkIncident.FromJournal(row);
+                    var open = OpenLinkIncident.FromJournal(newest);
                     var subject = ConnectionManager.LinkIncidentSubject(connection.ConnectionId);
                     if (manager.GetIncidentSince(connection.ConnectionId) is null)
                     {
                         _ = manager.AdoptOpenIncident(
                             connection.ConnectionId,
                             open.OpenedAt,
-                            owner: row.Owner ?? "supervisor",
+                            owner: newest.Owner ?? "supervisor",
                             corrUid: open.CorrelationId);
                     }
 
@@ -595,7 +662,7 @@ public static class OhsEndpoints
                                 open.OpenedAt,
                                 CorrUid: open.CorrelationId,
                                 ConnectionId: connection.ConnectionId,
-                                Owner: row.Owner ?? "supervisor",
+                                Owner: newest.Owner ?? "supervisor",
                                 SourceId: connection.SourceId,
                                 HubStatus: open.Status),
                             ct)
@@ -608,7 +675,7 @@ public static class OhsEndpoints
                 }
             }
 
-            return Results.Ok(new BackfillOpenIncidentsResultDto(adopted, skipped, failed));
+            return Results.Ok(new BackfillOpenIncidentsResultDto(adopted, skipped, failed, seeded));
         });
 
         // J4 scoped: gaps link_liveness за вчера+сегодня (МСК) → incident (идемпотентно).
