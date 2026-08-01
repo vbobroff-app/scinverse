@@ -398,6 +398,8 @@ export function NotificationDock({
             : undefined,
         choices: activeFilters.includes('choice') ? filter.choices : undefined,
         connection: activeFilters.includes('connection') ? filter.connection : undefined,
+        // Слои всегда (default TL+CL); не зависят от activeFilters.
+        layers: filter.layers,
         query: filter.query,
         range: activeFilters.includes('range') ? filter.range : undefined,
         tzOffsetMin,

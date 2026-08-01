@@ -20,13 +20,18 @@ import {
 import type { NcChoiceFilter } from '../filter/filterItems';
 import {
   connectionFilterSummary,
+  DEFAULT_LAYER_FILTER,
   EMPTY_CONNECTION_FILTER,
   isConnectionFilterDefault,
+  isLayerFilterDefault,
+  layerFilterAllState,
+  layerFilterSummary,
   normalizeDockFilter,
   type ConnectionDockFilter,
   type DockFilterKey,
   type DockFilterState,
   type DockFiltersSnapshot,
+  type LayerDockFilter,
 } from './dockFilterState';
 import { SeverityIcon } from './SeverityIcon';
 import { Tip } from './Tooltip';
@@ -37,12 +42,17 @@ export type {
   DockFilterKey,
   DockFilterState,
   DockFiltersSnapshot,
+  LayerDockFilter,
 } from './dockFilterState';
 export {
   connectionFilterSummary,
+  DEFAULT_LAYER_FILTER,
   EMPTY_CONNECTION_FILTER,
   EMPTY_DOCK_FILTER,
+  EMPTY_LAYER_FILTER,
   isConnectionFilterDefault,
+  isLayerFilterDefault,
+  layerFilterSummary,
   normalizeDockFilter,
   parseConnectionFilterId,
 } from './dockFilterState';
@@ -110,7 +120,7 @@ const AVAILABLE: { key: DockFilterKey; name: string }[] = [
   { key: 'status', name: 'Статус' },
   { key: 'threadStatus', name: 'Статус нити' },
   { key: 'choice', name: 'Выбор' },
-  { key: 'connection', name: 'Соединения' },
+  { key: 'connection', name: 'Коннекторы' },
   { key: 'range', name: 'Период' },
 ];
 
@@ -171,6 +181,9 @@ function isFilterAtDefault(key: DockFilterKey, value: DockFilterState): boolean 
   if (key === 'connection') {
     return isConnectionFilterDefault(value.connection);
   }
+  if (key === 'layers') {
+    return isLayerFilterDefault(value.layers);
+  }
   return (value.range.preset === 'all' || !value.range.preset) && !value.range.timeEnabled;
 }
 
@@ -196,6 +209,9 @@ function resetFilterValue(key: DockFilterKey, value: DockFilterState): DockFilte
   if (key === 'connection') {
     return { ...value, connection: { ...EMPTY_CONNECTION_FILTER } };
   }
+  if (key === 'layers') {
+    return { ...value, layers: { ...DEFAULT_LAYER_FILTER } };
+  }
   return { ...value, range: { ...EMPTY_DOCK_RANGE } };
 }
 
@@ -218,12 +234,15 @@ export function DockFilters({
   groupIntoThreads = true,
 }: Props) {
   const value = normalizeDockFilter(valueProp);
-  const availableFilters = groupIntoThreads
+  const clEnabled = value.layers.cl;
+  const availableFilters = (groupIntoThreads
     ? AVAILABLE
-    : AVAILABLE.filter((f) => f.key !== 'threadStatus');
-  const visibleActiveFilters = groupIntoThreads
+    : AVAILABLE.filter((f) => f.key !== 'threadStatus')
+  ).filter((f) => (f.key === 'connection' ? clEnabled : true));
+  const visibleActiveFilters = (groupIntoThreads
     ? activeFilters
-    : activeFilters.filter((k) => k !== 'threadStatus');
+    : activeFilters.filter((k) => k !== 'threadStatus')
+  ).filter((k) => (k === 'connection' ? clEnabled : true));
   const [open, setOpen] = useState<OpenKey>(null);
   // Календарь «ввести даты» показываем только по явному клику, не автоматически при custom.
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -287,7 +306,7 @@ export function DockFilters({
       window.removeEventListener('resize', place);
       pop.style.maxHeight = '';
     };
-  }, [open, calendarOpen, value.range, value.connection]);
+  }, [open, calendarOpen, value.range, value.connection, value.layers]);
 
   useEffect(() => {
     if (open === null) {
@@ -385,6 +404,28 @@ export function DockFilters({
       : [...activeFilters, 'connection'];
     commit({ ...value, connection }, nextActive);
   };
+
+  const withLayers = (layers: LayerDockFilter) => {
+    if (!layers.cl) {
+      if (open === 'connection') {
+        setOpen(null);
+      }
+      commit(
+        { ...value, layers, connection: { ...EMPTY_CONNECTION_FILTER } },
+        activeFilters.filter((k) => k !== 'connection'),
+      );
+      return;
+    }
+    commit({ ...value, layers }, activeFilters);
+  };
+
+  const layersAllRef = useRef<HTMLInputElement>(null);
+  const layersAllState = layerFilterAllState(value.layers);
+  useEffect(() => {
+    if (layersAllRef.current) {
+      layersAllRef.current.indeterminate = layersAllState === 'mixed';
+    }
+  }, [layersAllState]);
 
   const toggleOpen = (key: OpenKey) => setOpen((cur) => (cur === key ? null : key));
 
@@ -547,7 +588,93 @@ export function DockFilters({
           )}
         </div>
 
+        {/* Слои — pinned: всегда видны, × сбрасывает к TL+CL. */}
+        {(() => {
+          const layers = value.layers;
+          const summary = layerFilterSummary(layers);
+          const isOpen = open === 'layers';
+          const active = !isLayerFilterDefault(layers) || isOpen;
+          return (
+            <div className={styles.chipWrap} key="layers">
+              <div
+                className={[styles.chip, active ? styles.chipActive : ''].filter(Boolean).join(' ')}
+              >
+                <button
+                  type="button"
+                  data-filter-trigger="layers"
+                  className={styles.chipBody}
+                  onClick={() => toggleOpen('layers')}
+                  aria-expanded={isOpen}
+                >
+                  <span className={styles.chipName}>Слои</span>
+                  <span className={styles.chipValue}>: {summary}</span>
+                  <span className={[styles.caret, isOpen ? styles.caretOpen : ''].join(' ')}>▾</span>
+                </button>
+                <Tip content="Сбросить к TL+CL">
+                  <button
+                    type="button"
+                    className={styles.chipClose}
+                    onClick={() => withLayers({ ...DEFAULT_LAYER_FILTER })}
+                    aria-label="Сбросить фильтр «Слои»"
+                  >
+                    ×
+                  </button>
+                </Tip>
+              </div>
+              {isOpen && (
+                <div
+                  ref={popoverRef}
+                  className={popoverClass(styles.connectionPopover)}
+                  role="group"
+                  aria-label="Слои"
+                >
+                  <label className={styles.connectionRow}>
+                    <input
+                      ref={layersAllRef}
+                      type="checkbox"
+                      checked={layersAllState === 'all'}
+                      onChange={() => {
+                        const on = layersAllState !== 'all';
+                        withLayers({ tl: on, cl: on, wl: on });
+                      }}
+                    />
+                    <span className={styles.connectionLabel}>Все</span>
+                  </label>
+                  <div className={styles.checkDivider} aria-hidden="true" />
+                  <label className={styles.connectionRow}>
+                    <input
+                      type="checkbox"
+                      checked={layers.tl}
+                      onChange={(e) => withLayers({ ...layers, tl: e.target.checked })}
+                    />
+                    <span className={styles.connectionLabel}>Транспортный (TL)</span>
+                  </label>
+                  <label className={styles.connectionRow}>
+                    <input
+                      type="checkbox"
+                      checked={layers.cl}
+                      onChange={(e) => withLayers({ ...layers, cl: e.target.checked })}
+                    />
+                    <span className={styles.connectionLabel}>Коннекторы (CL)</span>
+                  </label>
+                  <label className={styles.connectionRow}>
+                    <input
+                      type="checkbox"
+                      checked={layers.wl}
+                      onChange={(e) => withLayers({ ...layers, wl: e.target.checked })}
+                    />
+                    <span className={styles.connectionLabel}>Запись (WL)</span>
+                  </label>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {visibleActiveFilters.map((key) => {
+          if (key === 'layers') {
+            return null;
+          }
           if (key === 'connection') {
             const conn = value.connection;
             const summary = connectionFilterSummary(conn);
@@ -566,7 +693,7 @@ export function DockFilters({
                     onClick={() => toggleOpen('connection')}
                     aria-expanded={isOpen}
                   >
-                    <span className={styles.chipName}>Соединения</span>
+                    <span className={styles.chipName}>Коннекторы</span>
                     {summary ? (
                       <span className={styles.chipValue}>: {summary}</span>
                     ) : (
@@ -585,8 +712,8 @@ export function DockFilters({
                       onClick={() => onChipClose('connection')}
                       aria-label={
                         isFilterAtDefault('connection', value)
-                          ? 'Убрать фильтр «Соединения»'
-                          : 'Сбросить фильтр «Соединения»'
+                          ? 'Убрать фильтр «Коннекторы»'
+                          : 'Сбросить фильтр «Коннекторы»'
                       }
                     >
                       ×
@@ -598,7 +725,7 @@ export function DockFilters({
                     ref={popoverRef}
                     className={popoverClass(styles.connectionPopover)}
                     role="group"
-                    aria-label="Соединения"
+                    aria-label="Коннекторы"
                   >
                     <button
                       type="button"

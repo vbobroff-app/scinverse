@@ -174,7 +174,38 @@ sequenceDiagram
 
 ---
 
-## 8. Связанные документы
+## 8. Фильтр NC «Слои» (TL / CL / WL)
+
+Ось **слоя** в доке уведомлений — **не** тип инцидента (break/crash toggles на Connection-ribbon).
+
+| UI | Код | Что попадает |
+|----|-----|--------------|
+| **Все** | master | чекбокс: все on / все off (indeterminate при смеси) |
+| **Транспортный (TL)** | `tl` | crash (`ohs.backend.outage:*`, `host.*`); local Single host |
+| **Коннекторы (CL)** | `cl` | break (`connection:{id}:link:*`), прочие `connection.*` |
+| **Запись (WL)** | `wl` | recording / coverage / writer |
+
+**Правило:** один Incident/Thread = **один** слой. Crash Thread остаётся **TL**, даже если
+`data.connectionIds` красит ribbon (P5 scope) — в фильтре слоёв не «размазывать» по CL.
+
+**Default:** TL + CL **on**, WL **off**.  
+Чекбоксы (не radio). Плашка «Слои» pinned в доке; × → сброс к default.  
+Ортогонально: severity / break·crash на ганте.
+
+### Фильтр дока «Коннекторы» (show/hide Id)
+
+Действует **только внутри слоя CL**: `id ≠ 1` = среди connection-инцидентов оставить не-1.  
+TL/WL (в т.ч. crash с `connectionIds` для ribbon) **не режутся** этим фильтром — их видимость
+решает только «Слои».
+
+При `☐ Коннекторы (CL)` в «Слои»: чип «Коннекторы» **исчезает**, show/hide **сбрасываются**;
+после повторного `☑ CL` фильтр нужно набрать снова.
+
+Реализация: `packages/notification-center` → `filter/layerFilter.ts`, `filterItems.matchesConnectionFilter`, чипы в `DockFilters`.
+
+---
+
+## 9. Связанные документы
 
 | Документ | О чём |
 |----------|--------|
@@ -185,3 +216,4 @@ sequenceDiagram
 | [`incident-journal.md`](../dev/phase11/incident-journal.md) | таблица `incident`, ленты |
 | [`to-threads.md`](../dev/phase11/to-threads.md) | Single / Thread / Incident / Group |
 | [`phase7j/incident.md`](../dev/phase7j/incident.md) | break/crash продюсер |
+| §8 выше | фильтр NC «Слои» TL/CL/WL |

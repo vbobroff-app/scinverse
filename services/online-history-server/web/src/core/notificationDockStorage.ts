@@ -14,12 +14,15 @@ import type {
   ThreadStatus,
 } from '@scinverse/notification-center';
 import {
+  DEFAULT_LAYER_FILTER,
   EMPTY_CONNECTION_FILTER,
   EMPTY_DOCK_RANGE,
   EMPTY_DOCK_SETTINGS,
   isDockRangePreset,
   normalizeConnectionFilter,
   normalizeDockSettings,
+  normalizeLayerFilter,
+  type LayerDockFilter,
 } from '@scinverse/notification-center';
 
 const STORAGE_KEY = 'ohs:notificationDock';
@@ -32,6 +35,7 @@ const VALID_ACTIVE: readonly DockFilterKey[] = [
   'threadStatus',
   'choice',
   'connection',
+  'layers',
   'range',
 ];
 const VALID_SEVERITIES: readonly NotificationSeverity[] = [
@@ -65,9 +69,17 @@ function emptyFilter(): DockFilterState {
     threadStatuses: [],
     choices: [],
     connection: { ...EMPTY_CONNECTION_FILTER },
+    layers: { ...DEFAULT_LAYER_FILTER },
     range: { ...EMPTY_DOCK_RANGE },
     query: '',
   };
+}
+
+function parseLayers(raw: unknown): LayerDockFilter {
+  if (!raw || typeof raw !== 'object') {
+    return { ...DEFAULT_LAYER_FILTER };
+  }
+  return normalizeLayerFilter(raw as Partial<LayerDockFilter>);
 }
 
 function parseConnection(raw: unknown): ConnectionDockFilter {
@@ -143,6 +155,7 @@ function parseFilter(raw: unknown): DockFilterState {
       (VALID_CHOICES as readonly string[]).includes(s),
     ),
     connection: parseConnection(f.connection),
+    layers: parseLayers(f.layers),
     range: parseRange(f.range),
     query: typeof f.query === 'string' ? f.query : '',
   };
@@ -182,6 +195,7 @@ function cloneFilter(filter: DockFilterState): DockFilterState {
     threadStatuses: [...(filter.threadStatuses ?? [])],
     choices: [...(filter.choices ?? [])],
     connection: normalizeConnectionFilter(filter.connection),
+    layers: normalizeLayerFilter(filter.layers),
     range: nextRange,
     query: filter.query ?? '',
   };
@@ -357,6 +371,8 @@ class NotificationDockStore {
       this.filter$.next({ ...f, choices: [] });
     } else if (key === 'connection') {
       this.filter$.next({ ...f, connection: { ...EMPTY_CONNECTION_FILTER } });
+    } else if (key === 'layers') {
+      this.filter$.next({ ...f, layers: { ...DEFAULT_LAYER_FILTER } });
     } else if (key === 'range') {
       this.filter$.next({ ...f, range: { ...EMPTY_DOCK_RANGE } });
     }
@@ -373,6 +389,7 @@ class NotificationDockStore {
       threadStatuses: [],
       choices: [],
       connection: { ...EMPTY_CONNECTION_FILTER },
+      layers: { ...DEFAULT_LAYER_FILTER },
       range: { ...EMPTY_DOCK_RANGE },
       query: this.filter$.value.query,
     });
@@ -396,7 +413,7 @@ class NotificationDockStore {
  * Иначе после hot-reload появляются два store и toggle open со старого
  * затирает фильтры в localStorage пустым снимком.
  */
-const globalStoreKey = '__scinverseOhsNotificationDockStore_v8';
+const globalStoreKey = '__scinverseOhsNotificationDockStore_v9';
 
 function getOrCreateStore(): NotificationDockStore {
   const g = globalThis as unknown as Record<string, NotificationDockStore | undefined>;

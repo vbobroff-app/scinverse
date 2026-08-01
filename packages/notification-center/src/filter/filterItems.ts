@@ -10,15 +10,22 @@ import {
   parseConnectionFilterId,
   type ConnectionDockFilter,
 } from './connectionFilter';
+import {
+  classifyItemLayer,
+  matchesLayerFilter,
+  type LayerDockFilter,
+} from './layerFilter';
 
 export type NcChoiceFilter = 'favorite' | 'left';
 
-/** Фильтр ленты контейнеров (атомы + threadStatus + Выбор + connectionId). */
+/** Фильтр ленты контейнеров (атомы + threadStatus + Выбор + connectionId + слой). */
 export interface NotificationItemFilter extends NotificationFilter {
   threadStatuses?: ReadonlySet<ThreadStatus> | readonly ThreadStatus[];
   choices?: ReadonlySet<NcChoiceFilter> | readonly NcChoiceFilter[];
-  /** По `data.connectionId`; hide побеждает show. */
+  /** Show/hide Id только для слоя CL; hide побеждает show. */
   connection?: ConnectionDockFilter;
+  /** Слои TL/CL/WL; ортогонально break/crash toggles. */
+  layers?: LayerDockFilter;
 }
 
 /** Прочитать `data.connectionId` (number | numeric string). */
@@ -76,8 +83,8 @@ function itemConnectionIds(item: NotificationItem): number[] {
 }
 
 /**
- * Include/exclude по connectionId.
- * Нет id на item (транспорт) — не режется include; hide только если id совпал.
+ * Фильтр «Коннекторы»: show/hide Id только для слоя CL.
+ * TL/WL (в т.ч. crash с `connectionIds`) не режутся — их видимость = «Слои».
  * Hide побеждает show.
  */
 export function matchesConnectionFilter(
@@ -90,6 +97,10 @@ export function matchesConnectionFilter(
   const hideId = parseConnectionFilterId(connection.hideIdText);
   const showId = parseConnectionFilterId(connection.showIdText);
   if (hideId == null && showId == null) {
+    return true;
+  }
+
+  if (classifyItemLayer(item) !== 'cl') {
     return true;
   }
 
@@ -200,6 +211,10 @@ export function filterItems(
   };
 
   return items.filter((item) => {
+    if (!matchesLayerFilter(item, filter.layers)) {
+      return false;
+    }
+
     if (!matchesConnectionFilter(item, filter.connection)) {
       return false;
     }

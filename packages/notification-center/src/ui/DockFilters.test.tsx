@@ -15,7 +15,7 @@ describe('DockFilters period time', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { expanded: false }));
+    fireEvent.click(screen.getByRole('button', { name: /^Период/ }));
     const checkbox = screen.getByRole('checkbox', { name: /ввести время/i });
     expect((checkbox as HTMLInputElement).checked).toBe(false);
 

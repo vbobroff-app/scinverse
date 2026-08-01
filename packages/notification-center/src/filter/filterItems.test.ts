@@ -122,7 +122,7 @@ describe('filterItems', () => {
     expect(visible[0]?.itemKind === 'thread' && visible[0].uid).toBe('c1');
   });
 
-  it('P5.2: connectionIds on transport crash match show/hide filter', () => {
+  it('Коннекторы: TL crash with connectionIds is not cut by show/hide Id', () => {
     const items = projectThreads([
       evt({
         id: 'a',
@@ -133,31 +133,30 @@ describe('filterItems', () => {
       }),
     ]);
     expect(
-      filterItems(items, { connection: { showIdText: '3', hideIdText: '' } }),
+      filterItems(items, { connection: { showIdText: '2', hideIdText: '' } }),
     ).toHaveLength(1);
     expect(
-      filterItems(items, { connection: { showIdText: '2', hideIdText: '' } }),
-    ).toHaveLength(0);
-    expect(
       filterItems(items, { connection: { showIdText: '', hideIdText: '1' } }),
-    ).toHaveLength(0);
+    ).toHaveLength(1);
   });
 
-  it('connection hide Id excludes matching threads; keeps no-id', () => {
+  it('Коннекторы: hide Id cuts CL only; TL stays', () => {
     const items = projectThreads([
       evt({
         id: 'a',
-        correlationId: 'ohs.backend.outage:1:c1',
-        code: 'backend.unavailable',
-        data: { connectionId: 1 },
-        message: 'synth',
+        correlationId: 'connection:1:link:aaaa',
+        code: 'connection.lost',
+        module: 'ohs.connection',
+        data: { kind: 'break', connectionId: 1 },
+        message: 'break1',
       }),
       evt({
         id: 'b',
-        correlationId: 'ohs.backend.outage:1:c3',
-        code: 'backend.unavailable',
-        data: { connectionId: 3 },
-        message: 'finam',
+        correlationId: 'connection:3:link:bbbb',
+        code: 'connection.lost',
+        module: 'ohs.connection',
+        data: { kind: 'break', connectionId: 3 },
+        message: 'break3',
       }),
       evt({
         id: 't',
@@ -170,25 +169,27 @@ describe('filterItems', () => {
       connection: { showIdText: '', hideIdText: '1' },
     });
     expect(visible.map((i) => (i.itemKind === 'thread' ? i.uid : i.id))).toEqual([
-      'ohs.backend.outage:1:c3',
+      'connection:3:link:bbbb',
       'ohs.host.transport:1',
     ]);
   });
 
-  it('connection show Id keeps matching + no-id; hide wins over show', () => {
+  it('Коннекторы: show Id keeps matching CL + all TL; hide wins over show', () => {
     const items = projectThreads([
       evt({
         id: 'a',
-        correlationId: 'c:1',
-        code: 'backend.unavailable',
-        data: { connectionId: 1 },
+        correlationId: 'connection:1:link:aaaa',
+        code: 'connection.lost',
+        module: 'ohs.connection',
+        data: { kind: 'break', connectionId: 1 },
         message: 'one',
       }),
       evt({
         id: 'b',
-        correlationId: 'c:3',
-        code: 'backend.unavailable',
-        data: { connectionId: 3 },
+        correlationId: 'connection:3:link:bbbb',
+        code: 'connection.lost',
+        module: 'ohs.connection',
+        data: { kind: 'break', connectionId: 3 },
         message: 'three',
       }),
       evt({ id: 'n', correlationId: 'c:none', code: 'host.unreachable', message: 'transport' }),
@@ -197,13 +198,36 @@ describe('filterItems', () => {
       connection: { showIdText: '3', hideIdText: '' },
     });
     expect(showOnly.map((i) => (i.itemKind === 'thread' ? i.uid : i.id))).toEqual([
-      'c:3',
       'c:none',
+      'connection:3:link:bbbb',
     ]);
 
     const both = filterItems(items, {
       connection: { showIdText: '3', hideIdText: '3' },
     });
     expect(both.map((i) => (i.itemKind === 'thread' ? i.uid : i.id))).toEqual(['c:none']);
+  });
+
+  it('layers: CL-only keeps break Thread, hides crash TL', () => {
+    const items = projectThreads([
+      evt({
+        id: 'crash',
+        correlationId: 'ohs.backend.outage:1',
+        code: 'backend.unavailable',
+        data: { kind: 'crash', connectionIds: [3] },
+        message: 'outage',
+      }),
+      evt({
+        id: 'break',
+        correlationId: 'connection:3:link:abcd',
+        code: 'connection.lost',
+        module: 'ohs.connection',
+        data: { kind: 'break', connectionId: 3 },
+        message: 'link down',
+      }),
+    ]);
+    const visible = filterItems(items, { layers: { tl: false, cl: true, wl: false } });
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.itemKind === 'thread' && visible[0].uid).toBe('connection:3:link:abcd');
   });
 });

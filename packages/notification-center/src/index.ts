@@ -68,6 +68,19 @@ export {
   type ConnectionDockFilter,
 } from './filter/connectionFilter';
 export {
+  DEFAULT_LAYER_FILTER,
+  EMPTY_LAYER_FILTER,
+  classifyEventLayer,
+  classifyItemLayer,
+  isLayerFilterDefault,
+  layerFilterAllState,
+  layerFilterSummary,
+  matchesLayerFilter,
+  normalizeLayerFilter,
+  type LayerDockFilter,
+  type NcLayer,
+} from './filter/layerFilter';
+export {
   NC_MARKS_STORAGE_KEY,
   loadNcMarks,
   resolveEntryMarks,

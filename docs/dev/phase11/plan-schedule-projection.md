@@ -109,7 +109,7 @@
 | D1 | Corr transport: `ohs.backend.outage:{seed}` (**без** `:c{id}`). `:c{id}` — legacy. |
 | D2 | Journal: **1** строка `type=crash`, `connection_id = NULL`; scope — таблица `incident_connection (corr_uid, connection_id)`. |
 | D3 | Scope на open: snapshot **enabled** connections (как нынешний fan-out). Mid-outage enable → v1 **не** добавляем в scope. |
-| D4 | NC: **1** Incident Thread на transport; filter по connection — через scope / `data.connectionIds`. |
+| D4 | NC: **1** Incident Thread на transport (TL); ribbon/API scope — `connectionIds` / join. Dock «Коннекторы» show/hide Id — только CL ([layers.md §8](../../wiki-readme/layers.md)). |
 | D5 | Resolve / `abandoned_manual` / recover — **одна** операция на transport corr → все ribbon/API. |
 | D6 | **История MVP:** dual-read / migrate старых NC atoms **не делаем**. Cutover = purge таблицы `notification` (+ перезапуск Host: Hub — in-memory ring, иначе UI видит старое). Journal `:c{id}` на стенде — purge или one-shot migrate без dual-read API (выбрать при старте P5.1; предпочтение стенда — purge crash-строк вместе с NC). |
 | D7 | Расписание / Cutter / mask **не** участвуют в модели crash (P4). |
@@ -121,9 +121,10 @@
 |-----|-----|----------|
 | P5.0 | Docs (этот блок + pointers в speке/promt) | **DONE** (docs) |
 | P5.1 | DDL `incident_connection` + store scope + Query join | **DONE** (`V029`, Replace/List scope, Query via join) |
-| P5.2 | Emit 1+N; GET connection incidents = break ∪ crash-via-join; ribbon crash | **DONE** (Host emit + NC `connectionIds` filter) |
+| P5.2 | Emit 1+N; GET connection incidents = break ∪ crash-via-join; ribbon crash | **DONE** (Host emit + ribbon/`connectionIds` scope; dock Id = CL-only) |
 | P5.3 | Cutover стенд: purge NC (+ Host restart); journal legacy crash — purge/migrate per D6 | **DONE** (NC=0; legacy `:c{id}` crash=0; Host restart) |
 | P5.4 | Убрать emit `:c{id}`; sync crash-dispatch / incident-journal | **DONE** (helpers dropped; speки synced) |
+| P5.5 | I13: adopt/open/resolve SoT = journal (не `notification`/Hub) | **DONE** — иначе purge NC ⇒ break⊂break |
 
 #### Acceptance
 
@@ -132,6 +133,7 @@
 3. Один recover / один manual close закрывает весь эпизод.
 4. После cutover нет опоры на историю NC atoms (MVP).
 5. Регресс: break, mask, Auto≠resolve, I10, toggles break/crash.
+6. **I13:** NC off / purge → supervisor не плодит второй break; adopt из journal.
 
 ---
 
@@ -155,6 +157,7 @@
 6. feat(ohs): incident_connection DDL + store               ← P5.1
 7. feat(ohs-11): 2NF crash emit/query                       ← P5.2
 8. chore: cutover purge NC (+ Host restart); drop :c{id}    ← P5.3–4
+9. fix(ohs-11): adopt/open SoT from journal (I13)           ← P5.5
 ```
 
 Между 2 и 3 — обязательная ручная проверка: ночной crash + утреннее окно + mask on/off +
@@ -166,6 +169,7 @@ SessionFilter moex.
 
 - Journal ⊥ NC (fan-out / SkipJournal семантика до P4 аккуратна).
 - **I10:** stale-close open break только при `Live`.
+- **I13:** open-break adopt/gate — journal (+ Manager), не `notification`/Hub.
 - CloseBreak: WS resolve до journal; journal resolve await (`255cc93`).
 - Ribbon refresh только через OhsStore pipeline (I12).
 - TRANSAQ: `request_timeout=10`; без QuickPath / второй DLL.

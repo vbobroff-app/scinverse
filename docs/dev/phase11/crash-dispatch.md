@@ -117,8 +117,9 @@ ohs.backend.outage:{outageSeed}       — всегда Incident (P3); один T
 # …:c{id}:h — ОТКЛОНЕНО, не использовать
 ```
 
-- один Host-outage → **одна** нить слоя C + `data.connectionIds[]` (scope enabled);
-- фильтр NC / ribbon — через scope (`incident_connection` / `connectionIds`);
+- один Host-outage → **одна** нить слоя T (TL) + `data.connectionIds[]` (scope enabled);
+- ribbon / API scope — через `incident_connection` / `connectionIds`;
+- dock-фильтр «Коннекторы» (show/hide Id) — **только CL**, crash TL не режет (см. [layers.md §8](../../wiki-readme/layers.md));
 - header subject = `ohs.backend.outage`.
 
 ### 4.3. Journal (P5)
@@ -222,7 +223,8 @@ Incident  ohs.backend.outage:{seed}       ← data.connectionIds = [1, 3] (enabl
 ```
 
 **Journal:** одна строка crash + scope `(seed→1)`, `(seed→3)`.  
-Фильтр NC / ribbon `connectionId=3` → тот же Thread (via `connectionIds` / join).
+Ribbon / GET connection incidents `connectionId=3` → тот же TL Thread (via `connectionIds` / join).  
+Dock «Коннекторы» Id — только break/CL; этот crash не скрывается show/hide Id.
 
 ---
 
