@@ -87,8 +87,8 @@
 |-----|-----|----------|
 | P4.1 | Убрать Group emit для connection outages | нет SkipJournal Group path — **DONE** (Host P3 + client default Incident; Auto Group connect оставлен) |
 | P4.2 | Выключить `abandoned_schedule` close / классификатор | Auto stop ≠ resolve incident — **DONE** (Supervisor + client; API legacy) |
-| P4.3 | Вычистить упоминания `:h` / `ConnectionScheduleDesiredOverlap` из docs и мёртвого кода | grep clean |
-| P4.4 | Wiki/layers sequenceDiagram → to-be | sync |
+| P4.3 | Вычистить упоминания `:h` / `ConnectionScheduleDesiredOverlap` из docs и мёртвого кода | grep clean — **DONE** (в коде не было; docs/promt sync) |
+| P4.4 | Wiki/layers sequenceDiagram → to-be | sync — **DONE** |
 
 **Только после** стабильного P2+P3 на стенде.
 

@@ -205,20 +205,21 @@ Unit: **186/186**. Host при `dotnet test` не должен держать DL
 
 Реализовать переход на идеологию **«факты независимо от расписания; schedule = маска / Cutter»**
 по плану [`dev/phase11/plan-schedule-projection.md`](./dev/phase11/plan-schedule-projection.md).
-Код as-is ещё классифицирует Incident vs Group по `desired@open` — **не углублять** эту ветку;
-`:h` clip в journal — **отклонён** (WIP откатан, кода нет).
+`:h` clip в journal — **отклонён** (кода нет). Group-by-desired / `abandoned_schedule` на Auto — **P4 DONE**.
 
-### Где мы (baseline)
+### Где мы (baseline → после чата)
 
 | Тема | Статус |
 |------|--------|
-| Incident journal + NC fan-out, crash D1–D8 | DONE (as-is schedule classification) |
+| Incident journal + NC fan-out, crash D1–D8 | DONE |
 | I12 ribbon pool / orphan FATAL | клиент DONE; pool **DEFER** @100 |
 | Adopt Live-only / CloseBreak race / NC crash header | DONE |
-| ScheduleCutter / UI void mask / always-Incident | **NOT STARTED** — этот чат |
+| P1 ScheduleCutter (+ unit); P1.2 writers | P1.1 DONE; P1.2 deferred |
+| P2 UI void mask | DONE |
+| P3 always-Incident | DONE |
+| P4 remove Group outage + abandon | DONE |
+| P5 2NF crash journal | later |
 | Gate 11→12, WebGL 12, 7j.15/16 | later, не смешивать |
-
-Чистый baseline после docs-коммита идеологии. Перед кодом: `git status` clean.
 
 ### Прочитай первым (порядок)
 
@@ -236,7 +237,7 @@ Unit: **186/186**. Host при `dotnet test` не должен держать DL
 **всегда Incident** в NC + journal. Расписание не решает «инцидент или Group». UI — **void mask**
 (~0.8 чёрный) вне desired на Connection-треке (⊥ SessionFilter). Writers — **ScheduleCutter**
 (`gaps ∩ desired`, type-agnostic). Supervisor Auto connect/disconnect остаётся;
-`abandoned_schedule` и Group-outage — выключить **после** mask/Cutter. 2NF crash journal — later.
+`abandoned_schedule` и Group-outage на Auto stop **выключены** (P4). 2NF crash journal — later (P5).
 
 ### Порядок работ (деликатно)
 
@@ -279,8 +280,7 @@ Unit: dotnet test …/Scinverse.Ohs.UnitTests.csproj
 
 ### Критерий «готово» для чата
 
-Пройти acceptance §9 в `schedule-projection.md` хотя бы по P1–P3 на стенде; P4 — когда стабильно;
-P5 не обязателен в первом проходе.
+Acceptance §9: P1–P4 на стенде; P5 (2NF) не обязателен в первом проходе.
 
 ---
 

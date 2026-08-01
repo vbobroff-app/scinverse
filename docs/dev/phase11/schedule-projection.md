@@ -137,7 +137,7 @@ crash на N `:c{id}` — допустимый as-is; цель 2NF — отде�
 | As-is | Статус |
 |-------|--------|
 | `desired@open` → Incident vs Group | **снято** (P3/P4.1): outage всегда Incident |
-| Journal только «в горизонте» | deprecate |
+| Journal только «в горизонте» | **снято** (P3): полный span |
 | Clipped Incident `:h` (Group∩desired) | **отклонён**; docs в crash-dispatch помечены obsolete; кода нет |
 | Group для outages в NC | **снято** (P4.1); Group auto-connect оставлен |
 | `abandoned_schedule` | **выключен** в live-path (P4.2): Auto disconnect не resolve; outcome остаётся в journal/API истории |
@@ -161,6 +161,6 @@ crash на N `:c{id}` — допустимый as-is; цель 2NF — отде�
 
 - Маска общая для liveness + incidents (антифаза).
 - Writers нуждаются в Cutter-выходе (клип), UI — в mask (не обязательно тот же код-путь).
-- Деликатная миграция: сначала документация и Cutter/mask (additive), потом always-Incident,
-  потом удаление Group/`abandoned_schedule`/`:h`-упоминаний.
+- Деликатная миграция: Cutter/mask → always-Incident → P4 Group/`abandoned_schedule` (DONE);
+  `:h` не воскрешать; 2NF — P5.
 - Отдельная спека (этот файл) предпочтительнее полной переписки `incident-journal.md`.

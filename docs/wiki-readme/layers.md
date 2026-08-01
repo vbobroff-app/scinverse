@@ -34,8 +34,8 @@
 
 В UI «провайдер» ≈ connection; в спеке канон — **слой соединений**, ключ всегда `connectionId`.
 
-**As-is (устаревает):** на C — Incident **или** Group в зависимости от `desired@open`; journal
-только «в горизонте». To-be: schedule не классифицирует слой C.
+**To-be (P3/P4):** на C outage всегда **Incident** + journal (полный span). Schedule = mask/Cutter /
+Auto connect·disconnect; не классифицирует слой C. Group остаётся только для планового Auto-connect.
 
 ### Иерархия
 
@@ -135,9 +135,9 @@ WS up + POST × clients → Host merge
 UI / Writers: schedule mask + Cutter поверх фактов
 ```
 
-**As-was (до P3):** `desired@open` → Incident+journal, иначе Group без journal.  
 Документ: [`crash-dispatch.md`](../dev/phase11/crash-dispatch.md).  
-Ветка `:h` (clipped Incident) — **отклонена**, в коде нет.
+P4: Group-by-desired и `abandoned_schedule` на Auto stop **сняты**.  
+Ветка `:h` (clipped Incident) — **отклонена**, в коде нет (`ConnectionScheduleDesiredOverlap` — нет).
 
 ```mermaid
 sequenceDiagram
@@ -167,8 +167,7 @@ sequenceDiagram
 1. **T** не несёт `connectionId` в journal как «транспортная строка».
 2. **C** без `connectionId` в durable NC/journal — баг (кроме переходного as-is).
 3. **W** не подменяет C: дыра записи ≠ «кто чинит link».
-4. **To-be:** переклассификация Group→Incident mid-flight не нужна — Group для outage уходит.
-   As-is: mid-flight promote **запрещена**; только новый corr.
+4. Group для outage **нет**; mid-flight promote Group→Incident не нужна.
 5. Слои визуализации ганта (`link_liveness` / `incident` / **schedule mask**) **ортогональны**
    слоям T/C/W: это отрисовка Connection-карточки, не транспорт admin↔Host.
 6. SessionFilter (схлоп оси) ≠ Schedule mask (void на Full-оси).
