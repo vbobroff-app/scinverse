@@ -52,9 +52,10 @@
   animation: connPulse 1.6s ease-in-out infinite;
 }
 
-/* Открытый Active-инцидент (тултип «…–сейчас»): пульс только у ленты, не у маркеров. */
+/* Открытый Active-инцидент (тултип «…–сейчас»): пульс только у ленты, не у маркеров.
+   Амплитуда lighter → normal → darker (brightness), в отличие от connPulse (normal↔darker). */
 .incidentLive {
-  animation: connPulse 1.6s ease-in-out infinite;
+  animation: incidentPulse 1.6s ease-in-out infinite;
 }
 
 .idle {
@@ -117,5 +118,15 @@
   }
   50% {
     opacity: 1;
+  }
+}
+
+@keyframes incidentPulse {
+  0%,
+  100% {
+    filter: brightness(1.08);
+  }
+  50% {
+    filter: brightness(0.9);
   }
 }
