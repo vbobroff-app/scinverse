@@ -218,7 +218,7 @@ Unit: **186/186**. Host при `dotnet test` не должен держать DL
 | P2 UI void mask | DONE |
 | P3 always-Incident | DONE |
 | P4 remove Group outage + abandon | DONE |
-| P5 2NF crash journal | later |
+| P5 2NF crash journal | P5.0 design DONE (docs); код later · cutover=purge NC |
 | Gate 11→12, WebGL 12, 7j.15/16 | later, не смешивать |
 
 ### Прочитай первым (порядок)
@@ -238,19 +238,18 @@ Unit: **186/186**. Host при `dotnet test` не должен держать DL
 (~0.8 чёрный) вне desired на Connection-треке (⊥ SessionFilter). Writers — **ScheduleCutter**
 (`gaps ∩ desired`, type-agnostic). Supervisor Auto connect/disconnect остаётся;
 `abandoned_schedule` и Group-outage на Auto stop **сняты** (P4; live API удалены).
-`abandoned_manual` + UI resolve **обязательны** (иначе active висят вечно). 2NF — later (P5).
+`abandoned_manual` + UI resolve **обязательны** (иначе active висят вечно).
+2NF crash (P5): design в `plan-schedule-projection.md` §P5; история NC — purge, не dual-read.
 
 ### Порядок работ (деликатно)
 
 ```text
-P1 ScheduleCutter + unit          ← начать здесь
-P2 UI schedule void mask          ← до или вместе с P3
-P3 always-Incident + full journal
-P4 remove Group outage + abandon
-P5 optional 2NF incident_connection
+P1–P4                             ← DONE (Cutter P1.2 writers ещё deferred)
+P5.0 docs 2NF decisions           ← DONE
+P5.1–P5.4 incident_connection     ← следующий код (спросить перед стартом)
 ```
 
-**Не** начинать с переписывания `HostOutageConnectionEmitter` и **не** воскрешать `:h`.
+**Не** воскрешать `:h`. Перед P5.1 — спросить; cutover NC = purge + Host restart (Hub in-memory).
 
 ### Инварианты (не ломать)
 

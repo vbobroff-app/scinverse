@@ -94,15 +94,44 @@
 
 ---
 
-### P5 — Опционально: 2NF crash journal
+### P5 — 2NF crash journal
 
-| Шаг | Что |
-|-----|-----|
-| P5.1 | DDL: факт crash + `incident_connection` scope |
-| P5.2 | Fan-out emit → одна строка + N scope; ribbon/API читают join |
-| P5.3 | Миграция исторических N rows (или dual-read) |
+**Статус design (P5.0):** решения зафиксированы 2026-08-01. Код — после явного старта.  
+Не блокирует gate 11→12.
 
-Не блокирует gate 11→12. Делать когда P4 стабилен.
+**Зачем:** crash = транспортный факт; as-is fan-out N строк `ohs.backend.outage:{seed}:c{id}`
+дублирует close/resolve и путает Connection-ribbon. Break остаётся 1:1 connection.
+
+#### Решения P5.0
+
+| # | Решение |
+|---|---------|
+| D1 | Corr transport: `ohs.backend.outage:{seed}` (**без** `:c{id}`). `:c{id}` — legacy. |
+| D2 | Journal: **1** строка `type=crash`, `connection_id = NULL`; scope — таблица `incident_connection (corr_uid, connection_id)`. |
+| D3 | Scope на open: snapshot **enabled** connections (как нынешний fan-out). Mid-outage enable → v1 **не** добавляем в scope. |
+| D4 | NC: **1** Incident Thread на transport; filter по connection — через scope / `data.connectionIds`. |
+| D5 | Resolve / `abandoned_manual` / recover — **одна** операция на transport corr → все ribbon/API. |
+| D6 | **История MVP:** dual-read / migrate старых NC atoms **не делаем**. Cutover = purge таблицы `notification` (+ перезапуск Host: Hub — in-memory ring, иначе UI видит старое). Journal `:c{id}` на стенде — purge или one-shot migrate без dual-read API (выбрать при старте P5.1; предпочтение стенда — purge crash-строк вместе с NC). |
+| D7 | Расписание / Cutter / mask **не** участвуют в модели crash (P4). |
+| D8 | UI toggles: «Инциденты связи» (break) ⊥ «Инциденты сервера» (crash via scope). |
+
+#### Шаги кода
+
+| Шаг | Что | Критерий |
+|-----|-----|----------|
+| P5.0 | Docs (этот блок + pointers в speке/promt) | **DONE** (docs) |
+| P5.1 | DDL `incident_connection` + store open/query/resolve | unit/integration |
+| P5.2 | Emit 1+N; GET connection incidents = break ∪ crash-via-join; ribbon crash | N enabled → 1 incident + N scope |
+| P5.3 | Cutover стенд: purge NC (+ Host restart); journal legacy crash — purge/migrate per D6 | UI без старых `:c{id}` Threads |
+| P5.4 | Убрать emit `:c{id}`; sync crash-dispatch / incident-journal | grep clean |
+
+#### Acceptance
+
+1. Один Host-outage → одна journal-строка crash + N scope.
+2. Connection ribbon «Инциденты сервера» iff `connectionId ∈ scope`.
+3. Один recover / один manual close закрывает весь эпизод.
+4. После cutover нет опоры на историю NC atoms (MVP).
+5. Регресс: break, mask, Auto≠resolve, I10, toggles break/crash.
 
 ---
 
@@ -122,7 +151,10 @@
 2. feat(ohs-web): schedule void mask toggle            ← P2
 3. feat(ohs-11): always-Incident crash/break journal   ← P3
 4. refactor(ohs-11): remove Group outage + abandon     ← P4
-5. (later) feat(ohs): 2NF incident_connection          ← P5
+5. docs(11): P5.0 2NF decisions                             ← P5.0
+6. feat(ohs): incident_connection DDL + store               ← P5.1
+7. feat(ohs-11): 2NF crash emit/query                       ← P5.2
+8. chore: cutover purge NC (+ Host restart); drop :c{id}    ← P5.3–4
 ```
 
 Между 2 и 3 — обязательная ручная проверка: ночной crash + утреннее окно + mask on/off +

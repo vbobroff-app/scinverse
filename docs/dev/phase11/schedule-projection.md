@@ -128,7 +128,9 @@ Cutter **не** пишет в `incident` и **не** меняет NC.
 | | desired → Incident vs Group в crash fan-out |
 
 Crash концептуально **transport**; break — **per connection**. Journal сегодня размножает
-crash на N `:c{id}` — допустимый as-is; цель 2NF — отдельный шаг плана.
+crash на N `:c{id}` — as-is. **P5 (2NF):** одна строка crash + `incident_connection` scope;
+corr `ohs.backend.outage:{seed}`; NC — один Thread. История MVP: purge `notification`
+(+ restart Host из‑за in-memory Hub), без dual-read NC — см. `plan-schedule-projection.md` §P5.
 
 ---
 
@@ -149,7 +151,7 @@ crash на N `:c{id}` — допустимый as-is; цель 2NF — отде�
 
 ## 9. Критерии готовности to-be (acceptance)
 
-1. Crash ночью + overlap с morning session → **одна** (или 2NF+scope) journal-нить полного span;
+1. Crash ночью + overlap с morning session → **одна** journal-нить (P5: + scope) полного span;
    на ганте с маской void вне окна; writers видят только ∩ desired.
 2. Break вне окна → строка journal + Incident в NC; без маски виден полный факт.
 3. SessionFilter moex и mask-toggle независимы.
@@ -165,5 +167,6 @@ crash на N `:c{id}` — допустимый as-is; цель 2NF — отде�
 - Маска общая для liveness + incidents (антифаза).
 - Writers нуждаются в Cutter-выходе (клип), UI — в mask (не обязательно тот же код-путь).
 - Деликатная миграция: Cutter/mask → always-Incident → P4 Group/`abandoned_schedule` (DONE);
-  `:h` не воскрешать; 2NF — P5.
+  `:h` не воскрешать; 2NF — P5 (design D1–D8 в plan §P5).
+- P5 cutover истории NC: **purge**, не migrate/dual-read (MVP).
 - Отдельная спека (этот файл) предпочтительнее полной переписки `incident-journal.md`.
