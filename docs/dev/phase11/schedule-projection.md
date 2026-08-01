@@ -136,10 +136,10 @@ crash на N `:c{id}` — допустимый as-is; цель 2NF — отде�
 
 | As-is | Статус |
 |-------|--------|
-| `desired@open` → Incident vs Group | deprecate |
+| `desired@open` → Incident vs Group | **снято** (P3/P4.1): outage всегда Incident |
 | Journal только «в горизонте» | deprecate |
 | Clipped Incident `:h` (Group∩desired) | **отклонён**; docs в crash-dispatch помечены obsolete; кода нет |
-| Group для outages в NC | deprecate |
+| Group для outages в NC | **снято** (P4.1); Group auto-connect оставлен |
 | `abandoned_schedule` | **выключен** в live-path (P4.2): Auto disconnect не resolve; outcome остаётся в journal/API истории |
 
 Пока as-is код живёт — поведение продуктово «старое»; новые фичи не углублять в эту ветку.

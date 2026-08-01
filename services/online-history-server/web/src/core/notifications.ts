@@ -397,7 +397,7 @@ interface OutageThread {
   startMs: number;
   openId: string;
   openTs: string;
-  /** Incident vs Group по горизонту desired на Open (phase 11.11). */
+  /** P4.1: outage всегда Incident (desired больше не классифицирует). */
   threadKindHint: 'incident' | 'group';
   /** Connection для journal crash (J8); может отсутствовать без Auto-расписания. */
   connectionId?: number;
@@ -444,11 +444,11 @@ function formatOutageDuration(totalSec: number): string {
 
 /** Фаза 1 (open, fatal): связь с бэком потеряна. Заводит нить инцидента (ts = момент дропа). corr —
  * снаружи (§9.2): cold = outageCorrelationId(startMs); эскалация одиночного 500 = adopt requestId.
- * `threadKindHint`: incident только при desired=true; иначе group (phase 11.11). */
+ * P4.1: `threadKindHint` default = incident (Group-по-desired убран). */
 export function openBackendOutage(
   startMs: number,
   correlationId: string,
-  threadKindHint: 'incident' | 'group' = 'group',
+  threadKindHint: 'incident' | 'group' = 'incident',
   connectionId?: number,
 ): void {
   const startIso = new Date(startMs).toISOString();
@@ -677,7 +677,7 @@ export function resolveBackendOutage(
     startMs,
     openId: guidN(),
     openTs: new Date(startMs).toISOString(),
-    threadKindHint: 'group' as const,
+    threadKindHint: 'incident' as const,
   };
   outageThreads.delete(correlationId);
 
@@ -789,7 +789,7 @@ export function abandonBackendOutageBySchedule(
     startMs,
     openId: guidN(),
     openTs: new Date(startMs).toISOString(),
-    threadKindHint: 'group' as const,
+    threadKindHint: 'incident' as const,
   };
   outageThreads.delete(correlationId);
 

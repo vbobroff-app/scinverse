@@ -36,10 +36,11 @@ describe('11.12 notifications Thread hints + hydrate', () => {
     expect(thread?.closeOutcome).toBe('recovered');
   });
 
-  it('open as Group when outside horizon; abandon keeps separate corr policy', () => {
-    openBackendOutage(1_720_000_000_000, 'ohs.backend.outage:g', 'group');
-    expect(notificationBus.items.filter(isThreadItem)[0]?.threadKind).toBe('group');
+  it('P4.1: openBackendOutage defaults to Incident (no Group-by-desired)', () => {
+    openBackendOutage(1_720_000_000_000, 'ohs.backend.outage:g');
+    expect(notificationBus.items.filter(isThreadItem)[0]?.threadKind).toBe('incident');
 
+    // Legacy helper still stamps abandoned_schedule if called; default open hint = incident.
     const dtos = abandonBackendOutageBySchedule(
       1_720_000_000_000,
       1_720_000_100_000,
@@ -48,7 +49,7 @@ describe('11.12 notifications Thread hints + hydrate', () => {
       'Conn',
     );
     expect(dtos[1]?.data).toMatchObject({ closeOutcome: 'abandoned_schedule', kind: 'crash' });
-    expect(dtos[0]?.data).toMatchObject({ threadKindHint: 'group' });
+    expect(dtos[0]?.data).toMatchObject({ threadKindHint: 'incident' });
   });
 
   it('hydrateServerBacklog builds Thread from flat V025-shaped DTOs', () => {
