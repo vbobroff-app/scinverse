@@ -1,11 +1,11 @@
 # Phase 11 — Crash dispatch: транспорт + слой соединений
 
-**Статус:** `DONE` (D1–D8) · **P3 always-Incident на слое C** (2026-07-31) ·  
-**`:h` clip — ОТКЛОНЁН** (кода нет, WIP откатан).
+**Статус:** `DONE` (D1–D8) · **P3 always-Incident** · **P4** (no Group-by-desired / no Auto abandon) ·  
+**`:h` clip — ОТКЛОНЁН** (кода нет).
 
 **Канон (факты ⊥ schedule):** [`schedule-projection.md`](schedule-projection.md) ·
 план [`plan-schedule-projection.md`](plan-schedule-projection.md).  
-Ниже: контракт crash-dispatch; классификация Group по `desired@open` — **as-was** (снята в P3).
+Ниже: контракт crash-dispatch; Group по `desired@open` — **снята** (P3/P4).
 
 **Связано:** [incident-journal.md](incident-journal.md) · [to-threads.md](to-threads.md) ·
 wiki [`incident.md`](../../wiki-readme/incident.md) · [`layers.md`](../../wiki-readme/layers.md) ·
