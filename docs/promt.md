@@ -245,10 +245,11 @@ Unit: **186/186**. Host при `dotnet test` не должен держать DL
 
 ```text
 P1–P4                             ← DONE (Cutter P1.2 writers ещё deferred)
-P5.0–P5.4 2NF crash + cutover     ← DONE
+P5.0–P5.5 2NF crash + cutover + I13 journal-SoT adopt  ← DONE
 ```
 
 **Не** воскрешать `:h`. Cutover NC = purge + Host restart (Hub in-memory) — выполнен на стенде.
+Adopt open break — из **`incident`**, не из `notification`.
 
 ### Инварианты (не ломать)
 

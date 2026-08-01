@@ -441,7 +441,6 @@ public static class OhsEndpoints
             ResolveIncidentRequest? request,
             IIncidentStore store,
             ConnectionManager manager,
-            INotificationPublisher notifications,
             IIncidentFanOut fanOut,
             TimeProvider time,
             CancellationToken ct) =>
@@ -467,18 +466,20 @@ public static class OhsEndpoints
 
             var closedViaManager = false;
             if (row is { Module: "connection", Type: "break", ConnectionId: { } connId }
-                && manager.GetIncidentSince(connId) is not null
-                && notifications.TryGetOpenCorrelationId(
-                    ConnectionManager.LinkIncidentSubject(connId), out var openCorr)
-                && string.Equals(openCorr, corr, StringComparison.Ordinal))
+                && manager.GetIncidentSince(connId) is not null)
             {
-                // Manager → fan-out Resolve (journal+NC); затем annotate resolvedBy.
-                closedViaManager = await manager
-                    .TryAbandonIncidentByManualAsync(connId, now, ct)
-                    .ConfigureAwait(false);
-                if (closedViaManager)
+                // I13: Manager SoT; Hub corr не гейтит. Совпадение corr — если Manager его помнит.
+                var managerCorr = manager.GetOpenBreakCorr(connId);
+                if (managerCorr is null
+                    || string.Equals(managerCorr, corr, StringComparison.Ordinal))
                 {
-                    await store.AnnotateResolvedByAsync(corr, resolvedBy, ct).ConfigureAwait(false);
+                    closedViaManager = await manager
+                        .TryAbandonIncidentByManualAsync(connId, now, ct)
+                        .ConfigureAwait(false);
+                    if (closedViaManager)
+                    {
+                        await store.AnnotateResolvedByAsync(corr, resolvedBy, ct).ConfigureAwait(false);
+                    }
                 }
             }
 
@@ -539,11 +540,13 @@ public static class OhsEndpoints
                 : Results.Ok(ToIncidentDto(updated, now));
         });
 
-        // 11.13f / J4: forward+adopt — open link из V025 → строка journal (без истории gaps).
+        // I13: seed Hub/Manager session из journal open breaks (не V025→journal).
         api.MapPost("/incidents/backfill-open", async (
             IConnectionStore connections,
-            INotificationStore notificationStore,
-            IJournalRegistrator journal,
+            IIncidentStore store,
+            ConnectionManager manager,
+            INotificationPublisher notifications,
+            IIncidentFanOut fanOut,
             CancellationToken ct) =>
         {
             var adopted = 0;
@@ -551,11 +554,11 @@ public static class OhsEndpoints
             var failed = 0;
             foreach (var connection in await connections.ListAsync(ct).ConfigureAwait(false))
             {
-                OpenLinkIncident? open;
+                Incident? row;
                 try
                 {
-                    open = await notificationStore
-                        .FindOpenLinkIncidentAsync(connection.ConnectionId, ct)
+                    row = await store
+                        .FindOpenBreakAsync(connection.ConnectionId, ct)
                         .ConfigureAwait(false);
                 }
                 catch
@@ -564,7 +567,7 @@ public static class OhsEndpoints
                     continue;
                 }
 
-                if (open is null)
+                if (row is null)
                 {
                     skipped++;
                     continue;
@@ -572,14 +575,29 @@ public static class OhsEndpoints
 
                 try
                 {
-                    await journal
-                        .EnsureBreakAdoptedAsync(
+                    var open = OpenLinkIncident.FromJournal(row);
+                    var subject = ConnectionManager.LinkIncidentSubject(connection.ConnectionId);
+                    if (manager.GetIncidentSince(connection.ConnectionId) is null)
+                    {
+                        _ = manager.AdoptOpenIncident(
                             connection.ConnectionId,
-                            open.CorrelationId,
                             open.OpenedAt,
-                            open.Status,
-                            owner: "supervisor",
-                            connection.SourceId,
+                            owner: row.Owner ?? "supervisor",
+                            corrUid: open.CorrelationId);
+                    }
+
+                    _ = notifications.Adopt(subject, open.CorrelationId, open.Status);
+                    await fanOut
+                        .ApplyAsync(
+                            new IncidentStep(
+                                IncidentStepKind.Adopt,
+                                subject,
+                                open.OpenedAt,
+                                CorrUid: open.CorrelationId,
+                                ConnectionId: connection.ConnectionId,
+                                Owner: row.Owner ?? "supervisor",
+                                SourceId: connection.SourceId,
+                                HubStatus: open.Status),
                             ct)
                         .ConfigureAwait(false);
                     adopted++;

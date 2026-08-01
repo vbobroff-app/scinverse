@@ -155,6 +155,25 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
         return row is null ? null : ToIncident(row);
     }
 
+    public async Task<Incident?> FindOpenBreakAsync(long connectionId, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(
+            $"""
+            SELECT {SelectColumns}
+            FROM incident
+            WHERE module = 'connection'
+              AND type = 'break'
+              AND connection_id = @connectionId
+              AND status IN ('active', 'recovering')
+            ORDER BY opened_at DESC
+            LIMIT 1;
+            """,
+            new { connectionId },
+            cancellationToken: cancellationToken));
+        return row is null ? null : ToIncident(row);
+    }
+
     public async Task<IReadOnlyList<Incident>> QueryAsync(
         IncidentQuery query, CancellationToken cancellationToken)
     {

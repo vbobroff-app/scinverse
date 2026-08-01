@@ -55,21 +55,20 @@ public sealed class ConnectionManagerIncidentTests
     }
 
     [Fact]
-    public void Adopt_protocol_Hub_then_Manager_Forget_on_Manager_reject()
+    public void Adopt_protocol_Manager_then_Hub_session()
     {
-        // I11 B2 — тот же порядок, что ConnectionSupervisor.TryAdoptOpenBreakFromAuditAsync.
+        // I13: Manager SoT first; Hub — session для Progress/Append.
         var (manager, hub, _) = CreateSut();
         var subject = ConnectionManager.LinkIncidentSubject(ConnId);
         const string corr = "connection:7:link:abcd1234";
         var since = DateTimeOffset.Parse("2026-07-28T12:00:00Z");
 
-        manager.AdoptOpenIncident(ConnId, since).Should().BeTrue("память Manager уже занята");
-        hub.Adopt(subject, corr, "active").Should().BeTrue();
-        manager.AdoptOpenIncident(ConnId, since).Should().BeFalse("Manager отказал");
+        manager.AdoptOpenIncident(ConnId, since, corrUid: corr).Should().BeTrue();
+        manager.AdoptOpenIncident(ConnId, since, corrUid: corr).Should().BeFalse("повторный Manager — no-op");
+        manager.GetOpenBreakCorr(ConnId).Should().Be(corr);
 
-        hub.Forget(subject, corr).Should().BeTrue("откат Hub без NC-строки");
-        hub.List().Should().BeEmpty();
-        hub.Progress(subject, "connection.reconnecting", "x").Should().BeFalse();
+        hub.Adopt(subject, corr, "active").Should().BeTrue();
+        hub.Progress(subject, "connection.reconnecting", "x").Should().BeTrue();
     }
 
     [Fact]
@@ -80,12 +79,13 @@ public sealed class ConnectionManagerIncidentTests
         const string corr = "connection:7:link:eeeeffff";
         var since = DateTimeOffset.Parse("2026-07-28T13:00:00Z");
 
+        manager.AdoptOpenIncident(ConnId, since, owner: "supervisor", corrUid: corr).Should().BeTrue();
         hub.Adopt(subject, corr, "underway").Should().BeTrue();
-        manager.AdoptOpenIncident(ConnId, since, owner: "supervisor").Should().BeTrue();
 
         hub.Progress(subject, "connection.reconnecting", "попытка 1/5").Should().BeTrue();
         hub.List().Should().ContainSingle(e =>
             e.Code == "connection.reconnecting" && e.CorrelationId == corr);
+        manager.GetOpenBreakCorr(ConnId).Should().Be(corr);
     }
 
     private static (ConnectionManager Manager, NotificationHub Hub, RecordingLinkLiveness Link) CreateSut()
@@ -116,6 +116,7 @@ public sealed class ConnectionManagerIncidentTests
             liveness: new Lazy<ILivenessWriter>(() => throw new InvalidOperationException("unused")),
             recordings: new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
             linkLiveness: link,
+            incidentStore: new EmptyIncidentStore(),
             notifications: hub,
             fanOut: new IncidentFanOut(
                 hub, NullJournalRegistrator.Instance, NullLogger<IncidentFanOut>.Instance),
@@ -137,6 +138,46 @@ public sealed class ConnectionManagerIncidentTests
         return data.TryGetProperty(key, out var p) && p.ValueKind == JsonValueKind.String
             ? p.GetString()
             : null;
+    }
+
+    private sealed class EmptyIncidentStore : IIncidentStore
+    {
+        public Task<bool> OpenAsync(Incident incident, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
+
+        public Task<bool> UpdateOpenAsync(Incident incident, CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+
+        public Task<bool> ResolveAsync(
+            string corrUid, DateTimeOffset closedAt, string closeOutcome, string? title, string? severity,
+            string? resolvedBy, CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+
+        public Task<bool> AnnotateResolvedByAsync(
+            string corrUid, string resolvedBy, CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+
+        public Task<bool> BindConnectionIdIfNullAsync(
+            string corrUid, long connectionId, CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+
+        public Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken) =>
+            Task.FromResult<Incident?>(null);
+
+        public Task<Incident?> FindOpenBreakAsync(long connectionId, CancellationToken cancellationToken) =>
+            Task.FromResult<Incident?>(null);
+
+        public Task<IReadOnlyList<Incident>> QueryAsync(
+            IncidentQuery query, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Incident>>([]);
+
+        public Task ReplaceConnectionScopeAsync(
+            string corrUid, IReadOnlyList<long> connectionIds, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task<IReadOnlyList<long>> ListConnectionScopeAsync(
+            string corrUid, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<long>>([]);
     }
 
     private sealed class FakeConnectionStore(ConnectorConnection row) : IConnectionStore

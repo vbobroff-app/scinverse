@@ -44,6 +44,24 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
     }
 
     [Fact]
+    public async Task FindOpenBreak_returns_newest_open_break_only()
+    {
+        var t0 = new DateTimeOffset(2026, 8, 1, 6, 0, 0, TimeSpan.Zero);
+        var older = BreakOpen("connection:3:link:old", t0);
+        var newer = BreakOpen("connection:3:link:new", t0.AddHours(1));
+        await _store.OpenAsync(older, CancellationToken.None);
+        await _store.OpenAsync(newer, CancellationToken.None);
+        await _store.ResolveAsync(
+            older.CorrUid, t0.AddMinutes(30), "recovered", null, "ok", null, CancellationToken.None);
+
+        var open = await _store.FindOpenBreakAsync(3, CancellationToken.None);
+        open.Should().NotBeNull();
+        open!.CorrUid.Should().Be(newer.CorrUid);
+
+        (await _store.FindOpenBreakAsync(99, CancellationToken.None)).Should().BeNull();
+    }
+
+    [Fact]
     public async Task UpdateOpen_sets_escalated_and_recovering()
     {
         var t0 = new DateTimeOffset(2026, 7, 29, 11, 0, 0, TimeSpan.Zero);

@@ -33,6 +33,7 @@ public sealed class ConnectionManager(
     Lazy<ILivenessWriter> liveness,
     Lazy<RecordingManager> recordings,
     ILinkLivenessStore linkLiveness,
+    IIncidentStore incidentStore,
     INotificationPublisher notifications,
     IIncidentFanOut fanOut,
     TransaqConnectorOptions transaqDefaults,
@@ -73,6 +74,8 @@ public sealed class ConnectionManager(
     // либо "supervisor" (Down/Error/ping-fail сразу, либо передача владения по grace). Нужен для expanded
     // recovered («кем восстановлена связь»). Живёт вместе с _incidentSince (ставится на open, снимается на recovered).
     private readonly ConcurrentDictionary<long, string> _incidentOwner = new();
+    // I13: corr открытого break (journal SoT); Hub session зеркалит, не владеет.
+    private readonly ConcurrentDictionary<long, string> _incidentCorr = new();
     /// <summary>Ожидание confirm Degraded (flap &lt; delay → cancel, без journal/green).</summary>
     private readonly ConcurrentDictionary<long, CancellationTokenSource> _degradedConfirm = new();
     private readonly ConcurrentDictionary<long, (DateTimeOffset At, string? Detail)> _degradedPending = new();
@@ -91,12 +94,19 @@ public sealed class ConnectionManager(
     public DateTimeOffset? GetIncidentSince(long connectionId) =>
         _incidentSince.TryGetValue(connectionId, out var since) ? since : null;
 
+    /// <summary>Corr текущего open break в Manager или null.</summary>
+    public string? GetOpenBreakCorr(long connectionId) =>
+        _incidentCorr.TryGetValue(connectionId, out var corr) ? corr : null;
+
     /// <summary>
-    /// Засеять открытый break в память после рестарта (I10): <c>_incidentSince</c>/<c>_incidentOwner</c>
-    /// из аудита V025. Без новой NC-строки. false — уже был открытый инцидент в памяти.
+    /// Засеять открытый break в память после рестарта (I10/I13): since/owner/corr из journal.
+    /// Hub seed — отдельно. false — уже был открытый инцидент в памяти.
     /// </summary>
     public bool AdoptOpenIncident(
-        long connectionId, DateTimeOffset since, string owner = "supervisor")
+        long connectionId,
+        DateTimeOffset since,
+        string owner = "supervisor",
+        string? corrUid = null)
     {
         if (!_incidentSince.TryAdd(connectionId, since))
         {
@@ -104,6 +114,11 @@ public sealed class ConnectionManager(
         }
 
         _incidentOwner[connectionId] = string.IsNullOrWhiteSpace(owner) ? "supervisor" : owner;
+        if (!string.IsNullOrWhiteSpace(corrUid))
+        {
+            _incidentCorr[connectionId] = corrUid;
+        }
+
         return true;
     }
 
@@ -114,7 +129,16 @@ public sealed class ConnectionManager(
     {
         StopTransaqRecoverProgress(connectionId);
         _incidentOwner.TryRemove(connectionId, out _);
+        _incidentCorr.TryRemove(connectionId, out _);
         return _incidentSince.TryRemove(connectionId, out _);
+    }
+
+    private void RememberOpenCorr(long connectionId, string? corrUid)
+    {
+        if (!string.IsNullOrWhiteSpace(corrUid))
+        {
+            _incidentCorr[connectionId] = corrUid;
+        }
     }
 
     /// <summary>
@@ -147,10 +171,12 @@ public sealed class ConnectionManager(
         if (corr is null)
         {
             _incidentSince.TryRemove(connectionId, out _);
+            _incidentCorr.TryRemove(connectionId, out _);
             return false;
         }
 
         _incidentOwner[connectionId] = "supervisor";
+        RememberOpenCorr(connectionId, corr);
         return true;
     }
 
@@ -743,7 +769,7 @@ public sealed class ConnectionManager(
                 if (!await CloseIncidentAsync(connectionId, change.At, CancellationToken.None)
                         .ConfigureAwait(false))
                 {
-                    await TryResolveOrphanHubBreakAsync(connectionId, change.At, CancellationToken.None)
+                    await TryResolveOrphanOpenBreakAsync(connectionId, change.At, CancellationToken.None)
                         .ConfigureAwait(false);
                 }
 
@@ -873,6 +899,7 @@ public sealed class ConnectionManager(
         }
 
         owner = _incidentOwner.TryRemove(connectionId, out var incidentOwner) ? incidentOwner : "transaq";
+        _incidentCorr.TryRemove(connectionId, out _);
         return true;
     }
 
@@ -898,12 +925,14 @@ public sealed class ConnectionManager(
         var gapLine = FormatGapLine(incidentStart, atTs);
         var subject = LinkIncidentSubject(connectionId);
 
+        var corrUid = GetOpenBreakCorr(connectionId);
         IncidentStep resolveStep = closeOutcome switch
         {
             NotificationThreadData.OutcomeAbandonedManual => new IncidentStep(
                 IncidentStepKind.Resolve,
                 subject,
                 atTs,
+                CorrUid: corrUid,
                 ConnectionId: connectionId,
                 CloseOutcome: closeOutcome,
                 Severity: "warning",
@@ -923,6 +952,7 @@ public sealed class ConnectionManager(
                 IncidentStepKind.Resolve,
                 subject,
                 atTs,
+                CorrUid: corrUid,
                 ConnectionId: connectionId,
                 CloseOutcome: NotificationThreadData.OutcomeRecovered,
                 Severity: "ok",
@@ -1002,28 +1032,44 @@ public sealed class ConnectionManager(
     }
 
     /// <summary>
-    /// Manager пуст, а Hub ещё держит open break (гонка Open→journal→TryAdd vs Live→Close).
-    /// Добиваем <c>connection.recovered</c>, иначе NC залипает ACTIVE при синем тумблере.
+    /// Manager пуст, journal/Hub ещё open (гонка или рестарт без adopt) → recovered по journal corr.
+    /// Hub без journal — только NC hygiene.
     /// </summary>
-    private async Task<bool> TryResolveOrphanHubBreakAsync(
+    private async Task<bool> TryResolveOrphanOpenBreakAsync(
         long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
     {
         var subject = LinkIncidentSubject(connectionId);
-        if (!notifications.TryGetOpenCorrelationId(subject, out _))
+        string? corr = null;
+        try
+        {
+            var journalOpen = await incidentStore
+                .FindOpenBreakAsync(connectionId, cancellationToken)
+                .ConfigureAwait(false);
+            corr = journalOpen?.CorrUid;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Подключение {ConnectionId}: FindOpenBreak на orphan-close", connectionId);
+        }
+
+        if (corr is null
+            && !notifications.TryGetOpenCorrelationId(subject, out corr))
         {
             return false;
         }
 
         var label = ConnLabelSystem(connectionId);
         logger.LogWarning(
-            "Подключение {ConnectionId}: orphan Hub break — Resolve без _incidentSince",
-            connectionId);
+            "Подключение {ConnectionId}: orphan open break {Corr} — Resolve без _incidentSince",
+            connectionId,
+            corr);
         await fanOut
             .ApplyAsync(
                 new IncidentStep(
                     IncidentStepKind.Resolve,
                     subject,
                     atTs,
+                    CorrUid: corr,
                     ConnectionId: connectionId,
                     CloseOutcome: NotificationThreadData.OutcomeRecovered,
                     Severity: "ok",
@@ -1033,7 +1079,7 @@ public sealed class ConnectionManager(
                     NcData: new
                     {
                         connectionId,
-                        result = "Восстановлено TRANSAQ; (orphan Hub close)",
+                        result = "Восстановлено TRANSAQ; (orphan close)",
                         sender = "transaq",
                         closeOutcome = NotificationThreadData.OutcomeRecovered,
                     }),
@@ -1050,7 +1096,7 @@ public sealed class ConnectionManager(
         CloseBreakAsync(connectionId, atTs, NotificationThreadData.OutcomeRecovered, cancellationToken);
 
     /// <summary>
-    /// Страховка супервизора: link уже Live, а break ещё open (Manager или orphan Hub) → recovered.
+    /// Страховка супервизора: link уже Live, а break ещё open (Manager / journal / Hub session) → recovered.
     /// </summary>
     public async Task EnsureBreakClosedIfLiveAsync(long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
     {
@@ -1064,7 +1110,7 @@ public sealed class ConnectionManager(
             return;
         }
 
-        await TryResolveOrphanHubBreakAsync(connectionId, atTs, cancellationToken).ConfigureAwait(false);
+        await TryResolveOrphanOpenBreakAsync(connectionId, atTs, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1171,13 +1217,15 @@ public sealed class ConnectionManager(
             if (corr is null)
             {
                 _incidentSince.TryRemove(connectionId, out _);
+                _incidentCorr.TryRemove(connectionId, out _);
                 logger.LogError(
-                    "Подключение {ConnectionId}: Hub.Open отказал на Down/Error — откат _incidentSince",
+                    "Подключение {ConnectionId}: FanOut open отказал на Down/Error — откат _incidentSince",
                     connectionId);
             }
             else
             {
                 _incidentOwner[connectionId] = "supervisor";
+                RememberOpenCorr(connectionId, corr);
                 StopTransaqRecoverProgress(connectionId);
                 RequestSupervisorNudge?.Invoke();
             }
@@ -1478,6 +1526,7 @@ public sealed class ConnectionManager(
         }
 
         _incidentOwner[connectionId] = "transaq";
+        RememberOpenCorr(connectionId, corr);
         StartTransaqRecoverProgress(connectionId, openedAt);
         RequestSupervisorNudge?.Invoke();
         logger.LogWarning(

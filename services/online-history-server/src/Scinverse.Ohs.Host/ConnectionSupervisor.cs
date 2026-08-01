@@ -16,7 +16,7 @@ public sealed class ConnectionSupervisor(
     OhsOptions options,
     TimeProvider time,
     INotificationPublisher notifications,
-    INotificationStore notificationStore,
+    IIncidentStore incidentStore,
     IIncidentFanOut fanOut,
     ClientRecoveryGate recoveryGate,
     ILogger<ConnectionSupervisor> logger)
@@ -236,9 +236,8 @@ public sealed class ConnectionSupervisor(
 
         _prevDesired[connectionId] = desiredConnected;
 
-        // I10: после crash/рестарта память Hub/Manager пуста, а в V025 может висеть open link-corr.
-        // Подхватить до ветки desired — иначе !desired не сделает catch-up abandon, а desired счеканит auto:.
-        await TryAdoptOpenBreakFromAuditAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        // I10/I13: после рестарта память Hub/Manager пуста — open break берём из journal (не NC).
+        await TryAdoptOpenBreakFromJournalAsync(connectionId, cancellationToken).ConfigureAwait(false);
 
         // Live уже есть, а NC break ещё ACTIVE (гонка Open/close) — добить recovered.
         await connections
@@ -507,42 +506,43 @@ public sealed class ConnectionSupervisor(
     }
 
     /// <summary>
-    /// I10: если в памяти нет open break — найти в аудите V025 и засеять Manager + Hub
-    /// (тот же <c>connection:{id}:link:{uid}</c>). Без новой Open-строки. Crash-corr не трогаем.
+    /// I10/I13: если в памяти нет open break — найти в journal и засеять Manager + Hub session
+    /// (тот же <c>connection:{id}:link:{uid}</c>). Без новой Open-строки. Crash не трогаем.
     /// </summary>
-    private async Task TryAdoptOpenBreakFromAuditAsync(long connectionId, CancellationToken cancellationToken)
+    private async Task TryAdoptOpenBreakFromJournalAsync(long connectionId, CancellationToken cancellationToken)
     {
         if (connections.GetIncidentSince(connectionId) is not null)
         {
             return;
         }
 
-        OpenLinkIncident? open;
+        Incident? row;
         try
         {
-            open = await notificationStore
-                .FindOpenLinkIncidentAsync(connectionId, cancellationToken)
+            row = await incidentStore
+                .FindOpenBreakAsync(connectionId, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(
                 ex,
-                "ConnectionSupervisor: не удалось прочитать open break из аудита для {ConnectionId}",
+                "ConnectionSupervisor: не удалось прочитать open break из journal для {ConnectionId}",
                 connectionId);
             return;
         }
 
-        if (open is null)
+        if (row is null)
         {
             return;
         }
 
+        var open = OpenLinkIncident.FromJournal(row);
         var subject = ConnectionManager.LinkIncidentSubject(connectionId);
         var linkState = connections.GetLinkState(connectionId);
 
         // Матрица после рестарта (I10 regress 2026-07-31):
-        //   Live              → stale-close (open в V025 устарел, связь уже up)
+        //   Live              → stale-close (journal open устарел, связь уже up)
         //   null|Degraded|Down|Error → Adopt mid-break (тот же corr; ×5 без второго break)
         if (IsStaleOpenBreak(linkState))
         {
@@ -551,26 +551,23 @@ public sealed class ConnectionSupervisor(
             return;
         }
 
-        // I11 B2: Hub — ворота Progress/Append. Сначала Hub, потом Manager;
-        // отказ Manager → Forget Hub (без Resolve-события). Отказ Hub → ничего не сеем.
-        if (!notifications.Adopt(subject, open.CorrelationId, open.Status))
+        // I13: Manager = SoT runtime; Hub.Adopt — session для Progress/Append (отказ NC не блокирует).
+        if (!connections.AdoptOpenIncident(
+                connectionId, open.OpenedAt, owner: row.Owner ?? "supervisor", corrUid: open.CorrelationId))
         {
             logger.LogWarning(
-                "ConnectionSupervisor: Hub.Adopt отказал для {Subject} corr={Corr} status={Status}",
-                subject, open.CorrelationId, open.Status);
-            return;
-        }
-
-        if (!connections.AdoptOpenIncident(connectionId, open.OpenedAt, owner: "supervisor"))
-        {
-            notifications.Forget(subject, open.CorrelationId);
-            logger.LogWarning(
-                "ConnectionSupervisor: Manager.Adopt отказал после Hub — откат Hub для {Subject} corr={Corr}",
+                "ConnectionSupervisor: Manager.Adopt отказал для {Subject} corr={Corr}",
                 subject, open.CorrelationId);
             return;
         }
 
-        // Hub.Adopt уже выше; fan-out Adopt идемпотентен по тому же corr + journal ensure.
+        if (!notifications.Adopt(subject, open.CorrelationId, open.Status))
+        {
+            logger.LogWarning(
+                "ConnectionSupervisor: Hub.Adopt отказал для {Subject} corr={Corr} status={Status} (Manager уже seeded)",
+                subject, open.CorrelationId, open.Status);
+        }
+
         await fanOut
             .ApplyAsync(
                 new IncidentStep(
@@ -579,7 +576,7 @@ public sealed class ConnectionSupervisor(
                     open.OpenedAt,
                     CorrUid: open.CorrelationId,
                     ConnectionId: connectionId,
-                    Owner: "supervisor",
+                    Owner: row.Owner ?? "supervisor",
                     HubStatus: open.Status),
                 cancellationToken)
             .ConfigureAwait(false);
@@ -599,13 +596,8 @@ public sealed class ConnectionSupervisor(
         OpenLinkIncident open,
         CancellationToken cancellationToken)
     {
-        if (!notifications.Adopt(subject, open.CorrelationId, open.Status))
-        {
-            logger.LogWarning(
-                "ConnectionSupervisor: skip stale-close {Corr} для {ConnectionId} — Hub.Adopt отказал (link=Live)",
-                open.CorrelationId, connectionId);
-            return;
-        }
+        // Stale journal open + Live: закрываем journal (и NC если Hub.Adopt ок). Hub не гейтит SoT.
+        _ = notifications.Adopt(subject, open.CorrelationId, open.Status);
 
         var label = ConnectionManager.ConnLabelSystem(connectionId);
         await fanOut

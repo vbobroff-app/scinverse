@@ -31,7 +31,10 @@ public interface INotificationPublisher
         string? subject = null,
         DateTimeOffset? ts = null);
 
-    /// <summary>Открыть/подтвердить инцидент по <paramref name="subject"/> (active). true — если статус сменился (событие ушло).</summary>
+    /// <summary>
+    /// Открыть/подтвердить инцидент по <paramref name="subject"/> (active). true — если статус сменился.
+    /// Опц. <paramref name="correlationId"/> — corr из journal/FanOut (I13); null → Hub мints <c>subject:uid</c>.
+    /// </summary>
     bool Open(
         string subject,
         string code,
@@ -41,7 +44,8 @@ public interface INotificationPublisher
         string module = "ohs.connection",
         object? data = null,
         NotificationActor? actor = null,
-        DateTimeOffset? ts = null);
+        DateTimeOffset? ts = null,
+        string? correlationId = null);
 
     /// <summary>Пометить восстановление (underway) открытого по <paramref name="subject"/> инцидента.</summary>
     bool Progress(

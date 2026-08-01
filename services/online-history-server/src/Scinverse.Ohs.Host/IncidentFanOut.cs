@@ -3,8 +3,8 @@ using Microsoft.Extensions.Logging;
 namespace Scinverse.Ohs.Host;
 
 /// <summary>
-/// Fan-out I2: один <see cref="IncidentStep"/> → Hub/NC + <see cref="IJournalRegistrator"/>.
-/// Ошибки NC не откатывают journal; journal по-прежнему глотает БД-сбои (SafeAsync).
+/// Fan-out I2/I13: один <see cref="IncidentStep"/> → journal (SoT) + Hub/NC (зеркало).
+/// Отказ NC не откатывает journal; corr мантится до Hub, не читается из notification-таблицы.
 /// </summary>
 public sealed class IncidentFanOut(
     INotificationPublisher notifications,
@@ -39,18 +39,48 @@ public sealed class IncidentFanOut(
         }
     }
 
-    private Task<string?> ApplyOpenAsync(IncidentStep step, CancellationToken cancellationToken)
+    private async Task<string?> ApplyOpenAsync(IncidentStep step, CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(step.NcCode) && !EmitNcOpen(step))
+        var corr = EnsureCorr(step);
+
+        if (!string.IsNullOrWhiteSpace(step.NcCode))
         {
-            // Hub.Open = no-op (subject уже open) — без строки в NC/WS. Нельзя продолжать journal/corr.
-            return Task.FromResult<string?>(null);
+            var hubOpened = EmitNcOpen(step, corr);
+            if (!hubOpened)
+            {
+                // Subject уже open в Hub — тот же corr (не плодим второй journal).
+                if (notifications.TryGetOpenCorrelationId(step.Subject, out var existing)
+                    && !string.IsNullOrWhiteSpace(existing))
+                {
+                    corr = existing!;
+                    if (!step.SkipJournal && step.ConnectionId is { } reuseId)
+                    {
+                        await journal
+                            .EnsureBreakAdoptedAsync(
+                                reuseId,
+                                corr,
+                                step.At,
+                                hubStatus: "active",
+                                step.Owner ?? "supervisor",
+                                step.SourceId,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+
+                    return corr;
+                }
+
+                // NC недоступен / Open упал — journal всё равно пишем (I13).
+                logger.LogWarning(
+                    "IncidentFanOut Open NC failed for {Subject}; journal proceeds with {CorrUid}",
+                    step.Subject,
+                    corr);
+            }
         }
 
-        var corr = ResolveCorr(step);
-        if (step.SkipJournal || corr is null || step.ConnectionId is not { } connectionId)
+        if (step.SkipJournal || step.ConnectionId is not { } connectionId)
         {
-            return Task.FromResult(corr);
+            return corr;
         }
 
         // WS уже в EmitNcOpen. Journal в фоне: иначе ConfirmDegraded ждёт пул БД до TryAdd
@@ -64,18 +94,32 @@ public sealed class IncidentFanOut(
             step.SourceId,
             step.Title ?? step.NcMessage ?? "connection.lost",
             cancellationToken);
-        return Task.FromResult<string?>(corr);
+        return corr;
     }
 
     private async Task<string?> ApplyCrashOpenAsync(IncidentStep step, CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(step.NcCode) && !EmitNcOpen(step))
+        var corr = EnsureCorr(step);
+
+        if (!string.IsNullOrWhiteSpace(step.NcCode))
         {
-            return null;
+            var hubOpened = EmitNcOpen(step, corr);
+            if (!hubOpened)
+            {
+                if (notifications.TryGetOpenCorrelationId(step.Subject, out var existing)
+                    && !string.IsNullOrWhiteSpace(existing))
+                {
+                    return existing;
+                }
+
+                logger.LogWarning(
+                    "IncidentFanOut CrashOpen NC failed for {Subject}; journal proceeds with {CorrUid}",
+                    step.Subject,
+                    corr);
+            }
         }
 
-        var corr = ResolveCorr(step);
-        if (step.SkipJournal || corr is null)
+        if (step.SkipJournal)
         {
             return corr;
         }
@@ -189,8 +233,8 @@ public sealed class IncidentFanOut(
         return corr;
     }
 
-    /// <returns><c>false</c> — Hub отказал (subject уже open) или исключение; строки в WS нет.</returns>
-    private bool EmitNcOpen(IncidentStep step)
+    /// <returns><c>false</c> — Hub отказал (subject уже open) или исключение.</returns>
+    private bool EmitNcOpen(IncidentStep step, string corrUid)
     {
         if (string.IsNullOrWhiteSpace(step.NcCode))
         {
@@ -205,7 +249,8 @@ public sealed class IncidentFanOut(
                 step.NcMessage ?? step.Title ?? step.NcCode,
                 severity: step.NcSeverity ?? step.Severity ?? "error",
                 data: step.NcData,
-                ts: step.At);
+                ts: step.At,
+                correlationId: corrUid);
             if (!opened)
             {
                 logger.LogWarning(
@@ -235,7 +280,7 @@ public sealed class IncidentFanOut(
                 step.Subject,
                 step.NcCode,
                 step.NcMessage ?? step.Title ?? step.NcCode,
-                severity: step.NcSeverity ?? step.Severity ?? "warning",
+                severity: step.NcSeverity ?? step.Severity ?? "info",
                 data: step.NcData,
                 ts: step.At);
         }
@@ -268,6 +313,15 @@ public sealed class IncidentFanOut(
         }
     }
 
+    private static string EnsureCorr(IncidentStep step) =>
+        !string.IsNullOrWhiteSpace(step.CorrUid)
+            ? step.CorrUid!
+            : $"{step.Subject}:{Guid.NewGuid().ToString("N")[..8]}";
+
+    /// <summary>
+    /// Corr для mid-life шагов: явный → Hub session (после adopt/open) → null.
+    /// Hub здесь — in-memory session, не durable SoT.
+    /// </summary>
     private string? ResolveCorr(IncidentStep step)
     {
         if (!string.IsNullOrWhiteSpace(step.CorrUid))

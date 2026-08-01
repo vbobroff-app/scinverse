@@ -96,6 +96,7 @@ public sealed class JournalRegistratorTests
             liveness: new Lazy<ILivenessWriter>(() => throw new InvalidOperationException("unused")),
             recordings: new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
             linkLiveness: link,
+            incidentStore: store,
             notifications: hub,
             fanOut: fanOut,
             transaqDefaults: new Connectors.Transaq.TransaqConnectorOptions(),
@@ -199,6 +200,17 @@ public sealed class JournalRegistratorTests
         public Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken) =>
             Task.FromResult(ByCorr.TryGetValue(corrUid, out var i) ? i : null);
 
+        public Task<Incident?> FindOpenBreakAsync(long connectionId, CancellationToken cancellationToken)
+        {
+            var open = ByCorr.Values
+                .Where(i => i.ConnectionId == connectionId
+                            && i.Type == "break"
+                            && i.Status is "active" or "recovering")
+                .OrderByDescending(i => i.OpenedAt)
+                .FirstOrDefault();
+            return Task.FromResult(open);
+        }
+
         public Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<Incident>>(ByCorr.Values.ToList());
 
@@ -233,6 +245,9 @@ public sealed class JournalRegistratorTests
             throw new InvalidOperationException("db down");
 
         public Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("db down");
+
+        public Task<Incident?> FindOpenBreakAsync(long connectionId, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("db down");
 
         public Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken) =>

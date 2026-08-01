@@ -1,6 +1,7 @@
 # Phase 11 — Issues: объектная модель NC (Thread / Incident / Group)
 
-Статус: **I1 RESOLVED** (11.8–11.12) · **I2 RESOLVED** (fan-out журнал↔NC). Обновлено: 2026-07-31.
+Статус: **I1 RESOLVED** (11.8–11.12) · **I2 RESOLVED** (fan-out журнал↔NC) ·
+**I13 OPEN→fix** (adopt/open SoT = journal, не NC). Обновлено: 2026-08-01.
 
 Связано: [plan.md](plan.md), [to-threads.md](to-threads.md), [persistence.md](persistence.md),
 журнал инцидентов — [incident-journal.md](incident-journal.md),
@@ -153,3 +154,39 @@ Entry extends Single { corr_uid }
 Thread UI сделал видимым разрыв **open break + crash + Group `auto:`** после рестарта Host.
 Фикс — adopt / catch-up abandon на Host/supervisor (**7j I10**), не смена проекции Thread:
 [../phase7j/issue.md](../phase7j/issue.md) I10, [../phase7j/incident.md](../phase7j/incident.md) §1.3.
+
+---
+
+## I13. Adopt / open break читают NC (`notification`) как SoT → break⊂break
+
+**Статус:** FIX · 2026-08-01.
+
+### Симптом
+
+После purge NC (легально: зеркало) + рестарта Host: journal ещё держит open break, supervisor
+открывает **второй** `connection:{id}:link:{uid}` → два красных start-маркера на ленте.
+
+### Почему
+
+Канон I2 / wrap-up: SoT = **supervisor + `incident` + `link_liveness`**; NC — уведомления.
+Код I10 остался на as-was: `FindOpenLinkIncidentAsync` → таблица `notification`;
+`IncidentFanOut.Open` гейтил journal успехом `Hub.Open`; resolve/orphan смотрели Hub corr.
+
+### Решение
+
+1. `IIncidentStore.FindOpenBreakAsync` — SoT для adopt.
+2. Supervisor: `TryAdoptOpenBreakFromJournalAsync` (Manager first; Hub = session seed).
+3. FanOut: mint corr до Hub; отказ NC не откатывает journal.
+4. Manager хранит `_incidentCorr`; close/resolve без Hub-oracle.
+5. `backfill-open` = seed Hub/Manager **из journal**, не V025→journal.
+
+### Критерий
+
+- [x] NC purge + Host restart + open journal break → adopt того же corr, не второй break.
+- [x] Stale-close Live не гейтится отказом Hub.Adopt.
+- [x] Manual resolve при open Manager не требует совпадения Hub corr.
+
+### Связано
+
+[incident-journal.md](incident-journal.md) §7 · [plan-schedule-projection.md](plan-schedule-projection.md) §P5.5 ·
+7j I10 (текст «SoT=V025» — устарел; канон — journal).

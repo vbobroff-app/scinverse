@@ -404,6 +404,20 @@ public sealed class IncidentFanOutTests
             }
         }
 
+        public Task<Incident?> FindOpenBreakAsync(long connectionId, CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                var open = ByCorr.Values
+                    .Where(i => i.ConnectionId == connectionId
+                                && i.Type == "break"
+                                && i.Status is "active" or "recovering")
+                    .OrderByDescending(i => i.OpenedAt)
+                    .FirstOrDefault();
+                return Task.FromResult(open);
+            }
+        }
+
         public Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken)
         {
             lock (_gate)

@@ -112,9 +112,11 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         string module = "ohs.connection",
         object? data = null,
         NotificationActor? actor = null,
-        DateTimeOffset? ts = null)
+        DateTimeOffset? ts = null,
+        string? correlationId = null)
         => Transition(subject, "active", code, message, severity, sourceType, module, data, actor, ts,
-            canTransition: current => current is null);
+            canTransition: current => current is null,
+            preferredCorrelationId: correlationId);
 
     /// <summary>Прогресс восстановления (status=underway) открытого инцидента. Повторяемо (7j.20 J5):
     /// active→underway и underway→underway — каждый прогресс-тик (elapsed / попытка k/N) пишет строку под
@@ -264,7 +266,8 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         object? data,
         NotificationActor? actor,
         DateTimeOffset? ts,
-        Func<string?, bool> canTransition)
+        Func<string?, bool> canTransition,
+        string? preferredCorrelationId = null)
     {
         NotificationDto? evt;
         lock (_gate)
@@ -275,8 +278,11 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
                 return false; // I2: нет смены статуса — не плодим строку.
             }
 
-            // Открытый инцидент переиспользует свой correlationId; новый (Open по пустому subject) получает subject:uid.
-            var correlationId = open?.CorrelationId ?? $"{subject}:{Guid.NewGuid().ToString("N")[..8]}";
+            // Opened: reuse; else preferred (journal/FanOut) or mint subject:uid.
+            var correlationId = open?.CorrelationId
+                ?? (string.IsNullOrWhiteSpace(preferredCorrelationId)
+                    ? $"{subject}:{Guid.NewGuid().ToString("N")[..8]}"
+                    : preferredCorrelationId);
 
             if (targetStatus == "resolved")
             {

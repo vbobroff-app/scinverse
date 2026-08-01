@@ -496,9 +496,9 @@ writer важно «данные шли / не шли», а не причина 
 
 **Путь решения (adopt + catch-up из БД).**
 
-Источник правды по «есть ли open break» после рестарта — **audit V025**, не память Hub.
-Фронт может подсказать `openBreakCorr` в crash-пачке, но истина — SQL/store по
-`correlation_id LIKE 'connection:{id}:link:%'` без terminal.
+Источник правды по «есть ли open break» после рестарта — **журнал `incident`** (I13 / 2026-08-01),
+не audit V025 и не память Hub. NC — только fan-out / session seed после adopt.
+(Текст ниже про V025 — исторический as-was I10; канон — [phase11/issue.md](../phase11/issue.md) I13.)
 
 Целевая лента после фикса:
 

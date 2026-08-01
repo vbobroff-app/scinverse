@@ -35,6 +35,12 @@ public interface IIncidentStore
     Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken);
 
     /// <summary>
+    /// I13: открытый break на connection (active|recovering), newest. SoT для adopt после рестарта —
+    /// журнал, не <c>notification</c>/NC.
+    /// </summary>
+    Task<Incident?> FindOpenBreakAsync(long connectionId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Проставить <c>connection_id</c>, если ещё null (crash open без привязки → гант Connection).
     /// Работает и для уже resolved.
     /// </summary>
