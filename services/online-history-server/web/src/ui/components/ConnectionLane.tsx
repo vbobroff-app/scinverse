@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -10,30 +11,68 @@ import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useNow } from '../hooks/useNow';
+import type { CoverageWindow } from '../../core/OhsStore';
 import { makeProjector } from '../../core/sessionProjection';
 import { hasLiveRules, isConnectedNow } from '../../core/connectionSchedule';
-import type { ConnectionDto } from '../../core/types';
+import type {
+  CaptureGapDto,
+  ConnectionDto,
+  ConnectionScheduleRuleDto,
+  IncidentDto,
+  LivenessIntervalDto,
+  SessionDto,
+} from '../../core/types';
 import { ConnectionAutoToggle } from './ConnectionAutoToggle';
 import { connectionAutoPhase } from './connectionAutoPhase';
-import { buildRulerTicks, resolveRulerHover } from './connectionRuler';
-import { ConnectionRibbon } from './ConnectionRibbon';
+import {
+  buildRulerLabelLut,
+  buildRulerTicks,
+  makeRulerHoverResolver,
+} from './connectionRuler';
+import {
+  createConnectionScrubLayer,
+  scrubGeomFromElements,
+  type ConnectionScrubLayer,
+} from './connectionScrubLayer';
+import { ConnectionRibbon, type RibbonTipHandlers } from './ConnectionRibbon';
 import { ConnectionSchedulePopover } from './ConnectionSchedulePopover';
 import styles from './ConnectionLane.module.css';
 
-interface RulerTipState {
-  /** X относительно .right (для position:absolute). */
-  leftPx: number;
-  label: string;
+interface Geom {
+  rightLeft: number;
+  rulerLeft: number;
+  rulerWidth: number;
+}
+
+/** Снимок пропсов ленты — замораживаем на время scrub, чтобы memo Ribbon не пересчитывался. */
+interface RibbonSnap {
+  coverageWindow: CoverageWindow;
+  sessions: SessionDto[];
+  intervals: LivenessIntervalDto[];
+  gaps: CaptureGapDto[];
+  incidents: IncidentDto[] | null | undefined;
+  now: number;
+  nowPct: number;
+  rules: ConnectionScheduleRuleDto[];
+  showNowMarker: boolean;
+  showLinkRibbon: boolean;
+  showIncidents: boolean;
+  showScheduleMask: boolean;
+  tzOffsetMin: number;
+  linkRecoverGraceSeconds?: number;
 }
 
 /**
  * Панель соединения над фильтром каталога: лейбл + авто-свитч + «Расписание» слева,
  * лента link/gaps справа на общей с Гантом оси времени.
+ *
+ * Scrub — fixed-слой на document.body (не React). На время scrub пропсы Ribbon заморожены,
+ * иначе useNow/link$ блокируют main thread и маркер «догоняет».
  */
 export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const store = useOhsStore();
   const link = useBehavior(store.link$);
-  const window = useBehavior(store.window$);
+  const coverageWindow = useBehavior(store.window$);
   const sessions = useBehavior(store.sessions$);
   const tzOffsetMin = useBehavior(store.displayTz$).offsetMin;
   const showNowMarker = useBehavior(store.showNowMarker$);
@@ -44,6 +83,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const ohsUnavailable = useBehavior(store.backendOutage$);
   const now = useNow(1000);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scrubOn, setScrubOn] = useState(false);
 
   const connSchedule = connectionSchedules.get(connection.connectionId);
   const rules = useMemo(() => connSchedule?.rules ?? [], [connSchedule]);
@@ -60,37 +100,197 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   });
 
   const nowPct = useMemo(
-    () => makeProjector(Date.parse(window.from), Date.parse(window.to), sessions)(now),
-    [now, window, sessions],
+    () =>
+      makeProjector(Date.parse(coverageWindow.from), Date.parse(coverageWindow.to), sessions)(now),
+    [now, coverageWindow, sessions],
   );
-  const laneStyle = { '--now-pct': nowPct } as unknown as CSSProperties;
+
+  const liveSnap: RibbonSnap = {
+    coverageWindow,
+    sessions,
+    intervals: link.intervals,
+    gaps: link.gaps,
+    incidents: link.incidents,
+    now,
+    nowPct,
+    rules,
+    showNowMarker,
+    showLinkRibbon,
+    showIncidents,
+    showScheduleMask,
+    tzOffsetMin,
+    linkRecoverGraceSeconds: link.linkRecoverGraceSeconds,
+  };
+  const snapRef = useRef(liveSnap);
+  if (!scrubOn) {
+    snapRef.current = liveSnap;
+  }
+  const view = scrubOn ? snapRef.current : liveSnap;
+  const laneStyle = { '--now-pct': view.nowPct } as unknown as CSSProperties;
 
   const rightRef = useRef<HTMLDivElement>(null);
   const [rulerRef, rulerWidth] = useElementWidth<HTMLDivElement>();
-  const [rulerTip, setRulerTip] = useState<RulerTipState | null>(null);
-  const fromMs = Date.parse(window.from);
-  const toMs = Date.parse(window.to);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const scrubRef = useRef<ConnectionScrubLayer | null>(null);
+  const scrubOnRef = useRef(false);
+  const geomRef = useRef<Geom>({ rightLeft: 0, rulerLeft: 0, rulerWidth: 1 });
+  const labelLutRef = useRef<string[]>([]);
+  const lastTipLabelRef = useRef('');
+  const hoverResolverRef = useRef(makeRulerHoverResolver(0, 1, [], 180, 1));
+
+  const fromMs = Date.parse(coverageWindow.from);
+  const toMs = Date.parse(coverageWindow.to);
   const rulerTicks = useMemo(
     () => buildRulerTicks(rulerWidth, fromMs, toMs, sessions, tzOffsetMin),
     [rulerWidth, fromMs, toMs, sessions, tzOffsetMin],
   );
 
-  const onRulerMove = useCallback(
-    (e: MouseEvent<HTMLDivElement>) => {
-      const ruler = rulerRef.current;
-      const right = rightRef.current;
-      if (!ruler || !right) {
+  const hoverResolver = useMemo(
+    () => makeRulerHoverResolver(fromMs, toMs, sessions, tzOffsetMin, rulerWidth || 1),
+    [fromMs, toMs, sessions, tzOffsetMin, rulerWidth],
+  );
+  hoverResolverRef.current = hoverResolver;
+
+  useEffect(() => {
+    const w = Math.max(1, Math.floor(rulerWidth || 1));
+    const lut = buildRulerLabelLut(w, hoverResolver);
+    labelLutRef.current = lut;
+    scrubRef.current?.setLabels(lut);
+  }, [hoverResolver, rulerWidth]);
+
+  useEffect(() => {
+    const layer = createConnectionScrubLayer();
+    scrubRef.current = layer;
+    return () => {
+      layer.destroy();
+      scrubRef.current = null;
+    };
+  }, []);
+
+  const syncScrubGeom = useCallback(() => {
+    const right = rightRef.current;
+    const ruler = rulerRef.current;
+    if (!right || !ruler) {
+      return;
+    }
+    const rr = right.getBoundingClientRect();
+    const ru = ruler.getBoundingClientRect();
+    geomRef.current = {
+      rightLeft: rr.left,
+      rulerLeft: ru.left,
+      rulerWidth: Math.max(1, ru.width),
+    };
+    scrubRef.current?.syncGeom(scrubGeomFromElements(right, ruler));
+  }, [rulerRef]);
+
+  const hideTip = useCallback(() => {
+    const el = tipRef.current;
+    if (el) {
+      el.hidden = true;
+    }
+    lastTipLabelRef.current = '';
+  }, []);
+
+  const showTip = useCallback((label: string, clientX: number) => {
+    if (scrubOnRef.current) {
+      return;
+    }
+    const el = tipRef.current;
+    if (!el) {
+      return;
+    }
+    el.hidden = false;
+    el.style.transform = `translate3d(${clientX - geomRef.current.rightLeft}px,0,0) translateX(-50%)`;
+    if (lastTipLabelRef.current !== label) {
+      lastTipLabelRef.current = label;
+      el.textContent = label;
+    }
+  }, []);
+
+  const setScrubActive = useCallback(
+    (on: boolean, clientX?: number) => {
+      scrubOnRef.current = on;
+      setScrubOn(on);
+      const layer = scrubRef.current;
+      if (!layer) {
         return;
       }
-      const rRect = ruler.getBoundingClientRect();
-      const rightRect = right.getBoundingClientRect();
-      const x = Math.min(Math.max(0, e.clientX - rRect.left), rRect.width);
-      const leftPct = rRect.width > 0 ? (x / rRect.width) * 100 : 0;
-      const hover = resolveRulerHover(leftPct, rRect.width, fromMs, toMs, sessions, tzOffsetMin);
-      setRulerTip({ leftPx: e.clientX - rightRect.left, label: hover.label });
+      if (on) {
+        hideTip();
+        syncScrubGeom();
+        layer.setLabels(labelLutRef.current);
+        layer.show(clientX ?? geomRef.current.rulerLeft);
+      } else {
+        layer.hide();
+      }
     },
-    [rulerRef, fromMs, toMs, sessions, tzOffsetMin],
+    [hideTip, syncScrubGeom],
   );
+
+  const tipHandlers = useMemo<RibbonTipHandlers>(
+    () => ({
+      onTip: (label, clientX) => showTip(label, clientX),
+      onTipClear: () => hideTip(),
+    }),
+    [showTip, hideTip],
+  );
+
+  const onRulerMove = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      if (scrubOnRef.current) {
+        return;
+      }
+      const g = geomRef.current;
+      const x = Math.min(Math.max(0, e.clientX - g.rulerLeft), g.rulerWidth);
+      const px = Math.min(labelLutRef.current.length - 1, Math.max(0, Math.round(x)));
+      const label =
+        labelLutRef.current[px] ?? hoverResolverRef.current((x / g.rulerWidth) * 100).label;
+      showTip(label, e.clientX);
+    },
+    [showTip],
+  );
+
+  const onRightDoubleClick = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setScrubActive(!scrubOnRef.current, e.clientX);
+    },
+    [setScrubActive],
+  );
+
+  useEffect(() => {
+    if (!scrubOn) {
+      return;
+    }
+    const onPointerMove = (e: PointerEvent) => {
+      scrubRef.current?.move(e.clientX);
+    };
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onPointerMove);
+  }, [scrubOn]);
+
+  useEffect(() => {
+    syncScrubGeom();
+  }, [syncScrubGeom, rulerWidth, coverageWindow.from, coverageWindow.to]);
+
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape' && scrubOnRef.current) {
+        setScrubActive(false);
+      }
+    };
+    const onScrollOrResize = () => {
+      syncScrubGeom();
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onScrollOrResize, true);
+    window.addEventListener('resize', onScrollOrResize);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScrollOrResize, true);
+      window.removeEventListener('resize', onScrollOrResize);
+    };
+  }, [setScrubActive, syncScrubGeom]);
 
   return (
     <>
@@ -120,28 +320,37 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
             </button>
           </div>
         </div>
-        <div className={styles.right} ref={rightRef}>
+        <div
+          className={[styles.right, scrubOn ? styles.rightScrubOn : ''].filter(Boolean).join(' ')}
+          ref={rightRef}
+          onDoubleClick={onRightDoubleClick}
+          onMouseEnter={syncScrubGeom}
+        >
           <ConnectionRibbon
-            window={window}
-            sessions={sessions}
-            intervals={link.intervals}
-            gaps={link.gaps}
-            incidents={link.incidents}
-            nowMs={now}
-            tzOffsetMin={tzOffsetMin}
-            linkRecoverGraceSeconds={link.linkRecoverGraceSeconds}
-            showNowMarker={showNowMarker}
-            showLinkRibbon={showLinkRibbon}
-            showIncidents={showIncidents}
-            showScheduleMask={showScheduleMask}
-            scheduleRules={rules}
+            window={view.coverageWindow}
+            sessions={view.sessions}
+            intervals={view.intervals}
+            gaps={view.gaps}
+            incidents={view.incidents}
+            nowMs={view.now}
+            tzOffsetMin={view.tzOffsetMin}
+            linkRecoverGraceSeconds={view.linkRecoverGraceSeconds}
+            showNowMarker={view.showNowMarker}
+            showLinkRibbon={view.showLinkRibbon}
+            showIncidents={view.showIncidents}
+            showScheduleMask={view.showScheduleMask}
+            scheduleRules={view.rules}
+            tip={tipHandlers}
           />
           <div
             className={styles.ruler}
             ref={rulerRef}
-            onMouseEnter={onRulerMove}
+            onMouseEnter={(e) => {
+              syncScrubGeom();
+              onRulerMove(e);
+            }}
             onMouseMove={onRulerMove}
-            onMouseLeave={() => setRulerTip(null)}
+            onMouseLeave={hideTip}
           >
             {rulerTicks.map((t, i) => (
               <span
@@ -153,15 +362,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
               </span>
             ))}
           </div>
-          {rulerTip ? (
-            <div
-              className={styles.rulerTip}
-              style={{ left: rulerTip.leftPx }}
-              role="tooltip"
-            >
-              {rulerTip.label}
-            </div>
-          ) : null}
+          <div className={styles.rulerTip} ref={tipRef} hidden role="tooltip" />
         </div>
       </div>
 

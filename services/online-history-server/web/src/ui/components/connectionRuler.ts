@@ -136,6 +136,20 @@ export function resolveRulerHover(
   sessions: SessionDto[] | undefined,
   tzOffsetMin: number,
 ): RulerHover {
+  return makeRulerHoverResolver(fromMs, toMs, sessions, tzOffsetMin, widthPx)(leftPct);
+}
+
+/**
+ * Кэшируемый резолвер для scrub/hover: projectors и majorMs собираются один раз
+ * на смену окна/ширины, а не на каждый mousemove.
+ */
+export function makeRulerHoverResolver(
+  fromMs: number,
+  toMs: number,
+  sessions: SessionDto[] | undefined,
+  tzOffsetMin: number,
+  widthPx: number,
+): (leftPct: number) => RulerHover {
   const span = Math.max(1, toMs - fromMs);
   const w = Math.max(1, widthPx);
   const majorMs = pickMajorMs(span, w);
@@ -143,24 +157,39 @@ export function resolveRulerHover(
   const pct = makeProjector(fromMs, toMs, sessions);
   const withDate = span > 36 * HOUR_MS || (sessions?.length ?? 0) > 1;
   const off = tzOffsetMin * 60_000;
-
-  // Квант позиции ≈ 1px.
   const pxToPct = 100 / w;
-  const qPct = Math.min(100, Math.max(0, Math.round(leftPct / pxToPct) * pxToPct));
-  let ms = inv(qPct);
-  let snappedMajor = false;
 
-  // Магнит к major в отображаемом ТЗ.
-  const nearestMajorShifted = Math.round((ms + off) / majorMs) * majorMs;
-  const majorT = nearestMajorShifted - off;
-  if (majorT >= fromMs - 1 && majorT <= toMs + 1) {
-    const majorLeft = pct(majorT);
-    const distPx = (Math.abs(majorLeft - qPct) / 100) * w;
-    if (distPx <= MAJOR_SNAP_PX) {
-      ms = Math.min(toMs, Math.max(fromMs, majorT));
-      snappedMajor = true;
+  return (leftPct: number): RulerHover => {
+    const qPct = Math.min(100, Math.max(0, Math.round(leftPct / pxToPct) * pxToPct));
+    let ms = inv(qPct);
+    let snappedMajor = false;
+
+    const nearestMajorShifted = Math.round((ms + off) / majorMs) * majorMs;
+    const majorT = nearestMajorShifted - off;
+    if (majorT >= fromMs - 1 && majorT <= toMs + 1) {
+      const majorLeft = pct(majorT);
+      const distPx = (Math.abs(majorLeft - qPct) / 100) * w;
+      if (distPx <= MAJOR_SNAP_PX) {
+        ms = Math.min(toMs, Math.max(fromMs, majorT));
+        snappedMajor = true;
+      }
     }
-  }
 
-  return { ms, label: tickTitle(ms, tzOffsetMin, withDate), snappedMajor };
+    return { ms, label: tickTitle(ms, tzOffsetMin, withDate), snappedMajor };
+  };
+}
+
+/**
+ * Таблица label по X-пикселю линейки (0..width-1) — hot-path scrub без вызова projector.
+ */
+export function buildRulerLabelLut(
+  widthPx: number,
+  resolve: (leftPct: number) => RulerHover,
+): string[] {
+  const w = Math.max(1, Math.floor(widthPx));
+  const out = new Array<string>(w);
+  for (let x = 0; x < w; x++) {
+    out[x] = resolve((x / w) * 100).label;
+  }
+  return out;
 }

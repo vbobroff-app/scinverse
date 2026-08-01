@@ -64,6 +64,17 @@
   border-radius: var(--radius-md);
   background: var(--color-bg-panel);
   min-width: 0;
+  overflow: visible;
+}
+
+.rightScrubOn {
+  user-select: none;
+  cursor: col-resize;
+}
+
+/* На scrub гант не участвует в hit-test — события сразу на .right, без bubbling по сегментам. */
+.rightScrubOn > :first-child {
+  pointer-events: none;
 }
 
 .right > :first-child {
@@ -108,12 +119,13 @@
   opacity: 0.8;
 }
 
-/* Кастомный тултип линейки — визуально как NC Tip; ниже линейки. */
+/* Кастомный тултип линейки — визуально как NC Tip; ниже линейки.
+   Позиция — через transform (без layout на каждый move). */
 .rulerTip {
   position: absolute;
   top: calc(100% + 4px);
+  left: 0;
   z-index: 50;
-  transform: translateX(-50%);
   max-width: 260px;
   padding: 5px 8px;
   border-radius: 4px;
@@ -126,14 +138,38 @@
   white-space: nowrap;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   pointer-events: none;
-  animation: rulerTipIn 0.12s ease-out;
+  will-change: transform;
 }
 
-@keyframes rulerTipIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+/* Scrub time-line: fixed на document.body (connectionScrubLayer) — вне React-дерева. */
+.scrubLineFixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9000;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--color-text-muted);
+  opacity: 0.85;
+  pointer-events: none;
+  will-change: transform;
+  contain: layout style;
+}
+
+.scrubLabelFixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9001;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: var(--color-text-muted);
+  color: #000;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: transform;
+  contain: layout style;
 }
