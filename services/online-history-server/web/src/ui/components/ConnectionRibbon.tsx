@@ -287,7 +287,13 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             return (
               <div
                 key={`ib${body.corrUid}-${i}`}
-                className={[styles.bar, kindClass(body.kind)].join(' ')}
+                className={[
+                  styles.bar,
+                  kindClass(body.kind),
+                  open ? styles.incidentLive : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 style={{
                   left: `${left}%`,
                   width: `${Math.max(0.3, pct(body.toMs) - left)}%`,
@@ -307,16 +313,23 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
               return null;
             }
             const from = Date.parse(gap.from);
-            const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
+            const open = gap.to == null;
+            const to = open ? liveEdgeMs : Date.parse(gap.to);
             const left = pct(from);
             const label = tipLabel(
               'Восстановление связи',
-              tipRange(from, to, !gap.to, tzOffsetMin),
+              tipRange(from, to, open, tzOffsetMin),
             );
             return (
               <div
                 key={`g${i}`}
-                className={[styles.bar, styles.breakBar].join(' ')}
+                className={[
+                  styles.bar,
+                  styles.breakBar,
+                  open ? styles.incidentLive : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
                 {...bindTip(label, tip)}
               />
@@ -336,7 +349,13 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             return (
               <div
                 key={`ic${body.corrUid}-${i}`}
-                className={[styles.bar, kindClass(body.kind)].join(' ')}
+                className={[
+                  styles.bar,
+                  kindClass(body.kind),
+                  open ? styles.incidentLive : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 style={{
                   left: `${left}%`,
                   width: `${Math.max(0.3, pct(body.toMs) - left)}%`,
@@ -350,16 +369,23 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
       {useJournal && showCrashIncidents
         ? optimisticCrashGaps?.map((gap, i) => {
             const from = Date.parse(gap.from);
-            const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
+            const open = gap.to == null;
+            const to = open ? liveEdgeMs : Date.parse(gap.to);
             const left = pct(from);
             const label = tipLabel(
               'Сервер недоступен',
-              tipRange(from, to, !gap.to, tzOffsetMin),
+              tipRange(from, to, open, tzOffsetMin),
             );
             return (
               <div
                 key={`crash-gap${i}`}
-                className={[styles.bar, styles.crashBar].join(' ')}
+                className={[
+                  styles.bar,
+                  styles.crashBar,
+                  open ? styles.incidentLive : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 style={{ left: `${left}%`, width: `${Math.max(0.3, pct(to) - left)}%` }}
                 {...bindTip(label, tip)}
               />

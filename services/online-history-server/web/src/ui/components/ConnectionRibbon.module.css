@@ -52,6 +52,11 @@
   animation: connPulse 1.6s ease-in-out infinite;
 }
 
+/* Открытый Active-инцидент (тултип «…–сейчас»): пульс только у ленты, не у маркеров. */
+.incidentLive {
+  animation: connPulse 1.6s ease-in-out infinite;
+}
+
 .idle {
   background: var(--color-text-muted);
   opacity: 0.5;
