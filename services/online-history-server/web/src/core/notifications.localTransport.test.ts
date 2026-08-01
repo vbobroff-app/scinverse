@@ -57,13 +57,13 @@ describe('crash-dispatch D5: local transport Single', () => {
         sourceType: 'system',
         module: 'ohs.host',
         code: 'backend.unavailable',
-        message: 'Подключение 3: Сервер OHS недоступен, жду восстановления',
+        message: 'Сервер OHS недоступен, жду восстановления',
         status: 'active',
-        correlationId: 'ohs.backend.outage:1785375762000:c3',
+        correlationId: 'ohs.backend.outage:1785375762000',
         data: {
           sender: 'client',
           kind: 'crash',
-          connectionId: 3,
+          connectionIds: [3],
           threadKindHint: 'incident',
         },
         interaction: 'system',
@@ -76,7 +76,7 @@ describe('crash-dispatch D5: local transport Single', () => {
     expect(notificationBus.events.some((e) => e.data?.local === true)).toBe(false);
     const threads = notificationBus.items.filter(isThreadItem);
     expect(threads).toHaveLength(1);
-    expect(threads[0]!.uid).toBe('ohs.backend.outage:1785375762000:c3');
+    expect(threads[0]!.uid).toBe('ohs.backend.outage:1785375762000');
     expect(threads[0]!.threadKind).toBe('incident');
   });
 });

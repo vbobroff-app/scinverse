@@ -103,11 +103,11 @@ Writer (W)        — writerId  ←  connectionId + instrumentId
 | Schedule | у каждого connection своё → используется для **Auto + mask/Cutter**, не для «писать ли journal» |
 | Journal (to-be) | Incident (`type=break` \| `crash`, …), **полный span** |
 | NC (to-be) | всегда Incident на connection на эпизод |
-| Corr crash (as-is) | `ohs.backend.outage:{outageSeed}:c{connectionId}` |
+| Corr crash (P5) | `ohs.backend.outage:{outageSeed}` + scope `incident_connection` / `connectionIds` |
 | `clientId` | опционально в `data` для аудита |
 
 Break (обрыв link) живёт на слое C.  
-Crash Host **проецируется** на C (fan-out) после оживления бэка.
+Crash Host **проецируется** на C (1 Thread + N scope) после оживления бэка.
 
 ---
 

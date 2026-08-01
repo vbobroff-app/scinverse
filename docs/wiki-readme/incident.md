@@ -66,8 +66,8 @@
     └── Out of Disk Space
 ```
 
-**To-be предпочтение (2NF):** один факт crash + таблица scope `incident_connection`, а не
-N независимых строк `:c{id}` с полным дублированием. As-is fan-out N rows остаётся до отдельного шага.
+**P5 (2NF):** один факт crash + таблица scope `incident_connection` (corr без `:c{id}`).
+Cutover истории NC — purge `notification` + Host restart (без dual-read).
 
 ---
 

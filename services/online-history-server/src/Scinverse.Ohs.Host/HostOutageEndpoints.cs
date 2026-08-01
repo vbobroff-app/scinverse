@@ -19,7 +19,7 @@ public static class HostOutageEndpoints
             }
 
             var result = outages.Report(req.ClientId.Trim(), req.From, req.To, req.Code);
-            // T: coordinator seed; NC Group T off. C: per enabled connection.
+            // T: coordinator seed; NC Group T off. C: 1 transport crash + N scope (P5).
             transport.Apply(result);
             await connections.ApplyAsync(result, ct).ConfigureAwait(false);
             // D6: close эпизода снимает hold-барьер (раньше — client backend.recovered).

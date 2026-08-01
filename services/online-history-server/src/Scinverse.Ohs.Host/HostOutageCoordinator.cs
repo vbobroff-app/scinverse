@@ -149,12 +149,8 @@ public sealed class HostOutageEpisode
 
     public string TransportCorrUid => $"ohs.host.transport:{OutageSeed}";
 
-    /// <summary>P5.2: слой C = transport corr (scope в <c>incident_connection</c>).</summary>
+    /// <summary>P5: слой C = transport corr (scope в <c>incident_connection</c>).</summary>
     public string LayerCCorrUid => $"ohs.backend.outage:{OutageSeed}";
-
-    /// <summary>Legacy per-connection corr; emit больше не использует.</summary>
-    public string ConnectionCorrUid(long connectionId) =>
-        $"ohs.backend.outage:{OutageSeed}:c{connectionId}";
 
     public void AddClient(string clientId) => _clientIds.Add(clientId);
 

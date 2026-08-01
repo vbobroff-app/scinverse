@@ -67,7 +67,7 @@ WS drop (N admin clients)
 Single и C-Incident появлялся зелёный Group «снова доступен» — дубль и шум.
 
 На WS drop клиент держит **local Single FATAL** (`host.unreachable`, memory). Снимается
-при первом атоме слоя C (`ohs.backend.outage:{seed}:c{id}`) или при локальном recover.
+при первом атоме слоя C (`ohs.backend.outage:{seed}`) или при локальном recover.
 
 Слот T + `HostOutageTransportEmitter` остаются для будущих общих system-уведомлений
 (не этот crash-стек).
@@ -109,25 +109,27 @@ else → Group + clipped Incident …:c{id}:h на ∩ desired
 
 На один outage-окно у connection — **одна** нить Incident (полный span).
 
-### 4.2. Corr
+### 4.2. Corr (P5 / 2NF)
 
 ```text
-ohs.backend.outage:{outageSeed}:c{connectionId}       — всегда Incident (P3)
-# …:c{id}:h  — ОТКЛОНЕНО, не использовать
+ohs.backend.outage:{outageSeed}       — всегда Incident (P3); один Thread на transport
+# …:c{id}   — legacy (до cutover); emit не использует
+# …:c{id}:h — ОТКЛОНЕНО, не использовать
 ```
 
-- один Host-outage → N нитей слоя C;
-- фильтр NC по `connectionId`; header subject = `connection:{id}` (как break).
+- один Host-outage → **одна** нить слоя C + `data.connectionIds[]` (scope enabled);
+- фильтр NC / ribbon — через scope (`incident_connection` / `connectionIds`);
+- header subject = `ohs.backend.outage`.
 
-### 4.3. Journal
+### 4.3. Journal (P5)
 
-| threadKind | `incident` row (as-is) |
-|------------|------------------------|
-| incident (desired at open) | да: полный span, `type=crash` |
+| threadKind | `incident` row |
+|------------|----------------|
+| incident | **1** строка `type=crash`, `connection_id = NULL` + N строк `incident_connection` |
 | group | нет |
 | `:h` clipped | **не существует** (отклонено) |
 
-Ribbon Connection красит только строки журнала с этим `connection_id` (+ optimistic gap до API).
+Ribbon Connection «Инциденты сервера» — join по scope (+ optimistic gap до API).
 
 ### 4.4. `clientId` на слое соединений
 
@@ -196,8 +198,8 @@ POST /api/…  (имя эндпоинта — план)
 
 1. Merge в текущий / новый outage-эпизод (`min` from, …).
 2. Emit слой T (Group open/close) — идемпотентно.
-3. Emit слой C ∀ enabled connection — идемпотентно по corr `:c{id}`.
-4. Journal Open/Resolve только для Incident.
+3. Emit слой C — один corr `ohs.backend.outage:{seed}` + scope enabled (идемпотентно).
+4. Journal Open/Resolve — одна строка crash + `incident_connection`.
 
 Точные code/message/`threadKindHint` — в плане; семантика как у нынешних
 `backend.unavailable` / `backend.recovered`, но **автор durable NC — Host**, не клиентский
@@ -209,21 +211,18 @@ mock-POST атомов на каждый connection.
 
 Connections: `1` (вне окна), `3` (в desired). Два admin POST.
 
-**NC после fan-out:**
+**NC после emit (P5):**
 
 ```text
 [local FATAL Single]  Сервер OHS недоступен · t++   ← memory; снимается на C
 
-Group  ohs.backend.outage:{seed}:c1       ← connectionId=1 (вне окна)
-  … stack …
-
-Incident  ohs.backend.outage:{seed}:c3    ← connectionId=3
-  FATAL  Подключение 3: Сервер OHS недоступен…
-  OK     … восстановлена
+Incident  ohs.backend.outage:{seed}       ← data.connectionIds = [1, 3] (enabled snapshot)
+  FATAL  Сервер OHS недоступен…
+  OK     Система восстановлена
 ```
 
-**Journal:** одна строка crash для `connection_id=3`.  
-Фильтр NC `connectionId=3` → только Incident `:c3`.
+**Journal:** одна строка crash + scope `(seed→1)`, `(seed→3)`.  
+Фильтр NC / ribbon `connectionId=3` → тот же Thread (via `connectionIds` / join).
 
 ---
 
@@ -268,12 +267,12 @@ Incident  ohs.backend.outage:{seed}:c3    ← connectionId=3
 ```text
 outageSeed              = minFrom Unix ms (UTC)
 T corr                  = ohs.host.transport:{outageSeed}
-C corr                  = ohs.backend.outage:{outageSeed}:c{connectionId}
+C corr                  = ohs.backend.outage:{outageSeed}   # P5: без :c{id}
 
 T open                  = host.unreachable     severity=error|critical  hint=group
 T close                 = host.reachable       severity=ok              status=resolved
-C open                  = backend.unavailable  hint=incident|group      + connectionId
-C close                 = backend.recovered    (+ closeOutcome)         + connectionId
+C open                  = backend.unavailable  hint=incident            + connectionIds[]
+C close                 = backend.recovered    (+ closeOutcome)         + connectionIds[]
 ```
 
 `clientId` в теле POST — для лога/дедупа; в NC атомах T: `sender=client` (схлоп).
@@ -302,7 +301,7 @@ POST /api/recovery/outage
 |-----|-----|---------------------|
 | **D1** | `HostOutageCoordinator` + `POST /api/recovery/outage` — **DONE** | Unit: два clientId → один seed; min from; один close |
 | **D2** | Emit **слой T**: `HostOutageTransportEmitter` → Hub Ingest open/close, hint=group, без journal — **DONE** | Unit: 2 атома, без connectionId; merge не дублирует open |
-| **D3** | Emit **слой C**: ∀ enabled → Incident+journal (P3: без `desired` classification) — **DONE** | Unit: N enabled → N corr `:c{id}` + N journal |
+| **D3** | Emit **слой C**: 1+N scope (P5; P3: без `desired` classification) — **DONE** | Unit: 1 corr + N `incident_connection` |
 | **D4** | Снять client-led journal path для crash из `POST /notifications` — **DONE** | ApiTests: journal через `/recovery/outage`; client `backend.unavailable` → NC only |
 | **D5** | Клиент: WS down → **локальная Single** (не Thread); убрать `openBackendOutage` Thread+queue атомов crash — **DONE** | vitest: Single без Thread; dismiss на hydrate `ohs.host.transport:` |
 | **D5a** | NC фильтр «Соединение» (show/hide Id) — **DONE** | Скрыть id=1; без id в data остаётся видимым |

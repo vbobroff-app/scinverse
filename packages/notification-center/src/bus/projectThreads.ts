@@ -223,14 +223,14 @@ export function deriveSubject(corrUid: string): string | undefined {
   if (conn) {
     return `connection:${conn[1]}`;
   }
-  // crash-dispatch слой C: `ohs.backend.outage:{seed}:c{id}` → `connection:{id}`
-  // (как break `connection:{id}:link` — короткий title после RESOLVED; текст в message).
-  const outageConn = /^ohs\.backend\.outage:[^:]+:c(\d+)$/.exec(corrUid);
-  if (outageConn) {
-    return `connection:${outageConn[1]}`;
-  }
+  // P5 transport crash: `ohs.backend.outage:{seed}` (scope — data.connectionIds).
   const outage = /^(ohs\.backend\.outage)(?::|$)/.exec(corrUid);
   if (outage) {
+    // Legacy fan-out `:c{id}` (до P5 cutover) → connection:{id} для заголовка.
+    const legacyConn = /^ohs\.backend\.outage:[^:]+:c(\d+)$/.exec(corrUid);
+    if (legacyConn) {
+      return `connection:${legacyConn[1]}`;
+    }
     return outage[1];
   }
   const idx = corrUid.lastIndexOf(':');

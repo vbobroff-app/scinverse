@@ -53,9 +53,8 @@ link_liveness ──► голубое/серое (факт link); с маско
 ### 3.1. Что пишем
 
 - Break per connection — всегда Incident-строка (полный `[openedAt, closedAt]`).
-- Crash Host — факт сбоя; **влияние на данные** по connections отражается в scope
-  (as-is: fan-out N rows `:c{id}`; to-be предпочтение: 2NF — одна строка crash +
-  `incident_connection`).
+- Crash Host — факт сбоя; **влияние на данные** по connections — scope
+  (P5 / 2NF: одна строка crash + `incident_connection`).
 - Релевантные 500 / unhandled, которые рвут захват — да.
 
 ### 3.2. Чего не делаем
@@ -127,10 +126,10 @@ Cutter **не** пишет в `incident` и **не** меняет NC.
 | | `abandoned_schedule` как close-reason / классификатор |
 | | desired → Incident vs Group в crash fan-out |
 
-Crash концептуально **transport**; break — **per connection**. Journal сегодня размножает
-crash на N `:c{id}` — as-is. **P5 (2NF):** одна строка crash + `incident_connection` scope;
-corr `ohs.backend.outage:{seed}`; NC — один Thread. История MVP: purge `notification`
-(+ restart Host из‑за in-memory Hub), без dual-read NC — см. `plan-schedule-projection.md` §P5.
+Crash концептуально **transport**; break — **per connection**. **P5 (2NF) DONE:** одна
+строка crash + `incident_connection` scope; corr `ohs.backend.outage:{seed}`; NC — один
+Thread. История MVP: purge `notification` (+ restart Host из‑за in-memory Hub), без
+dual-read NC — см. `plan-schedule-projection.md` §P5.
 
 ---
 

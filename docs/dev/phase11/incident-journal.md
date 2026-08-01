@@ -176,17 +176,18 @@ To-be в журнале: при handover UPDATE `escalated_at`, `owner=superviso
 
 | Что | Правило |
 |-----|---------|
-| Вид | `type=crash`, отдельный `corr` на **connection** (`ohs.backend.outage:{seed}:c{id}`) |
-| Тело | красная **штриховка** на `[opened_at, closed_at??now]` |
+| Вид | `type=crash`, **один** corr на transport (`ohs.backend.outage:{seed}`); `connection_id = NULL` |
+| Scope | `incident_connection (corr_uid, connection_id)` — snapshot enabled на open (P5) |
+| Тело | красная **штриховка** на `[opened_at, closed_at??now]` для каждого id ∈ scope |
 | Paint | **поверх** break (z-order); вложенность схемой не проверяем |
 | Старт 1px | `opened_at` |
 | Green | только `recovered` |
-| Abandon | `abandoned_*` → клип без green |
+| Abandon | `abandoned_manual` → клип без green (UI resolve); schedule-abandon снят (P4) |
 | Детект host_unavailable | клиент (дроп WS); оптимистичная геометрия до прихода API |
 | Dispatch | **два слоя** (транспорт admin↔OHS + слой соединений) — канон [crash-dispatch.md](crash-dispatch.md) |
 
-> As-is (один corr без / с одним `connectionId` от клиента) — переходный; to-be — fan-out
-> супервизора per connection после POST. Журнал только Incident слоя соединений.
+> P5 cutover: история NC atoms не мигрируем — purge `notification` + Host restart.
+> Legacy `:c{id}` journal на стенде — purge вместе с cutover.
 
 ---
 

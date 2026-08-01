@@ -78,11 +78,11 @@ public sealed class HostOutageCoordinatorTests
     }
 
     [Fact]
-    public void Connection_corr_uses_seed_and_id()
+    public void Layer_c_corr_is_transport_seed_without_connection_suffix()
     {
         var c = new HostOutageCoordinator();
         c.Report("a", T0, to: null);
-        c.Current!.ConnectionCorrUid(3).Should().Be($"ohs.backend.outage:{T0.ToUnixTimeMilliseconds()}:c3");
+        c.Current!.LayerCCorrUid.Should().Be($"ohs.backend.outage:{T0.ToUnixTimeMilliseconds()}");
         c.Current.Code.Should().Be(HostOutageCoordinator.DefaultOutageCode);
     }
 

@@ -129,10 +129,10 @@ describe('projectThreads', () => {
     expect(t.threadKind).toBe('group');
   });
 
-  it('crash layer C: subject + header title bind to connectionId', () => {
-    expect(deriveSubject('ohs.backend.outage:1720000000000:c3')).toBe('connection:3');
-    const corr = 'ohs.backend.outage:1720000000000:c3';
-    const closeMsg = 'Подключение 3: Система восстановлена';
+  it('P5: transport crash subject is ohs.backend.outage; scope via connectionIds', () => {
+    expect(deriveSubject('ohs.backend.outage:1720000000000')).toBe('ohs.backend.outage');
+    const corr = 'ohs.backend.outage:1720000000000';
+    const closeMsg = 'Система восстановлена';
     const items = projectThreads([
       evt({
         id: 'o1',
@@ -140,9 +140,9 @@ describe('projectThreads', () => {
         code: 'backend.unavailable',
         status: 'active',
         severity: 'critical',
-        message: 'Подключение 3: Сервер OHS недоступен, жду восстановления',
+        message: 'Сервер OHS недоступен, жду восстановления',
         ts: '2026-07-14T12:00:00.000Z',
-        data: { connectionId: 3, threadKindHint: 'incident', kind: 'crash' },
+        data: { connectionIds: [3], threadKindHint: 'incident', kind: 'crash' },
       }),
       evt({
         id: 'c1',
@@ -152,21 +152,21 @@ describe('projectThreads', () => {
         severity: 'ok',
         message: closeMsg,
         ts: '2026-07-14T12:05:00.000Z',
-        data: { connectionId: 3, kind: 'crash', closeOutcome: 'recovered' },
+        data: { connectionIds: [3], kind: 'crash', closeOutcome: 'recovered' },
       }),
     ]);
     const t = threadOf(items, corr);
-    expect(t.subject).toBe('connection:3');
+    expect(t.subject).toBe('ohs.backend.outage');
     expect(t.threadKind).toBe('incident');
-    // Как break: title = connection:{id}; message без изменений («Подключение 3: …»).
-    expect(t.header.title).toBe('connection:3');
+    expect(t.header.title).toBe('ohs.backend.outage');
     expect(t.notifications.map((n) => n.message)).toEqual([
-      'Подключение 3: Сервер OHS недоступен, жду восстановления',
+      'Сервер OHS недоступен, жду восстановления',
       closeMsg,
     ]);
   });
 
-  it('P3: crash :c{id} stays Incident (filterable by connectionId)', () => {
+  it('legacy :c{id} still maps subject to connection (pre-P5 cutover)', () => {
+    expect(deriveSubject('ohs.backend.outage:1720000000000:c3')).toBe('connection:3');
     const corr = 'ohs.backend.outage:1720000000000:c9';
     const items = projectThreads([
       evt({

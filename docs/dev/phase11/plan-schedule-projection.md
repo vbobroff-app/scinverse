@@ -122,8 +122,8 @@
 | P5.0 | Docs (этот блок + pointers в speке/promt) | **DONE** (docs) |
 | P5.1 | DDL `incident_connection` + store scope + Query join | **DONE** (`V029`, Replace/List scope, Query via join) |
 | P5.2 | Emit 1+N; GET connection incidents = break ∪ crash-via-join; ribbon crash | **DONE** (Host emit + NC `connectionIds` filter) |
-| P5.3 | Cutover стенд: purge NC (+ Host restart); journal legacy crash — purge/migrate per D6 | UI без старых `:c{id}` Threads |
-| P5.4 | Убрать emit `:c{id}`; sync crash-dispatch / incident-journal | grep clean |
+| P5.3 | Cutover стенд: purge NC (+ Host restart); journal legacy crash — purge/migrate per D6 | **DONE** (NC=0; legacy `:c{id}` crash=0; Host restart) |
+| P5.4 | Убрать emit `:c{id}`; sync crash-dispatch / incident-journal | **DONE** (helpers dropped; speки synced) |
 
 #### Acceptance
 

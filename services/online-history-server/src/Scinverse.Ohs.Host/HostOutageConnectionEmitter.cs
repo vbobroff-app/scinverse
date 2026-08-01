@@ -21,17 +21,9 @@ public sealed class HostOutageConnectionEmitter(
     public const string OpenMessageBase = "Сервер OHS недоступен, жду восстановления";
     public const string CloseMessageBase = "Система восстановлена";
 
-    /// <summary>Legacy per-connection message (до P5.2); emit использует <see cref="OpenMessageBase"/>.</summary>
-    public static string MessageFor(long connectionId, string body) =>
-        $"Подключение {connectionId}: {body}";
-
     /// <summary>Transport corr слоя C (P5): без per-connection суффикса.</summary>
     public static string CorrUid(long outageSeed) =>
         $"ohs.backend.outage:{outageSeed}";
-
-    /// <summary>Legacy `:c{id}` — только для чтения старых тестов/hydrate; emit не использует.</summary>
-    public static string LegacyCorrUid(long outageSeed, long connectionId) =>
-        $"ohs.backend.outage:{outageSeed}:c{connectionId}";
 
     public async Task ApplyAsync(HostOutageReportResult result, CancellationToken cancellationToken = default)
     {
