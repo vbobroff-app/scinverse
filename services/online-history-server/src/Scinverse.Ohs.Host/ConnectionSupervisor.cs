@@ -283,8 +283,25 @@ public sealed class ConnectionSupervisor(
         }
 
         var fails = _failCounts.GetValueOrDefault(connectionId);
+        var linkSubject = ConnectionManager.LinkIncidentSubject(connectionId);
+        var incidentOpen = connections.GetIncidentSince(connectionId) is not null;
         if (fails >= MaxConnectAttempts)
         {
+            // Journal мог остаться recovering после ×N — синхронизируем с NC (active, ждём оператора).
+            if (incidentOpen)
+            {
+                await fanOut
+                    .ApplyAsync(
+                        new IncidentStep(
+                            IncidentStepKind.AwaitOperator,
+                            linkSubject,
+                            nowUtc,
+                            CorrUid: connections.GetOpenBreakCorr(connectionId),
+                            ConnectionId: connectionId),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             return;
         }
 
@@ -292,8 +309,6 @@ public sealed class ConnectionSupervisor(
             .ConfigureAwait(false);
         // I11: источник правды — только Manager open break (не fails>0).
         // auto: Group — только после успешного kickoff (не throwaway на fail).
-        var incidentOpen = connections.GetIncidentSince(connectionId) is not null;
-        var linkSubject = ConnectionManager.LinkIncidentSubject(connectionId);
 
         if (incidentOpen)
         {
@@ -424,6 +439,18 @@ public sealed class ConnectionSupervisor(
                         sender = "supervisor",
                         reason = "max_connect_attempts",
                     });
+
+                // Journal recovering → active (тот же смысл, что NC threadStatus Active).
+                await fanOut
+                    .ApplyAsync(
+                        new IncidentStep(
+                            IncidentStepKind.AwaitOperator,
+                            linkSubject,
+                            nowUtc,
+                            CorrUid: connections.GetOpenBreakCorr(connectionId),
+                            ConnectionId: connectionId),
+                        cancellationToken)
+                    .ConfigureAwait(false);
             }
         }
     }
@@ -431,6 +458,17 @@ public sealed class ConnectionSupervisor(
     /// <summary>Auto исчерпал ×N для connection (in-memory; после рестарта Host — false).</summary>
     public bool IsAutoConnectExhausted(long connectionId) =>
         _failCounts.GetValueOrDefault(connectionId) >= MaxConnectAttempts;
+
+    /// <summary>
+    /// Оператор закрыл break во время recovering — стоп retry (как после ×N), без ожидания fail-счётчика.
+    /// Persist Auto off — на вызывающей стороне (schedule settings).
+    /// </summary>
+    public void HaltAutoRecovery(long connectionId)
+    {
+        _failCounts[connectionId] = MaxConnectAttempts;
+        _nextAttemptAt.TryRemove(connectionId, out _);
+        _kickoffPending.TryRemove(connectionId, out _);
+    }
 
     /// <summary>
     /// Нужно действие оператора: Auto ×N исчерпан, break open, окно desired, связь не поднята.

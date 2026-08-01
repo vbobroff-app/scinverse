@@ -45,11 +45,19 @@ public sealed class ConnectionManagerIncidentTests
             .Should().BeFalse("уже закрыто");
 
         manager.GetIncidentSince(ConnId).Should().BeNull();
-        var closed = hub.List().Last(e => e.Code == "connection.incident_closed");
+        var list = hub.List();
+        var userClose = list.Last(e => e.Code == NotificationThreadData.CodeIncidentForceClosed);
+        userClose.SourceType.Should().Be("user");
+        userClose.Severity.Should().Be("info");
+        userClose.Message.Should().Contain("принудительно");
+        var closed = list.Last(e => e.Code == "connection.incident_closed");
         closed.Status.Should().Be("resolved");
         closed.Severity.Should().Be("warning");
+        closed.SourceType.Should().Be("system");
         DataString(closed, "closeOutcome").Should().Be(NotificationThreadData.OutcomeAbandonedManual);
         DataString(closed, "reason").Should().Be("manual_off");
+        list.ToList().FindIndex(e => e.Id == userClose.Id)
+            .Should().BeLessThan(list.ToList().FindIndex(e => e.Id == closed.Id), "user до system");
         link.Markers.Should().ContainSingle(m =>
             m.SourceId == 1 && m.Reason == LinkCloseReason.Disconnected && m.At == end);
     }
@@ -155,6 +163,10 @@ public sealed class ConnectionManagerIncidentTests
 
         public Task<bool> AnnotateResolvedByAsync(
             string corrUid, string resolvedBy, CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+
+        public Task<bool> AnnotateCloseNoteAsync(
+            string corrUid, string closeNote, CancellationToken cancellationToken) =>
             Task.FromResult(false);
 
         public Task<bool> BindConnectionIdIfNullAsync(

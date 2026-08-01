@@ -50,4 +50,24 @@ describe('formatThreadTs', () => {
       ),
     ).toBe('2026-07-28 23:50:00 → 17:10:00');
   });
+
+  it('collapses identical ends; open active uses open→last', () => {
+    expect(
+      formatThreadTimeLabel(
+        '2026-07-29T14:27:42.000Z',
+        '2026-07-29T14:27:42.000Z',
+        180,
+        nowMsk,
+      ),
+    ).toBe('17:27:42');
+
+    expect(
+      formatThreadTimeLabel(
+        '2026-07-29T14:27:42.000Z',
+        '2026-07-29T15:00:00.000Z',
+        180,
+        nowMsk,
+      ),
+    ).toBe('17:27:42 → 18:00:00');
+  });
 });

@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import type { ThreadItem } from '../types';
+import type { EntryItem, ThreadItem } from '../types';
 import {
   resolveEntryMarks,
   resolveThreadHeaderMarks,
   setThreadBulkMarks,
   toggleNcMark,
+  type NcMarkMap,
 } from './ncMarks';
+
+function entry(partial: Pick<EntryItem, 'id' | 'code' | 'message'> & { ts?: string }): EntryItem {
+  return {
+    itemKind: 'entry',
+    corrUid: 'c1',
+    ts: partial.ts ?? '2026-07-14T12:00:00.000Z',
+    severity: 'info',
+    sourceType: 'system',
+    module: 'm',
+    code: partial.code,
+    message: partial.message,
+    id: partial.id,
+  };
+}
 
 function thread(partial: Partial<ThreadItem> & Pick<ThreadItem, 'uid' | 'notifications'>): ThreadItem {
   return {
@@ -30,24 +45,8 @@ describe('ncMarks', () => {
     const t = thread({
       uid: 'c1',
       notifications: [
-        {
-          id: 'e1',
-          ts: '2026-07-14T12:00:00.000Z',
-          severity: 'info',
-          sourceType: 'system',
-          module: 'm',
-          code: 'a',
-          message: '1',
-        },
-        {
-          id: 'e2',
-          ts: '2026-07-14T12:01:00.000Z',
-          severity: 'info',
-          sourceType: 'system',
-          module: 'm',
-          code: 'b',
-          message: '2',
-        },
+        entry({ id: 'e1', code: 'a', message: '1' }),
+        entry({ id: 'e2', code: 'b', message: '2', ts: '2026-07-14T12:01:00.000Z' }),
       ],
     });
     expect(resolveThreadHeaderMarks({ e1: { isFavorite: true } }, t)).toEqual({
@@ -65,27 +64,11 @@ describe('ncMarks', () => {
     const t = thread({
       uid: 'c1',
       notifications: [
-        {
-          id: 'e1',
-          ts: '2026-07-14T12:00:00.000Z',
-          severity: 'info',
-          sourceType: 'system',
-          module: 'm',
-          code: 'a',
-          message: '1',
-        },
-        {
-          id: 'e2',
-          ts: '2026-07-14T12:01:00.000Z',
-          severity: 'info',
-          sourceType: 'system',
-          module: 'm',
-          code: 'b',
-          message: '2',
-        },
+        entry({ id: 'e1', code: 'a', message: '1' }),
+        entry({ id: 'e2', code: 'b', message: '2', ts: '2026-07-14T12:01:00.000Z' }),
       ],
     });
-    let marks = { c1: { isFavorite: true as const } };
+    let marks: NcMarkMap = { c1: { isFavorite: true } };
     marks = setThreadBulkMarks(marks, t, 'isFavorite', true);
     expect(marks.e1?.isFavorite).toBe(true);
     expect(marks.e2?.isFavorite).toBe(true);

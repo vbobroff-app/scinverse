@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { NotificationEvent, NotificationSeverity } from '../types';
 import { resolveStatus } from '../types';
-import type { FormatTs } from '../format/formatTs';
+import { formatThreadTs, type FormatTs } from '../format/formatTs';
 import { InteractionIcon } from './InteractionIcon';
 import { SeverityIcon } from './SeverityIcon';
 import { Tip } from './Tooltip';
@@ -10,6 +10,8 @@ import styles from './NotificationRow.module.css';
 interface Props {
   event: NotificationEvent;
   formatTs: FormatTs;
+  /** Display TZ (мин от UTC): сегодня — только время; иначе дата+время. */
+  tzOffsetMin?: number;
   unread?: boolean;
   /** Показывать иконку severity (логотип). Независимо от {@link showType}. */
   showStatusLogo?: boolean;
@@ -78,6 +80,7 @@ function detailText(event: NotificationEvent): string | null {
 export function NotificationRow({
   event,
   formatTs,
+  tzOffsetMin,
   unread,
   showStatusLogo = true,
   showType = true,
@@ -94,6 +97,9 @@ export function NotificationRow({
   const detail = detailText(event);
   const status = resolveStatus(event);
   const bgClass = backgroundClass(event);
+  // С tzOffsetMin — «сегодня» без даты; иначе legacy formatTs хоста.
+  const timeLabel =
+    tzOffsetMin != null ? formatThreadTs(event.ts, tzOffsetMin) : formatTs(event.ts);
 
   useEffect(() => {
     if (expanded && ref.current) {
@@ -152,7 +158,7 @@ export function NotificationRow({
           </span>
         )}
         <time className={styles.time} dateTime={event.ts}>
-          {formatTs(event.ts)}
+          {timeLabel}
         </time>
         <InteractionIcon event={event} />
         <span className={[styles.message, expanded ? styles.messageWrap : ''].filter(Boolean).join(' ')}>

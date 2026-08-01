@@ -91,6 +91,36 @@ public sealed class JournalRegistrator(
                     .ConfigureAwait(false);
             });
 
+    public Task RegisterBreakAwaitOperatorAsync(
+        string corrUid,
+        DateTimeOffset at,
+        CancellationToken cancellationToken) =>
+        SafeAsync(
+            corrUid,
+            "await-operator",
+            async () =>
+            {
+                var existing = await store.GetAsync(corrUid, cancellationToken).ConfigureAwait(false);
+                if (existing is null || existing.Status is "resolved")
+                {
+                    return false;
+                }
+
+                if (existing.Status == "active")
+                {
+                    return true;
+                }
+
+                return await store.UpdateOpenAsync(
+                        existing with
+                        {
+                            Status = "active",
+                            LastActivityAt = at,
+                        },
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            });
+
     public Task RegisterBreakResolvedAsync(
         string corrUid,
         DateTimeOffset closedAt,
@@ -308,6 +338,10 @@ public sealed class NullJournalRegistrator : IJournalRegistrator
         Task.CompletedTask;
 
     public Task RegisterBreakRecoveringAsync(
+        string corrUid, DateTimeOffset at, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task RegisterBreakAwaitOperatorAsync(
         string corrUid, DateTimeOffset at, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 

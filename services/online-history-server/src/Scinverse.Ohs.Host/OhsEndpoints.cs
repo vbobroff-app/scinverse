@@ -442,6 +442,10 @@ public static class OhsEndpoints
             IIncidentStore store,
             ConnectionManager manager,
             IIncidentFanOut fanOut,
+            INotificationPublisher notifications,
+            IConnectionScheduleStore schedule,
+            IConnectionStore connections,
+            ConnectionSupervisor supervisor,
             TimeProvider time,
             CancellationToken ct) =>
         {
@@ -456,10 +460,19 @@ public static class OhsEndpoints
             var resolvedBy = string.IsNullOrWhiteSpace(request?.ResolvedBy)
                 ? NotificationHub.Superuser.Id
                 : request!.ResolvedBy!.Trim();
+            var closeNote = string.IsNullOrWhiteSpace(request?.CloseNote)
+                ? null
+                : request!.CloseNote!.Trim();
+            var wasRecovering = string.Equals(row.Status, "recovering", StringComparison.Ordinal);
 
             if (row.Status == "resolved")
             {
                 await store.AnnotateResolvedByAsync(corr, resolvedBy, ct).ConfigureAwait(false);
+                if (closeNote is not null)
+                {
+                    await store.AnnotateCloseNoteAsync(corr, closeNote, ct).ConfigureAwait(false);
+                }
+
                 var again = await store.GetAsync(corr, ct).ConfigureAwait(false);
                 return Results.Ok(ToIncidentDto(again ?? row, now));
             }
@@ -474,18 +487,22 @@ public static class OhsEndpoints
                     || string.Equals(managerCorr, corr, StringComparison.Ordinal))
                 {
                     closedViaManager = await manager
-                        .TryAbandonIncidentByManualAsync(connId, now, ct)
+                        .TryAbandonIncidentByManualAsync(connId, now, ct, closeNote, resolvedBy)
                         .ConfigureAwait(false);
                     if (closedViaManager)
                     {
                         await store.AnnotateResolvedByAsync(corr, resolvedBy, ct).ConfigureAwait(false);
+                        if (closeNote is not null)
+                        {
+                            await store.AnnotateCloseNoteAsync(corr, closeNote, ct).ConfigureAwait(false);
+                        }
                     }
                 }
             }
 
             if (!closedViaManager)
             {
-                // Журнал напрямую (не SafeAsync) — ошибка БД = 500; NC — fan-out SkipJournal.
+                // Журнал напрямую (не SafeAsync) — ошибка БД = 500; NC — отдельно (см. ниже).
                 var ok = await store
                     .ResolveAsync(
                         corr,
@@ -501,36 +518,97 @@ public static class OhsEndpoints
                     return Results.Conflict(new { error = $"Не удалось закрыть {corr}" });
                 }
 
+                if (closeNote is not null)
+                {
+                    await store.AnnotateCloseNoteAsync(corr, closeNote, ct).ConfigureAwait(false);
+                }
+
                 if (!string.IsNullOrWhiteSpace(row.Subject))
                 {
-                    await fanOut
-                        .ApplyAsync(
-                            new IncidentStep(
-                                IncidentStepKind.Resolve,
-                                row.Subject!,
-                                now,
-                                CorrUid: corr,
-                                ConnectionId: row.ConnectionId,
-                                CloseOutcome: NotificationThreadData.OutcomeAbandonedManual,
-                                Severity: "warning",
-                                ResolvedBy: resolvedBy,
-                                NcCode: "connection.incident_closed",
-                                NcMessage: string.IsNullOrWhiteSpace(row.Title)
-                                    ? "Инцидент закрыт вручную (журнал)"
-                                    : $"{row.Title}: закрыт вручную",
-                                NcSeverity: "warning",
-                                NcData: new
-                                {
-                                    connectionId = row.ConnectionId,
-                                    kind = row.Type,
-                                    reason = "manual_journal",
-                                    sender = "user",
-                                    closeOutcome = NotificationThreadData.OutcomeAbandonedManual,
-                                    resolvedBy,
-                                },
-                                SkipJournal: true),
-                            ct)
-                        .ConfigureAwait(false);
+                    var subject = row.Subject!;
+                    var ncData = new
+                    {
+                        connectionId = row.ConnectionId,
+                        kind = row.Type,
+                        reason = "manual_journal",
+                        sender = "system",
+                        closeOutcome = NotificationThreadData.OutcomeAbandonedManual,
+                        resolvedBy,
+                        closeNote,
+                    };
+                    const string ncMessage = "Инцидент закрыт оператором";
+
+                    // User·info (команда) → system·warning (факт). Orphan: не Hub.Resolve(subject).
+                    NotificationThreadData.PublishOperatorForceClose(
+                        notifications, corr, subject, now, row.ConnectionId, closeNote, resolvedBy);
+
+                    var hubLive = notifications.TryGetOpenCorrelationId(subject, out var openCorr)
+                        && string.Equals(openCorr, corr, StringComparison.Ordinal);
+                    if (hubLive)
+                    {
+                        await fanOut
+                            .ApplyAsync(
+                                new IncidentStep(
+                                    IncidentStepKind.Resolve,
+                                    subject,
+                                    now,
+                                    CorrUid: corr,
+                                    ConnectionId: row.ConnectionId,
+                                    CloseOutcome: NotificationThreadData.OutcomeAbandonedManual,
+                                    Severity: "warning",
+                                    ResolvedBy: resolvedBy,
+                                    NcCode: "connection.incident_closed",
+                                    NcMessage: ncMessage,
+                                    NcSeverity: "warning",
+                                    NcData: ncData,
+                                    SkipJournal: true),
+                                ct)
+                            .ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        notifications.Publish(
+                            code: "connection.incident_closed",
+                            message: ncMessage,
+                            severity: "warning",
+                            status: "resolved",
+                            correlationId: corr,
+                            subject: subject,
+                            data: ncData,
+                            ts: now);
+                    }
+                }
+            }
+
+            // Close во время recovering → Halt retry + Auto off (persist) + NC info.
+            if (wasRecovering && row.ConnectionId is { } haltId)
+            {
+                supervisor.HaltAutoRecovery(haltId);
+                try
+                {
+                    var settings = await schedule.GetSettingsAsync(haltId, ct).ConfigureAwait(false);
+                    if (settings.AutoEnabled)
+                    {
+                        await schedule.SetAutoAsync(haltId, false, ct).ConfigureAwait(false);
+                        var conn = await connections.GetAsync(haltId, ct).ConfigureAwait(false);
+                        var who = ScheduleWho(haltId, conn?.Name ?? $"#{haltId}");
+                        notifications.Publish(
+                            "connection.schedule.auto_disabled",
+                            $"{who}: автоподключение выключено",
+                            severity: "info",
+                            sourceType: "user",
+                            data: new
+                            {
+                                connectionId = haltId,
+                                reason = "manual_close_recovering",
+                                sender = "user",
+                            });
+                        supervisor.Nudge();
+                    }
+                }
+                catch
+                {
+                    // Close уже успешен; Auto off — best-effort.
                 }
             }
 
@@ -566,7 +644,7 @@ public static class OhsEndpoints
 
             foreach (var connection in await connections.ListAsync(ct).ConfigureAwait(false))
             {
-                IReadOnlyList<Incident> openRows;
+                List<Incident> openRows;
                 try
                 {
                     var all = await store
@@ -1684,10 +1762,11 @@ public static class OhsEndpoints
             incident.Owner,
             incident.Payload,
             durationMs,
-            ReadResolvedBy(incident.Payload));
+            ReadPayloadString(incident.Payload, "resolvedBy"),
+            ReadPayloadString(incident.Payload, "closeNote"));
     }
 
-    private static string? ReadResolvedBy(string? payload)
+    private static string? ReadPayloadString(string? payload, string propertyName)
     {
         if (string.IsNullOrWhiteSpace(payload))
         {
@@ -1697,7 +1776,7 @@ public static class OhsEndpoints
         try
         {
             using var doc = JsonDocument.Parse(payload);
-            return doc.RootElement.TryGetProperty("resolvedBy", out var p)
+            return doc.RootElement.TryGetProperty(propertyName, out var p)
                    && p.ValueKind == JsonValueKind.String
                 ? p.GetString()
                 : null;

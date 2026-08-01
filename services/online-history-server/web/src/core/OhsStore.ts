@@ -404,8 +404,6 @@ export class OhsStore {
    * Flush на reachable оставлен на случай очереди из старой сессии.
    */
   private pendingOutagePersist: NotificationDto[] | null = null;
-  /** Последний `backend.recovering` — в шину сразу, в БД только вместе с open+recovered (анти-сирота). */
-  private pendingRecoveringDto: NotificationDto | null = null;
   /**
    * D6: очередь POST /recovery/outage (зеркало localStorage `ohs.hostOutage.pending`).
    * Пишем до POST; снимаем только после успешного ответа.
@@ -710,9 +708,8 @@ export class OhsStore {
           clearTimeout(this.outageSettleTimer);
           this.outageSettleTimer = undefined;
         }
-        // Снова «после FATAL» — к OK только через новый warn; черновик recovering сбрасываем.
+        // Снова «после FATAL» — к OK только через новый warn.
         this.outageNeedsWarnBeforeOk = true;
-        this.pendingRecoveringDto = null;
         this.startOutageProgress(true);
       }
       return;
@@ -824,7 +821,6 @@ export class OhsStore {
 
     this.setOutagePhase('warning');
     this.outageNeedsWarnBeforeOk = false;
-    this.pendingRecoveringDto = null;
     this.armOutageSettle();
   }
 
@@ -1007,7 +1003,6 @@ export class OhsStore {
     this.outageNeedsWarnBeforeOk = false;
     this.outageCorr = null;
     this.pendingOutagePersist = null;
-    this.pendingRecoveringDto = null;
     // D7: клип optimistic; journal для desired connection снимет gap в UI после GET incidents.
     this.crashOptimistic = { fromMs, toMs };
     this.link$.next({

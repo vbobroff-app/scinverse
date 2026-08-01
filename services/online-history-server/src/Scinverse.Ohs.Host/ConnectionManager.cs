@@ -911,7 +911,9 @@ public sealed class ConnectionManager(
         long connectionId,
         DateTimeOffset atTs,
         string closeOutcome,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? closeNote = null,
+        string? resolvedBy = null)
     {
         if (!_incidentSince.TryGetValue(connectionId, out var incidentStart))
         {
@@ -937,16 +939,18 @@ public sealed class ConnectionManager(
                 CloseOutcome: closeOutcome,
                 Severity: "warning",
                 NcCode: "connection.incident_closed",
-                NcMessage: $"{label}: инцидент закрыт (отключено оператором)",
+                NcMessage: "Инцидент закрыт оператором",
                 NcSeverity: "warning",
                 NcData: new
                 {
                     connectionId,
                     kind = "break",
                     reason = "manual_off",
-                    sender = "user",
+                    sender = "system",
                     result = $"Закрыто оператором; {gapLine}",
                     closeOutcome,
+                    closeNote,
+                    resolvedBy,
                 }),
             _ => new IncidentStep(
                 IncidentStepKind.Resolve,
@@ -969,6 +973,14 @@ public sealed class ConnectionManager(
                     closeOutcome = NotificationThreadData.OutcomeRecovered,
                 }),
         };
+
+        // Manual: сначала user·info (команда), затем system·warning Resolve (тот же corr).
+        if (closeOutcome == NotificationThreadData.OutcomeAbandonedManual
+            && !string.IsNullOrWhiteSpace(corrUid))
+        {
+            NotificationThreadData.PublishOperatorForceClose(
+                notifications, corrUid!, subject, atTs, connectionId, closeNote, resolvedBy);
+        }
 
         // WS recovered/closed ДО любых await БД и ДО снятия _incidentSince.
         await fanOut.ApplyAsync(resolveStep, cancellationToken).ConfigureAwait(false);
@@ -1118,9 +1130,18 @@ public sealed class ConnectionManager(
     /// <c>abandoned_manual</c>, маркер <c>disconnected</c> (без green). Нет open → false.
     /// </summary>
     public Task<bool> TryAbandonIncidentByManualAsync(
-        long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken) =>
+        long connectionId,
+        DateTimeOffset atTs,
+        CancellationToken cancellationToken,
+        string? closeNote = null,
+        string? resolvedBy = null) =>
         CloseBreakAsync(
-            connectionId, atTs, NotificationThreadData.OutcomeAbandonedManual, cancellationToken);
+            connectionId,
+            atTs,
+            NotificationThreadData.OutcomeAbandonedManual,
+            cancellationToken,
+            closeNote,
+            resolvedBy);
 
     private async Task<short?> ResolveSourceIdAsync(long connectionId, CancellationToken cancellationToken)
     {

@@ -32,6 +32,10 @@ public interface IIncidentStore
     Task<bool> AnnotateResolvedByAsync(
         string corrUid, string resolvedBy, CancellationToken cancellationToken);
 
+    /// <summary>Дописать <c>payload.closeNote</c> (комментарий оператора при ручном закрытии).</summary>
+    Task<bool> AnnotateCloseNoteAsync(
+        string corrUid, string closeNote, CancellationToken cancellationToken);
+
     Task<Incident?> GetAsync(string corrUid, CancellationToken cancellationToken);
 
     /// <summary>

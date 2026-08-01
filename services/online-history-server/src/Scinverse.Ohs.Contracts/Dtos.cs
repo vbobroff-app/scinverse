@@ -460,7 +460,9 @@ public sealed record IncidentDto(
     string? Payload,
     long DurationMs,
     /// <summary>Из <c>payload.resolvedBy</c> (ручное закрытие, J7).</summary>
-    string? ResolvedBy = null);
+    string? ResolvedBy = null,
+    /// <summary>Из <c>payload.closeNote</c> — комментарий оператора «Причина закрытия».</summary>
+    string? CloseNote = null);
 
 /// <summary>Query-параметры <c>GET /api/incidents</c>.</summary>
 public sealed class IncidentQueryParams
@@ -475,7 +477,7 @@ public sealed class IncidentQueryParams
 }
 
 /// <summary>Тело <c>POST /api/incidents/{corr}/resolve</c> — ручное <c>abandoned_manual</c>.</summary>
-public sealed record ResolveIncidentRequest(string? ResolvedBy);
+public sealed record ResolveIncidentRequest(string? ResolvedBy, string? CloseNote = null);
 
 /// <summary>
 /// Итог <c>POST /api/incidents/backfill-open</c> — seed Hub/Manager из journal + зеркало NC

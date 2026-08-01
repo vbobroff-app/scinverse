@@ -125,6 +125,27 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
         return rows > 0;
     }
 
+    public async Task<bool> AnnotateCloseNoteAsync(
+        string corrUid, string closeNote, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(closeNote))
+        {
+            return false;
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE incident SET
+                payload = COALESCE(payload, '{}'::jsonb)
+                          || jsonb_build_object('closeNote', @closeNote)
+            WHERE corr_uid = @corrUid;
+            """,
+            new { corrUid, closeNote = closeNote.Trim() },
+            cancellationToken: cancellationToken));
+        return rows > 0;
+    }
+
     public async Task<bool> BindConnectionIdIfNullAsync(
         string corrUid, long connectionId, CancellationToken cancellationToken)
     {

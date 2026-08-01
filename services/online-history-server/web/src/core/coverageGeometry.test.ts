@@ -194,7 +194,7 @@ describe('coverageGeometry', () => {
   it('clipCrashOutageGaps leaves closed gaps untouched', () => {
     const end = Date.parse('2026-07-26T15:00:00.000Z');
     const state = {
-      intervals: [] as const,
+      intervals: [],
       gaps: [
         {
           from: '2026-07-26T14:00:00.000Z',

@@ -381,6 +381,10 @@ public sealed class IncidentFanOutTests
             string corrUid, string resolvedBy, CancellationToken cancellationToken) =>
             Task.FromResult(false);
 
+        public Task<bool> AnnotateCloseNoteAsync(
+            string corrUid, string closeNote, CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+
         public Task<bool> BindConnectionIdIfNullAsync(
             string corrUid, long connectionId, CancellationToken cancellationToken)
         {

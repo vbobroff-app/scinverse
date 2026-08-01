@@ -175,6 +175,10 @@ public sealed class HostOutageConnectionEmitterTests
             string corrUid, DateTimeOffset at, CancellationToken cancellationToken) =>
             Task.CompletedTask;
 
+        public Task RegisterBreakAwaitOperatorAsync(
+            string corrUid, DateTimeOffset at, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
         public Task RegisterBreakResolvedAsync(
             string corrUid, DateTimeOffset closedAt, string closeOutcome, string? title, string? severity,
             CancellationToken cancellationToken, string? resolvedBy = null)

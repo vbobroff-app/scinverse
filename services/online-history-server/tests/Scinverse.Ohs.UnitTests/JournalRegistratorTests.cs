@@ -34,7 +34,16 @@ public sealed class JournalRegistratorTests
         await journal.RegisterBreakRecoveringAsync(corr, t2, CancellationToken.None);
         store.ByCorr[corr].Status.Should().Be("recovering");
 
-        var t3 = t2.AddSeconds(10);
+        var t2b = t2.AddSeconds(1);
+        await journal.RegisterBreakAwaitOperatorAsync(corr, t2b, CancellationToken.None);
+        store.ByCorr[corr].Status.Should().Be("active");
+        store.ByCorr[corr].LastActivityAt.Should().Be(t2b);
+
+        await journal.RegisterBreakAwaitOperatorAsync(corr, t2b.AddSeconds(1), CancellationToken.None);
+        store.ByCorr[corr].Status.Should().Be("active");
+        store.ByCorr[corr].LastActivityAt.Should().Be(t2b, "повторный await-operator не трогает already-active");
+
+        var t3 = t2b.AddSeconds(10);
         await journal.RegisterBreakResolvedAsync(
             corr, t3, NotificationThreadData.OutcomeRecovered, title: null, severity: "ok",
             CancellationToken.None);
@@ -185,6 +194,18 @@ public sealed class JournalRegistratorTests
             return Task.FromResult(true);
         }
 
+        public Task<bool> AnnotateCloseNoteAsync(
+            string corrUid, string closeNote, CancellationToken cancellationToken)
+        {
+            if (!ByCorr.TryGetValue(corrUid, out var existing))
+            {
+                return Task.FromResult(false);
+            }
+
+            ByCorr[corrUid] = existing with { Payload = $"{{\"closeNote\":\"{closeNote}\"}}" };
+            return Task.FromResult(true);
+        }
+
         public Task<bool> BindConnectionIdIfNullAsync(
             string corrUid, long connectionId, CancellationToken cancellationToken)
         {
@@ -238,6 +259,10 @@ public sealed class JournalRegistratorTests
 
         public Task<bool> AnnotateResolvedByAsync(
             string corrUid, string resolvedBy, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("db down");
+
+        public Task<bool> AnnotateCloseNoteAsync(
+            string corrUid, string closeNote, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("db down");
 
         public Task<bool> BindConnectionIdIfNullAsync(

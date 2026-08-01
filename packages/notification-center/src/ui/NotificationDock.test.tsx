@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { createNotificationBus } from '../bus/NotificationBus';
 import { notify } from '../bus/notify';
 import { createOffsetFormatTs } from '../format/formatTs';
+import { EMPTY_DOCK_FILTER } from './dockFilterState';
 import { NotificationDock } from './NotificationDock';
 
 describe('NotificationDock', () => {
@@ -18,11 +19,17 @@ describe('NotificationDock', () => {
     });
 
     render(
-      <NotificationDock bus={bus} formatTs={createOffsetFormatTs(180)} defaultExpanded />,
+      <NotificationDock
+        bus={bus}
+        formatTs={createOffsetFormatTs(180)}
+        tzOffsetMin={180}
+        defaultExpanded
+      />,
     );
 
     expect(screen.getByText('Центр уведомлений')).toBeTruthy();
     expect(screen.getByText('Нет связи')).toBeTruthy();
+    // Не «сегодня» → полная дата (MSK +180).
     expect(screen.getByText('2026-07-14 15:00:00')).toBeTruthy();
     expect(screen.getByText('1')).toBeTruthy(); // unread badge
   });
@@ -55,15 +62,8 @@ describe('NotificationDock', () => {
     const filters = {
       activeFilters: ['severity' as const],
       filter: {
+        ...EMPTY_DOCK_FILTER,
         severities: ['info' as const],
-        interactions: [],
-        localizations: [],
-        statuses: [],
-        threadStatuses: [],
-        choices: [],
-        connection: { showIdText: '', hideIdText: '' },
-        range: { preset: 'all' as const },
-        query: '',
       },
     };
 
@@ -106,15 +106,8 @@ describe('NotificationDock', () => {
     const filters = {
       activeFilters: ['severity' as const],
       filter: {
+        ...EMPTY_DOCK_FILTER,
         severities: ['error' as const],
-        interactions: [],
-        localizations: [],
-        statuses: [],
-        threadStatuses: [],
-        choices: [],
-        connection: { showIdText: '', hideIdText: '' },
-        range: { preset: 'all' as const },
-        query: '',
       },
     };
 
@@ -198,15 +191,8 @@ describe('NotificationDock', () => {
         filters={{
           activeFilters: ['status'],
           filter: {
-            severities: [],
-            interactions: [],
-            localizations: [],
+            ...EMPTY_DOCK_FILTER,
             statuses: ['resolved'],
-            threadStatuses: [],
-            choices: [],
-            connection: { showIdText: '', hideIdText: '' },
-            range: { preset: 'all' },
-            query: '',
           },
         }}
       />,

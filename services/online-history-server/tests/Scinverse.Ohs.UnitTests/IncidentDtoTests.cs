@@ -58,6 +58,32 @@ public sealed class IncidentDtoTests
     }
 
     [Fact]
+    public void ToIncidentDto_reads_closeNote_from_payload()
+    {
+        var opened = DateTimeOffset.Parse("2026-07-29T10:00:00Z");
+        var closed = opened.AddMinutes(1);
+        var incident = new Incident
+        {
+            CorrUid = "connection:1:link:cn",
+            Module = "connection",
+            Type = "break",
+            Status = "resolved",
+            CloseOutcome = "abandoned_manual",
+            OpenedAt = opened,
+            ClosedAt = closed,
+            Subject = "connection:1:link",
+            Severity = "warning",
+            Title = "t",
+            LastActivityAt = closed,
+            ConnectionId = 1,
+            Payload = """{"resolvedBy":"superuser","closeNote":"ложный алёрт"}""",
+        };
+
+        var dto = OhsEndpoints.ToIncidentDto(incident, closed);
+        dto.CloseNote.Should().Be("ложный алёрт");
+    }
+
+    [Fact]
     public void ToIncidentDto_open_uses_now_for_duration()
     {
         var opened = DateTimeOffset.Parse("2026-07-29T10:00:00Z");

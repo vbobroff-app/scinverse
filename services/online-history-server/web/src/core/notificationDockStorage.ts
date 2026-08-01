@@ -20,6 +20,7 @@ import {
   EMPTY_DOCK_SETTINGS,
   isDockRangePreset,
   normalizeConnectionFilter,
+  normalizeDockFilter,
   normalizeDockSettings,
   normalizeLayerFilter,
   type LayerDockFilter,
@@ -307,8 +308,8 @@ class NotificationDockStore {
     this.persist();
   }
 
-  setFilter(filter: DockFilterState): void {
-    this.filter$.next(cloneFilter(filter));
+  setFilter(filter: Partial<DockFilterState>): void {
+    this.filter$.next(cloneFilter(normalizeDockFilter(filter)));
     this.persist();
   }
 
@@ -317,7 +318,7 @@ class NotificationDockStore {
     this.persist();
   }
 
-  setSettings(settings: NotificationDockSettings): void {
+  setSettings(settings: Partial<NotificationDockSettings>): void {
     const next = normalizeDockSettings(settings);
     const enablingTray = next.sendToTray && !this.settings$.value.sendToTray;
     const collapseChanged =
@@ -334,8 +335,11 @@ class NotificationDockStore {
   }
 
   /** Применить снимок фильтров целиком (значение + плашки) одним persist. */
-  applyFiltersSnapshot(snapshot: NotificationDockFiltersSnapshot): void {
-    this.filter$.next(cloneFilter(snapshot.filter));
+  applyFiltersSnapshot(snapshot: {
+    filter: Partial<DockFilterState>;
+    activeFilters: DockFilterKey[];
+  }): void {
+    this.filter$.next(cloneFilter(normalizeDockFilter(snapshot.filter)));
     this.activeFilters$.next([...snapshot.activeFilters]);
     this.persist();
   }

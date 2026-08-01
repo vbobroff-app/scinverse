@@ -27,6 +27,7 @@ public sealed class IncidentFanOut(
                 IncidentStepKind.CrashOpen => await ApplyCrashOpenAsync(step, cancellationToken).ConfigureAwait(false),
                 IncidentStepKind.Handover => await ApplyHandoverAsync(step, cancellationToken).ConfigureAwait(false),
                 IncidentStepKind.Recovering => await ApplyRecoveringAsync(step, cancellationToken).ConfigureAwait(false),
+                IncidentStepKind.AwaitOperator => await ApplyAwaitOperatorAsync(step, cancellationToken).ConfigureAwait(false),
                 IncidentStepKind.Resolve => await ApplyResolveAsync(step, cancellationToken).ConfigureAwait(false),
                 IncidentStepKind.Adopt => await ApplyAdoptAsync(step, cancellationToken).ConfigureAwait(false),
                 _ => throw new ArgumentOutOfRangeException(nameof(step), step.Kind, "Unknown IncidentStepKind"),
@@ -158,6 +159,20 @@ public sealed class IncidentFanOut(
         }
 
         await journal.RegisterBreakRecoveringAsync(corr, step.At, cancellationToken).ConfigureAwait(false);
+        return corr;
+    }
+
+    private async Task<string?> ApplyAwaitOperatorAsync(IncidentStep step, CancellationToken cancellationToken)
+    {
+        // NC уже пишет финальный connect_failed status=active / auto_stopped — journal-only.
+        EmitNcProgress(step);
+        var corr = ResolveCorr(step);
+        if (step.SkipJournal || corr is null)
+        {
+            return corr;
+        }
+
+        await journal.RegisterBreakAwaitOperatorAsync(corr, step.At, cancellationToken).ConfigureAwait(false);
         return corr;
     }
 

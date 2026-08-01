@@ -753,6 +753,7 @@ export function NotificationDock({
                     key={item.id}
                     event={item}
                     formatTs={formatTs}
+                    tzOffsetMin={tzOffsetMin ?? 0}
                     showStatusLogo={settings.showStatusLogo}
                     showType={settings.showType}
                     isFavorite={item.isFavorite}

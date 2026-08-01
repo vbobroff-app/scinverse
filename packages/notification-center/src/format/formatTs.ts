@@ -89,15 +89,20 @@ export function formatThreadTs(
   return formatFull(p);
 }
 
-/** Диапазон open→close или одна метка для open Thread. */
+/**
+ * Диапазон `t0 → tEnd` (close или last activity) с правилом «сегодня без даты» на каждой стороне.
+ * Если метки совпали — одна (без стрелки).
+ */
 export function formatThreadTimeLabel(
   openedAt: string,
-  closedAt: string | undefined,
+  endAt: string | undefined,
   offsetMin: number,
   nowMs: number = Date.now(),
 ): string {
-  if (closedAt) {
-    return `${formatThreadTs(openedAt, offsetMin, nowMs)} → ${formatThreadTs(closedAt, offsetMin, nowMs)}`;
+  const start = formatThreadTs(openedAt, offsetMin, nowMs);
+  if (!endAt) {
+    return start;
   }
-  return formatThreadTs(openedAt, offsetMin, nowMs);
+  const end = formatThreadTs(endAt, offsetMin, nowMs);
+  return start === end ? start : `${start} → ${end}`;
 }

@@ -376,6 +376,8 @@ export interface IncidentDto {
   durationMs: number;
   /** payload.resolvedBy — кто закрыл вручную. */
   resolvedBy?: string | null;
+  /** payload.closeNote — комментарий оператора «Причина закрытия». */
+  closeNote?: string | null;
 }
 
 export interface IncidentQueryParams {
@@ -390,6 +392,8 @@ export interface IncidentQueryParams {
 
 export interface ResolveIncidentRequest {
   resolvedBy?: string | null;
+  /** Комментарий оператора → payload.closeNote. */
+  closeNote?: string | null;
 }
 
 export interface BackfillOpenIncidentsResultDto {

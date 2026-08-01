@@ -22,6 +22,7 @@ import {
   connectionFilterSummary,
   DEFAULT_LAYER_FILTER,
   EMPTY_CONNECTION_FILTER,
+  EMPTY_DOCK_FILTER,
   isConnectionFilterDefault,
   isLayerFilterDefault,
   layerFilterAllState,
@@ -347,7 +348,7 @@ export function DockFilters({
     };
   }, [open]);
 
-  const specs = useMemo<Record<Exclude<DockFilterKey, 'range' | 'connection'>, ChipSpec>>(
+  const specs = useMemo<Record<Exclude<DockFilterKey, 'range' | 'connection' | 'layers'>, ChipSpec>>(
     () => ({
       severity: {
         key: 'severity',
@@ -462,14 +463,7 @@ export function DockFilters({
   const onClear = () => {
     commit(
       {
-        severities: [],
-        interactions: [],
-        localizations: [],
-        statuses: [],
-        threadStatuses: [],
-        choices: [],
-        connection: { ...EMPTY_CONNECTION_FILTER },
-        range: { ...EMPTY_DOCK_RANGE },
+        ...EMPTY_DOCK_FILTER,
         query: value.query,
       },
       [],

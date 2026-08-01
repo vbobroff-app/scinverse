@@ -91,9 +91,12 @@ export function ThreadBlock({
     }
   }, [expanded]);
 
+  // resolved: open→close; active/recovering: open→last (не только last).
   const timeLabel = thread.closedAt
     ? formatThreadTimeLabel(thread.openedAt, thread.closedAt, tzOffsetMin)
-    : formatThreadTs(thread.lastActivityAt, tzOffsetMin);
+    : thread.threadStatus === 'active' || thread.threadStatus === 'recovering'
+      ? formatThreadTimeLabel(thread.openedAt, thread.lastActivityAt, tzOffsetMin)
+      : formatThreadTs(thread.lastActivityAt, tzOffsetMin);
 
   return (
     <div
@@ -213,6 +216,7 @@ export function ThreadBlock({
                 key={entry.id}
                 event={entry}
                 formatTs={formatTs}
+                tzOffsetMin={tzOffsetMin}
                 showStatusLogo={showStatusLogo}
                 showType={showType}
                 unread={Boolean(isEntryUnread?.(entry.id))}

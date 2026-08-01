@@ -29,6 +29,14 @@ public interface IJournalRegistrator
         DateTimeOffset at,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Восстановление исчерпано / нужна рука оператора: <c>recovering → active</c> (no-op, если уже active).
+    /// </summary>
+    Task RegisterBreakAwaitOperatorAsync(
+        string corrUid,
+        DateTimeOffset at,
+        CancellationToken cancellationToken);
+
     /// <summary>Terminal close (recovered / abandoned_*).</summary>
     Task RegisterBreakResolvedAsync(
         string corrUid,

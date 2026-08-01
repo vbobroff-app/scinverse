@@ -60,21 +60,22 @@ describe('layerFilter', () => {
   });
 
   it('thread layer follows uid (crash Thread stays TL despite connectionIds)', () => {
+    const open = evt({
+      id: 'a',
+      code: 'backend.unavailable',
+      correlationId: 'ohs.backend.outage:99',
+      data: { kind: 'crash', connectionIds: [1, 3] },
+    });
     const thread: ThreadItem = {
       itemKind: 'thread',
       uid: 'ohs.backend.outage:99',
       subject: 'ohs.backend.outage',
       threadKind: 'incident',
       threadStatus: 'active',
-      header: { title: 'ohs.backend.outage', kindLabel: 'Incident', statusLabel: 'ACTIVE' },
-      notifications: [
-        evt({
-          id: 'a',
-          code: 'backend.unavailable',
-          correlationId: 'ohs.backend.outage:99',
-          data: { kind: 'crash', connectionIds: [1, 3] },
-        }),
-      ],
+      openedAt: open.ts,
+      lastActivityAt: open.ts,
+      header: { title: 'ohs.backend.outage' },
+      notifications: [{ ...open, itemKind: 'entry', corrUid: 'ohs.backend.outage:99' }],
     };
     expect(classifyItemLayer(thread)).toBe('tl');
     expect(matchesLayerFilter(thread, { tl: true, cl: false, wl: false })).toBe(true);

@@ -14,6 +14,46 @@ public static class NotificationThreadData
     public const string OutcomeAbandonedSchedule = "abandoned_schedule";
     public const string OutcomeAbandonedManual = "abandoned_manual";
 
+    /// <summary>Команда оператора перед system <c>incident_closed</c> (фильтр sourceType=user).</summary>
+    public const string CodeIncidentForceClosed = "connection.incident_force_closed";
+
+    /// <summary>
+    /// User·info «принудительно закрыл» — до system·warning <c>incident_closed</c> (тот же corr).
+    /// При равном ts проекция ставит info раньше warning.
+    /// </summary>
+    public static void PublishOperatorForceClose(
+        INotificationPublisher notifications,
+        string correlationId,
+        string? subject,
+        DateTimeOffset at,
+        long? connectionId,
+        string? closeNote,
+        string? resolvedBy = null)
+    {
+        ArgumentNullException.ThrowIfNull(notifications);
+        if (string.IsNullOrWhiteSpace(correlationId))
+        {
+            throw new ArgumentException("correlationId is required.", nameof(correlationId));
+        }
+
+        notifications.Publish(
+            CodeIncidentForceClosed,
+            "Пользователь принудительно закрыл инцидент",
+            severity: "info",
+            sourceType: "user",
+            data: new
+            {
+                connectionId,
+                closeNote,
+                resolvedBy,
+                closeOutcome = OutcomeAbandonedManual,
+                sender = "user",
+            },
+            correlationId: correlationId,
+            subject: subject,
+            ts: at);
+    }
+
     /// <summary>Дописать hint/outcome, не затирая уже заданные ключи.</summary>
     public static object? WithHints(
         object? data,

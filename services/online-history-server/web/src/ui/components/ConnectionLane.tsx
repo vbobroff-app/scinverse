@@ -1,3 +1,4 @@
+import { Tip } from '@scinverse/notification-center';
 import {
   useCallback,
   useEffect,
@@ -34,8 +35,10 @@ import {
   scrubGeomFromElements,
   type ConnectionScrubLayer,
 } from './connectionScrubLayer';
+import { ConnectionIncidentsModal } from './ConnectionIncidentsModal';
 import { ConnectionRibbon, type RibbonTipHandlers } from './ConnectionRibbon';
 import { ConnectionSchedulePopover } from './ConnectionSchedulePopover';
+import { BellIcon } from './icons';
 import styles from './ConnectionLane.module.css';
 
 interface Geom {
@@ -87,6 +90,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const ohsUnavailable = useBehavior(store.backendOutage$);
   const now = useNow(1000);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [incidentsOpen, setIncidentsOpen] = useState(false);
   const [scrubOn, setScrubOn] = useState(false);
 
   const connSchedule = connectionSchedules.get(connection.connectionId);
@@ -304,6 +308,17 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
         <div className={styles.left}>
           <span className={styles.name}>Связь · {connection.name}</span>
           <div className={styles.controls}>
+            <Tip content="Журнал инцидентов">
+              <button
+                type="button"
+                className={styles.incidentsBtn}
+                onClick={() => setIncidentsOpen(true)}
+                aria-label="Журнал инцидентов"
+                title="Журнал инцидентов"
+              >
+                <BellIcon className={styles.incidentsBtnIcon} />
+              </button>
+            </Tip>
             <ConnectionAutoToggle
               phase={connAutoPhase}
               disabled={!hasRules}
@@ -382,6 +397,13 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
         onApplyBatch={(args, handlers) =>
           store.applyConnectionScheduleBatch(connection.connectionId, args, handlers)
         }
+      />
+
+      <ConnectionIncidentsModal
+        connectionId={connection.connectionId}
+        connectionName={connection.name}
+        open={incidentsOpen}
+        onClose={() => setIncidentsOpen(false)}
       />
     </>
   );

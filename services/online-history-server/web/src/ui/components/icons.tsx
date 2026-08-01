@@ -197,7 +197,7 @@ export function HelpIcon({ className }: IconProps) {
   );
 }
 
-/** Центр уведомлений — колокольчик. */
+/** Колокольчик — NC / журнал инцидентов. */
 export function BellIcon({ className }: IconProps) {
   return (
     <StrokeIcon className={className}>

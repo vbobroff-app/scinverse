@@ -47,6 +47,8 @@ export interface NotificationEvent {
   message: string;
   data?: Record<string, unknown>;
   correlationId?: string;
+  /** Квалификатор инцидента без uid (OHS Hub `subject`), для слоя/группировки. */
+  subject?: string;
 }
 
 export const NOTIFICATION_SEVERITIES: readonly NotificationSeverity[] = [

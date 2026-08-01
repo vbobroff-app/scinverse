@@ -8,6 +8,11 @@ public enum IncidentStepKind
     Open,
     Handover,
     Recovering,
+    /// <summary>
+    /// Auto ×N исчерпан / ждём оператора: journal <c>recovering → active</c>
+    /// (как NC threadStatus после финального <c>connect_failed</c> status=active).
+    /// </summary>
+    AwaitOperator,
     Resolve,
     CrashOpen,
     Adopt,

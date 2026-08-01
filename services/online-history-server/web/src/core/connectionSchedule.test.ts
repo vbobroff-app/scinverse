@@ -150,6 +150,7 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
         date: '2026-07-31',
         start: new Date(msk(2026, 7, 31, 8, 50)).toISOString(),
         end: new Date(msk(2026, 7, 31, 23, 50)).toISOString(),
+      weekend: false,
       },
     ];
     const pct = makeProjector(
@@ -174,11 +175,13 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
         date: '2026-07-30',
         start: new Date(msk(2026, 7, 30, 8, 50)).toISOString(),
         end: new Date(msk(2026, 7, 30, 23, 50)).toISOString(),
+      weekend: false,
       },
       {
         date: '2026-07-31',
         start: new Date(msk(2026, 7, 31, 8, 50)).toISOString(),
         end: new Date(msk(2026, 7, 31, 23, 50)).toISOString(),
+      weekend: false,
       },
     ];
     // Рабочее окно 08:50–20:00 (= 670 мин); хвост с вчера до 01:00 — отдельное overnight-правило.
@@ -231,11 +234,13 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
         date: '2026-07-31',
         start: new Date(msk(2026, 7, 31, 8, 50)).toISOString(),
         end: new Date(msk(2026, 7, 31, 23, 50)).toISOString(),
+      weekend: false,
       },
       {
         date: '2026-08-01',
         start: new Date(msk(2026, 8, 1, 8, 50)).toISOString(),
         end: new Date(msk(2026, 8, 1, 23, 50)).toISOString(),
+      weekend: false,
       },
     ];
     const pct = makeProjector(
@@ -268,6 +273,7 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
       date: '2026-07-31',
       start: new Date(msk(2026, 7, 31, 8, 50)).toISOString(),
       end: new Date(msk(2026, 7, 31, 23, 50)).toISOString(),
+    weekend: false,
     };
     const pct = makeProjector(
       msk(2026, 7, 30, 8, 50),
@@ -277,6 +283,7 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
           date: '2026-07-30',
           start: new Date(msk(2026, 7, 30, 8, 50)).toISOString(),
           end: new Date(msk(2026, 7, 30, 23, 50)).toISOString(),
+        weekend: false,
         },
         session,
       ],
