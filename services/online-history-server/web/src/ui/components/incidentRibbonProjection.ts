@@ -63,7 +63,7 @@ export function projectConnectionIncidents(
       corrUid: incident.corrUid,
       atMs: fromMs,
       kind: 'start',
-      label: isCrash ? 'Системный сбой' : 'Потеря связи',
+      label: isCrash ? 'Системный сбой' : 'Обрыв связи',
     });
 
     if (
@@ -96,7 +96,7 @@ export function projectConnectionIncidents(
       fromMs,
       toMs,
       kind: 'break',
-      label: 'Отсутствие связи',
+      label: 'Восстановление связи',
       z: Z_BREAK,
     });
   }

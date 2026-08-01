@@ -1,13 +1,20 @@
 .track {
+  --track-background: #383f48;
   position: relative;
   height: 14px;
   width: 100%;
-  background: var(--color-bg-input);
+  /* С маской — как сейчас (простой #58798c8a / расписание --color-bg-hover). */
+  background: var(--color-bg-hover, #313740);
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
-/* Hit-target desired при маске → «Окно соединения …» (под liveness/void). */
+/* Галка «Маска расписания» выкл. — единая колбаска. */
+.trackBare {
+  background: var(--track-background);
+}
+
+/* Hit-target desired при маске → «Окно расписания …» (под liveness/void). */
 .scheduleDesiredBase {
   position: absolute;
   top: 0;

@@ -131,7 +131,7 @@ describe('scheduleVoidIntervals / enumerateDesiredWindows', () => {
       'Окно простоя 01:00 – 06:50',
     );
     expect(formatScheduleDesiredTooltip(msk(2026, 7, 30, 6), msk(2026, 7, 31, 1))).toBe(
-      'Окно соединения 06:00 – 01:00',
+      'Окно расписания 06:00 – 01:00',
     );
   });
 

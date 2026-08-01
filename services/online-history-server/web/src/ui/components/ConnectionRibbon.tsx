@@ -96,7 +96,7 @@ function legacyBodyClass(cause: string): string {
 }
 
 function legacyBodyLabel(cause: string): string {
-  return cause === 'interrupted' ? 'Сервер недоступен' : 'Отсутствие связи';
+  return cause === 'interrupted' ? 'Сервер недоступен' : 'Восстановление связи';
 }
 
 function greyLabel(cause: string): string {
@@ -196,7 +196,9 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
   const crashBodies = journalPaint?.bodies.filter((b) => b.kind === 'crash') ?? [];
 
   return (
-    <div className={styles.track}>
+    <div
+      className={[styles.track, showScheduleMask ? '' : styles.trackBare].filter(Boolean).join(' ')}
+    >
       {desiredSegs.map((seg, i) =>
         seg.widthPct > 0 ? (
           <div
@@ -297,7 +299,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             const to = gap.to ? Date.parse(gap.to) : liveEdgeMs;
             const left = pct(from);
             const label = tipLabel(
-              'Отсутствие связи',
+              'Восстановление связи',
               tipRange(from, to, !gap.to, tzOffsetMin),
             );
             return (
@@ -422,7 +424,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             const startLabel =
               gap.cause === 'interrupted'
                 ? tipLabel('Системный сбой', hhmm(from, tzOffsetMin))
-                : tipLabel('Потеря связи', hhmm(from, tzOffsetMin));
+                : tipLabel('Обрыв связи', hhmm(from, tzOffsetMin));
             return (
               <span
                 key={`s${i}`}

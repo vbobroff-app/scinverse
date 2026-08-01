@@ -125,7 +125,7 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
                       checked={showScheduleMask}
                       onChange={() => store.setShowScheduleMask(!showScheduleMask)}
                     />
-                    Маска простоя
+                    Маска расписания
                   </label>
                 </div>
               </div>

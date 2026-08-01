@@ -39,9 +39,9 @@ describe('projectConnectionIncidents', () => {
     expect(paint.bodies).toHaveLength(1);
     expect(paint.bodies[0]).toMatchObject({
       kind: 'break',
-      label: 'Отсутствие связи',
+      label: 'Восстановление связи',
     });
-    expect(paint.markers.map((m) => m.label)).toEqual(['Потеря связи', 'Связь восстановлена']);
+    expect(paint.markers.map((m) => m.label)).toEqual(['Обрыв связи', 'Связь восстановлена']);
   });
 
   it('does not split yellow|red on escalatedAt — one solid break body', () => {
@@ -69,7 +69,7 @@ describe('projectConnectionIncidents', () => {
       kind: 'break',
       fromMs: Date.parse(opened),
       toMs: Date.parse(closed),
-      label: 'Отсутствие связи',
+      label: 'Восстановление связи',
     });
   });
 

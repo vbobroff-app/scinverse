@@ -328,13 +328,13 @@ export function buildScheduleDesiredSegs(
   return sessions.flatMap((s) => desiredPaintSegsForDay(rules, s, pct, offsetMin));
 }
 
-/** Подпись тултипа desired: «Окно соединения HH:MM – HH:MM». */
+/** Подпись тултипа desired: «Окно расписания HH:MM – HH:MM». */
 export function formatScheduleDesiredTooltip(
   fromMs: number,
   toMs: number,
   offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
 ): string {
-  return `Окно соединения ${hhmmWall(fromMs, offsetMin)} – ${hhmmWall(toMs, offsetMin)}`;
+  return `Окно расписания ${hhmmWall(fromMs, offsetMin)} – ${hhmmWall(toMs, offsetMin)}`;
 }
 
 /** Подпись тултипа void: «Окно простоя HH:MM – HH:MM» (стенные часы TZ расписания). */
