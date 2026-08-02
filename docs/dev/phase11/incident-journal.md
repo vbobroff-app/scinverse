@@ -1,11 +1,13 @@
 # Phase 11 — Журнал инцидентов (11.13)
 
-**Статус:** `DESIGN AGREED` · **11.13a–f DONE** · **H1/J8 DONE** · **I2 RESOLVED** (fan-out).
+**Статус:** `DESIGN AGREED` · **11.13a–f DONE** · **H1/J8 DONE** · **I2 RESOLVED** (fan-out) ·
+**soft-delete DONE** (V030, 2026-08-02).
 Журнал OHS v1; запись эпизода — [issue.md](issue.md) **I2** / §7.
 
 **Связано:** [plan.md](plan.md) §11.13 · [issue.md](issue.md) I2 · [to-threads.md](to-threads.md) ·
-[persistence.md](persistence.md) · wiki [`incident.md`](../../wiki-readme/incident.md) ·
-продюсер [../phase7j/incident.md](../phase7j/incident.md) · handoff [`promt.md`](../../promt.md) §8 ·
+[persistence.md](persistence.md) · **soft-delete** [`incident-soft-delete.md`](incident-soft-delete.md) ·
+wiki [`incident.md`](../../wiki-readme/incident.md) ·
+продюсер [../phase7j/incident.md](../phase7j/incident.md) · handoff [`docs/promt.md`](../../promt.md) §8 ·
 **to-be идеология** [`schedule-projection.md`](schedule-projection.md).
 
 **Не путать с phase 7h:** [`../phase7h/incident.md`](../phase7h/incident.md) — SUPERSEDED
@@ -244,10 +246,15 @@ Incident
   escalated_at      timestamptz?  handover → жёлтое|красное
   subtype           text?         degraded|down|host_unavailable|exception_500|…
   owner             text?         transaq|supervisor|admin
+
+  -- ось видимости (⊥ status); V030
+  deleted_at        timestamptz?  NULL = видим; иначе soft-deleted
+  deleted_by        text?
 ```
 
 `duration_ms` — только в API: `(closed_at ?? now) − opened_at`.  
-`abandoned` на ленте = `close_outcome IN (abandoned_schedule, abandoned_manual)`.
+`abandoned` на ленте = `close_outcome IN (abandoned_schedule, abandoned_manual)`.  
+Soft-delete — **не** 4-й lifecycle: канон [`incident-soft-delete.md`](incident-soft-delete.md).
 
 ### 6.1. DDL-эскиз (**OHS** `db/migrations`)
 
@@ -290,9 +297,11 @@ CREATE INDEX ix_incident_connection_window
 CREATE INDEX ix_incident_open
   ON incident (module, status)
   WHERE status IN ('active', 'recovering');
+-- V030: + deleted_at / deleted_by; ix_incident_open WHERE … AND deleted_at IS NULL
 ```
 
-Не hypertable. Retention — отдельно (resolved старше N дней).
+Не hypertable. Retention — отдельно (resolved старше N дней). Soft-delete — V030
+([incident-soft-delete.md](incident-soft-delete.md)); hard purge — later.
 
 ---
 
@@ -344,12 +353,19 @@ As-is: атомы → Hub/V025; to-be gate 11→12 — Publisher → серви�
 
 | API (OHS) | Назначение |
 |-----------|------------|
-| `GET /api/incidents?module&status&type&from&to&connectionId` | журнал, пагинация |
+| `GET /api/incidents?module&status&type&from&to&connectionId&includeDeleted` | журнал; `includeDeleted` default false |
 | `GET /api/incidents/{corr}` | деталь |
-| `GET /api/connections/{id}/incidents?from&to` (или поле в `/coverage/link`) | окно для ribbon |
-| `POST /api/incidents/{corr}/resolve` | ручное → `abandoned_manual` |
+| `GET /api/connections/{id}/incidents?from&to` (или поле в `/coverage/link`) | окно для ribbon (**без** soft-deleted) |
+| `POST /api/incidents/{corr}/resolve` | ручное → `abandoned_manual` (409 если soft-deleted) |
+| `POST /api/incidents/{corr}/delete` | soft-delete (+ abandon open); body `{ deletedBy? }` |
+| `POST /api/incidents/{corr}/restore` | снять tombstone |
 | `POST /api/incidents/backfill-recent` | разово: gaps вчера+сегодня (МСК) → journal (без кнопки в UI) |
 | `GET /coverage/link` | **intervals** (liveness); gaps для инцидентов — deprecate |
+| Live `incidentVisibilityChanged` | sync клиентов после delete/restore |
+
+DTO: `deletedAt`, `deletedBy`. UI: модалка Connection + страница журнала; галка
+«Показывать удалённые» (`ohs:incidentsJournal:showDeleted`). Полная спека —
+[incident-soft-delete.md](incident-soft-delete.md).
 
 ### NC (лента уведомлений) — **не** владелец `incident`
 
@@ -414,8 +430,10 @@ As-is: атомы → Hub/V025; to-be gate 11→12 — Publisher → серви�
 | **11.13d** | UI экран журнала в Admin Front (OHS web) | **DONE** — раздел «Журнал инцидентов» (`messages`) |
 | **11.13e** | Connection-ribbon←`incident` (+ liveness); Recording←бинарная проекция (merge, без type) | **DONE** — Settings «Гэпы в работе» (`showWorkGaps` → `paintGapsAsIncidents`); mutex с тумблерами инцидентов; default journal |
 | **11.13f** | Ручное resolve + backfill/регрессия 7j | **DONE** — POST resolve/backfill-open; UI; J8 ingest; ApiTest |
+| **11.13g** | Soft-delete / restore (ось видимости) | **DONE** — V030; delete/restore API; NC Выбор «Удалённые»; journal checkbox; [incident-soft-delete.md](incident-soft-delete.md) |
 
-**Вне scope 11.13:** вынос NC-сервиса / перенос V025 (gate 11→12), WebGL, Keycloak, 7j.15/16.
+**Вне scope 11.13:** hard delete / retention purge; вынос NC-сервиса / перенос V025 (gate 11→12),
+WebGL, Keycloak, 7j.15/16.
 **I12** (pool / orphan `ohs.unhandled`) — смежный 7j.22: клиент **DONE** (serialize refresh +
 close-all health-ok); Host pool size не меняли — [../phase7j/plan.md](../phase7j/plan.md) §7j.22.
 

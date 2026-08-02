@@ -552,11 +552,11 @@ public static class OhsEndpoints
             broadcaster.Broadcast(new IncidentVisibilityChangedEvent(corr, Deleted: true, row.ConnectionId));
 
             var who = row.ConnectionId is { } cid
-                ? ScheduleWho(cid, (await connections.GetAsync(cid, ct).ConfigureAwait(false))?.Name ?? $"#{cid}")
+                ? IncidentJournalWho(cid, (await connections.GetAsync(cid, ct).ConfigureAwait(false))?.Name ?? $"#{cid}")
                 : corr;
             notifications.Publish(
                 "connection.incident_soft_deleted",
-                $"{who}: инцидент скрыт оператором",
+                $"{who}: Запись удалена оператором",
                 severity: "info",
                 sourceType: "user",
                 data: new
@@ -620,11 +620,11 @@ public static class OhsEndpoints
             broadcaster.Broadcast(new IncidentVisibilityChangedEvent(corr, Deleted: false, row.ConnectionId));
 
             var who = row.ConnectionId is { } cid
-                ? ScheduleWho(cid, (await connections.GetAsync(cid, ct).ConfigureAwait(false))?.Name ?? $"#{cid}")
+                ? IncidentJournalWho(cid, (await connections.GetAsync(cid, ct).ConfigureAwait(false))?.Name ?? $"#{cid}")
                 : corr;
             notifications.Publish(
                 "connection.incident_restored",
-                $"{who}: инцидент восстановлен оператором",
+                $"{who}: Запись восстановлена оператором",
                 severity: "info",
                 sourceType: "user",
                 data: new
@@ -1628,6 +1628,10 @@ public static class OhsEndpoints
 
     /// <summary>User-подпись расписания: id основной, имя в скобках (имя может меняться).</summary>
     private static string ScheduleWho(long connectionId, string name) => $"Расписание {connectionId} («{name}»)";
+
+    /// <summary>User-подпись журнала инцидентов (не путать с <see cref="ScheduleWho"/>).</summary>
+    private static string IncidentJournalWho(long connectionId, string name) =>
+        $"Журнал инцидентов {connectionId} («{name}»)";
 
     /// <summary>Краткая суть исключения для NC/аудита (тип + message, усечение ≤500). Полный стек — только в логе.</summary>
     private static string SummarizeException(Exception ex)

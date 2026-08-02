@@ -7,7 +7,8 @@
 план [`plan-schedule-projection.md`](plan-schedule-projection.md).  
 Ниже: контракт crash-dispatch; Group по `desired@open` — **снята** (P3/P4).
 
-**Связано:** [incident-journal.md](incident-journal.md) · [to-threads.md](to-threads.md) ·
+**Связано:** [incident-journal.md](incident-journal.md) ·
+[incident-soft-delete.md](incident-soft-delete.md) · [to-threads.md](to-threads.md) ·
 wiki [`incident.md`](../../wiki-readme/incident.md) · [`layers.md`](../../wiki-readme/layers.md) ·
 продюсер [../phase7j/incident.md](../phase7j/incident.md) · [plan.md](plan.md).
 

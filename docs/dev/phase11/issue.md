@@ -1,10 +1,12 @@
 # Phase 11 — Issues: объектная модель NC (Thread / Incident / Group)
 
 Статус: **I1 RESOLVED** (11.8–11.12) · **I2 RESOLVED** (fan-out журнал↔NC) ·
-**I13 OPEN→fix** (adopt/open SoT = journal, не NC). Обновлено: 2026-08-01.
+**I13 FIX** (adopt/open SoT = journal) · **I14 DONE** (soft-delete sync).
+Обновлено: 2026-08-02.
 
 Связано: [plan.md](plan.md), [to-threads.md](to-threads.md), [persistence.md](persistence.md),
 журнал инцидентов — [incident-journal.md](incident-journal.md),
+soft-delete — [incident-soft-delete.md](incident-soft-delete.md),
 инциденты связи/crash — [../phase7j/incident.md](../phase7j/incident.md),
 [../phase7j/nc-availability.md](../phase7j/nc-availability.md).
 Смежный **I12** (orphan FATAL / pool) — клиент DONE в 7j.22, не issue phase 11 —
@@ -193,3 +195,32 @@ Thread UI сделал видимым разрыв **open break + crash + Group 
 
 [incident-journal.md](incident-journal.md) §7 · [plan-schedule-projection.md](plan-schedule-projection.md) §P5.5 ·
 7j I10 (текст «SoT=V025» — устарел; канон — journal).
+
+---
+
+## I14. Soft-delete: журнал / лента / ЦУ должны говорить одно
+
+**Статус:** DONE · 2026-08-02.
+
+### Симптом / запрос
+
+Ложные эпизоды (напр. Auto reconnect в выходные без weekend в расписании) засоряют журнал,
+Connection-ленту и ЦУ. Нужна коррекция **видимости** без уничтожения аудита; hard delete — later.
+
+### Решение
+
+Ось видимости ⊥ lifecycle: `deleted_at` / `deleted_by` (V030), не `status=deleted`.
+
+- Delete open → `abandoned_manual` (+ Halt/Auto-off) → tombstone.
+- Delete resolved → только tombstone; restore снимает tombstone.
+- Ribbon всегда без deleted; journal — `includeDeleted`; NC — `softDeletedCorrs$` + Выбор «Удалённые».
+- Live `incidentVisibilityChanged`; audit Singles без corr эпизода.
+
+Канон и API — [incident-soft-delete.md](incident-soft-delete.md); Выбор — [nc-marks.md](nc-marks.md).
+
+### Критерий
+
+- [x] Delete/restore в модалке Connection и на странице журнала.
+- [x] Гант/ribbon без soft-deleted; журнал с галкой «Показывать удалённые».
+- [x] NC скрывает soft-deleted по default; Выбор «Удалённые» показывает с badge deleted.
+- [x] Тесты store/API/NC filter; миграция V030 накатана на стенде.

@@ -1,12 +1,16 @@
 # NC — маркеры ★ / ⊘ и фильтр «Выбор»
 
-Связано: [dock-settings.md](dock-settings.md) (Группировать), [to-threads.md](to-threads.md).
+Связано: [dock-settings.md](dock-settings.md) (Группировать), [to-threads.md](to-threads.md),
+**soft-delete** [incident-soft-delete.md](incident-soft-delete.md).
 Код: `packages/notification-center` — `ncMarks.ts`, `filterItems.ts`, `NotificationRow` /
 `ThreadBlock`, фильтр «Выбор» в `DockFilters`.
 
-Персист: `localStorage` ключ `nc.marks` → map `id → { isFavorite?, isLeft? }`.
+Персист меток: `localStorage` ключ `nc.marks` → map `id → { isFavorite?, isLeft? }`.
 Поле `isLeft` = ⊘ спам (имя сохранено для совместимости; в UI не «отложено»).
 Сервер / V025 не хранит метки (v1).
+
+Персист choices «Выбор» (в т.ч. `deleted`) — хост OHS `notificationDockStorage`
+(`ohs:notificationDock`), вместе с остальными фильтрами дока.
 
 Маркеры видны на **каждом** Entry (в т.ч. внутри Group/Incident) и на header Thread.
 Legacy: метка на `thread.uid` по-прежнему учитывается при resolve Entry
@@ -26,12 +30,14 @@ Legacy: метка на `thread.uid` по-прежнему учитываетс�
 
 Фильтр «Выбор» (плашка в панели фильтров):
 
-| id | Label |
-|----|-------|
-| `favorite` | ★ Избранные |
-| `left` | ⊘ Спам |
+| id | Label | Default |
+|----|-------|---------|
+| `favorite` | ★ Избранные | off |
+| `left` | ⊘ Спам | off (спам **скрыт**) |
+| `deleted` | Удалённые | off (soft-deleted **скрыты**) |
 
-★ / ⊘ по умолчанию **unchecked**. Спам в ленте **скрыт** (как soft-deleted), пока не включён «⊘ Спам».
+★ / ⊘ по умолчанию **unchecked**. Спам и soft-deleted в ленте **скрыты**, пока не включены
+соответствующие галки «Выбор».
 
 ---
 
@@ -68,10 +74,33 @@ Unread: Entry с ⊘ не считается непрочитанным (не м
 
 ---
 
-## ★ без ⊘ / обе галки on
+## Удалённые (`deleted`) — soft-delete journal
+
+Ось видимости журнала (`incident.deleted_at`), **не** клиентская метка на Entry.
+Канон: [incident-soft-delete.md](incident-soft-delete.md).
+
+| | |
+|---|---|
+| Источник | `softDeletedCorrs$` (hydrate `GET /incidents?includeDeleted=true` + WS `incidentVisibilityChanged`) |
+| Thread | `isSoftDeleted` → badge **deleted** (красный текст, muted фон, `1px` red border) вместо lifecycle |
+| Атомы | остаются в hub/bus; клиент **скрывает** по corr |
+
+**Фильтр «Удалённые»** — **include** (default hide):
+
+- Галка off (default): скрыть Thread/Single, чей `correlationId` ∈ soft-deleted.
+- Галка on: показать soft-deleted в ленте (с badge deleted).
+
+Журнал (модалка / страница) — отдельная галка «Показывать удалённые»
+(`ohs:incidentsJournal:showDeleted`); ribbon/гант soft-deleted **всегда скрывает**.
+
+---
+
+## ★ без ⊘ / обе галки on / `deleted`
 
 **★ без ⊘:** избранный спам всё равно скрыт (default-hide спама побеждает).
 **★ + ⊘:** видны избранные, в т.ч. помеченные спамом.
+**`deleted` off:** soft-deleted скрыты даже если ★/⊘ on (ось видимости журнала побеждает).
+**`deleted` on:** soft-deleted видны; ★/⊘ применяются как обычно.
 
 Фильтры «Выбор» работают на **level 0** (контейнеры / Singles), стек внутри нити не
 подрезают.

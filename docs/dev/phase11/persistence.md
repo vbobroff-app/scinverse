@@ -5,7 +5,9 @@
 `NotificationHubTests` 5/5; фронт `tsc` 0 / `eslint` 0 err / vitest 27. Integration/API (Testcontainers)
 требуют Docker — прогон за пользователем.
 **Связано:** [plan.md](plan.md) (§11.2), [apply.md](apply.md) (оси A/B, incident-хаб),
-журнал инцидентов to-be (не эта таблица) — [incident-journal.md](incident-journal.md),
+журнал инцидентов (не эта таблица) — [incident-journal.md](incident-journal.md),
+soft-delete journal — [incident-soft-delete.md](incident-soft-delete.md) (атомы V025 **не** чистим
+при soft-delete; скрытие на клиенте),
 [../phase10/plan.md](../phase10/plan.md) (Keycloak `sub`), [../phase7j/notify-composer.md](../phase7j/notify-composer.md).
 
 Тонкая версия центра уведомлений (phase 11.2) держит события только в **in-memory ring-buffer**

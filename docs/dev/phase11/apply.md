@@ -1,8 +1,18 @@
 # Phase 11. Особенности реализации
 
 Конкретные решения фазы 11. Обзор — в [plan.md](plan.md), статус — в [report.md](report.md).
-Журнал инцидентов (11.13 DESIGN) — [incident-journal.md](incident-journal.md).
+Журнал инцидентов (11.13) — [incident-journal.md](incident-journal.md).
+Soft-delete (ось видимости, V030) — [incident-soft-delete.md](incident-soft-delete.md).
+Handoff / миграции — [`docs/promt.md`](../../promt.md) §8.
 Заполняется по ходу реализации; ниже — зафиксированные проектные заметки.
+
+## Soft-delete журнала (кратко)
+
+- **Не** `status=deleted`: колонки `deleted_at` / `deleted_by` ⊥ lifecycle.
+- Delete open = `abandoned_manual` (+ Halt/Auto-off при recovering) → tombstone.
+- Surfaces: ribbon всегда без deleted; journal — `includeDeleted`; NC — Выбор `deleted`.
+- Live: `incidentVisibilityChanged`. Audit NC: Singles без corr эпизода.
+- Накат DDL: `dotnet run --project db/Scinverse.Db.Migrator` (без V030 Host 500 на `/incidents`).
 
 ## Пакет `@scinverse/notification-center`
 

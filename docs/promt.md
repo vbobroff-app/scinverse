@@ -26,14 +26,15 @@ REST/WebSocket наружу + админ-фронт для управления 
 ```
 scinverse/
 ├─ README.md                     # обзор монорепо (+ mermaid)
-├─ docs/                         # docs-as-code — см. §3; вход нового чата = docs/promt.md §8
+├─ docs/promt.md                 # вход нового чата / handoff (этот файл, §8)
 ├─ docs/wiki-readme/             # продукт: incident.md, layers.md
-├─ docs/dev/phase11/schedule-projection.md  # канон to-be: факты ⊥ mask/Cutter
+├─ docs/dev/phase11/             # NC + journal; soft-delete → incident-soft-delete.md
+├─ docs/dev/phase11/schedule-projection.md  # канон: факты ⊥ mask/Cutter
 ├─ docs/architecture/c4/         # C4 PlantUML to-be (NC, dual front, Keycloak)
 ├─ docs/architecture/ohs-connectors-deploy.md  # TRANSAQ Windows-агент / finam-ws to-be
 ├─ tools/plantuml/               # Local plantuml.jar (gitignore) + README
 ├─ packages/notification-center/ # NC UI-пакет (шина, dock) — to-be → отдельный сервис/MFE
-├─ db/Scinverse.Db.Migrator/     # DbUp (SQL-first, V001…V028+)
+├─ db/Scinverse.Db.Migrator/     # DbUp (SQL-first, V001…V030+)
 └─ services/online-history-server/
    ├─ src/                       # backend (.NET 8)
    │  ├─ Scinverse.Ohs.Domain            # домен (InstrumentKey, schedule, link_liveness, …)
@@ -101,7 +102,7 @@ scinverse/
 | 8 | CI/CD | TODO | — |
 | 9 | Импорт QScalp `.qsh` | TODO | — |
 | 10 | Keycloak + `user_settings` | PLANNED · **обязателен на gate 11→12** | [phase10](./dev/phase10/plan.md) |
-| **11** | NC Thread + journal + crash D1–D8 | DONE as-is; **next: schedule-projection** | [schedule-projection](./dev/phase11/schedule-projection.md) · [plan](./dev/phase11/plan-schedule-projection.md) · [crash as-is](./dev/phase11/crash-dispatch.md) |
+| **11** | NC Thread + journal + soft-delete + crash | **11.13a–g DONE**; soft-delete V030 | [soft-delete](./dev/phase11/incident-soft-delete.md) · [report](./dev/phase11/report.md) · [journal](./dev/phase11/incident-journal.md) |
 | **11→12** | **Gate:** вынос Admin Front + NC (MFE, Keycloak) по to-be C4 | FUTURE | [dev/plan.md](./dev/plan.md) §gate · [arch](./architecture/c4/arch.md) |
 | 12 | Гант WebGL2 + LOD — **только после gate** | FUTURE | [phase12](./dev/phase12/plan.md) |
 
@@ -143,8 +144,19 @@ scinverse/
 
 ## 5. Как запустить (локально)
 
-- **БД:** TimescaleDB из `docker-compose`, миграции DbUp (**до V029** · `incident_connection`).
+- **БД:** TimescaleDB из `docker-compose`, затем миграции DbUp (**актуально V030** · soft-delete):
+
+  ```powershell
+  dotnet run --project db/Scinverse.Db.Migrator
+  ```
+
+  Connection: CLI-аргумент → env `SCINVERSE_DB` → default
+  `Host=localhost;Port=5432;Database=scinverse;Username=scinverse;Password=scinverse`.
+  Без новых `V0xx` код может давать **HTTP 500** (пример: без V030 — `/api/incidents` на `deleted_at`).
+  Подробнее — §8.3.
+
 - **Backend:** VS или `dotnet run` (`Scinverse.Ohs.Host`); секреты — `appsettings.Local.json`.
+  Перед `dotnet build`/`dotnet test` Host — **остановить** (lock DLL на Windows).
 - **Frontend:** `services/online-history-server/web` → `pnpm install`, `pnpm dev --port 5174`
   (прокси `/api` + `/ws`). Тесты: `pnpm exec vitest run`, `pnpm exec tsc --noEmit`.
 - **NC package:** `packages/notification-center` → `pnpm exec vitest run` (шина).
@@ -188,99 +200,145 @@ scinverse/
 | NC: при равном ts **ok выше warning** | DONE |
 | CloseBreak sourceId из store; Resolve journal await | DONE (`255cc93`) |
 | **I12 / 7j.22** pool exhausted → пачка FATAL | **КЛИЕНТ DONE** (`6871a57` · `327c8fe`); pool defer @100 |
+| Soft-delete journal (V030 / 11.13g / I14) | **DONE** (`738b384`…`7b3c75d`) |
+| Schedule-as-projection P1–P5.5 | **DONE** (Cutter writers P1.2 — deferred) |
 
-**Коммиты wrap-up:** `6c7c36c` · `255cc93`. **I12 клиент:** `6871a57` (ribbon pipeline) ·
-`327c8fe` (close-all orphan health-ok).  
-Unit: **186/186**. Host при `dotnet test` не должен держать DLL (остановить VS/Host).
+**Коммиты wrap-up:** `6c7c36c` · `255cc93`. **I12 клиент:** `6871a57` · `327c8fe`.  
+**Soft-delete:** `738b384`…`cc634c2` + audit label `7b3c75d`.  
+Host при `dotnet test` не должен держать DLL (остановить VS/Host).
 
-**Следующий фокус:** schedule-as-projection — §8 ниже.  
-**Later:** gate **11→12** (NC MFE + Keycloak); deploy —
-[ohs-connectors-deploy.md](./architecture/ohs-connectors-deploy.md) (Windows-агент DLL, finam-ws later).
+**Handoff нового чата:** §8 ниже.  
+**Later:** gate **11→12** (NC MFE + Keycloak); hard-delete / retention; deploy —
+[ohs-connectors-deploy.md](./architecture/ohs-connectors-deploy.md).
 
 ---
 
-## 8. ➡️ НОВЫЙ ЧАТ — schedule-as-projection (2026-07-31)
+## 8. ➡️ НОВЫЙ ЧАТ — soft-delete DONE + контекст (2026-08-02)
 
-### Задача чата
+Единственный handoff-файл — **этот** (`docs/promt.md`). Спеки фазы — в `docs/dev/phase11/`.
 
-Реализовать переход на идеологию **«факты независимо от расписания; schedule = маска / Cutter»**
-по плану [`dev/phase11/plan-schedule-projection.md`](./dev/phase11/plan-schedule-projection.md).
-`:h` clip в journal — **отклонён** (кода нет). Group-by-desired / `abandoned_schedule` на Auto — **P4 DONE**.
+**Отвечать по-русски**, если пользователь пишет по-русски.  
+Коммит — **только по явной просьбе**.
 
-### Где мы (baseline → после чата)
+### 8.1. Baseline
 
 | Тема | Статус |
 |------|--------|
-| Incident journal + NC fan-out, crash D1–D8 | DONE |
-| I12 ribbon pool / orphan FATAL | клиент DONE; pool **DEFER** @100 |
-| Adopt Live-only / CloseBreak race / NC crash header | DONE |
-| P1 ScheduleCutter (+ unit); P1.2 writers | P1.1 DONE; P1.2 deferred |
-| P2 UI void mask | DONE |
-| P3 always-Incident | DONE |
-| P4 remove Group outage + abandon | DONE |
-| P5 2NF crash journal | P5.0 design DONE (docs); код later · cutover=purge NC |
-| Gate 11→12, WebGL 12, 7j.15/16 | later, не смешивать |
+| NC Thread 11.8–11.12 | DONE |
+| Journal 11.13a–f + I2 fan-out | DONE |
+| Crash dispatch D1–D8 + P5 2NF + I13 adopt-from-journal | DONE |
+| Schedule projection P1–P4 (+ Cutter writers deferred) | DONE / partial |
+| **Soft-delete journal (11.13g / I14)** | **DONE** |
+| Gate 11→12 (NC MFE), WebGL 12, hard-delete retention | later |
+| 7j I12 Host pool size | defer @100 |
 
-### Прочитай первым (порядок)
+### Soft-delete — суть
+
+Ось **видимости** ⊥ lifecycle: `incident.deleted_at` / `deleted_by` (**V030**).  
+Не `status=deleted`. Delete open = `abandoned_manual` (+ Halt/Auto-off при recovering) → tombstone.
+Restore снимает tombstone. Ribbon **всегда** без deleted; журнал — галка + `includeDeleted`;
+ЦУ — Выбор «Удалённые» (`softDeletedCorrs$` + badge deleted). Атомы hub/V025 **не** удаляются.
+Audit NC: `Журнал инцидентов {id} («{name}»): Запись удалена/восстановлена оператором`
+(не `ScheduleWho` / «Расписание»). Hard delete / retention — вне scope.
+
+Канон: [`incident-soft-delete.md`](./dev/phase11/incident-soft-delete.md).
+
+### 8.2. Прочитай первым
 
 1. Этот файл (§1–§7 + этот §8).
-2. **Канон to-be:** [`schedule-projection.md`](./dev/phase11/schedule-projection.md).
-3. **План шагов P0→P5:** [`plan-schedule-projection.md`](./dev/phase11/plan-schedule-projection.md).
-4. Wiki: [`incident.md`](./wiki-readme/incident.md) · [`layers.md`](./wiki-readme/layers.md).
-5. As-is (не ломать вслепую): [`incident-journal.md`](./dev/phase11/incident-journal.md) §2,
-   [`crash-dispatch.md`](./dev/phase11/crash-dispatch.md) (помечен as-is / `:h` rejected).
-6. Инварианты wrap-up: [`incident-model-wrapup.md`](./dev/incident-model-wrapup.md).
+2. Спека: [`incident-soft-delete.md`](./dev/phase11/incident-soft-delete.md).
+3. Journal: [`incident-journal.md`](./dev/phase11/incident-journal.md) (§6, §8, §12 **11.13g**).
+4. NC Выбор: [`nc-marks.md`](./dev/phase11/nc-marks.md) (`deleted`).
+5. Статус: [`report.md`](./dev/phase11/report.md) · [`plan.md`](./dev/phase11/plan.md).
+6. Issues: [`issue.md`](./dev/phase11/issue.md) **I14** (I2/I13 при fan-out/adopt).
+7. Расписание / mask: [`schedule-projection.md`](./dev/phase11/schedule-projection.md).
+8. Wrap-up: [`incident-model-wrapup.md`](./dev/incident-model-wrapup.md).
 
-### Идеология в одном абзаце
+### 8.3. Миграции (DbUp)
 
-Регистрируем каждый data-affecting failure (crash / break / релевантный 500) **честно**, полный span,
-**всегда Incident** в NC + journal. Расписание не решает «инцидент или Group». UI — **void mask**
-(~0.8 чёрный) вне desired на Connection-треке (⊥ SessionFilter). Writers — **ScheduleCutter**
-(`gaps ∩ desired`, type-agnostic). Supervisor Auto connect/disconnect остаётся;
-`abandoned_schedule` и Group-outage на Auto stop **сняты** (P4; live API удалены).
-`abandoned_manual` + UI resolve **обязательны** (иначе active висят вечно).
-2NF crash (P5): design в `plan-schedule-projection.md` §P5; история NC — purge, не dual-read.
+SQL-first: `db/migrations/V00N__….sql`. Раннер: `db/Scinverse.Db.Migrator`.
 
-### Порядок работ (деликатно)
-
-```text
-P1–P4                             ← DONE (Cutter P1.2 writers ещё deferred)
-P5.0–P5.5 2NF crash + cutover + I13 journal-SoT adopt  ← DONE
+```powershell
+dotnet run --project db/Scinverse.Db.Migrator
+# опц.: -- "Host=…;Port=5432;Database=scinverse;Username=…;Password=…"
+# или env SCINVERSE_DB
 ```
 
-**Не** воскрешать `:h`. Cutover NC = purge + Host restart (Hub in-memory) — выполнен на стенде.
-Adopt open break — из **`incident`**, не из `notification`.
+Default CS: `Host=localhost;Port=5432;Database=scinverse;Username=scinverse;Password=scinverse`.  
+Успех: `Миграции применены успешно.` Уже применённые DbUp пропускает.
 
-### Инварианты (не ломать)
+**Когда обязательно:** после pull с новым `V0xx` — до/сразу после рестарта Host, иначе 500.  
+Soft-delete DDL: `db/migrations/V030__incident_soft_delete.sql`.
 
-- Journal ⊥ NC; ribbon/`incident` не зависят от выноса NC.
+Типичный цикл:
+
+```text
+1. docker-compose up (Timescale)
+2. dotnet run --project db/Scinverse.Db.Migrator
+3. Host → :5080
+4. Web → pnpm dev --port 5174 --force
+```
+
+### 8.4. API / якоря (soft-delete)
+
+```text
+GET  /api/incidents?includeDeleted=          # default false
+GET  /api/connections/{id}/incidents         # всегда без deleted
+POST /api/incidents/{corr}/delete            # { deletedBy? }
+POST /api/incidents/{corr}/restore
+POST /api/incidents/{corr}/resolve           # 409 если soft-deleted
+WS   incidentVisibilityChanged               # { corrUid, deleted, connectionId? }
+```
+
+| Слой | Путь |
+|------|------|
+| DDL | `db/migrations/V030__incident_soft_delete.sql` |
+| Store / API | `IncidentStore`, `OhsEndpoints` delete/restore |
+| Live | `IncidentVisibilityChangedEvent` |
+| Web | `ConnectionIncidentsModal`, `IncidentsSection`, `incidentsJournalStorage` |
+| NC | `softDeletedCorrs$`, `filterItems` (`deleted`), `ThreadBlock` badge |
+
+localStorage: `ohs:incidentsJournal:showDeleted` · `ohs:notificationDock` (choices, в т.ч. `deleted`).
+
+### 8.5. Инварианты (не ломать)
+
+- Soft-delete = видимость; lifecycle `active|recovering|resolved`.
+- Journal SoT эпизодов; NC — уведомления (атомы можно не удалять).
+- Ribbon / by-connection incidents — без soft-deleted.
+- Delete open ≡ manual close, затем tombstone; resolve soft-deleted → 409.
+- Adopt open break — из **`incident`**, не из `notification` (I13).
+- Ribbon refresh — только `OhsStore` pipeline (I12).
 - **I10:** stale-close open break **только** при `Live`.
-- CloseBreak: WS resolve до journal; journal resolve **await** — `255cc93`.
-- Ribbon refresh — только через `OhsStore` pipeline (I12).
-- TRANSAQ: `request_timeout=10`; не QuickPath / NetworkChange / вторая DLL.
-- Host `Max Pool Size=100` — не поднимать без новой боли exhausted.
+- TRANSAQ `request_timeout=10`; Host `Max Pool Size=100` — не поднимать без боли.
+- Не воскрешать `:h` clip.
 
-### Запуск
+### 8.6. Запуск / проверки
 
-```text
-БД:   docker-compose + DbUp
-Host: Scinverse.Ohs.Host → :5080   (остановить перед dotnet build/test — lock DLL)
-Web:  services/online-history-server/web → pnpm dev --port 5174
-NC:   packages/notification-center → pnpm exec vitest run
-Unit: dotnet test …/Scinverse.Ohs.UnitTests.csproj
+```powershell
+dotnet run --project db/Scinverse.Db.Migrator
+dotnet test services/online-history-server/tests/Scinverse.Ohs.UnitTests/Scinverse.Ohs.UnitTests.csproj
+cd packages/notification-center; pnpm exec vitest run
+cd services/online-history-server/web; pnpm exec tsc --noEmit; pnpm exec vitest run
 ```
 
-### Соглашения
+PowerShell: `;` не `&&`. Commit-msg → UTF-8 без BOM + `git commit -F`.  
+Стиль: `feat(ohs-11): …` / `feat(ohs-web): …` / `feat(nc): …` / `docs(11): …`.
 
-- PowerShell: `;` не `&&`; коммит-msg → файл UTF-8 **без BOM** + `git commit -F`.
-- Коммит **только по явной просьбе** пользователя.
-- Lint: tsc 0, eslint 0 errors; `dotnet build` Host.
-- Commit style: `feat(ohs): …` / `feat(ohs-web): …` / `feat(ohs-11): …` / `docs(11): …`.
-- Отвечать по-русски, если пользователь пишет по-русски.
+### 8.7. Возможные следующие задачи
 
-### Критерий «готово» для чата
+- Hard delete / retention purge soft-deleted (+ опц. старые resolved).
+- Gate 11→12: NC-сервис / MFE + Keycloak.
+- P1.2 ScheduleCutter writers (если ещё deferred).
+- 7j.15/16 UI tails; Host pool I12 step 3.
 
-Acceptance §9: P1–P4 на стенде; P5 (2NF) не обязателен в первом проходе.
+Уточнять у пользователя scope — не начинать gate/WebGL «заодно».
+
+### 8.8. Архив: schedule-as-projection (DONE)
+
+Идеология: факты ⊥ schedule-as-mask/Cutter — [`schedule-projection.md`](./dev/phase11/schedule-projection.md).  
+P1–P4 + P5.0–P5.5 (2NF crash, I13) — **DONE**; `:h` отклонён; Group-by-desired / Auto
+`abandoned_schedule` сняты (P4). План шагов —
+[`plan-schedule-projection.md`](./dev/phase11/plan-schedule-projection.md).
 
 ---
 

@@ -5,8 +5,10 @@
 
 **Связано:** wiki [`incident.md`](../../wiki-readme/incident.md) · [`layers.md`](../../wiki-readme/layers.md) ·
 план миграции [`plan-schedule-projection.md`](plan-schedule-projection.md) ·
-as-is journal [`incident-journal.md`](incident-journal.md) · as-is crash [`crash-dispatch.md`](crash-dispatch.md) ·
-handoff [`promt.md`](../../promt.md) §8.
+as-is journal [`incident-journal.md`](incident-journal.md) ·
+soft-delete [`incident-soft-delete.md`](incident-soft-delete.md) ·
+as-is crash [`crash-dispatch.md`](crash-dispatch.md) ·
+handoff [`docs/promt.md`](../../promt.md) §8.
 
 **Зачем отдельный файл:** as-is спеки (`incident-journal`, `crash-dispatch`) описывают
 **классификацию по schedule** (Incident vs Group, journal только в горизонте). Их не переписываем

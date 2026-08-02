@@ -1,7 +1,8 @@
 # NC Dock Settings — опции отображения
 
 Связано: [apply.md](apply.md) (I2), [to-threads.md](to-threads.md),
-[nc-marks.md](nc-marks.md) (★/⊘ и фильтр «Выбор»),
+[nc-marks.md](nc-marks.md) (★/⊘ / Удалённые и фильтр «Выбор»),
+[incident-soft-delete.md](incident-soft-delete.md) (ось видимости журнала в ЦУ),
 [layers.md §8](../../wiki-readme/layers.md) (фильтр дока «Слои» TL/CL/WL), пакет
 `@scinverse/notification-center` (`dockSettings.ts`, `NotificationDock`).
 

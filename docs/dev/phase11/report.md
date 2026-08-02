@@ -2,12 +2,13 @@
 
 Актуальный статус фазы 11. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
-**Текущий статус:** Thread **DONE**; **11.13a–f DONE**; **I2 RESOLVED**; **crash-dispatch D1–D8 DONE**.
+**Текущий статус:** Thread **DONE**; **11.13a–g DONE** (incl. soft-delete); **I2 RESOLVED**;
+**crash-dispatch D1–D8 DONE**.
 [issue.md](issue.md) I2 · [incident-journal.md](incident-journal.md) §7 ·
-[crash-dispatch.md](crash-dispatch.md).
+[incident-soft-delete.md](incident-soft-delete.md) · [crash-dispatch.md](crash-dispatch.md).
 Смежный хвост 7j **I12** (pool / orphan FATAL): клиент **шаги 1–2 DONE**, шаг 3 (pool size)
 **отложен** — [../phase7j/plan.md](../phase7j/plan.md) §7j.22.
-**Обновлено:** 2026-07-31.
+**Обновлено:** 2026-08-02.
 
 ## Статус задач
 
@@ -26,7 +27,8 @@
 | 11.10 | UI NC: контейнеры, expand Thread, фильтры статуса нити + Выбор | DONE | `ThreadBlock`, `filterItems`; ★/⊘ per-Entry + [nc-marks.md](nc-marks.md) |
 | 11.11 | Backend `threadKindHint` / `closeOutcome` в колонке `data` | DONE | Hub enrich + ConnectionManager + client crash; таблицы не меняли |
 | 11.12 | Регрессия Thread (7j break/crash + hydrate V025) | DONE | `threadRegression.test.ts` + web `notifications.thread.test.ts` |
-| 11.13 | Журнал инцидентов (`incident` в **OHS**) | **DONE** (a–f) | [incident-journal.md](incident-journal.md) §12 |
+| 11.13 | Журнал инцидентов (`incident` в **OHS**) | **DONE** (a–g) | [incident-journal.md](incident-journal.md) §12 |
+| 11.13g | Soft-delete / restore (ось видимости) | **DONE** | [incident-soft-delete.md](incident-soft-delete.md); V030; `738b384`…`cc634c2` |
 | Crash | Host outage: T Group + C fan-out (D1–D8) | **DONE** | [crash-dispatch.md](crash-dispatch.md); `47fb58e`…`62453e0` + D6+LS `ef6805b` |
 
 ## Решение
@@ -71,11 +73,14 @@
 | 2026-07-29 | **I2 RESOLVED:** регрессия parallel crash (unit+ApiTest); критерии приёмки | [issue.md](issue.md) I2 |
 | 2026-07-30 | **Crash dispatch D1–D8 DONE:** `POST /recovery/outage` merge; emit T (`ohs.host.transport:`) + C (`ohs.backend.outage:…:c{id}`); journal только desired; клиент — local Single + LS pending + POST + optimistic ribbon; cutover с client-led crash journal | HostOutage unit 14 · Crash_ Api 3 · web 48 · NC bus 23; [crash-dispatch.md](crash-dispatch.md) |
 | 2026-07-31 | **I12 (7j.22) клиент:** serialize ribbon refresh (`OhsStore` debounce+switchMap+concat); health-ok закрывает все недавние orphan `ohs.unhandled`. `Max Pool Size=100` не трогали | `6871a57` · `327c8fe` · [../phase7j/issue.md](../phase7j/issue.md) I12 |
+| 2026-08-02 | **Soft-delete journal (11.13g):** V030 `deleted_at`/`deleted_by`; POST delete/restore; WS `incidentVisibilityChanged`; NC `softDeletedCorrs$` + Выбор «Удалённые»; journal UI + checkbox persist; badge deleted; NC backlog default 200 | [incident-soft-delete.md](incident-soft-delete.md) · `738b384`…`cc634c2` |
+| 2026-08-02 | Docs: спека soft-delete + актуализация phase11 + handoff [`promt.md`](../../promt.md) §8 | docs |
 
 ## Итог
 
-Лента NC v1 — **готова**. Журнал OHS **11.13a–f DONE**. **I2 fan-out — RESOLVED**.
+Лента NC v1 — **готова**. Журнал OHS **11.13a–g DONE** (incl. soft-delete). **I2 fan-out — RESOLVED**.
 **Crash dispatch (Host outage T+C) — DONE.** Вынос atoms/пакета в NC — **gate 11→12**.
 Итог мультиклиент / journal / link / NC — [../incident-model-wrapup.md](../incident-model-wrapup.md)
 (2026-07-31). Смежный 7j **I12**: клиент mitigation **DONE** (шаги 1–2); Host pool — later
 ([../phase7j/plan.md](../phase7j/plan.md) §7j.22).
+Handoff следующего чата — [`docs/promt.md`](../../promt.md) §8.

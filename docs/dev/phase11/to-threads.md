@@ -6,6 +6,8 @@
 Домен инцидентов связи: [../phase7j/incident.md](../phase7j/incident.md).
 **Журнал инцидентов (11.13):** канон — [incident-journal.md](incident-journal.md)
 (таблица `incident` в **OHS**; atoms/`notification` → NC на gate 11→12). §6.3 — черновик полей.
+Soft-delete (видимость ⊥ ThreadStatus) — [incident-soft-delete.md](incident-soft-delete.md);
+фильтр Выбор «Удалённые» — [nc-marks.md](nc-marks.md).
 
 ---
 

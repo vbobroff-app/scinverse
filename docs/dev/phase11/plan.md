@@ -14,11 +14,13 @@ Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md)
 [schedule-projection.md](schedule-projection.md) · план [plan-schedule-projection.md](plan-schedule-projection.md) ·
 handoff [`promt.md`](../../promt.md) §8. Параллельно gate **11→12** (later).
 
-**11.13a–f DONE**; crash D1–D8 **DONE** (as-is classification). Таблица `incident` в **OHS**;
-поток `notification` / пакет → NC MFE. Thread 11.8–11.12 — **DONE**.
-Канон journal as-is — [incident-journal.md](incident-journal.md); продукт to-be — wiki
+**11.13a–g DONE** (incl. soft-delete V030); crash D1–D8 **DONE** (as-is classification).
+Таблица `incident` в **OHS**; поток `notification` / пакет → NC MFE. Thread 11.8–11.12 — **DONE**.
+Канон journal as-is — [incident-journal.md](incident-journal.md);
+soft-delete — [incident-soft-delete.md](incident-soft-delete.md); продукт to-be — wiki
 [`incident.md`](../../wiki-readme/incident.md). **I12** клиент **DONE**, pool defer —
 [../phase7j/plan.md](../phase7j/plan.md) §7j.22.
+Handoff — [`docs/promt.md`](../../promt.md) §8.
 
 **Ядро UI/шины:** пакет [`packages/notification-center`](../../../packages/notification-center)
 (`@scinverse/notification-center`) — без привязки к OHS.
@@ -28,6 +30,7 @@ handoff [`promt.md`](../../promt.md) §8. Параллельно gate **11→12*
 Опции дока (группировать / схлоп тиков) — [dock-settings.md](dock-settings.md);
 маркеры ★/⊘ и фильтр «Выбор» — [nc-marks.md](nc-marks.md).
 Журнал инцидентов — [incident-journal.md](incident-journal.md);
+**soft-delete** — [incident-soft-delete.md](incident-soft-delete.md);
 **to-be schedule projection** — [schedule-projection.md](schedule-projection.md);
 **crash dispatch** (as-is DONE; `:h` отклонён) — [crash-dispatch.md](crash-dispatch.md);
 продуктовое определение — [`docs/wiki-readme/incident.md`](../../wiki-readme/incident.md).
@@ -91,7 +94,7 @@ handoff [`promt.md`](../../promt.md) §8. Параллельно gate **11→12*
 - **11.10 UI NC: контейнеры.** Лента = Single + Thread header на одном уровне; header без
   severity-иконки, custom summary; expand/collapse стека Entry; subtle `[!]`/`[G]` сдвигает
   контент Entry. Фильтры: статус нити (active / recovering / resolved) + «Выбор»
-  (★ Избранные include / ⊘ Спам include, default hide; см. [nc-marks.md](nc-marks.md)).
+  (★ Избранные / ⊘ Спам / Удалённые — include, default hide; см. [nc-marks.md](nc-marks.md)).
   Бейдж непрочитанных — по контейнерам (см. to-threads §4).
 - **11.11 Backend hints + политика kind.** На Open писать `data.threadKindHint`
   (`incident`|`group` по горизонту расписания); на close — `data.closeOutcome`
@@ -104,6 +107,7 @@ handoff [`promt.md`](../../promt.md) §8. Параллельно gate **11→12*
   и hydrate не ломаются; tsc/vitest/`dotnet` зелёные.
 - **11.13 Журнал инцидентов.** Таблица `incident` в **OHS Timescale**; **JournalRegistrator**
   (не TradeWriter) + API + UI; Connection-ribbon + Recording (**бинарная проекция**).
+  Soft-delete / restore (ось видимости, V030) — [incident-soft-delete.md](incident-soft-delete.md).
   Atoms — as-is V025 / to-be NC ([gate 11→12](../plan.md)). Канон —
   [incident-journal.md](incident-journal.md) §3.
 - **Crash dispatch (после 11.13) — DONE.** Host crash: транспортный Group (admin↔OHS) + fan-out
@@ -145,9 +149,10 @@ handoff [`promt.md`](../../promt.md) §8. Параллельно gate **11→12*
 
 **Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
 
-**11.13 журнал — DONE.** **I2 RESOLVED** — fan-out OHS→`incident`+NC ([issue.md](issue.md) I2,
-[incident-journal.md](incident-journal.md) §7). **Crash dispatch D1–D8 — DONE**
-([crash-dispatch.md](crash-dispatch.md)). Далее: gate 11→12 / 7j.15–16.
+**11.13 журнал — DONE (a–g, soft-delete).** **I2 RESOLVED** — fan-out OHS→`incident`+NC
+([issue.md](issue.md) I2, [incident-journal.md](incident-journal.md) §7).
+**Crash dispatch D1–D8 — DONE** ([crash-dispatch.md](crash-dispatch.md)).
+Далее: gate 11→12 / 7j.15–16 / hard-delete retention (later).
 
 **Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 ПРИНЯТО**
 ([../phase7j/issue.md](../phase7j/issue.md)). **I12** клиент (ribbon pipeline + close-all orphan
