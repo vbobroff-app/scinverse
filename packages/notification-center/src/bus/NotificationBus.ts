@@ -259,6 +259,26 @@ export class NotificationBus {
     return true;
   }
 
+  /** Убрать все атомы soft-deleted эпизода (journal SoT → NC live). */
+  removeByCorrelationId(correlationId: string): number {
+    if (!correlationId) {
+      return 0;
+    }
+    const next = this.raw.filter((e) => e.correlationId !== correlationId);
+    const removed = this.raw.length - next.length;
+    if (removed === 0) {
+      return 0;
+    }
+    for (const e of this.raw) {
+      if (e.correlationId === correlationId) {
+        this.readIds.delete(e.id);
+      }
+    }
+    this.raw = next;
+    this.emitDisplay();
+    return removed;
+  }
+
   markRead(id: string): void {
     if (this.readIds.has(id)) {
       return;

@@ -2408,6 +2408,18 @@ export class OhsStore {
       case 'notification':
         this.onServerNotification(event.notification);
         break;
+
+      case 'incidentVisibilityChanged':
+        if (event.deleted) {
+          void import('./notifications').then((m) => m.purgeIncidentFromDock(event.corrUid));
+        } else {
+          // Restore: атомы снова в GET /notifications (hub после рестарта / filter) — re-hydrate.
+          this.refreshNotifications();
+        }
+        if (event.connectionId != null) {
+          this.refreshLiveness();
+        }
+        break;
     }
   }
 

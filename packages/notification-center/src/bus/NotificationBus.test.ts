@@ -79,6 +79,20 @@ describe('NotificationBus', () => {
     expect(bus.remove('missing')).toBe(false);
   });
 
+  it('removeByCorrelationId drops all atoms of an episode', () => {
+    const bus = createNotificationBus();
+    const corr = 'connection:1:link:abc';
+    bus.publish(evt({ id: 'a1', correlationId: corr, code: 'connection.lost', status: 'active' }));
+    bus.publish(
+      evt({ id: 'a2', correlationId: corr, code: 'connection.recovered', status: 'resolved' }),
+    );
+    bus.publish(evt({ id: 'b1', correlationId: 'other', code: 'connection.lost', status: 'active' }));
+    notify.info(bus, { id: 's1', module: 'm', code: 'c', message: 'single' });
+    expect(bus.removeByCorrelationId(corr)).toBe(2);
+    expect(bus.events.map((e) => e.id).sort()).toEqual(['b1', 's1']);
+    expect(bus.removeByCorrelationId(corr)).toBe(0);
+  });
+
   describe('lifecycle status (ось B)', () => {
     it('keeps both rows on transition; statusOf follows the latest', () => {
       const bus = createNotificationBus();

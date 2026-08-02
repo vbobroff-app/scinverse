@@ -10,6 +10,12 @@ public interface INotificationStore
     Task<IReadOnlyList<NotificationRecord>> QueryRecentAsync(int limit, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Атомы одного corr (oldest-first) — restore soft-delete → вернуть в hub ring.
+    /// </summary>
+    Task<IReadOnlyList<NotificationRecord>> QueryByCorrelationIdAsync(
+        string correlationId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Последний открытый break по подключению: subject <c>connection:{id}:link</c>, latest status
     /// по corr ∈ {active, underway}. <c>null</c> — нет open (или уже resolved). I10 adopt/catch-up.
     /// </summary>

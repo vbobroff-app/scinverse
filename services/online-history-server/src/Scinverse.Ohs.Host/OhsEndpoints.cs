@@ -577,6 +577,8 @@ public static class OhsEndpoints
         api.MapPost("/incidents/{corrUid}/restore", async (
             string corrUid,
             IIncidentStore store,
+            INotificationStore notificationsDb,
+            NotificationHub hub,
             WebSocketBroadcaster broadcaster,
             INotificationPublisher notifications,
             IConnectionStore connections,
@@ -599,6 +601,20 @@ public static class OhsEndpoints
             if (!await store.RestoreAsync(corr, ct).ConfigureAwait(false))
             {
                 return Results.Conflict(new { error = $"Не удалось восстановить {corr}" });
+            }
+
+            // Вернуть атомы corr в ring (delete их снял) — иначе GET /notifications пуст до рестарта.
+            try
+            {
+                var atoms = await notificationsDb.QueryByCorrelationIdAsync(corr, ct).ConfigureAwait(false);
+                if (atoms.Count > 0)
+                {
+                    hub.Hydrate(atoms.Select(NotificationMapping.ToDto).ToList());
+                }
+            }
+            catch
+            {
+                // Restore журнала уже успешен; NC ring — best-effort.
             }
 
             broadcaster.Broadcast(new IncidentVisibilityChangedEvent(corr, Deleted: false, row.ConnectionId));

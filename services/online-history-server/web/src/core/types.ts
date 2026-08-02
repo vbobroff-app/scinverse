@@ -666,4 +666,10 @@ export type LiveEvent =
   | {
       type: 'notification';
       notification: NotificationDto;
+    }
+  | {
+      type: 'incidentVisibilityChanged';
+      corrUid: string;
+      deleted: boolean;
+      connectionId: number | null;
     };

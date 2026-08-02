@@ -69,6 +69,30 @@ public sealed class NotificationStore(NpgsqlDataSource dataSource) : INotificati
         return list;
     }
 
+    public async Task<IReadOnlyList<NotificationRecord>> QueryByCorrelationIdAsync(
+        string correlationId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(correlationId))
+        {
+            return [];
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<Row>(new CommandDefinition(
+            """
+            SELECT event_id AS EventId, ts AS Ts, severity AS Severity, source_type AS SourceType,
+                   interaction AS Interaction, localization AS Localization, status AS Status,
+                   module AS Module, code AS Code, message AS Message, subject AS Subject,
+                   correlation_id AS CorrelationId, actor_kind AS ActorKind, actor_id AS ActorId,
+                   actor_label AS ActorLabel, data::text AS Data
+            FROM notification
+            WHERE correlation_id = @correlationId
+            ORDER BY ts ASC, event_id ASC;
+            """,
+            new { correlationId }, cancellationToken: cancellationToken));
+        return rows.Select(ToRecord).ToList();
+    }
+
     public async Task<OpenLinkIncident?> FindOpenLinkIncidentAsync(
         long connectionId, CancellationToken cancellationToken)
     {

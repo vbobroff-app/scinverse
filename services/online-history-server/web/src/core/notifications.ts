@@ -244,6 +244,11 @@ export function hydrateServerBacklog(dtos: readonly NotificationDto[]): void {
   }
 }
 
+/** Soft-delete journal → скрыть Thread эпизода в живой шине NC. */
+export function purgeIncidentFromDock(corrUid: string): number {
+  return notificationBus.removeByCorrelationId(corrUid);
+}
+
 /** Событие с бэка (WS `notification` / GET /api/notifications) → шина дока. */
 export function publishServerNotification(dto: NotificationDto): void {
   dismissLocalTransportDownIfHostTransport(dto);
