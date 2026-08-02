@@ -113,6 +113,24 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
     }
     return 'resolved' as const;
   }, [link.incidents]);
+  /** Момент последнего resolve — для краткого зелёного бордера (~5с). */
+  const lastResolvedAtMs = useMemo(() => {
+    let max = 0;
+    for (const i of link.incidents ?? []) {
+      if (i.status !== 'resolved') {
+        continue;
+      }
+      const t = Date.parse(i.closedAt ?? i.lastActivityAt);
+      if (Number.isFinite(t) && t > max) {
+        max = t;
+      }
+    }
+    return max;
+  }, [link.incidents]);
+  const bellResolvedFresh =
+    bellKind === 'resolved' &&
+    lastResolvedAtMs > 0 &&
+    now - lastResolvedAtMs < 5_000;
   const connInWindow = useMemo(
     () => (hasRules ? isConnectedNow(rules, new Date(now)) : false),
     [rules, hasRules, now],
@@ -448,7 +466,11 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
                   styles.incidentsBtn,
                   bellKind === 'active' ? styles.incidentsBtnActive : '',
                   bellKind === 'recovering' ? styles.incidentsBtnRecovering : '',
-                  bellKind === 'resolved' ? styles.incidentsBtnResolved : '',
+                  bellKind === 'resolved'
+                    ? bellResolvedFresh
+                      ? styles.incidentsBtnResolvedFresh
+                      : styles.incidentsBtnResolved
+                    : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}

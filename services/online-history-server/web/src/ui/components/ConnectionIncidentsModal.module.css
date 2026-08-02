@@ -240,6 +240,19 @@
   color: #5c9;
 }
 
+/* resolved + abandoned_manual — решено пользователем: зелёный бордер. */
+.badgeResolvedManual {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid #2e9e6b;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: color-mix(in srgb, #3c9 18%, transparent);
+  color: #5c9;
+}
+
 .badgeDeleted {
   display: inline-block;
   padding: 1px 6px;

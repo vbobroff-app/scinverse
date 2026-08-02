@@ -109,6 +109,17 @@
   color: #2e9e6b;
 }
 
+/* Свежий recover (<5с): зелёный бордер + иконка; потом бордер гаснет. */
+.incidentsBtnResolvedFresh {
+  border-color: #2e9e6b;
+  color: #2e9e6b;
+}
+
+.incidentsBtnResolvedFresh:hover {
+  border-color: #2e9e6b;
+  color: #2e9e6b;
+}
+
 /* Есть recovering — жёлтый (break). */
 .incidentsBtnRecovering {
   border-color: #d29922;

@@ -31,11 +31,16 @@ function isDeleted(row: IncidentDto): boolean {
   return row.deletedAt != null && row.deletedAt !== '';
 }
 
-function statusClass(status: string, deleted: boolean): string {
+function statusClass(row: IncidentDto, deleted: boolean): string {
   if (deleted) return styles.badgeDeleted;
-  if (status === 'active') return styles.badgeActive;
-  if (status === 'recovering') return styles.badgeRecovering;
-  if (status === 'resolved') return styles.badgeResolved;
+  if (row.status === 'active') return styles.badgeActive;
+  if (row.status === 'recovering') return styles.badgeRecovering;
+  if (row.status === 'resolved') {
+    // Ручное закрытие — зелёный бордер; recovered — без бордера (как раньше).
+    return row.closeOutcome === 'abandoned_manual'
+      ? styles.badgeResolvedManual
+      : styles.badgeResolved;
+  }
   return styles.badge;
 }
 
@@ -412,7 +417,7 @@ export function ConnectionIncidentsModal({
                   const delTip = deletedTip(row, formatTs);
                   const outcome = row.closeOutcome ?? '—';
                   const badge = (
-                    <span className={statusClass(row.status, deleted)}>{statusLabel(row)}</span>
+                    <span className={statusClass(row, deleted)}>{statusLabel(row)}</span>
                   );
                   return (
                     <tr
