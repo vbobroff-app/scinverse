@@ -162,6 +162,8 @@ export const CLOSE_OUTCOMES: readonly CloseOutcome[] = [
 export interface NcMarks {
   isFavorite?: boolean;
   isLeft?: boolean;
+  /** Soft-delete журнала (ось видимости; скрыт, пока в Выбор не «Удалённые»). */
+  isSoftDeleted?: boolean;
 }
 
 /**

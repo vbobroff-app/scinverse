@@ -52,14 +52,8 @@ public sealed class NotificationStore(NpgsqlDataSource dataSource) : INotificati
                    module AS Module, code AS Code, message AS Message, subject AS Subject,
                    correlation_id AS CorrelationId, actor_kind AS ActorKind, actor_id AS ActorId,
                    actor_label AS ActorLabel, data::text AS Data
-            FROM notification n
-            WHERE n.correlation_id IS NULL
-               OR NOT EXISTS (
-                   SELECT 1
-                   FROM incident i
-                   WHERE i.corr_uid = n.correlation_id
-                     AND i.deleted_at IS NOT NULL)
-            ORDER BY n.ts DESC
+            FROM notification
+            ORDER BY ts DESC
             LIMIT @limit;
             """,
             new { limit }, cancellationToken: cancellationToken));

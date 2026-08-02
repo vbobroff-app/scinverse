@@ -50,7 +50,7 @@ const VALID_INTERACTIONS: readonly NotificationInteraction[] = ['user', 'system'
 const VALID_LOCALIZATIONS: readonly NotificationLocalization[] = ['internal', 'external'];
 const VALID_STATUSES: readonly NotificationStatus[] = ['active', 'underway', 'resolved'];
 const VALID_THREAD_STATUSES: readonly ThreadStatus[] = ['active', 'recovering', 'resolved'];
-const VALID_CHOICES: readonly NcChoiceFilter[] = ['favorite', 'left'];
+const VALID_CHOICES: readonly NcChoiceFilter[] = ['favorite', 'left', 'deleted'];
 
 export interface PersistedNotificationDock {
   open: boolean;

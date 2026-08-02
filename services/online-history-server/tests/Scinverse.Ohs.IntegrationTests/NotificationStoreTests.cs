@@ -172,17 +172,14 @@ public sealed class NotificationStoreTests : IClassFixture<TimescaleFixture>, IA
     }
 
     [Fact]
-    public async Task QueryRecent_excludes_atoms_of_soft_deleted_incident()
+    public async Task QueryByCorrelationId_returns_atoms_even_if_journal_soft_deleted()
     {
+        // Soft-delete — ось видимости на клиенте; audit-log atoms остаются.
         const string deletedCorr = "connection:3:link:gone";
-        const string liveCorr = "connection:3:link:live";
         await _store.AppendBatchAsync(new[]
         {
             Rec(T0, "deleted-episode", sourceType: "system", subject: "connection:3:link",
                 correlationId: deletedCorr, status: "resolved", code: "connection.incident_closed"),
-            Rec(T0.AddSeconds(1), "live-episode", sourceType: "system", subject: "connection:3:link",
-                correlationId: liveCorr, status: "resolved", code: "connection.incident_closed"),
-            Rec(T0.AddSeconds(2), "single-no-corr", sourceType: "user"),
         }, CancellationToken.None);
 
         await using (var db = await _fixture.DataSource.OpenConnectionAsync())
@@ -208,8 +205,7 @@ public sealed class NotificationStoreTests : IClassFixture<TimescaleFixture>, IA
         }
 
         var recent = await _store.QueryRecentAsync(20, CancellationToken.None);
-        recent.Select(r => r.Message).Should().Equal("live-episode", "single-no-corr");
-        recent.Should().NotContain(r => r.CorrelationId == deletedCorr);
+        recent.Should().Contain(r => r.CorrelationId == deletedCorr);
 
         var byCorr = await _store.QueryByCorrelationIdAsync(deletedCorr, CancellationToken.None);
         byCorr.Should().ContainSingle().Which.Message.Should().Be("deleted-episode");

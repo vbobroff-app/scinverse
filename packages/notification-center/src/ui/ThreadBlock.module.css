@@ -130,6 +130,11 @@
   background: color-mix(in srgb, var(--color-accent, #4dabf7) 12%, var(--color-bg-input, #2c2e33));
 }
 
+.statusDeleted {
+  background: color-mix(in srgb, var(--color-error, #ff6b6b) 12%, var(--color-bg-input, #2c2e33));
+  color: var(--color-error, #ff6b6b);
+}
+
 .title {
   flex: none;
   max-width: 160px;

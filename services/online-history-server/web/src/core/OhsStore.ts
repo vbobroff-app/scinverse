@@ -2410,12 +2410,15 @@ export class OhsStore {
         break;
 
       case 'incidentVisibilityChanged':
-        if (event.deleted) {
-          void import('./notifications').then((m) => m.purgeIncidentFromDock(event.corrUid));
-        } else {
-          // Restore: атомы снова в GET /notifications (hub после рестарта / filter) — re-hydrate.
-          this.refreshNotifications();
-        }
+        void import('./notifications').then((m) => {
+          if (event.deleted) {
+            m.markIncidentSoftDeleted(event.corrUid);
+          } else {
+            m.unmarkIncidentSoftDeleted(event.corrUid);
+            // На случай, если атомы пропали из ring — догрузить бэклог.
+            this.refreshNotifications();
+          }
+        });
         if (event.connectionId != null) {
           this.refreshLiveness();
         }
@@ -2437,6 +2440,16 @@ export class OhsStore {
         void import('./notifications').then((m) => m.hydrateServerBacklog(rows));
       },
       error: (err) => console.error('getNotifications', err),
+    });
+    // Journal SoT: набор soft-deleted corr для фильтра NC «Удалённые».
+    this.api.getIncidents({ includeDeleted: true, limit: 500 }).subscribe({
+      next: (rows) => {
+        const deleted = rows
+          .filter((i) => i.deletedAt != null && i.deletedAt !== '')
+          .map((i) => i.corrUid);
+        void import('./notifications').then((m) => m.syncSoftDeletedCorrs(deleted));
+      },
+      error: (err) => console.error('syncSoftDeletedCorrs', err),
     });
   }
 

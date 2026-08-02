@@ -175,8 +175,8 @@
 }
 
 .badgeDeleted {
-  background: color-mix(in srgb, var(--color-text-muted) 22%, transparent);
-  color: var(--color-text-muted);
+  background: color-mix(in srgb, #e74c3c 18%, transparent);
+  color: #e74c3c;
 }
 
 .rowDeleted {

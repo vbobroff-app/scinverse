@@ -16,7 +16,7 @@ import {
   type LayerDockFilter,
 } from './layerFilter';
 
-export type NcChoiceFilter = 'favorite' | 'left';
+export type NcChoiceFilter = 'favorite' | 'left' | 'deleted';
 
 /** Фильтр ленты контейнеров (атомы + threadStatus + Выбор + connectionId + слой). */
 export interface NotificationItemFilter extends NotificationFilter {
@@ -187,7 +187,8 @@ function threadMatchesAtoms(
  * Фильтрация проекции Single | Thread.
  * `threadStatuses` — только Thread; при активном фильтре Single скрываются.
  * `choices` — асимметрия (см. docs/dev/phase11/nc-marks.md):
- *   ★ favorite — include; ⊘ left (спам) — exclude; при обеих ⊘ побеждает.
+ *   ★ favorite — include; ⊘ left (спам) — exclude; при обеих ⊘ побеждает;
+ *   deleted — include soft-deleted (по умолчанию скрыты всегда).
  * Маркеры на item уже агрегированы (Single = Entry; Thread header = any★ / all⊘).
  */
 export function filterItems(
@@ -197,6 +198,7 @@ export function filterItems(
 ): NotificationItem[] {
   const threadStatuses = toSet<ThreadStatus>(filter.threadStatuses);
   const choices = toSet<NcChoiceFilter>(filter.choices);
+  const showDeleted = choices?.has('deleted') ?? false;
 
   const atomFilter: NotificationFilter = {
     severities: filter.severities,
@@ -216,6 +218,11 @@ export function filterItems(
     }
 
     if (!matchesConnectionFilter(item, filter.connection)) {
+      return false;
+    }
+
+    // Soft-delete: скрыты, пока в Выбор не включены «Удалённые» (даже если chip Выбор неактивен).
+    if (item.isSoftDeleted && !showDeleted) {
       return false;
     }
 

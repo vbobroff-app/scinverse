@@ -57,7 +57,7 @@ export interface DockFilterState {
   statuses: NotificationStatus[];
   /** Статус нити (только Thread). */
   threadStatuses: ThreadStatus[];
-  /** Выбор: ★ favorite (include) / ⊘ left=спам (exclude). */
+  /** Выбор: ★ favorite (include) / ⊘ left=спам (exclude) / deleted (include soft-deleted). */
   choices: NcChoiceFilter[];
   connection: ConnectionDockFilter;
   /** Слои T/C/W (TL/CL/WL). Default: TL+CL. */

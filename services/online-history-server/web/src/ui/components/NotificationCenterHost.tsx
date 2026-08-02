@@ -8,7 +8,11 @@ import {
   type NotificationDockSettings,
 } from '@scinverse/notification-center';
 import { notificationDockStore } from '../../core/notificationDockStorage';
-import { notificationBus, notificationDockOpen$ } from '../../core/notifications';
+import {
+  notificationBus,
+  notificationDockOpen$,
+  softDeletedCorrs$,
+} from '../../core/notifications';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { DateRangePicker } from './DateRangePicker';
@@ -33,6 +37,7 @@ export function NotificationCenterHost() {
   const activeFilters = useBehavior(notificationDockStore.activeFilters$);
   const settings = useBehavior(notificationDockStore.settings$);
   const tz = useBehavior(store.displayTz$);
+  const softDeletedCorrs = useBehavior(softDeletedCorrs$);
   const formatTs = tz.offsetMin === 0 ? formatTsUtc : createOffsetFormatTs(tz.offsetMin);
 
   const [rendered, setRendered] = useState(open);
@@ -83,6 +88,7 @@ export function NotificationCenterHost() {
         onFiltersChange={onFiltersChange}
         settings={settings}
         onSettingsChange={onSettingsChange}
+        softDeletedCorrs={softDeletedCorrs}
         renderDateRange={renderDockDateRange}
       />
     </div>

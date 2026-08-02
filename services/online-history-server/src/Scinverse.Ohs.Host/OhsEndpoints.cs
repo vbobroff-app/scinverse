@@ -548,7 +548,7 @@ public static class OhsEndpoints
                 return Results.NotFound(new { error = $"Инцидент {corr} не найден" });
             }
 
-            hub.RemoveByCorrelationId(corr);
+            // Атомы остаются в hub/NC: клиент скрывает по softDeletedCorrIds, пока в Выбор не включены «Удалённые».
             broadcaster.Broadcast(new IncidentVisibilityChangedEvent(corr, Deleted: true, row.ConnectionId));
 
             var who = row.ConnectionId is { } cid

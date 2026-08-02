@@ -3,6 +3,7 @@
  * Пакет `@scinverse/notification-center` не знает про OHS — адаптеры и seed живут здесь.
  */
 
+import { BehaviorSubject } from 'rxjs';
 import { createNotificationBus, notify } from '@scinverse/notification-center';
 import type {
   NotificationInteraction,
@@ -43,6 +44,33 @@ export const notificationBus = createNotificationBus({
 
 /** Открыт ли док (колокольчик). Источник правды — notificationDockStore (+ localStorage). */
 export const notificationDockOpen$ = notificationDockStore.open$;
+
+/** Soft-deleted corrUid журнала — NC скрывает Thread, пока в Выбор нет «Удалённые». */
+const softDeletedCorrSet = new Set<string>();
+export const softDeletedCorrs$ = new BehaviorSubject<ReadonlySet<string>>(new Set());
+
+function emitSoftDeletedCorrs(): void {
+  softDeletedCorrs$.next(new Set(softDeletedCorrSet));
+}
+
+export function markIncidentSoftDeleted(corrUid: string): void {
+  if (!corrUid || softDeletedCorrSet.has(corrUid)) return;
+  softDeletedCorrSet.add(corrUid);
+  emitSoftDeletedCorrs();
+}
+
+export function unmarkIncidentSoftDeleted(corrUid: string): void {
+  if (!corrUid || !softDeletedCorrSet.delete(corrUid)) return;
+  emitSoftDeletedCorrs();
+}
+
+export function syncSoftDeletedCorrs(corrs: Iterable<string>): void {
+  softDeletedCorrSet.clear();
+  for (const c of corrs) {
+    if (c) softDeletedCorrSet.add(c);
+  }
+  emitSoftDeletedCorrs();
+}
 
 export function setNotificationDockOpen(open: boolean): void {
   notificationDockStore.setOpen(open);
@@ -244,9 +272,10 @@ export function hydrateServerBacklog(dtos: readonly NotificationDto[]): void {
   }
 }
 
-/** Soft-delete journal → скрыть Thread эпизода в живой шине NC. */
+/** @deprecated soft-delete больше не purge'ит bus — см. markIncidentSoftDeleted. */
 export function purgeIncidentFromDock(corrUid: string): number {
-  return notificationBus.removeByCorrelationId(corrUid);
+  markIncidentSoftDeleted(corrUid);
+  return 0;
 }
 
 /** Событие с бэка (WS `notification` / GET /api/notifications) → шина дока. */

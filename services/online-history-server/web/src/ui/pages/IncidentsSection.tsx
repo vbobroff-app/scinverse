@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createOffsetFormatTs, formatTsUtc } from '@scinverse/notification-center';
 import { OhsApi } from '../../core/api';
+import {
+  loadIncidentsShowDeleted,
+  saveIncidentsShowDeleted,
+} from '../../core/incidentsJournalStorage';
 import type { IncidentDto } from '../../core/types';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
@@ -28,7 +32,7 @@ export function IncidentsSection() {
   const [status, setStatus] = useState<StatusFilter>('');
   const [type, setType] = useState<TypeFilter>('');
   const [connectionId, setConnectionId] = useState('');
-  const [showDeleted, setShowDeleted] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(() => loadIncidentsShowDeleted());
   const [selected, setSelected] = useState<IncidentDto | null>(null);
   const [resolving, setResolving] = useState(false);
 
@@ -168,7 +172,11 @@ export function IncidentsSection() {
           <input
             type="checkbox"
             checked={showDeleted}
-            onChange={(e) => setShowDeleted(e.target.checked)}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setShowDeleted(next);
+              saveIncidentsShowDeleted(next);
+            }}
           />
           Показывать удалённые
         </label>

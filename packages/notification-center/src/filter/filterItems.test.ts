@@ -78,6 +78,36 @@ describe('filterItems', () => {
     expect(visible[0]?.itemKind === 'single' && visible[0].id).toBe('s1');
   });
 
+  it('soft-deleted hidden by default; choice deleted includes them', () => {
+    const items = projectThreads([
+      evt({ id: 's1', code: 'ping', message: 'live' }),
+      evt({
+        id: 'a1',
+        correlationId: 'c-del',
+        code: 'connection.lost',
+        status: 'active',
+        message: 'lost',
+      }),
+      evt({
+        id: 'a2',
+        correlationId: 'c-del',
+        code: 'connection.recovered',
+        status: 'resolved',
+        message: 'ok',
+      }),
+    ]).map((item) =>
+      item.itemKind === 'thread' && item.uid === 'c-del'
+        ? { ...item, isSoftDeleted: true }
+        : item,
+    );
+    expect(filterItems(items, { choices: [] }).map((i) => (i.itemKind === 'thread' ? i.uid : i.id))).toEqual([
+      's1',
+    ]);
+    const withDeleted = filterItems(items, { choices: ['deleted'] });
+    expect(withDeleted).toHaveLength(2);
+    expect(withDeleted.some((i) => i.itemKind === 'thread' && i.uid === 'c-del')).toBe(true);
+  });
+
   it('choice ★+⊘: spam wins over favorite', () => {
     const items = projectThreads([
       evt({ id: 'fav', code: 'ping', message: 'keep' }),

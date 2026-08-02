@@ -50,7 +50,10 @@ const STATUS_LABEL: Record<ThreadItem['threadStatus'], string> = {
   resolved: 'resolved',
 };
 
-function statusPaneClass(status: ThreadItem['threadStatus']): string {
+function statusPaneClass(status: ThreadItem['threadStatus'], softDeleted?: boolean): string {
+  if (softDeleted) {
+    return styles.statusDeleted;
+  }
   if (status === 'resolved') {
     return styles.statusResolved;
   }
@@ -146,10 +149,10 @@ export function ThreadBlock({
         </time>
 
         <span
-          className={[styles.status, statusPaneClass(thread.threadStatus)].join(' ')}
-          data-status={thread.threadStatus}
+          className={[styles.status, statusPaneClass(thread.threadStatus, thread.isSoftDeleted)].join(' ')}
+          data-status={thread.isSoftDeleted ? 'deleted' : thread.threadStatus}
         >
-          {STATUS_LABEL[thread.threadStatus]}
+          {thread.isSoftDeleted ? 'deleted' : STATUS_LABEL[thread.threadStatus]}
         </span>
 
         <span className={styles.title} title={thread.uid}>

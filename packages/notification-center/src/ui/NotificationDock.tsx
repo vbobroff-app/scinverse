@@ -83,6 +83,11 @@ export interface NotificationDockProps {
   renderDateRange?: (props: DockDateRangeProps) => ReactNode;
   /** Кастомный пикер одной даты для фильтра «Период → ввести даты». */
   renderDateField?: (props: DockDateFieldProps) => ReactNode;
+  /**
+   * Soft-deleted corrUid из журнала (SoT). Thread/Single с этими corr скрыты,
+   * пока в Выбор не включены «Удалённые».
+   */
+  softDeletedCorrs?: ReadonlySet<string>;
 }
 
 type SettingsToggleKey =
@@ -129,6 +134,7 @@ export function NotificationDock({
   onSettingsChange,
   renderDateRange,
   renderDateField,
+  softDeletedCorrs,
 }: NotificationDockProps) {
   const threadedItems = useObservable(bus.items$, bus.items);
   const events = useObservable(bus.events$, bus.events);
@@ -377,12 +383,23 @@ export function NotificationDock({
     return items.map((item) => {
       if (item.itemKind === 'thread') {
         const m = resolveThreadHeaderMarks(marks, item);
-        return { ...item, isFavorite: m.isFavorite, isLeft: m.isLeft };
+        return {
+          ...item,
+          isFavorite: m.isFavorite,
+          isLeft: m.isLeft,
+          isSoftDeleted: softDeletedCorrs?.has(item.uid) ?? false,
+        };
       }
       const m = resolveEntryMarks(marks, item.id);
-      return { ...item, isFavorite: m.isFavorite, isLeft: m.isLeft };
+      const corr = item.correlationId;
+      return {
+        ...item,
+        isFavorite: m.isFavorite,
+        isLeft: m.isLeft,
+        isSoftDeleted: corr != null && softDeletedCorrs?.has(corr) ? true : false,
+      };
     });
-  }, [items, marks]);
+  }, [items, marks, softDeletedCorrs]);
 
   const visible = useMemo(
     () =>
@@ -396,7 +413,8 @@ export function NotificationDock({
           settings.groupIntoThreads && activeFilters.includes('threadStatus')
             ? filter.threadStatuses
             : undefined,
-        choices: activeFilters.includes('choice') ? filter.choices : undefined,
+        // Пустой choices (chip Выбор снят) → soft-deleted скрыты; favorite/spam не режут.
+        choices: activeFilters.includes('choice') ? filter.choices : [],
         connection: activeFilters.includes('connection') ? filter.connection : undefined,
         // Слои всегда (default TL+CL); не зависят от activeFilters.
         layers: filter.layers,
