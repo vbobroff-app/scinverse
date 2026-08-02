@@ -372,6 +372,10 @@ export class OhsStore {
   private pendingSeriesHydration: PersistedSeries[] = [];
 
   private liveSub?: Subscription;
+  /** In-flight GET /sessions — отмена при новом apply (иначе stale ответ сбивает D+). */
+  private sessionsFetchSub?: Subscription;
+  /** In-flight GET /coverage/extent для All. */
+  private extentFetchSub?: Subscription;
   private windowTimer?: ReturnType<typeof setInterval>;
   private coveragePollTimer?: ReturnType<typeof setInterval>;
   /** I12: вход pipeline refresh ленты (полный проход coverage→activity→liveness). */
@@ -617,6 +621,10 @@ export class OhsStore {
 
   stop(): void {
     this.liveSub?.unsubscribe();
+    this.sessionsFetchSub?.unsubscribe();
+    this.sessionsFetchSub = undefined;
+    this.extentFetchSub?.unsubscribe();
+    this.extentFetchSub = undefined;
     if (this.windowTimer !== undefined) {
       clearInterval(this.windowTimer);
       this.windowTimer = undefined;
@@ -1358,11 +1366,15 @@ export class OhsStore {
     // D/W: календарный скелет локально (включая пустые выходные), часы — ISS с бэка.
     const count = sessionCount(tf.unit, tf.count, iw);
     const calendar = recentSessions(count, iw, anchor);
-    this.api.getSessions(count, iw, HOME_ENGINE).subscribe({
+    // Сразу публикуем скелет (D+ «завтра» виден до ответа API); иначе гонка stale getSessions
+    // после переключения D3+/D2+/D+ сбрасывает якорь на «сегодня».
+    this.publishSessions(calendar);
+    this.sessionsFetchSub?.unsubscribe();
+    this.sessionsFetchSub = this.api.getSessions(count, iw, HOME_ENGINE).subscribe({
       next: (api) => this.publishSessions(mergeSessionHours(calendar, api)),
       error: (err) => {
         console.error('getSessions', err);
-        this.publishSessions(calendar);
+        // Скелет уже опубликован — на ошибке оставляем его.
       },
     });
   }
@@ -1371,7 +1383,8 @@ export class OhsStore {
     const anchor = horizonNowMs(this.dPlus$.value);
     const toMs = sessionBounds(mskDateOf(anchor)).endMs;
     this.sessions$.next([]);
-    this.api.getCoverageExtent().subscribe({
+    this.extentFetchSub?.unsubscribe();
+    this.extentFetchSub = this.api.getCoverageExtent().subscribe({
       next: (extent) => {
         const fromMs = extent.from ? Date.parse(extent.from) : todaySession().startMs;
         const rightMs = Math.max(toMs, extent.to ? Date.parse(extent.to) : toMs);

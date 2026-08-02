@@ -622,6 +622,34 @@ describe('OhsStore timeframe → window', () => {
     store.stop();
   });
 
+  it('D+: поздний ответ getSessions после переключения не сбивает завтра', () => {
+    const pending: Subject<SessionDto[]>[] = [];
+    const getSessions = vi.fn(() => {
+      const s = new Subject<SessionDto[]>();
+      pending.push(s);
+      return s.asObservable();
+    });
+    const store = new OhsStore(fakeApi({ getSessions }), new Subject<LiveEvent>());
+    store.start();
+
+    store.setTimeframe({ kind: 'sessions', unit: 'D', count: 2, includeWeekends: true });
+    store.setDPlus(true);
+    expect(store.sessions$.value.map((s) => s.date)).toEqual(['2026-07-08', '2026-07-09']);
+
+    store.setDPlus(false);
+    expect(store.sessions$.value.map((s) => s.date)).toEqual(['2026-07-07', '2026-07-08']);
+
+    store.setDPlus(true);
+    expect(store.sessions$.value.map((s) => s.date)).toEqual(['2026-07-08', '2026-07-09']);
+
+    // Stale ответ «без D+» — должен быть отменён unsubscribe'ом.
+    const stale = pending[pending.length - 2];
+    stale?.next([]);
+    stale?.complete();
+    expect(store.sessions$.value.map((s) => s.date)).toEqual(['2026-07-08', '2026-07-09']);
+    store.stop();
+  });
+
   it('W1 с выходными: 7 календарных сессий, выходные — отдельные слоты (не схлопнуты)', () => {
     const store = new OhsStore(fakeApi(), new Subject<LiveEvent>());
     store.start();

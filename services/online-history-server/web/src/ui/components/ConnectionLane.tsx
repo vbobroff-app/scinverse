@@ -31,6 +31,7 @@ import {
   makeRulerHoverResolver,
 } from './connectionRuler';
 import {
+  buildDaySepPcts,
   createConnectionScrubLayer,
   scrubGeomFromElements,
   type ConnectionScrubLayer,
@@ -151,7 +152,26 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   if (!scrubOn) {
     snapRef.current = liveSnap;
   }
-  const view = scrubOn ? snapRef.current : liveSnap;
+  /**
+   * Scrub: замораживаем link/now (чтобы useNow не дёргал ленту), но горизонт
+   * (window/sessions) всегда живой — иначе D2↔D4 обновляет линейку, а гант «стоит».
+   */
+  const view = scrubOn
+    ? {
+        ...snapRef.current,
+        coverageWindow,
+        sessions,
+        rules,
+        nowPct,
+        showNowMarker,
+        showLinkRibbon,
+        showBreakIncidents,
+        showCrashIncidents,
+        showWorkGaps,
+        showScheduleMask,
+        tzOffsetMin,
+      }
+    : liveSnap;
   const laneStyle = { '--now-pct': view.nowPct } as unknown as CSSProperties;
 
   const rightRef = useRef<HTMLDivElement>(null);
@@ -241,6 +261,10 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
     }
   }, []);
 
+  const syncScrubDaySeps = useCallback(() => {
+    scrubRef.current?.setDaySeps(buildDaySepPcts(fromMs, toMs, sessions, tzOffsetMin));
+  }, [fromMs, toMs, sessions, tzOffsetMin]);
+
   const setScrubActive = useCallback(
     (on: boolean, clientX?: number) => {
       scrubOnRef.current = on;
@@ -253,12 +277,13 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
         hideTip();
         syncScrubGeom();
         layer.setLabels(labelLutRef.current);
+        syncScrubDaySeps();
         layer.show(clientX ?? geomRef.current.rulerLeft);
       } else {
         layer.hide();
       }
     },
-    [hideTip, syncScrubGeom],
+    [hideTip, syncScrubGeom, syncScrubDaySeps],
   );
 
   const tipHandlers = useMemo<RibbonTipHandlers>(
@@ -301,12 +326,44 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
     }
   }, [showRuler, setScrubActive]);
 
+  /** Смена горизонта (D2↔D4 / D+) — выходим из scrub, иначе day-seps/курсор на старой геометрии. */
+  useEffect(() => {
+    if (scrubOnRef.current) {
+      setScrubActive(false);
+    }
+  }, [coverageWindow.from, coverageWindow.to, setScrubActive]);
+
   useEffect(() => {
     if (!scrubOn) {
       return;
     }
+    /** Внутри .right — полоска следует; вне — park (пропадает), scrub-режим остаётся. */
+    let inside = true;
     const onPointerMove = (e: PointerEvent) => {
-      scrubRef.current?.move(e.clientX);
+      const right = rightRef.current;
+      const layer = scrubRef.current;
+      if (!right || !layer) {
+        return;
+      }
+      const r = right.getBoundingClientRect();
+      const nextInside =
+        e.clientX >= r.left &&
+        e.clientX <= r.right &&
+        e.clientY >= r.top &&
+        e.clientY <= r.bottom;
+      if (!nextInside) {
+        if (inside) {
+          inside = false;
+          layer.park();
+        }
+        return;
+      }
+      if (!inside) {
+        inside = true;
+        layer.unpark(e.clientX);
+        return;
+      }
+      layer.move(e.clientX);
     };
     window.addEventListener('pointermove', onPointerMove, { passive: true });
     return () => window.removeEventListener('pointermove', onPointerMove);
@@ -314,7 +371,10 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
 
   useEffect(() => {
     syncScrubGeom();
-  }, [syncScrubGeom, rulerWidth, coverageWindow.from, coverageWindow.to]);
+    if (scrubOnRef.current) {
+      syncScrubDaySeps();
+    }
+  }, [syncScrubGeom, syncScrubDaySeps, rulerWidth, coverageWindow.from, coverageWindow.to]);
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {

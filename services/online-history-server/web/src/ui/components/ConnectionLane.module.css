@@ -157,7 +157,6 @@
 
 .rightScrubOn {
   user-select: none;
-  cursor: col-resize;
 }
 
 /* На scrub гант не участвует в hit-test — события сразу на .right, без bubbling по сегментам. */
@@ -242,6 +241,13 @@
   pointer-events: none;
   will-change: transform;
   contain: layout style;
+}
+
+/* Статичные разделители суток (scrub on) — как .tickMajor .tickMark. */
+.scrubDaySepFixed {
+  z-index: 8999;
+  opacity: 0.8;
+  margin-left: 0; /* центр через округлённый translate, без -0.5px оптического сдвига */
 }
 
 .scrubLabelFixed {
