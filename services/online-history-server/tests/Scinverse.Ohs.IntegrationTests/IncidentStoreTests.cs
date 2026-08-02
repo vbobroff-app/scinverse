@@ -166,6 +166,63 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
     }
 
     [Fact]
+    public async Task SoftDelete_hides_from_query_and_FindOpenBreak_Restore_brings_back()
+    {
+        var t0 = new DateTimeOffset(2026, 8, 2, 8, 0, 0, TimeSpan.Zero);
+        var corr = "connection:3:link:softdel";
+        await _store.OpenAsync(BreakOpen(corr, t0), CancellationToken.None);
+        await _store.ResolveAsync(
+            corr, t0.AddMinutes(2), "recovered", null, "ok", null, CancellationToken.None);
+
+        var delAt = t0.AddMinutes(3);
+        (await _store.SoftDeleteAsync(corr, delAt, "superuser", CancellationToken.None)).Should().BeTrue();
+
+        var got = await _store.GetAsync(corr, CancellationToken.None);
+        got!.DeletedAt.Should().Be(delAt);
+        got.DeletedBy.Should().Be("superuser");
+        got.Status.Should().Be("resolved", "lifecycle не трогаем");
+
+        var hidden = await _store.QueryAsync(
+            new IncidentQuery { ConnectionId = 3, Module = "connection", Limit = 50 },
+            CancellationToken.None);
+        hidden.Should().NotContain(i => i.CorrUid == corr);
+
+        var withDeleted = await _store.QueryAsync(
+            new IncidentQuery
+            {
+                ConnectionId = 3,
+                Module = "connection",
+                IncludeDeleted = true,
+                Limit = 50,
+            },
+            CancellationToken.None);
+        withDeleted.Should().ContainSingle(i => i.CorrUid == corr && i.DeletedAt != null);
+
+        (await _store.RestoreAsync(corr, CancellationToken.None)).Should().BeTrue();
+        var restored = await _store.GetAsync(corr, CancellationToken.None);
+        restored!.DeletedAt.Should().BeNull();
+        restored.DeletedBy.Should().BeNull();
+
+        var visible = await _store.QueryAsync(
+            new IncidentQuery { ConnectionId = 3, Module = "connection", Limit = 50 },
+            CancellationToken.None);
+        visible.Should().Contain(i => i.CorrUid == corr);
+    }
+
+    [Fact]
+    public async Task SoftDelete_open_excludes_from_FindOpenBreak()
+    {
+        var t0 = new DateTimeOffset(2026, 8, 2, 9, 0, 0, TimeSpan.Zero);
+        var corr = "connection:3:link:open-del";
+        await _store.OpenAsync(BreakOpen(corr, t0), CancellationToken.None);
+
+        (await _store.FindOpenBreakAsync(3, CancellationToken.None))!.CorrUid.Should().Be(corr);
+
+        await _store.SoftDeleteAsync(corr, t0.AddSeconds(10), "ops", CancellationToken.None);
+        (await _store.FindOpenBreakAsync(3, CancellationToken.None)).Should().BeNull();
+    }
+
+    [Fact]
     public async Task ReplaceConnectionScope_and_Query_via_join()
     {
         // P5: crash без connection_id на строке; scope → incident_connection.

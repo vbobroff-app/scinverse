@@ -106,4 +106,34 @@ public sealed class IncidentDtoTests
         dto.DurationMs.Should().Be(120_000);
         dto.ClosedAt.Should().BeNull();
     }
+
+    [Fact]
+    public void ToIncidentDto_maps_soft_delete_fields()
+    {
+        var opened = DateTimeOffset.Parse("2026-08-02T10:00:00Z");
+        var closed = opened.AddMinutes(1);
+        var deleted = closed.AddMinutes(5);
+        var incident = new Incident
+        {
+            CorrUid = "connection:1:link:del",
+            Module = "connection",
+            Type = "break",
+            Status = "resolved",
+            CloseOutcome = "recovered",
+            OpenedAt = opened,
+            ClosedAt = closed,
+            Subject = "connection:1:link",
+            Severity = "ok",
+            Title = "t",
+            LastActivityAt = closed,
+            ConnectionId = 1,
+            DeletedAt = deleted,
+            DeletedBy = "superuser",
+        };
+
+        var dto = OhsEndpoints.ToIncidentDto(incident, deleted);
+        dto.DeletedAt.Should().Be(deleted);
+        dto.DeletedBy.Should().Be("superuser");
+        dto.Status.Should().Be("resolved");
+    }
 }

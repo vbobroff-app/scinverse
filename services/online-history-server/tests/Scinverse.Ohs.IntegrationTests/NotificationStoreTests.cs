@@ -25,6 +25,7 @@ public sealed class NotificationStoreTests : IClassFixture<TimescaleFixture>, IA
     {
         await using var connection = await _fixture.DataSource.OpenConnectionAsync();
         await connection.ExecuteAsync("TRUNCATE notification;");
+        await connection.ExecuteAsync("TRUNCATE incident CASCADE;");
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -168,5 +169,49 @@ public sealed class NotificationStoreTests : IClassFixture<TimescaleFixture>, IA
 
         (await _store.FindOpenLinkIncidentAsync(9, CancellationToken.None)).Should().BeNull();
         (await _store.FindOpenLinkIncidentAsync(3, CancellationToken.None)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task QueryRecent_excludes_atoms_of_soft_deleted_incident()
+    {
+        const string deletedCorr = "connection:3:link:gone";
+        const string liveCorr = "connection:3:link:live";
+        await _store.AppendBatchAsync(new[]
+        {
+            Rec(T0, "deleted-episode", sourceType: "system", subject: "connection:3:link",
+                correlationId: deletedCorr, status: "resolved", code: "connection.incident_closed"),
+            Rec(T0.AddSeconds(1), "live-episode", sourceType: "system", subject: "connection:3:link",
+                correlationId: liveCorr, status: "resolved", code: "connection.incident_closed"),
+            Rec(T0.AddSeconds(2), "single-no-corr", sourceType: "user"),
+        }, CancellationToken.None);
+
+        await using (var db = await _fixture.DataSource.OpenConnectionAsync())
+        {
+            await db.ExecuteAsync(
+                """
+                INSERT INTO incident (
+                    corr_uid, module, type, status, close_outcome,
+                    opened_at, closed_at, subject, severity, title, last_activity_at,
+                    connection_id, deleted_at, deleted_by)
+                VALUES (
+                    @corr, 'connection', 'break', 'resolved', 'recovered',
+                    @t0, @t1, 'connection:3:link', 'ok', 'gone', @t1,
+                    3, @delAt, 'superuser');
+                """,
+                new
+                {
+                    corr = deletedCorr,
+                    t0 = T0.UtcDateTime,
+                    t1 = T0.AddMinutes(1).UtcDateTime,
+                    delAt = T0.AddMinutes(2).UtcDateTime,
+                });
+        }
+
+        var recent = await _store.QueryRecentAsync(20, CancellationToken.None);
+        recent.Select(r => r.Message).Should().Equal("live-episode", "single-no-corr");
+        recent.Should().NotContain(r => r.CorrelationId == deletedCorr);
+
+        var byCorr = await _store.QueryByCorrelationIdAsync(deletedCorr, CancellationToken.None);
+        byCorr.Should().ContainSingle().Which.Message.Should().Be("deleted-episode");
     }
 }

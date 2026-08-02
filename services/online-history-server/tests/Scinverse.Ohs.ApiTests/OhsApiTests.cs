@@ -398,6 +398,107 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
     }
 
     [Fact]
+    public async Task SoftDelete_and_Restore_incident_hides_from_default_list()
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IIncidentStore>();
+        var t0 = DateTimeOffset.UtcNow.AddHours(-2);
+        const string corr = "connection:56:link:softdel01";
+        await store.OpenAsync(
+            new Incident
+            {
+                CorrUid = corr,
+                Module = "connection",
+                Type = "break",
+                Status = "active",
+                OpenedAt = t0,
+                Subject = "connection:56:link",
+                Severity = "error",
+                Title = "soft-delete me",
+                LastActivityAt = t0,
+                ConnectionId = 56,
+                SourceId = 1,
+                Subtype = "down",
+                Owner = "supervisor",
+            },
+            CancellationToken.None);
+        await store.ResolveAsync(
+            corr, t0.AddMinutes(10), "recovered", null, "ok", null, CancellationToken.None);
+
+        var api = CreateApi();
+        var deleted = await api.SoftDeleteIncidentAsync(corr, new SoftDeleteIncidentRequest("operator-del"));
+        deleted.DeletedAt.Should().NotBeNull();
+        deleted.DeletedBy.Should().Be("operator-del");
+        deleted.Status.Should().Be("resolved");
+
+        var hidden = await api.GetIncidentsAsync(new IncidentQueryParams
+        {
+            ConnectionId = 56,
+            Module = "connection",
+            Limit = 50,
+        });
+        hidden.Should().NotContain(i => i.CorrUid == corr);
+
+        var shown = await api.GetIncidentsAsync(new IncidentQueryParams
+        {
+            ConnectionId = 56,
+            Module = "connection",
+            IncludeDeleted = true,
+            Limit = 50,
+        });
+        shown.Should().ContainSingle(i => i.CorrUid == corr && i.DeletedAt != null);
+
+        var ribbon = await api.GetConnectionIncidentsAsync(56, from: t0.AddHours(-1), to: t0.AddHours(3));
+        ribbon.Should().NotContain(i => i.CorrUid == corr, "ribbon всегда без soft-deleted");
+
+        var restored = await api.RestoreIncidentAsync(corr);
+        restored.DeletedAt.Should().BeNull();
+        restored.DeletedBy.Should().BeNull();
+
+        var visible = await api.GetIncidentsAsync(new IncidentQueryParams
+        {
+            ConnectionId = 56,
+            Module = "connection",
+            Limit = 50,
+        });
+        visible.Should().Contain(i => i.CorrUid == corr && i.DeletedAt == null);
+    }
+
+    [Fact]
+    public async Task SoftDelete_open_incident_closes_then_tombstones()
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IIncidentStore>();
+        var t0 = DateTimeOffset.UtcNow.AddHours(-1);
+        const string corr = "connection:57:link:softdel-open";
+        await store.OpenAsync(
+            new Incident
+            {
+                CorrUid = corr,
+                Module = "connection",
+                Type = "break",
+                Status = "active",
+                OpenedAt = t0,
+                Subject = "connection:57:link",
+                Severity = "error",
+                Title = "open soft-delete",
+                LastActivityAt = t0,
+                ConnectionId = 57,
+                SourceId = 1,
+                Subtype = "down",
+                Owner = "supervisor",
+            },
+            CancellationToken.None);
+
+        var api = CreateApi();
+        var deleted = await api.SoftDeleteIncidentAsync(corr, new SoftDeleteIncidentRequest("ops"));
+        deleted.Status.Should().Be("resolved");
+        deleted.CloseOutcome.Should().Be("abandoned_manual");
+        deleted.DeletedAt.Should().NotBeNull();
+        deleted.DeletedBy.Should().Be("ops");
+    }
+
+    [Fact]
     public async Task Backfill_recent_imports_link_gaps_for_yesterday_today_idempotently()
     {
         var api = CreateApi();

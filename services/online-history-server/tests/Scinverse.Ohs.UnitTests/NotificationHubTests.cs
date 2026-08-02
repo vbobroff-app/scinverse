@@ -281,4 +281,18 @@ public sealed class NotificationHubTests
         DataString(list[0], "kind").Should().Be("crash");
         DataString(list[1], "closeOutcome").Should().Be(NotificationThreadData.OutcomeAbandonedSchedule);
     }
+
+    [Fact]
+    public void RemoveByCorrelationId_purges_episode_atoms_keeps_others()
+    {
+        var hub = NewHub();
+        hub.Open("connection:1:link", "connection.lost", "down").Should().BeTrue();
+        var corr = hub.List().Single().CorrelationId!;
+        hub.Progress("connection:1:link", "connection.reconnecting", "retry").Should().BeTrue();
+        hub.Publish("connection.schedule.auto_disabled", "auto off", severity: "info", sourceType: "user");
+
+        hub.RemoveByCorrelationId(corr).Should().Be(2);
+        hub.List().Should().ContainSingle().Which.Code.Should().Be("connection.schedule.auto_disabled");
+        hub.RemoveByCorrelationId(corr).Should().Be(0);
+    }
 }
