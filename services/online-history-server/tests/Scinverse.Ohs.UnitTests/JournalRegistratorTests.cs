@@ -226,14 +226,46 @@ public sealed class JournalRegistratorTests
             var open = ByCorr.Values
                 .Where(i => i.ConnectionId == connectionId
                             && i.Type == "break"
-                            && i.Status is "active" or "recovering")
+                            && i.Status is "active" or "recovering"
+                            && i.DeletedAt is null)
                 .OrderByDescending(i => i.OpenedAt)
                 .FirstOrDefault();
             return Task.FromResult(open);
         }
 
-        public Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<Incident>>(ByCorr.Values.ToList());
+        public Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken)
+        {
+            var rows = ByCorr.Values.AsEnumerable();
+            if (!query.IncludeDeleted)
+            {
+                rows = rows.Where(i => i.DeletedAt is null);
+            }
+
+            return Task.FromResult<IReadOnlyList<Incident>>(rows.ToList());
+        }
+
+        public Task<bool> SoftDeleteAsync(
+            string corrUid, DateTimeOffset deletedAt, string? deletedBy, CancellationToken cancellationToken)
+        {
+            if (!ByCorr.TryGetValue(corrUid, out var existing))
+            {
+                return Task.FromResult(false);
+            }
+
+            ByCorr[corrUid] = existing with { DeletedAt = deletedAt, DeletedBy = deletedBy };
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> RestoreAsync(string corrUid, CancellationToken cancellationToken)
+        {
+            if (!ByCorr.TryGetValue(corrUid, out var existing) || existing.DeletedAt is null)
+            {
+                return Task.FromResult(false);
+            }
+
+            ByCorr[corrUid] = existing with { DeletedAt = null, DeletedBy = null };
+            return Task.FromResult(true);
+        }
 
         public Task ReplaceConnectionScopeAsync(
             string corrUid, IReadOnlyList<long> connectionIds, CancellationToken cancellationToken) =>
@@ -276,6 +308,13 @@ public sealed class JournalRegistratorTests
             throw new InvalidOperationException("db down");
 
         public Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("db down");
+
+        public Task<bool> SoftDeleteAsync(
+            string corrUid, DateTimeOffset deletedAt, string? deletedBy, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("db down");
+
+        public Task<bool> RestoreAsync(string corrUid, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("db down");
 
         public Task ReplaceConnectionScopeAsync(

@@ -110,7 +110,7 @@ public interface IOhsApi
     Task<MarketScheduleDto?> GetMarketScheduleAsync(
         string engine, DateOnly? on = null, CancellationToken cancellationToken = default);
 
-    /// <summary>GET /api/incidents?module=&amp;status=&amp;type=&amp;connectionId=&amp;from=&amp;to=&amp;limit=</summary>
+    /// <summary>GET /api/incidents?module=&amp;status=&amp;type=&amp;connectionId=&amp;from=&amp;to=&amp;limit=&amp;includeDeleted=</summary>
     Task<IReadOnlyList<IncidentDto>> GetIncidentsAsync(
         IncidentQueryParams query, CancellationToken cancellationToken = default);
 
@@ -129,6 +129,17 @@ public interface IOhsApi
     Task<IncidentDto> ResolveIncidentAsync(
         string corrUid,
         ResolveIncidentRequest? request = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>POST /api/incidents/{corrUid}/delete — soft-delete (ось видимости).</summary>
+    Task<IncidentDto> SoftDeleteIncidentAsync(
+        string corrUid,
+        SoftDeleteIncidentRequest? request = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>POST /api/incidents/{corrUid}/restore — снять soft-delete.</summary>
+    Task<IncidentDto> RestoreIncidentAsync(
+        string corrUid,
         CancellationToken cancellationToken = default);
 
     /// <summary>POST /api/incidents/backfill-open — open V025 link → journal (J4 forward+adopt).</summary>

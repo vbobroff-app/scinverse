@@ -183,6 +183,13 @@ public sealed class ConnectionManagerIncidentTests
             IncidentQuery query, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<Incident>>([]);
 
+        public Task<bool> SoftDeleteAsync(
+            string corrUid, DateTimeOffset deletedAt, string? deletedBy, CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+
+        public Task<bool> RestoreAsync(string corrUid, CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+
         public Task ReplaceConnectionScopeAsync(
             string corrUid, IReadOnlyList<long> connectionIds, CancellationToken cancellationToken) =>
             Task.CompletedTask;

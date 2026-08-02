@@ -247,6 +247,22 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
             request ?? new ResolveIncidentRequest(null),
             cancellationToken);
 
+    public Task<IncidentDto> SoftDeleteIncidentAsync(
+        string corrUid,
+        SoftDeleteIncidentRequest? request = null,
+        CancellationToken cancellationToken = default) =>
+        PostAsync<SoftDeleteIncidentRequest, IncidentDto>(
+            $"/api/incidents/{Uri.EscapeDataString(corrUid)}/delete",
+            request ?? new SoftDeleteIncidentRequest(),
+            cancellationToken);
+
+    public Task<IncidentDto> RestoreIncidentAsync(
+        string corrUid,
+        CancellationToken cancellationToken = default) =>
+        PostAsync<IncidentDto>(
+            $"/api/incidents/{Uri.EscapeDataString(corrUid)}/restore",
+            cancellationToken);
+
     public Task<BackfillOpenIncidentsResultDto> BackfillOpenIncidentsAsync(
         CancellationToken cancellationToken = default) =>
         PostAsync<BackfillOpenIncidentsResultDto>("/api/incidents/backfill-open", cancellationToken);
@@ -286,6 +302,11 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
         if (query.To is { } to)
         {
             parts.Add($"to={Encode(to)}");
+        }
+
+        if (query.IncludeDeleted)
+        {
+            parts.Add("includeDeleted=true");
         }
 
         parts.Add($"limit={query.Limit}");

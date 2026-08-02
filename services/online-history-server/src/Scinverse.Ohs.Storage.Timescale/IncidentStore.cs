@@ -14,7 +14,8 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
         subject AS Subject, severity AS Severity, title AS Title,
         last_activity_at AS LastActivityAt, connection_id AS ConnectionId,
         source_id AS SourceId, escalated_at AS EscalatedAt, subtype AS Subtype,
-        owner AS Owner, payload::text AS Payload
+        owner AS Owner, payload::text AS Payload,
+        deleted_at AS DeletedAt, deleted_by AS DeletedBy
         """;
 
     public async Task<bool> OpenAsync(Incident incident, CancellationToken cancellationToken)
@@ -57,7 +58,8 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
                 owner = @Owner,
                 payload = @Payload::jsonb
             WHERE corr_uid = @CorrUid
-              AND status IN ('active', 'recovering');
+              AND status IN ('active', 'recovering')
+              AND deleted_at IS NULL;
             """,
             ToRow(incident),
             cancellationToken: cancellationToken));
@@ -89,7 +91,8 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
                          || jsonb_build_object('resolvedBy', @resolvedBy)
                 END
             WHERE corr_uid = @corrUid
-              AND status IN ('active', 'recovering');
+              AND status IN ('active', 'recovering')
+              AND deleted_at IS NULL;
             """,
             new
             {
@@ -187,6 +190,7 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
               AND type = 'break'
               AND connection_id = @connectionId
               AND status IN ('active', 'recovering')
+              AND deleted_at IS NULL
             ORDER BY opened_at DESC
             LIMIT 1;
             """,
@@ -220,6 +224,7 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
               )
               AND (@from IS NULL OR closed_at IS NULL OR closed_at > @from)
               AND (@to IS NULL OR opened_at < @to)
+              AND (@includeDeleted OR deleted_at IS NULL)
             ORDER BY opened_at DESC
             LIMIT @limit;
             """,
@@ -231,10 +236,48 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
                 connectionId = query.ConnectionId,
                 from = query.From?.ToUniversalTime(),
                 to = query.To?.ToUniversalTime(),
+                includeDeleted = query.IncludeDeleted,
                 limit,
             },
             cancellationToken: cancellationToken));
         return rows.Select(ToIncident).ToList();
+    }
+
+    public async Task<bool> SoftDeleteAsync(
+        string corrUid, DateTimeOffset deletedAt, string? deletedBy, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE incident SET
+                deleted_at = @deletedAt,
+                deleted_by = @deletedBy
+            WHERE corr_uid = @corrUid;
+            """,
+            new
+            {
+                corrUid,
+                deletedAt = deletedAt.ToUniversalTime(),
+                deletedBy = string.IsNullOrWhiteSpace(deletedBy) ? null : deletedBy.Trim(),
+            },
+            cancellationToken: cancellationToken));
+        return rows > 0;
+    }
+
+    public async Task<bool> RestoreAsync(string corrUid, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE incident SET
+                deleted_at = NULL,
+                deleted_by = NULL
+            WHERE corr_uid = @corrUid
+              AND deleted_at IS NOT NULL;
+            """,
+            new { corrUid },
+            cancellationToken: cancellationToken));
+        return rows > 0;
     }
 
     public async Task ReplaceConnectionScopeAsync(
@@ -301,7 +344,9 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
         DateTime? EscalatedAt,
         string? Subtype,
         string? Owner,
-        string? Payload);
+        string? Payload,
+        DateTime? DeletedAt,
+        string? DeletedBy);
 
     private static object ToRow(Incident i) => new
     {
@@ -343,6 +388,8 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
         Subtype = r.Subtype,
         Owner = r.Owner,
         Payload = r.Payload,
+        DeletedAt = r.DeletedAt is { } d ? ToUtc(d) : null,
+        DeletedBy = r.DeletedBy,
     };
 
     private static DateTimeOffset ToUtc(DateTime ts) =>

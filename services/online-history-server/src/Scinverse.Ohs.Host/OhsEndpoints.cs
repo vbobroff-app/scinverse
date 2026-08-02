@@ -403,6 +403,7 @@ public static class OhsEndpoints
             DateTimeOffset? from,
             DateTimeOffset? to,
             int? limit,
+            bool? includeDeleted,
             IIncidentStore store,
             TimeProvider time,
             CancellationToken ct) =>
@@ -417,6 +418,7 @@ public static class OhsEndpoints
                     From = from,
                     To = to,
                     Limit = limit ?? 100,
+                    IncludeDeleted = includeDeleted ?? false,
                 },
                 ct).ConfigureAwait(false);
             var now = time.GetUtcNow();
@@ -463,7 +465,11 @@ public static class OhsEndpoints
             var closeNote = string.IsNullOrWhiteSpace(request?.CloseNote)
                 ? null
                 : request!.CloseNote!.Trim();
-            var wasRecovering = string.Equals(row.Status, "recovering", StringComparison.Ordinal);
+
+            if (row.DeletedAt is not null)
+            {
+                return Results.Conflict(new { error = $"Инцидент {corr} скрыт (soft-delete)" });
+            }
 
             if (row.Status == "resolved")
             {
@@ -477,140 +483,141 @@ public static class OhsEndpoints
                 return Results.Ok(ToIncidentDto(again ?? row, now));
             }
 
-            var closedViaManager = false;
-            if (row is { Module: "connection", Type: "break", ConnectionId: { } connId }
-                && manager.GetIncidentSince(connId) is not null)
+            var closeError = await AbandonManualJournalAsync(
+                    row, corr, now, resolvedBy, closeNote,
+                    store, manager, fanOut, notifications, schedule, connections, supervisor, ct)
+                .ConfigureAwait(false);
+            if (closeError is not null)
             {
-                // I13: Manager SoT; Hub corr не гейтит. Совпадение corr — если Manager его помнит.
-                var managerCorr = manager.GetOpenBreakCorr(connId);
-                if (managerCorr is null
-                    || string.Equals(managerCorr, corr, StringComparison.Ordinal))
-                {
-                    closedViaManager = await manager
-                        .TryAbandonIncidentByManualAsync(connId, now, ct, closeNote, resolvedBy)
-                        .ConfigureAwait(false);
-                    if (closedViaManager)
-                    {
-                        await store.AnnotateResolvedByAsync(corr, resolvedBy, ct).ConfigureAwait(false);
-                        if (closeNote is not null)
-                        {
-                            await store.AnnotateCloseNoteAsync(corr, closeNote, ct).ConfigureAwait(false);
-                        }
-                    }
-                }
+                return closeError;
             }
 
-            if (!closedViaManager)
+            var updated = await store.GetAsync(corr, ct).ConfigureAwait(false);
+            return updated is null
+                ? Results.NotFound()
+                : Results.Ok(ToIncidentDto(updated, now));
+        });
+
+        // Soft-delete: ось видимости. Open → сначала abandoned_manual (как resolve), затем tombstone.
+        api.MapPost("/incidents/{corrUid}/delete", async (
+            string corrUid,
+            SoftDeleteIncidentRequest? request,
+            IIncidentStore store,
+            ConnectionManager manager,
+            IIncidentFanOut fanOut,
+            INotificationPublisher notifications,
+            NotificationHub hub,
+            IConnectionScheduleStore schedule,
+            IConnectionStore connections,
+            ConnectionSupervisor supervisor,
+            WebSocketBroadcaster broadcaster,
+            TimeProvider time,
+            CancellationToken ct) =>
+        {
+            var corr = Uri.UnescapeDataString(corrUid);
+            var row = await store.GetAsync(corr, ct).ConfigureAwait(false);
+            if (row is null)
             {
-                // Журнал напрямую (не SafeAsync) — ошибка БД = 500; NC — отдельно (см. ниже).
-                var ok = await store
-                    .ResolveAsync(
-                        corr,
-                        now,
-                        NotificationThreadData.OutcomeAbandonedManual,
-                        title: null,
-                        severity: "warning",
-                        resolvedBy,
-                        ct)
+                return Results.NotFound(new { error = $"Инцидент {corr} не найден" });
+            }
+
+            var now = time.GetUtcNow();
+            var deletedBy = string.IsNullOrWhiteSpace(request?.DeletedBy)
+                ? NotificationHub.Superuser.Id
+                : request!.DeletedBy!.Trim();
+
+            if (row.DeletedAt is not null)
+            {
+                return Results.Ok(ToIncidentDto(row, now));
+            }
+
+            if (row.Status is "active" or "recovering")
+            {
+                var closeError = await AbandonManualJournalAsync(
+                        row, corr, now, resolvedBy: deletedBy, closeNote: null,
+                        store, manager, fanOut, notifications, schedule, connections, supervisor, ct)
                     .ConfigureAwait(false);
-                if (!ok)
+                if (closeError is not null)
                 {
-                    return Results.Conflict(new { error = $"Не удалось закрыть {corr}" });
-                }
-
-                if (closeNote is not null)
-                {
-                    await store.AnnotateCloseNoteAsync(corr, closeNote, ct).ConfigureAwait(false);
-                }
-
-                if (!string.IsNullOrWhiteSpace(row.Subject))
-                {
-                    var subject = row.Subject!;
-                    var ncData = new
-                    {
-                        connectionId = row.ConnectionId,
-                        kind = row.Type,
-                        reason = "manual_journal",
-                        sender = "system",
-                        closeOutcome = NotificationThreadData.OutcomeAbandonedManual,
-                        resolvedBy,
-                        closeNote,
-                    };
-                    const string ncMessage = "Инцидент закрыт оператором";
-
-                    // User·info (команда) → system·warning (факт). Orphan: не Hub.Resolve(subject).
-                    NotificationThreadData.PublishOperatorForceClose(
-                        notifications, corr, subject, now, row.ConnectionId, closeNote, resolvedBy);
-
-                    var hubLive = notifications.TryGetOpenCorrelationId(subject, out var openCorr)
-                        && string.Equals(openCorr, corr, StringComparison.Ordinal);
-                    if (hubLive)
-                    {
-                        await fanOut
-                            .ApplyAsync(
-                                new IncidentStep(
-                                    IncidentStepKind.Resolve,
-                                    subject,
-                                    now,
-                                    CorrUid: corr,
-                                    ConnectionId: row.ConnectionId,
-                                    CloseOutcome: NotificationThreadData.OutcomeAbandonedManual,
-                                    Severity: "warning",
-                                    ResolvedBy: resolvedBy,
-                                    NcCode: "connection.incident_closed",
-                                    NcMessage: ncMessage,
-                                    NcSeverity: "warning",
-                                    NcData: ncData,
-                                    SkipJournal: true),
-                                ct)
-                            .ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        notifications.Publish(
-                            code: "connection.incident_closed",
-                            message: ncMessage,
-                            severity: "warning",
-                            status: "resolved",
-                            correlationId: corr,
-                            subject: subject,
-                            data: ncData,
-                            ts: now);
-                    }
+                    return closeError;
                 }
             }
 
-            // Close во время recovering → Halt retry + Auto off (persist) + NC info.
-            if (wasRecovering && row.ConnectionId is { } haltId)
+            if (!await store.SoftDeleteAsync(corr, now, deletedBy, ct).ConfigureAwait(false))
             {
-                supervisor.HaltAutoRecovery(haltId);
-                try
-                {
-                    var settings = await schedule.GetSettingsAsync(haltId, ct).ConfigureAwait(false);
-                    if (settings.AutoEnabled)
-                    {
-                        await schedule.SetAutoAsync(haltId, false, ct).ConfigureAwait(false);
-                        var conn = await connections.GetAsync(haltId, ct).ConfigureAwait(false);
-                        var who = ScheduleWho(haltId, conn?.Name ?? $"#{haltId}");
-                        notifications.Publish(
-                            "connection.schedule.auto_disabled",
-                            $"{who}: автоподключение выключено",
-                            severity: "info",
-                            sourceType: "user",
-                            data: new
-                            {
-                                connectionId = haltId,
-                                reason = "manual_close_recovering",
-                                sender = "user",
-                            });
-                        supervisor.Nudge();
-                    }
-                }
-                catch
-                {
-                    // Close уже успешен; Auto off — best-effort.
-                }
+                return Results.NotFound(new { error = $"Инцидент {corr} не найден" });
             }
+
+            hub.RemoveByCorrelationId(corr);
+            broadcaster.Broadcast(new IncidentVisibilityChangedEvent(corr, Deleted: true, row.ConnectionId));
+
+            var who = row.ConnectionId is { } cid
+                ? ScheduleWho(cid, (await connections.GetAsync(cid, ct).ConfigureAwait(false))?.Name ?? $"#{cid}")
+                : corr;
+            notifications.Publish(
+                "connection.incident_soft_deleted",
+                $"{who}: инцидент скрыт оператором",
+                severity: "info",
+                sourceType: "user",
+                data: new
+                {
+                    connectionId = row.ConnectionId,
+                    corrUid = corr,
+                    deletedBy,
+                    sender = "user",
+                },
+                ts: now);
+
+            var updated = await store.GetAsync(corr, ct).ConfigureAwait(false);
+            return updated is null
+                ? Results.NotFound()
+                : Results.Ok(ToIncidentDto(updated, now));
+        });
+
+        api.MapPost("/incidents/{corrUid}/restore", async (
+            string corrUid,
+            IIncidentStore store,
+            WebSocketBroadcaster broadcaster,
+            INotificationPublisher notifications,
+            IConnectionStore connections,
+            TimeProvider time,
+            CancellationToken ct) =>
+        {
+            var corr = Uri.UnescapeDataString(corrUid);
+            var row = await store.GetAsync(corr, ct).ConfigureAwait(false);
+            if (row is null)
+            {
+                return Results.NotFound(new { error = $"Инцидент {corr} не найден" });
+            }
+
+            var now = time.GetUtcNow();
+            if (row.DeletedAt is null)
+            {
+                return Results.Ok(ToIncidentDto(row, now));
+            }
+
+            if (!await store.RestoreAsync(corr, ct).ConfigureAwait(false))
+            {
+                return Results.Conflict(new { error = $"Не удалось восстановить {corr}" });
+            }
+
+            broadcaster.Broadcast(new IncidentVisibilityChangedEvent(corr, Deleted: false, row.ConnectionId));
+
+            var who = row.ConnectionId is { } cid
+                ? ScheduleWho(cid, (await connections.GetAsync(cid, ct).ConfigureAwait(false))?.Name ?? $"#{cid}")
+                : corr;
+            notifications.Publish(
+                "connection.incident_restored",
+                $"{who}: инцидент восстановлен оператором",
+                severity: "info",
+                sourceType: "user",
+                data: new
+                {
+                    connectionId = row.ConnectionId,
+                    corrUid = corr,
+                    sender = "user",
+                },
+                ts: now);
 
             var updated = await store.GetAsync(corr, ct).ConfigureAwait(false);
             return updated is null
@@ -1738,6 +1745,165 @@ public static class OhsEndpoints
         connection.ConnectionId, connection.SourceId, connection.Name, connection.Kind, connection.Settings,
         connection.Enabled, status);
 
+    /// <summary>
+    /// Закрыть open-эпизод журнала как <c>abandoned_manual</c> (+ Manager/Hub/Halt Auto).
+    /// Возвращает error <see cref="IResult"/> или <c>null</c> при успехе.
+    /// </summary>
+    private static async Task<IResult?> AbandonManualJournalAsync(
+        Incident row,
+        string corr,
+        DateTimeOffset now,
+        string resolvedBy,
+        string? closeNote,
+        IIncidentStore store,
+        ConnectionManager manager,
+        IIncidentFanOut fanOut,
+        INotificationPublisher notifications,
+        IConnectionScheduleStore schedule,
+        IConnectionStore connections,
+        ConnectionSupervisor supervisor,
+        CancellationToken ct)
+    {
+        var wasRecovering = string.Equals(row.Status, "recovering", StringComparison.Ordinal);
+
+        var closedViaManager = false;
+        if (row is { Module: "connection", Type: "break", ConnectionId: { } connId }
+            && manager.GetIncidentSince(connId) is not null)
+        {
+            // I13: Manager SoT; Hub corr не гейтит. Совпадение corr — если Manager его помнит.
+            var managerCorr = manager.GetOpenBreakCorr(connId);
+            if (managerCorr is null
+                || string.Equals(managerCorr, corr, StringComparison.Ordinal))
+            {
+                closedViaManager = await manager
+                    .TryAbandonIncidentByManualAsync(connId, now, ct, closeNote, resolvedBy)
+                    .ConfigureAwait(false);
+                if (closedViaManager)
+                {
+                    await store.AnnotateResolvedByAsync(corr, resolvedBy, ct).ConfigureAwait(false);
+                    if (closeNote is not null)
+                    {
+                        await store.AnnotateCloseNoteAsync(corr, closeNote, ct).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+
+        if (!closedViaManager)
+        {
+            // Журнал напрямую (не SafeAsync) — ошибка БД = 500; NC — отдельно (см. ниже).
+            var ok = await store
+                .ResolveAsync(
+                    corr,
+                    now,
+                    NotificationThreadData.OutcomeAbandonedManual,
+                    title: null,
+                    severity: "warning",
+                    resolvedBy,
+                    ct)
+                .ConfigureAwait(false);
+            if (!ok)
+            {
+                return Results.Conflict(new { error = $"Не удалось закрыть {corr}" });
+            }
+
+            if (closeNote is not null)
+            {
+                await store.AnnotateCloseNoteAsync(corr, closeNote, ct).ConfigureAwait(false);
+            }
+
+            if (!string.IsNullOrWhiteSpace(row.Subject))
+            {
+                var subject = row.Subject!;
+                var ncData = new
+                {
+                    connectionId = row.ConnectionId,
+                    kind = row.Type,
+                    reason = "manual_journal",
+                    sender = "system",
+                    closeOutcome = NotificationThreadData.OutcomeAbandonedManual,
+                    resolvedBy,
+                    closeNote,
+                };
+                const string ncMessage = "Инцидент закрыт оператором";
+
+                // User·info (команда) → system·warning (факт). Orphan: не Hub.Resolve(subject).
+                NotificationThreadData.PublishOperatorForceClose(
+                    notifications, corr, subject, now, row.ConnectionId, closeNote, resolvedBy);
+
+                var hubLive = notifications.TryGetOpenCorrelationId(subject, out var openCorr)
+                    && string.Equals(openCorr, corr, StringComparison.Ordinal);
+                if (hubLive)
+                {
+                    await fanOut
+                        .ApplyAsync(
+                            new IncidentStep(
+                                IncidentStepKind.Resolve,
+                                subject,
+                                now,
+                                CorrUid: corr,
+                                ConnectionId: row.ConnectionId,
+                                CloseOutcome: NotificationThreadData.OutcomeAbandonedManual,
+                                Severity: "warning",
+                                ResolvedBy: resolvedBy,
+                                NcCode: "connection.incident_closed",
+                                NcMessage: ncMessage,
+                                NcSeverity: "warning",
+                                NcData: ncData,
+                                SkipJournal: true),
+                            ct)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    notifications.Publish(
+                        code: "connection.incident_closed",
+                        message: ncMessage,
+                        severity: "warning",
+                        status: "resolved",
+                        correlationId: corr,
+                        subject: subject,
+                        data: ncData,
+                        ts: now);
+                }
+            }
+        }
+
+        // Close во время recovering → Halt retry + Auto off (persist) + NC info.
+        if (wasRecovering && row.ConnectionId is { } haltId)
+        {
+            supervisor.HaltAutoRecovery(haltId);
+            try
+            {
+                var settings = await schedule.GetSettingsAsync(haltId, ct).ConfigureAwait(false);
+                if (settings.AutoEnabled)
+                {
+                    await schedule.SetAutoAsync(haltId, false, ct).ConfigureAwait(false);
+                    var conn = await connections.GetAsync(haltId, ct).ConfigureAwait(false);
+                    var who = ScheduleWho(haltId, conn?.Name ?? $"#{haltId}");
+                    notifications.Publish(
+                        "connection.schedule.auto_disabled",
+                        $"{who}: автоподключение выключено",
+                        severity: "info",
+                        sourceType: "user",
+                        data: new
+                        {
+                            connectionId = haltId,
+                            reason = "manual_close_recovering",
+                            sender = "user",
+                        });
+                    supervisor.Nudge();
+                }
+            }
+            catch
+            {
+                // Close уже успешен; Auto off — best-effort.
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>DTO журнала: <c>durationMs = (closedAt ?? now) − openedAt</c>.</summary>
     public static IncidentDto ToIncidentDto(Incident incident, DateTimeOffset nowUtc)
     {
@@ -1763,7 +1929,9 @@ public static class OhsEndpoints
             incident.Payload,
             durationMs,
             ReadPayloadString(incident.Payload, "resolvedBy"),
-            ReadPayloadString(incident.Payload, "closeNote"));
+            ReadPayloadString(incident.Payload, "closeNote"),
+            incident.DeletedAt,
+            incident.DeletedBy);
     }
 
     private static string? ReadPayloadString(string? payload, string propertyName)

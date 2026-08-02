@@ -462,7 +462,9 @@ public sealed record IncidentDto(
     /// <summary>Из <c>payload.resolvedBy</c> (ручное закрытие, J7).</summary>
     string? ResolvedBy = null,
     /// <summary>Из <c>payload.closeNote</c> — комментарий оператора «Причина закрытия».</summary>
-    string? CloseNote = null);
+    string? CloseNote = null,
+    DateTimeOffset? DeletedAt = null,
+    string? DeletedBy = null);
 
 /// <summary>Query-параметры <c>GET /api/incidents</c>.</summary>
 public sealed class IncidentQueryParams
@@ -474,10 +476,16 @@ public sealed class IncidentQueryParams
     public DateTimeOffset? From { get; init; }
     public DateTimeOffset? To { get; init; }
     public int Limit { get; init; } = 100;
+
+    /// <summary>Включить soft-deleted строки (модалка журнала).</summary>
+    public bool IncludeDeleted { get; init; }
 }
 
 /// <summary>Тело <c>POST /api/incidents/{corr}/resolve</c> — ручное <c>abandoned_manual</c>.</summary>
 public sealed record ResolveIncidentRequest(string? ResolvedBy, string? CloseNote = null);
+
+/// <summary>Тело <c>POST /api/incidents/{corr}/delete</c> — soft-delete.</summary>
+public sealed record SoftDeleteIncidentRequest(string? DeletedBy = null);
 
 /// <summary>
 /// Итог <c>POST /api/incidents/backfill-open</c> — seed Hub/Manager из journal + зеркало NC

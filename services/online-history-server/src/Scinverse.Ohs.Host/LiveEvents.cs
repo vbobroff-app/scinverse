@@ -29,3 +29,10 @@ public sealed record RecordingScheduleItem(long InstrumentId, long ConnectionId,
 /// <summary>Снимок политик автозаписи после PUT / ручного Стопа.</summary>
 public sealed record RecordingScheduleChangedEvent(IReadOnlyList<RecordingScheduleItem> Items)
     : LiveEvent("recordingScheduleChanged");
+
+/// <summary>Soft-delete / restore журнала: клиенты скрывают или возвращают Thread NC + ribbon.</summary>
+public sealed record IncidentVisibilityChangedEvent(
+    string CorrUid,
+    bool Deleted,
+    long? ConnectionId)
+    : LiveEvent("incidentVisibilityChanged");

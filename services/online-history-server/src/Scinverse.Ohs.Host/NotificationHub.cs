@@ -386,6 +386,42 @@ public sealed class NotificationHub(WebSocketBroadcaster broadcaster, Notificati
         return all.TakeLast(limit.Value).ToArray();
     }
 
+    /// <summary>
+    /// Убрать из ring-buffer атомы soft-deleted эпизода (GET /notifications + память до рестарта).
+    /// </summary>
+    public int RemoveByCorrelationId(string correlationId)
+    {
+        if (string.IsNullOrWhiteSpace(correlationId))
+        {
+            return 0;
+        }
+
+        lock (_gate)
+        {
+            var kept = _buffer
+                .Where(e => !string.Equals(e.CorrelationId, correlationId, StringComparison.Ordinal))
+                .ToArray();
+            var removed = _count - kept.Length;
+            if (removed <= 0)
+            {
+                return 0;
+            }
+
+            while (_buffer.TryDequeue(out _))
+            {
+            }
+
+            _count = 0;
+            foreach (var evt in kept)
+            {
+                _buffer.Enqueue(evt);
+                _count++;
+            }
+
+            return removed;
+        }
+    }
+
     private static string ResolveInteraction(string sourceType) => sourceType == "user" ? "user" : "system";
 
     private static string ResolveLocalization(string sourceType) => sourceType == "external" ? "external" : "internal";

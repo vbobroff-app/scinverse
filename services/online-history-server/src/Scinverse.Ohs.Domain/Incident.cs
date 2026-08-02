@@ -53,6 +53,12 @@ public sealed record Incident
 
     /// <summary>Прочий контекст как JSON-текст (jsonb); null если нет.</summary>
     public string? Payload { get; init; }
+
+    /// <summary>Soft-delete: когда скрыт; null = видим.</summary>
+    public DateTimeOffset? DeletedAt { get; init; }
+
+    /// <summary>Кто soft-delete (оператор / superuser).</summary>
+    public string? DeletedBy { get; init; }
 }
 
 /// <summary>Фильтр списка журнала / окна ribbon.</summary>
@@ -65,4 +71,7 @@ public sealed record IncidentQuery
     public DateTimeOffset? From { get; init; }
     public DateTimeOffset? To { get; init; }
     public int Limit { get; init; } = 100;
+
+    /// <summary>По умолчанию false — скрыть soft-deleted (ribbon всегда false).</summary>
+    public bool IncludeDeleted { get; init; }
 }

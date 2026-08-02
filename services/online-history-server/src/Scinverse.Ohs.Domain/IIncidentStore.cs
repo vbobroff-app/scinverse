@@ -55,6 +55,16 @@ public interface IIncidentStore
     Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Soft-delete: проставить <c>deleted_at</c>/<c>deleted_by</c>. Идемпотентно, если уже deleted.
+    /// Возвращает <c>false</c>, если строки нет.
+    /// </summary>
+    Task<bool> SoftDeleteAsync(
+        string corrUid, DateTimeOffset deletedAt, string? deletedBy, CancellationToken cancellationToken);
+
+    /// <summary>Снять soft-delete. No-op / false, если строки нет или не deleted.</summary>
+    Task<bool> RestoreAsync(string corrUid, CancellationToken cancellationToken);
+
+    /// <summary>
     /// P5: заменить scope crash (<c>incident_connection</c>). Идемпотентно: DELETE + INSERT.
     /// Пустой список → только очистка scope.
     /// </summary>
