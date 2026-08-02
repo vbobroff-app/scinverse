@@ -46,11 +46,36 @@
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
 }
 
 .scheduleBtn:hover {
   color: var(--color-text);
   border-color: var(--color-border-focus);
+}
+
+/* Есть live-rules — как активный чип горизонта (D3+). */
+.scheduleBtnActive {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  color: var(--color-accent);
+}
+
+.scheduleBtnActive:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* Сегодня побеждает календарный слой date — только accent-border. */
+.scheduleBtnDateToday {
+  border-color: var(--color-accent);
+  background: transparent;
+  color: var(--color-accent);
+}
+
+.scheduleBtnDateToday:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .incidentsBtn {
@@ -66,11 +91,44 @@
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease;
 }
 
 .incidentsBtn:hover {
   color: var(--color-text);
   border-color: var(--color-border-focus);
+}
+
+/* Все resolved / пусто — зелёный (как recover-маркер). */
+.incidentsBtnResolved {
+  color: #2e9e6b;
+}
+
+.incidentsBtnResolved:hover {
+  border-color: #2e9e6b;
+  color: #2e9e6b;
+}
+
+/* Есть recovering — жёлтый (break). */
+.incidentsBtnRecovering {
+  border-color: #e0a92e;
+  color: #e0a92e;
+}
+
+.incidentsBtnRecovering:hover {
+  border-color: #e0a92e;
+  color: #e0a92e;
+}
+
+/* Есть active — красный (crash / start-маркер). */
+.incidentsBtnActive {
+  border-color: #dc3545;
+  color: #dc3545;
+}
+
+.incidentsBtnActive:hover {
+  border-color: #dc3545;
+  color: #dc3545;
 }
 
 .incidentsBtnIcon {

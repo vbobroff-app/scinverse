@@ -216,9 +216,7 @@ export function ConnectionIncidentsModal({
             <Tip content={editing ? 'Режим редактирования' : 'Режим просмотра'}>
               <button
                 type="button"
-                className={[styles.iconBtn, editing ? styles.iconBtnPressed : '']
-                  .filter(Boolean)
-                  .join(' ')}
+                className={styles.iconBtn}
                 onClick={() => {
                   setEditing((v) => !v);
                   resetCloseWizard();

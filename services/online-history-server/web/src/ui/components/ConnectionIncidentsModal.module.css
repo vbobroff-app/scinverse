@@ -44,6 +44,7 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  flex: none;
 }
 
 .iconBtn {
@@ -64,12 +65,11 @@
 
 .iconBtn:hover {
   color: var(--color-text);
-  background: var(--color-bg-hover);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
 }
 
-.iconBtnPressed {
+.iconBtn[aria-pressed='true'] {
   color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
 }
 
 .headIcon {
@@ -78,7 +78,8 @@
 }
 
 .closeGlyph {
-  font-size: 22px;
+  display: block;
+  transform: translateY(-2px);
   line-height: 1;
 }
 

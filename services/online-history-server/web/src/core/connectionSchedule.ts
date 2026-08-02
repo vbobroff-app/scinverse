@@ -148,6 +148,27 @@ export function hasLiveRules(rules: readonly ConnectionScheduleRuleDto[]): boole
   return rules.length > 0;
 }
 
+/**
+ * Вид кнопки «Расписание» на панели Связь:
+ * - `empty` — расписание сброшено (нет live-rules);
+ * - `active` — есть правила (как активный чип D3+);
+ * - `dateToday` — на сегодня побеждает календарный слой `date` (только accent-border).
+ */
+export type ScheduleButtonKind = 'empty' | 'active' | 'dateToday';
+
+export function scheduleButtonKind(
+  rules: readonly ConnectionScheduleRuleDto[],
+  now: Date = new Date(),
+  offsetMin: number = SCHEDULE_TZ_OFFSET_MIN,
+): ScheduleButtonKind {
+  if (!hasLiveRules(rules)) {
+    return 'empty';
+  }
+  const wall = wallClockInTz(now, offsetMin);
+  const winner = resolveWinnerForDate(rules, wall);
+  return winner?.scopeKind === 'date' ? 'dateToday' : 'active';
+}
+
 /** Полуоткрытый интервал в epoch ms: [fromMs, toMs). */
 export interface ScheduleMsInterval {
   fromMs: number;

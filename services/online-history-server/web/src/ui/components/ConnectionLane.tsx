@@ -14,7 +14,7 @@ import { useElementWidth } from '../hooks/useElementWidth';
 import { useNow } from '../hooks/useNow';
 import type { CoverageWindow } from '../../core/OhsStore';
 import { makeProjector } from '../../core/sessionProjection';
-import { hasLiveRules, isConnectedNow } from '../../core/connectionSchedule';
+import { hasLiveRules, isConnectedNow, scheduleButtonKind } from '../../core/connectionSchedule';
 import type {
   CaptureGapDto,
   ConnectionDto,
@@ -96,6 +96,21 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const connSchedule = connectionSchedules.get(connection.connectionId);
   const rules = useMemo(() => connSchedule?.rules ?? [], [connSchedule]);
   const hasRules = hasLiveRules(rules);
+  const scheduleBtnKind = useMemo(
+    () => scheduleButtonKind(rules, new Date(now)),
+    [rules, now],
+  );
+  /** Колокольчик: active → red, recovering → yellow, иначе green (все resolved / пусто). */
+  const bellKind = useMemo(() => {
+    const list = link.incidents ?? [];
+    if (list.some((i) => i.status === 'active')) {
+      return 'active' as const;
+    }
+    if (list.some((i) => i.status === 'recovering')) {
+      return 'recovering' as const;
+    }
+    return 'resolved' as const;
+  }, [link.incidents]);
   const connInWindow = useMemo(
     () => (hasRules ? isConnectedNow(rules, new Date(now)) : false),
     [rules, hasRules, now],
@@ -308,17 +323,26 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
         <div className={styles.left}>
           <span className={styles.name}>Связь · {connection.name}</span>
           <div className={styles.controls}>
-            <Tip content="Журнал инцидентов">
-              <button
-                type="button"
-                className={styles.incidentsBtn}
-                onClick={() => setIncidentsOpen(true)}
-                aria-label="Журнал инцидентов"
-                title="Журнал инцидентов"
-              >
-                <BellIcon className={styles.incidentsBtnIcon} />
-              </button>
-            </Tip>
+            <button
+              type="button"
+              className={[
+                styles.scheduleBtn,
+                scheduleBtnKind === 'active' ? styles.scheduleBtnActive : '',
+                scheduleBtnKind === 'dateToday' ? styles.scheduleBtnDateToday : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              onClick={() => setScheduleOpen(true)}
+              title={
+                scheduleBtnKind === 'dateToday'
+                  ? 'Расписание соединения (сегодня — календарное исключение)'
+                  : scheduleBtnKind === 'active'
+                    ? 'Расписание соединения'
+                    : 'Расписание соединения (не задано)'
+              }
+            >
+              Расписание
+            </button>
             <ConnectionAutoToggle
               phase={connAutoPhase}
               disabled={!hasRules}
@@ -331,14 +355,31 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
               }}
               onDisable={() => store.setConnectionAuto(connection.connectionId, false)}
             />
-            <button
-              type="button"
-              className={styles.scheduleBtn}
-              onClick={() => setScheduleOpen(true)}
-              title="Расписание соединения"
+            <Tip
+              content={
+                bellKind === 'active'
+                  ? 'Журнал инцидентов (есть Active)'
+                  : bellKind === 'recovering'
+                    ? 'Журнал инцидентов (есть Recovering)'
+                    : 'Журнал инцидентов'
+              }
             >
-              Расписание
-            </button>
+              <button
+                type="button"
+                className={[
+                  styles.incidentsBtn,
+                  bellKind === 'active' ? styles.incidentsBtnActive : '',
+                  bellKind === 'recovering' ? styles.incidentsBtnRecovering : '',
+                  bellKind === 'resolved' ? styles.incidentsBtnResolved : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={() => setIncidentsOpen(true)}
+                aria-label="Журнал инцидентов"
+              >
+                <BellIcon className={styles.incidentsBtnIcon} />
+              </button>
+            </Tip>
           </div>
         </div>
         <div
