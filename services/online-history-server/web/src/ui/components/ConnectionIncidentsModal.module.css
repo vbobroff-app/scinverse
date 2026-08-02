@@ -240,6 +240,42 @@
   color: #5c9;
 }
 
+.badgeDeleted {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  color: var(--color-text-muted);
+}
+
+.rowDeleted {
+  opacity: 0.72;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.footerCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.footerCheck input {
+  margin: 0;
+  cursor: pointer;
+}
+
 /* Close wizard (один message box: reason ↔ confirm, как schedule) */
 .confirmOverlay {
   position: absolute;

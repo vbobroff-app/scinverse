@@ -378,6 +378,9 @@ export interface IncidentDto {
   resolvedBy?: string | null;
   /** payload.closeNote — комментарий оператора «Причина закрытия». */
   closeNote?: string | null;
+  /** Soft-delete: скрыт из ribbon/NC; null = видим. */
+  deletedAt?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface IncidentQueryParams {
@@ -388,12 +391,18 @@ export interface IncidentQueryParams {
   from?: string;
   to?: string;
   limit?: number;
+  /** Включить soft-deleted строки (модалка журнала). */
+  includeDeleted?: boolean;
 }
 
 export interface ResolveIncidentRequest {
   resolvedBy?: string | null;
   /** Комментарий оператора → payload.closeNote. */
   closeNote?: string | null;
+}
+
+export interface SoftDeleteIncidentRequest {
+  deletedBy?: string | null;
 }
 
 export interface BackfillOpenIncidentsResultDto {

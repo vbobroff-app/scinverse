@@ -28,6 +28,7 @@ export function IncidentsSection() {
   const [status, setStatus] = useState<StatusFilter>('');
   const [type, setType] = useState<TypeFilter>('');
   const [connectionId, setConnectionId] = useState('');
+  const [showDeleted, setShowDeleted] = useState(false);
   const [selected, setSelected] = useState<IncidentDto | null>(null);
   const [resolving, setResolving] = useState(false);
 
@@ -46,6 +47,7 @@ export function IncidentsSection() {
       type: type || undefined,
       connectionId: conn,
       limit: 200,
+      includeDeleted: showDeleted,
     }).subscribe({
       next: (list) => {
         setItems(list);
@@ -62,7 +64,7 @@ export function IncidentsSection() {
       },
     });
     return () => sub.unsubscribe();
-  }, [status, type, connectionId]);
+  }, [status, type, connectionId, showDeleted]);
 
   useEffect(() => reload(), [reload]);
 
@@ -130,27 +132,46 @@ export function IncidentsSection() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((row) => (
-                  <tr
-                    key={row.corrUid}
-                    className={selected?.corrUid === row.corrUid ? styles.rowActive : undefined}
-                    onClick={() => setSelected(row)}
-                  >
-                    <td className={styles.mono}>{formatTs(row.openedAt)}</td>
-                    <td>
-                      <span className={statusClass(row.status)}>{row.status}</span>
-                    </td>
-                    <td>{row.type}</td>
-                    <td>{row.connectionId ?? '—'}</td>
-                    <td className={styles.titleCell}>{row.title || row.subject}</td>
-                    <td className={styles.mono}>{formatDurationMs(row.durationMs)}</td>
-                    <td>{row.closeOutcome ?? '—'}</td>
-                  </tr>
-                ))}
+                {items.map((row) => {
+                  const deleted = row.deletedAt != null && row.deletedAt !== '';
+                  return (
+                    <tr
+                      key={row.corrUid}
+                      className={[
+                        selected?.corrUid === row.corrUid ? styles.rowActive : '',
+                        deleted ? styles.rowDeleted : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ') || undefined}
+                      onClick={() => setSelected(row)}
+                    >
+                      <td className={styles.mono}>{formatTs(row.openedAt)}</td>
+                      <td>
+                        <span className={statusClass(row.status, deleted)}>
+                          {deleted ? 'deleted' : row.status}
+                        </span>
+                      </td>
+                      <td>{row.type}</td>
+                      <td>{row.connectionId ?? '—'}</td>
+                      <td className={styles.titleCell}>{row.title || row.subject}</td>
+                      <td className={styles.mono}>{formatDurationMs(row.durationMs)}</td>
+                      <td>{row.closeOutcome ?? '—'}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
         </div>
+
+        <label className={styles.footerCheck}>
+          <input
+            type="checkbox"
+            checked={showDeleted}
+            onChange={(e) => setShowDeleted(e.target.checked)}
+          />
+          Показывать удалённые
+        </label>
       </div>
 
       <aside className={styles.detail}>
@@ -210,9 +231,25 @@ function IncidentDetail({
         </dd>
         <dt>status</dt>
         <dd>
-          <span className={statusClass(incident.status)}>{incident.status}</span>
+          <span
+            className={statusClass(
+              incident.status,
+              incident.deletedAt != null && incident.deletedAt !== '',
+            )}
+          >
+            {incident.deletedAt ? 'deleted' : incident.status}
+          </span>
           {incident.closeOutcome ? ` → ${incident.closeOutcome}` : ''}
         </dd>
+        {incident.deletedAt ? (
+          <>
+            <dt>deleted</dt>
+            <dd className={styles.mono}>
+              {formatTs(incident.deletedAt)}
+              {incident.deletedBy ? ` · ${incident.deletedBy}` : ''}
+            </dd>
+          </>
+        ) : null}
         <dt>severity</dt>
         <dd>{incident.severity}</dd>
         <dt>owner</dt>
@@ -236,7 +273,7 @@ function IncidentDetail({
         <dt>resolved by</dt>
         <dd>{incident.resolvedBy ?? '—'}</dd>
       </dl>
-      {open ? (
+      {open && !incident.deletedAt ? (
         <button
           type="button"
           className={styles.resolveBtn}
@@ -250,7 +287,8 @@ function IncidentDetail({
   );
 }
 
-function statusClass(status: string): string {
+function statusClass(status: string, deleted = false): string {
+  if (deleted) return styles.badgeDeleted;
   if (status === 'active') return styles.badgeActive;
   if (status === 'recovering') return styles.badgeRecovering;
   if (status === 'resolved') return styles.badgeResolved;

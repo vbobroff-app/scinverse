@@ -16,16 +16,27 @@ interface Props {
 }
 
 type CloseStep = 'reason' | 'confirm';
+type DeleteStep = 'info' | 'confirm';
+type WizardKind = 'close' | 'delete' | null;
 
 function isOpenStatus(status: string): boolean {
   return status === 'active' || status === 'recovering';
 }
 
-function statusClass(status: string): string {
+function isDeleted(row: IncidentDto): boolean {
+  return row.deletedAt != null && row.deletedAt !== '';
+}
+
+function statusClass(status: string, deleted: boolean): string {
+  if (deleted) return styles.badgeDeleted;
   if (status === 'active') return styles.badgeActive;
   if (status === 'recovering') return styles.badgeRecovering;
   if (status === 'resolved') return styles.badgeResolved;
   return styles.badge;
+}
+
+function statusLabel(row: IncidentDto): string {
+  return isDeleted(row) ? 'deleted' : row.status;
 }
 
 /** Тултип исхода при ручном закрытии: комментарий из модалки. */
@@ -33,6 +44,12 @@ function manualCloseTip(row: IncidentDto): string | null {
   if (row.closeOutcome !== 'abandoned_manual') return null;
   const note = row.closeNote?.trim();
   return note ? `Закрыто пользователем: ${note}` : 'Закрыто пользователем';
+}
+
+function deletedTip(row: IncidentDto, formatTs: (iso: string) => string): string | null {
+  if (!isDeleted(row) || !row.deletedAt) return null;
+  const by = row.deletedBy?.trim() || 'оператор';
+  return `Скрыто: ${by} · ${formatTs(row.deletedAt)}`;
 }
 
 function closeConsequence(status: string): string {
@@ -44,7 +61,7 @@ function closeConsequence(status: string): string {
 
 /**
  * Модалка журнала инцидентов текущего connection: просмотр таблицы,
- * в edit — Закрыть (wizard reason→confirm) / Удалить (заглушка).
+ * в edit — Закрыть (wizard) / Удалить|Восстановить (soft-delete).
  */
 export function ConnectionIncidentsModal({
   connectionId,
@@ -60,56 +77,77 @@ export function ConnectionIncidentsModal({
   );
 
   const [editing, setEditing] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
   const [items, setItems] = useState<IncidentDto[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCorr, setSelectedCorr] = useState<string | null>(null);
-  const [closeOpen, setCloseOpen] = useState(false);
+  const [wizard, setWizard] = useState<WizardKind>(null);
   const [closeStep, setCloseStep] = useState<CloseStep>('reason');
-  /** Анимация входа reason только при возврате с confirm. */
-  const [reasonStepIn, setReasonStepIn] = useState(false);
+  const [deleteStep, setDeleteStep] = useState<DeleteStep>('info');
+  /** Анимация входа первого шага только при возврате с confirm. */
+  const [stepBackIn, setStepBackIn] = useState(false);
   const [closeNote, setCloseNote] = useState('');
-  const [resolving, setResolving] = useState(false);
-  const closeDialogRef = useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const selected = useMemo(
     () => (selectedCorr ? (items.find((i) => i.corrUid === selectedCorr) ?? null) : null),
     [items, selectedCorr],
   );
-  const canClose = editing && selected != null && isOpenStatus(selected.status);
+  const selectedDeleted = selected != null && isDeleted(selected);
+  const canClose =
+    editing && selected != null && !selectedDeleted && isOpenStatus(selected.status);
+  const canDelete = editing && selected != null && !selectedDeleted;
+  const canRestore = editing && selected != null && selectedDeleted;
 
-  const unlockCloseDialogSize = useCallback(() => {
-    const el = closeDialogRef.current;
+  const unlockDialogSize = useCallback(() => {
+    const el = dialogRef.current;
     if (!el) return;
     el.style.minHeight = '';
     el.style.height = '';
   }, []);
 
-  const resetCloseWizard = useCallback(() => {
-    setCloseOpen(false);
+  const resetWizard = useCallback(() => {
+    setWizard(null);
     setCloseStep('reason');
-    setReasonStepIn(false);
+    setDeleteStep('info');
+    setStepBackIn(false);
     setCloseNote('');
-    unlockCloseDialogSize();
-  }, [unlockCloseDialogSize]);
+    unlockDialogSize();
+  }, [unlockDialogSize]);
 
-  /** Зафиксировать размер бокса (reason → confirm без прыжка высоты). */
-  const goCloseConfirm = useCallback(() => {
-    const el = closeDialogRef.current;
-    if (el) {
-      const h = Math.ceil(el.getBoundingClientRect().height);
-      el.style.minHeight = `${h}px`;
-      el.style.height = `${h}px`;
-    }
-    setReasonStepIn(false);
-    setCloseStep('confirm');
+  const lockDialogSize = useCallback(() => {
+    const el = dialogRef.current;
+    if (!el) return;
+    const h = Math.ceil(el.getBoundingClientRect().height);
+    el.style.minHeight = `${h}px`;
+    el.style.height = `${h}px`;
   }, []);
 
+  const goCloseConfirm = useCallback(() => {
+    lockDialogSize();
+    setStepBackIn(false);
+    setCloseStep('confirm');
+  }, [lockDialogSize]);
+
   const goCloseReason = useCallback(() => {
-    unlockCloseDialogSize();
-    setReasonStepIn(true);
+    unlockDialogSize();
+    setStepBackIn(true);
     setCloseStep('reason');
-  }, [unlockCloseDialogSize]);
+  }, [unlockDialogSize]);
+
+  const goDeleteConfirm = useCallback(() => {
+    lockDialogSize();
+    setStepBackIn(false);
+    setDeleteStep('confirm');
+  }, [lockDialogSize]);
+
+  const goDeleteInfo = useCallback(() => {
+    unlockDialogSize();
+    setStepBackIn(true);
+    setDeleteStep('info');
+  }, [unlockDialogSize]);
 
   const reload = useCallback(() => {
     setError(null);
@@ -117,6 +155,7 @@ export function ConnectionIncidentsModal({
       module: 'connection',
       connectionId,
       limit: 200,
+      includeDeleted: showDeleted,
     }).subscribe({
       next: (list) => {
         setItems(list);
@@ -131,59 +170,112 @@ export function ConnectionIncidentsModal({
       },
     });
     return () => sub.unsubscribe();
-  }, [connectionId]);
+  }, [connectionId, showDeleted]);
 
   useEffect(() => {
     if (!open) return;
     setEditing(false);
-    resetCloseWizard();
+    setShowDeleted(false);
+    resetWizard();
     setLoaded(false);
     setSelectedCorr(null);
+  }, [open, resetWizard]);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoaded(false);
     return reload();
-  }, [open, reload, resetCloseWizard]);
+  }, [open, reload]);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key !== 'Escape') return;
-      if (closeOpen) {
-        if (closeStep === 'confirm' && !resolving) {
+      if (wizard === 'close') {
+        if (closeStep === 'confirm' && !busy) {
           goCloseReason();
           return;
         }
-        if (!resolving) resetCloseWizard();
+        if (!busy) resetWizard();
+        return;
+      }
+      if (wizard === 'delete') {
+        if (deleteStep === 'confirm' && !busy) {
+          goDeleteInfo();
+          return;
+        }
+        if (!busy) resetWizard();
         return;
       }
       onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, closeOpen, closeStep, resolving, onClose, resetCloseWizard, goCloseReason]);
+  }, [
+    open,
+    wizard,
+    closeStep,
+    deleteStep,
+    busy,
+    onClose,
+    resetWizard,
+    goCloseReason,
+    goDeleteInfo,
+  ]);
 
   if (!open) return null;
+
+  const afterMutate = (wasRecovering: boolean) => {
+    setBusy(false);
+    resetWizard();
+    reload();
+    store.refreshLiveness();
+    if (wasRecovering) {
+      store.refreshConnectionSchedule(connectionId);
+    }
+  };
 
   const submitClose = () => {
     if (!selected) return;
     const wasRecovering = selected.status === 'recovering';
-    setResolving(true);
+    setBusy(true);
     setError(null);
     const note = closeNote.trim();
     OhsApi.resolveIncident(selected.corrUid, {
       resolvedBy: 'superuser',
       closeNote: note || null,
     }).subscribe({
-      next: () => {
-        setResolving(false);
-        resetCloseWizard();
-        reload();
-        store.refreshLiveness();
-        if (wasRecovering) {
-          store.refreshConnectionSchedule(connectionId);
-        }
-      },
+      next: () => afterMutate(wasRecovering),
       error: (err: unknown) => {
-        setResolving(false);
+        setBusy(false);
         setError(err instanceof Error ? err.message : 'Не удалось закрыть инцидент');
+      },
+    });
+  };
+
+  const submitDelete = () => {
+    if (!selected) return;
+    const wasRecovering = selected.status === 'recovering';
+    setBusy(true);
+    setError(null);
+    OhsApi.softDeleteIncident(selected.corrUid, { deletedBy: 'superuser' }).subscribe({
+      next: () => afterMutate(wasRecovering),
+      error: (err: unknown) => {
+        setBusy(false);
+        setError(err instanceof Error ? err.message : 'Не удалось удалить инцидент');
+      },
+    });
+  };
+
+  const submitRestore = () => {
+    if (!selected) return;
+    setBusy(true);
+    setError(null);
+    OhsApi.restoreIncident(selected.corrUid).subscribe({
+      next: () => afterMutate(false),
+      error: (err: unknown) => {
+        setBusy(false);
+        setError(err instanceof Error ? err.message : 'Не удалось восстановить инцидент');
       },
     });
   };
@@ -193,12 +285,17 @@ export function ConnectionIncidentsModal({
       ? 'Закрыть инцидент (отключит AUTO)'
       : 'Закрыть инцидент';
 
+  const deleteConsequence =
+    selected && isOpenStatus(selected.status)
+      ? 'Эпизод будет закрыт (если ещё open) и скрыт из журнала, ганта и NC. Soft-delete можно отменить кнопкой «Восстановить».'
+      : 'Эпизод будет скрыт из журнала, ганта и NC. Soft-delete можно отменить кнопкой «Восстановить».';
+
   return (
     <div
       className={styles.backdrop}
       role="presentation"
       onClick={(e) => {
-        if (e.target === e.currentTarget && !closeOpen) onClose();
+        if (e.target === e.currentTarget && wizard == null) onClose();
       }}
     >
       <div
@@ -216,10 +313,12 @@ export function ConnectionIncidentsModal({
             <Tip content={editing ? 'Режим редактирования' : 'Режим просмотра'}>
               <button
                 type="button"
-                className={styles.iconBtn}
+                className={[styles.iconBtn, editing ? styles.iconBtnPressed : '']
+                  .filter(Boolean)
+                  .join(' ')}
                 onClick={() => {
                   setEditing((v) => !v);
-                  resetCloseWizard();
+                  resetWizard();
                 }}
                 aria-pressed={editing}
               >
@@ -248,13 +347,13 @@ export function ConnectionIncidentsModal({
             <button
               type="button"
               className={[styles.actionBtn, styles.actionBtnPrimary].join(' ')}
-              disabled={!canClose || resolving}
+              disabled={!canClose || busy}
               onClick={() => {
                 setCloseNote('');
                 setCloseStep('reason');
-                setReasonStepIn(false);
-                unlockCloseDialogSize();
-                setCloseOpen(true);
+                setStepBackIn(false);
+                unlockDialogSize();
+                setWizard('close');
               }}
             >
               Закрыть
@@ -262,16 +361,23 @@ export function ConnectionIncidentsModal({
             <button
               type="button"
               className={styles.actionBtn}
-              disabled
-              title="скоро"
+              disabled={(!canDelete && !canRestore) || busy}
+              onClick={() => {
+                if (canRestore) {
+                  submitRestore();
+                  return;
+                }
+                setDeleteStep('info');
+                setStepBackIn(false);
+                unlockDialogSize();
+                setWizard('delete');
+              }}
             >
-              Удалить
+              {canRestore ? 'Восстановить' : 'Удалить'}
             </button>
             <span className={styles.toolbarSpacer} />
-            {!canClose && selected ? (
-              <span className={styles.error} style={{ color: 'var(--color-text-muted)' }}>
-                Закрыть можно только open-эпизод
-              </span>
+            {selected && !selectedDeleted && !canClose ? (
+              <span className={styles.hint}>Закрыть можно только open-эпизод</span>
             ) : null}
           </div>
         ) : null}
@@ -297,17 +403,31 @@ export function ConnectionIncidentsModal({
               </thead>
               <tbody>
                 {items.map((row) => {
+                  const deleted = isDeleted(row);
                   const closeTip = manualCloseTip(row);
+                  const delTip = deletedTip(row, formatTs);
                   const outcome = row.closeOutcome ?? '—';
+                  const badge = (
+                    <span className={statusClass(row.status, deleted)}>{statusLabel(row)}</span>
+                  );
                   return (
                     <tr
                       key={row.corrUid}
-                      className={selectedCorr === row.corrUid ? styles.rowActive : undefined}
+                      className={[
+                        selectedCorr === row.corrUid ? styles.rowActive : '',
+                        deleted ? styles.rowDeleted : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ') || undefined}
                       onClick={() => setSelectedCorr(row.corrUid)}
                     >
                       <td className={styles.mono}>{formatTs(row.openedAt)}</td>
                       <td>
-                        <span className={statusClass(row.status)}>{row.status}</span>
+                        {delTip ? (
+                          <Tip content={delTip}>{badge}</Tip>
+                        ) : (
+                          badge
+                        )}
                       </td>
                       <td>{row.type}</td>
                       <td className={styles.titleCell}>{row.title || row.subject}</td>
@@ -329,16 +449,25 @@ export function ConnectionIncidentsModal({
           )}
         </div>
 
-        {closeOpen && selected ? (
+        <label className={styles.footerCheck}>
+          <input
+            type="checkbox"
+            checked={showDeleted}
+            onChange={(e) => setShowDeleted(e.target.checked)}
+          />
+          Показывать удалённые
+        </label>
+
+        {wizard === 'close' && selected ? (
           <div
             className={styles.confirmOverlay}
             role="presentation"
             onClick={(e) => {
-              if (e.target === e.currentTarget && !resolving) resetCloseWizard();
+              if (e.target === e.currentTarget && !busy) resetWizard();
             }}
           >
             <div
-              ref={closeDialogRef}
+              ref={dialogRef}
               className={styles.confirmDialog}
               role="dialog"
               aria-modal="true"
@@ -348,10 +477,7 @@ export function ConnectionIncidentsModal({
               {closeStep === 'reason' ? (
                 <div
                   key="reason"
-                  className={[
-                    styles.closeStep,
-                    reasonStepIn ? styles.closeStepBackIn : '',
-                  ]
+                  className={[styles.closeStep, stepBackIn ? styles.closeStepBackIn : '']
                     .filter(Boolean)
                     .join(' ')}
                 >
@@ -381,9 +507,9 @@ export function ConnectionIncidentsModal({
                       onChange={(e) => setCloseNote(e.target.value)}
                       placeholder="необязательно"
                       autoFocus
-                      disabled={resolving}
+                      disabled={busy}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !resolving) goCloseConfirm();
+                        if (e.key === 'Enter' && !busy) goCloseConfirm();
                       }}
                     />
                   </label>
@@ -391,16 +517,16 @@ export function ConnectionIncidentsModal({
                     <button
                       type="button"
                       className={[styles.actionBtn, styles.actionBtnPrimary].join(' ')}
-                      disabled={resolving}
+                      disabled={busy}
                       onClick={goCloseConfirm}
                     >
-                      ОК
+                      Далее
                     </button>
                     <button
                       type="button"
                       className={styles.actionBtn}
-                      disabled={resolving}
-                      onClick={resetCloseWizard}
+                      disabled={busy}
+                      onClick={resetWizard}
                     >
                       Отмена
                     </button>
@@ -416,25 +542,120 @@ export function ConnectionIncidentsModal({
                   </h4>
                   <p className={styles.confirmWarn}>{closeConsequence(selected.status)}</p>
                   {closeNote.trim() ? (
-                    <p className={styles.confirmMeta}>
-                      Причина: {closeNote.trim()}
-                    </p>
+                    <p className={styles.confirmMeta}>Причина: {closeNote.trim()}</p>
                   ) : null}
                   <div className={styles.confirmActions}>
                     <button
                       type="button"
                       className={[styles.actionBtn, styles.actionBtnPrimary].join(' ')}
-                      disabled={resolving}
+                      disabled={busy}
                       onClick={submitClose}
                       autoFocus
                     >
-                      {resolving ? 'Закрываю…' : 'Подтвердить'}
+                      {busy ? 'Закрываю…' : 'Подтвердить'}
                     </button>
                     <button
                       type="button"
                       className={styles.actionBtn}
-                      disabled={resolving}
+                      disabled={busy}
                       onClick={goCloseReason}
+                    >
+                      Назад
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {wizard === 'delete' && selected ? (
+          <div
+            className={styles.confirmOverlay}
+            role="presentation"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !busy) resetWizard();
+            }}
+          >
+            <div
+              ref={dialogRef}
+              className={styles.confirmDialog}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="inc-delete-title"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {deleteStep === 'info' ? (
+                <div
+                  key="info"
+                  className={[styles.closeStep, stepBackIn ? styles.closeStepBackIn : '']
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  <h4 id="inc-delete-title" className={styles.confirmTitle}>
+                    Удалить инцидент
+                  </h4>
+                  <p className={styles.confirmMeta}>
+                    {selected.type}
+                    {selected.subtype ? ` · ${selected.subtype}` : ''}
+                    {' · '}
+                    <span className={styles.mono}>{selected.corrUid.slice(0, 8)}…</span>
+                    <br />
+                    открыт {formatTs(selected.openedAt)}
+                    {selected.title ? (
+                      <>
+                        <br />
+                        {selected.title}
+                      </>
+                    ) : null}
+                  </p>
+                  <p className={styles.confirmWarn}>{deleteConsequence}</p>
+                  <div className={styles.confirmActions}>
+                    <button
+                      type="button"
+                      className={[styles.actionBtn, styles.actionBtnPrimary].join(' ')}
+                      disabled={busy}
+                      onClick={goDeleteConfirm}
+                      autoFocus
+                    >
+                      Далее
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.actionBtn}
+                      disabled={busy}
+                      onClick={resetWizard}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  key="confirm"
+                  className={[styles.closeStep, styles.closeStepConfirm].join(' ')}
+                >
+                  <h4 id="inc-delete-title" className={styles.confirmTitle}>
+                    Подтвердить удаление
+                  </h4>
+                  <p className={styles.confirmWarn}>
+                    Скрыть эпизод из журнала, ганта и NC? Это soft-delete — можно восстановить.
+                  </p>
+                  <div className={styles.confirmActions}>
+                    <button
+                      type="button"
+                      className={[styles.actionBtn, styles.actionBtnPrimary].join(' ')}
+                      disabled={busy}
+                      onClick={submitDelete}
+                      autoFocus
+                    >
+                      {busy ? 'Удаляю…' : 'Подтвердить'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.actionBtn}
+                      disabled={busy}
+                      onClick={goDeleteInfo}
                     >
                       Назад
                     </button>

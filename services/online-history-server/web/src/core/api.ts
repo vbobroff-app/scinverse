@@ -31,6 +31,7 @@ import type {
   IncidentQueryParams,
   IntegrationProbeResultDto,
   ResolveIncidentRequest,
+  SoftDeleteIncidentRequest,
   InstrumentGroupDto,
   InstrumentPage,
   InstrumentQueryParams,
@@ -164,6 +165,7 @@ export const OhsApi = {
     if (params.connectionId != null) search.set('connectionId', String(params.connectionId));
     if (params.from) search.set('from', params.from);
     if (params.to) search.set('to', params.to);
+    if (params.includeDeleted) search.set('includeDeleted', 'true');
     search.set('limit', String(params.limit ?? 100));
     const q = search.toString();
     return getJSON<IncidentDto[]>(`/incidents${q ? `?${q}` : ''}`);
@@ -188,6 +190,12 @@ export const OhsApi = {
 
   resolveIncident: (corrUid: string, body: ResolveIncidentRequest = {}) =>
     post<IncidentDto>(`/incidents/${encodeURIComponent(corrUid)}/resolve`, body),
+
+  softDeleteIncident: (corrUid: string, body: SoftDeleteIncidentRequest = {}) =>
+    post<IncidentDto>(`/incidents/${encodeURIComponent(corrUid)}/delete`, body),
+
+  restoreIncident: (corrUid: string) =>
+    post<IncidentDto>(`/incidents/${encodeURIComponent(corrUid)}/restore`),
 
   backfillOpenIncidents: () => post<BackfillOpenIncidentsResultDto>('/incidents/backfill-open'),
   backfillRecentIncidents: () => post<BackfillRecentIncidentsResultDto>('/incidents/backfill-recent'),
