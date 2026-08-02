@@ -955,7 +955,8 @@ public sealed class ConnectionManager(
         string closeOutcome,
         CancellationToken cancellationToken,
         string? closeNote = null,
-        string? resolvedBy = null)
+        string? resolvedBy = null,
+        bool announceOperatorForceClose = true)
     {
         if (!_incidentSince.TryGetValue(connectionId, out var incidentStart))
         {
@@ -970,6 +971,13 @@ public sealed class ConnectionManager(
         var subject = LinkIncidentSubject(connectionId);
 
         var corrUid = GetOpenBreakCorr(connectionId);
+        // Disconnect уже пишет user·info «отключение по команде» — без «принудительно закрыл».
+        var abandonNcMessage = announceOperatorForceClose
+            ? "Инцидент закрыт оператором"
+            : "Инцидент связи закрыт при отключении";
+        var abandonResult = announceOperatorForceClose
+            ? $"Закрыто оператором; {gapLine}"
+            : $"Закрыто при отключении; {gapLine}";
         IncidentStep resolveStep = closeOutcome switch
         {
             NotificationThreadData.OutcomeAbandonedManual => new IncidentStep(
@@ -981,7 +989,7 @@ public sealed class ConnectionManager(
                 CloseOutcome: closeOutcome,
                 Severity: "warning",
                 NcCode: "connection.incident_closed",
-                NcMessage: "Инцидент закрыт оператором",
+                NcMessage: abandonNcMessage,
                 NcSeverity: "warning",
                 NcData: new
                 {
@@ -989,7 +997,7 @@ public sealed class ConnectionManager(
                     kind = "break",
                     reason = "manual_off",
                     sender = "system",
-                    result = $"Закрыто оператором; {gapLine}",
+                    result = abandonResult,
                     closeOutcome,
                     closeNote,
                     resolvedBy,
@@ -1016,8 +1024,9 @@ public sealed class ConnectionManager(
                 }),
         };
 
-        // Manual: сначала user·info (команда), затем system·warning Resolve (тот же corr).
+        // Wizard «Закрыть» в журнале: user·info → system·warning. Disconnect — только Resolve.
         if (closeOutcome == NotificationThreadData.OutcomeAbandonedManual
+            && announceOperatorForceClose
             && !string.IsNullOrWhiteSpace(corrUid))
         {
             NotificationThreadData.PublishOperatorForceClose(
@@ -1168,22 +1177,26 @@ public sealed class ConnectionManager(
     }
 
     /// <summary>
-    /// J11b / I11: ручной off при открытом break — Manager+Hub вместе,
+    /// J11b / I11: ручной off / закрытие журнала при открытом break — Manager+Hub вместе,
     /// <c>abandoned_manual</c>, маркер <c>disconnected</c> (без green). Нет open → false.
+    /// <paramref name="announceOperatorForceClose"/> — true для wizard журнала («принудительно»);
+    /// false для disconnect (уже есть «отключение по команде оператора»).
     /// </summary>
     public Task<bool> TryAbandonIncidentByManualAsync(
         long connectionId,
         DateTimeOffset atTs,
         CancellationToken cancellationToken,
         string? closeNote = null,
-        string? resolvedBy = null) =>
+        string? resolvedBy = null,
+        bool announceOperatorForceClose = true) =>
         CloseBreakAsync(
             connectionId,
             atTs,
             NotificationThreadData.OutcomeAbandonedManual,
             cancellationToken,
             closeNote,
-            resolvedBy);
+            resolvedBy,
+            announceOperatorForceClose);
 
     private async Task<short?> ResolveSourceIdAsync(long connectionId, CancellationToken cancellationToken)
     {

@@ -63,6 +63,26 @@ public sealed class ConnectionManagerIncidentTests
     }
 
     [Fact]
+    public async Task Disconnect_style_abandon_skips_force_close_wording()
+    {
+        var (manager, hub, _) = CreateSut();
+        var since = DateTimeOffset.Parse("2026-07-28T11:30:00Z");
+        var end = since.AddMinutes(1);
+
+        manager.EnsureBreakIncidentOnConnectFailure(ConnId, since, "Подключение 7 («t»)").Should().BeTrue();
+        (await manager.TryAbandonIncidentByManualAsync(
+                ConnId, end, CancellationToken.None, announceOperatorForceClose: false))
+            .Should().BeTrue();
+
+        var list = hub.List();
+        list.Should().NotContain(e => e.Code == NotificationThreadData.CodeIncidentForceClosed);
+        var closed = list.Last(e => e.Code == "connection.incident_closed");
+        closed.Message.Should().Contain("при отключении");
+        closed.Message.Should().NotContain("оператором");
+        DataString(closed, "closeOutcome").Should().Be(NotificationThreadData.OutcomeAbandonedManual);
+    }
+
+    [Fact]
     public void Adopt_protocol_Manager_then_Hub_session()
     {
         // I13: Manager SoT first; Hub — session для Progress/Append.

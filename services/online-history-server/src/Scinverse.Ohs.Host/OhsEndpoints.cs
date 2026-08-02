@@ -1185,9 +1185,12 @@ public static class OhsEndpoints
                 return Results.NotFound(new { error = $"Подключение {id} не найдено" });
             }
 
-            // J11b / I11: close-break в Manager+Hub вместе (не голый Hub.Resolve — иначе _incidentSince висит).
+            // J11b / I11: open break → abandoned_manual без «принудительно» (это wizard журнала).
             var userLabel = ConnectionManager.ConnLabelUser(id, connection.Name);
-            await manager.TryAbandonIncidentByManualAsync(id, DateTimeOffset.UtcNow, ct).ConfigureAwait(false);
+            await manager
+                .TryAbandonIncidentByManualAsync(
+                    id, DateTimeOffset.UtcNow, ct, announceOperatorForceClose: false)
+                .ConfigureAwait(false);
             notifications.Publish(
                 "connection.disconnect",
                 $"{userLabel}: отключение по команде оператора",

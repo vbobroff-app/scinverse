@@ -280,6 +280,14 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
             n => n.Code == "connection.disconnect" && n.SourceType == "user",
             "команда оператора остаётся отдельным user-событием");
         notes.Should().NotContain(
+            n => n.Code == "connection.incident_force_closed",
+            "«принудительно» — только wizard журнала, не тумблер off");
+        notes.Should().Contain(
+            n => n.Code == "connection.incident_closed"
+                && n.CorrelationId == closed.CorrelationId
+                && n.Message.Contains("при отключении", StringComparison.Ordinal),
+            "Resolve после disconnect — нейтральная формулировка");
+        notes.Should().NotContain(
             n => n.Code == "connection.recovered" && n.CorrelationId == closed.CorrelationId,
             "не должны успеть закрыть тот же corr как recovered");
     }
