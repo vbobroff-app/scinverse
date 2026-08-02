@@ -131,7 +131,8 @@
 }
 
 .statusDeleted {
-  background: color-mix(in srgb, var(--color-error, #ff6b6b) 12%, var(--color-bg-input, #2c2e33));
+  border: 1px solid var(--color-error, #ff6b6b);
+  background: color-mix(in srgb, var(--color-text-muted, #6c757d) 16%, var(--color-bg-input, #2c2e33));
   color: var(--color-error, #ff6b6b);
 }
 

@@ -155,7 +155,7 @@ export const OhsApi = {
   getConnectionScheduleHistory: (connectionId: number) =>
     getJSON<ConnectionScheduleRuleDto[]>(`/connections/${connectionId}/schedule/history`),
 
-  getNotifications: (limit = 100) => getJSON<NotificationDto[]>(`/notifications?limit=${limit}`),
+  getNotifications: (limit = 200) => getJSON<NotificationDto[]>(`/notifications?limit=${limit}`),
 
   getIncidents: (params: IncidentQueryParams = {}) => {
     const search = new URLSearchParams();

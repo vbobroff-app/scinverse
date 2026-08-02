@@ -392,7 +392,7 @@ public static class OhsEndpoints
         // Бэклог — из тёплого ring-buffer (Publish пишет синхронно; после рестарта буфер гидрируется
         // из БД, см. NotificationPersistWriter). Долговременный лог пишется асинхронно и служит аудитом.
         api.MapGet("/notifications", (NotificationHub hub, int? limit) =>
-            hub.List(limit is > 0 and <= 500 ? limit : 100));
+            hub.List(limit is > 0 and <= 500 ? limit : 200));
 
         // Журнал инцидентов (phase 11.13c). Не NC-лента: строки таблицы incident в OHS.
         api.MapGet("/incidents", async (

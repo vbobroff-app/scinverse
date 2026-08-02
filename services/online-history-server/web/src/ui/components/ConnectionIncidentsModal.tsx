@@ -291,8 +291,8 @@ export function ConnectionIncidentsModal({
 
   const deleteConsequence =
     selected && isOpenStatus(selected.status)
-      ? 'Эпизод будет закрыт (если ещё open) и скрыт из журнала, ганта и NC. Soft-delete можно отменить кнопкой «Восстановить».'
-      : 'Эпизод будет скрыт из журнала, ганта и NC. Soft-delete можно отменить кнопкой «Восстановить».';
+      ? 'Инцидент будет закрыт и скрыт из журнала, ленты и ЦУ. В дальнейшем можно отменить кнопкой «Восстановить».'
+      : 'Инцидент будет скрыт из журнала, ленты и ЦУ. В дальнейшем можно отменить кнопкой «Восстановить».';
 
   return (
     <div
@@ -647,7 +647,8 @@ export function ConnectionIncidentsModal({
                     Подтвердить удаление
                   </h4>
                   <p className={styles.confirmWarn}>
-                    Скрыть эпизод из журнала, ганта и NC? Это soft-delete — можно восстановить.
+                    Инцидент будет скрыт из журнала, ленты и ЦУ. В дальнейшем можно
+                    отменить кнопкой «Восстановить».
                   </p>
                   <div className={styles.confirmActions}>
                     <button
