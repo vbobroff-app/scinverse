@@ -91,7 +91,7 @@ handoff [`promt.md`](../../promt.md) §8. Параллельно gate **11→12*
 - **11.10 UI NC: контейнеры.** Лента = Single + Thread header на одном уровне; header без
   severity-иконки, custom summary; expand/collapse стека Entry; subtle `[!]`/`[G]` сдвигает
   контент Entry. Фильтры: статус нити (active / recovering / resolved) + «Выбор»
-  (★ Избранные include / ⊘ Скрыть спам exclude; см. [nc-marks.md](nc-marks.md)).
+  (★ Избранные include / ⊘ Спам include, default hide; см. [nc-marks.md](nc-marks.md)).
   Бейдж непрочитанных — по контейнерам (см. to-threads §4).
 - **11.11 Backend hints + политика kind.** На Open писать `data.threadKindHint`
   (`incident`|`group` по горизонту расписания); на close — `data.closeOutcome`

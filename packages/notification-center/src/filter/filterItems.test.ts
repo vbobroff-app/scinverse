@@ -68,14 +68,16 @@ describe('filterItems', () => {
     expect(visible[0]?.itemKind === 'single' && visible[0].id).toBe('s1');
   });
 
-  it('choice ⊘ excludes spam containers', () => {
+  it('spam hidden by default; choice ⊘ includes spam', () => {
     const items = projectThreads([
       evt({ id: 's1', code: 'ping', message: 'solo' }),
       evt({ id: 's2', code: 'pong', message: 'spam' }),
     ]).map((item, i) => (i === 1 ? { ...item, isLeft: true } : item));
-    const visible = filterItems(items, { choices: ['left'] });
-    expect(visible).toHaveLength(1);
-    expect(visible[0]?.itemKind === 'single' && visible[0].id).toBe('s1');
+    const hidden = filterItems(items, { choices: [] });
+    expect(hidden).toHaveLength(1);
+    expect(hidden[0]?.itemKind === 'single' && hidden[0].id).toBe('s1');
+    const shown = filterItems(items, { choices: ['left'] });
+    expect(shown).toHaveLength(2);
   });
 
   it('soft-deleted hidden by default; choice deleted includes them', () => {
@@ -108,7 +110,7 @@ describe('filterItems', () => {
     expect(withDeleted.some((i) => i.itemKind === 'thread' && i.uid === 'c-del')).toBe(true);
   });
 
-  it('choice ★+⊘: spam wins over favorite', () => {
+  it('choice ★ without ⊘: spam favorites stay hidden', () => {
     const items = projectThreads([
       evt({ id: 'fav', code: 'ping', message: 'keep' }),
       evt({ id: 'both', code: 'pong', message: 'dual' }),
@@ -128,9 +130,14 @@ describe('filterItems', () => {
       }
       return item;
     });
-    const visible = filterItems(items, { choices: ['favorite', 'left'] });
-    expect(visible).toHaveLength(1);
-    expect(visible[0]?.itemKind === 'single' && visible[0].id).toBe('fav');
+    const favOnly = filterItems(items, { choices: ['favorite'] });
+    expect(favOnly).toHaveLength(1);
+    expect(favOnly[0]?.itemKind === 'single' && favOnly[0].id).toBe('fav');
+    const favAndSpam = filterItems(items, { choices: ['favorite', 'left'] });
+    expect(favAndSpam.map((i) => (i.itemKind === 'single' ? i.id : i.uid)).sort()).toEqual([
+      'both',
+      'fav',
+    ]);
   });
 
   it('choice ★ keeps Thread when header favorite (any)', () => {

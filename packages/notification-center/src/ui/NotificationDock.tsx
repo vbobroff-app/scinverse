@@ -413,7 +413,7 @@ export function NotificationDock({
           settings.groupIntoThreads && activeFilters.includes('threadStatus')
             ? filter.threadStatuses
             : undefined,
-        // Пустой choices (chip Выбор снят) → soft-deleted скрыты; favorite/spam не режут.
+        // Пустой choices (chip Выбор снят) → soft-deleted и спам скрыты; ★ не режет.
         choices: activeFilters.includes('choice') ? filter.choices : [],
         connection: activeFilters.includes('connection') ? filter.connection : undefined,
         // Слои всегда (default TL+CL); не зависят от activeFilters.

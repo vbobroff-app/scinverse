@@ -157,7 +157,7 @@ const THREAD_STATUS_OPTIONS: FilterOption[] = [
 
 const CHOICE_OPTIONS: FilterOption[] = [
   { id: 'favorite', label: '★ Избранные' },
-  { id: 'left', label: '⊘ Скрыть спам' },
+  { id: 'left', label: '⊘ Спам' },
   { id: 'deleted', label: 'Удалённые' },
 ];
 

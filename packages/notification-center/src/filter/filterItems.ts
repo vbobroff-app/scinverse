@@ -187,8 +187,10 @@ function threadMatchesAtoms(
  * Фильтрация проекции Single | Thread.
  * `threadStatuses` — только Thread; при активном фильтре Single скрываются.
  * `choices` — асимметрия (см. docs/dev/phase11/nc-marks.md):
- *   ★ favorite — include; ⊘ left (спам) — exclude; при обеих ⊘ побеждает;
- *   deleted — include soft-deleted (по умолчанию скрыты всегда).
+ *   ★ favorite — include;
+ *   ⊘ left (спам) — include (по умолчанию спам скрыт, как soft-deleted);
+ *   deleted — include soft-deleted (по умолчанию скрыты).
+ *   ★ без ⊘: избранный спам всё равно скрыт (спам-default побеждает).
  * Маркеры на item уже агрегированы (Single = Entry; Thread header = any★ / all⊘).
  */
 export function filterItems(
@@ -199,6 +201,7 @@ export function filterItems(
   const threadStatuses = toSet<ThreadStatus>(filter.threadStatuses);
   const choices = toSet<NcChoiceFilter>(filter.choices);
   const showDeleted = choices?.has('deleted') ?? false;
+  const showSpam = choices?.has('left') ?? false;
 
   const atomFilter: NotificationFilter = {
     severities: filter.severities,
@@ -221,18 +224,16 @@ export function filterItems(
       return false;
     }
 
-    // Soft-delete: скрыты, пока в Выбор не включены «Удалённые» (даже если chip Выбор неактивен).
+    // Soft-delete / спам: скрыты, пока в Выбор не включены галки (даже если chip Выбор неактивен).
     if (item.isSoftDeleted && !showDeleted) {
+      return false;
+    }
+    if (item.isLeft && !showSpam) {
       return false;
     }
 
     if (choices) {
       const wantFav = choices.has('favorite');
-      const hideSpam = choices.has('left');
-      // ⊘ exclude — и побеждает ★, если обе галки on.
-      if (hideSpam && item.isLeft) {
-        return false;
-      }
       if (wantFav && !item.isFavorite) {
         return false;
       }

@@ -202,6 +202,24 @@ function cloneFilter(filter: DockFilterState): DockFilterState {
   };
 }
 
+/**
+ * Было: choices.left = «Скрыть спам» (exclude).
+ * Стало: choices.left = «Спам» (include; default hide).
+ * Один раз сбрасываем legacy-галку, чтобы не «включить показ» у тех, кто прятал спам.
+ */
+function migrateSpamChoicePolarity(
+  filter: DockFilterState,
+  parsed: Record<string, unknown>,
+): DockFilterState {
+  if (parsed.spamChoicePolarity === 'show') {
+    return filter;
+  }
+  return {
+    ...filter,
+    choices: filter.choices.filter((c) => c !== 'left'),
+  };
+}
+
 function readStorage(): PersistedNotificationDock {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -210,7 +228,7 @@ function readStorage(): PersistedNotificationDock {
       return {
         open: parsed.open === true,
         expanded: parsed.expanded === true,
-        filter: parseFilter(parsed.filter),
+        filter: migrateSpamChoicePolarity(parseFilter(parsed.filter), parsed),
         activeFilters: parseActive(parsed.activeFilters),
         settings: normalizeDockSettings(parsed.settings as Partial<NotificationDockSettings>),
       };
@@ -221,7 +239,7 @@ function readStorage(): PersistedNotificationDock {
       return {
         open: false,
         expanded: false,
-        filter: parseFilter(parsed.filter),
+        filter: migrateSpamChoicePolarity(parseFilter(parsed.filter), parsed),
         activeFilters: parseActive(parsed.activeFilters),
         settings: { ...EMPTY_DOCK_SETTINGS },
       };
@@ -248,6 +266,7 @@ function writeStorage(state: PersistedNotificationDock): void {
         filter: state.filter,
         activeFilters: state.activeFilters,
         settings: state.settings,
+        spamChoicePolarity: 'show',
       }),
     );
     localStorage.removeItem('ohs:notificationDockFilters');
