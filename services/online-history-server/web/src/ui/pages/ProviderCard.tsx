@@ -13,6 +13,7 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
   const showFilters = useBehavior(store.showFilters$);
   const showNowMarker = useBehavior(store.showNowMarker$);
   const showLinkRibbon = useBehavior(store.showLinkRibbon$);
+  const showRuler = useBehavior(store.showRuler$);
   const showBreakIncidents = useBehavior(store.showBreakIncidents$);
   const showCrashIncidents = useBehavior(store.showCrashIncidents$);
   const showWorkGaps = useBehavior(store.showWorkGaps$);
@@ -139,6 +140,14 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
                       onChange={() => store.setShowWorkGaps(!showWorkGaps)}
                     />
                     Гэпы в работе
+                  </label>
+                  <label className={styles.settingsCheck}>
+                    <input
+                      type="checkbox"
+                      checked={showRuler}
+                      onChange={() => store.setShowRuler(!showRuler)}
+                    />
+                    Линейка
                   </label>
                 </div>
                 <div className={styles.settingsSection}>

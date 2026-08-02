@@ -82,6 +82,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const tzOffsetMin = useBehavior(store.displayTz$).offsetMin;
   const showNowMarker = useBehavior(store.showNowMarker$);
   const showLinkRibbon = useBehavior(store.showLinkRibbon$);
+  const showRuler = useBehavior(store.showRuler$);
   const showBreakIncidents = useBehavior(store.showBreakIncidents$);
   const showCrashIncidents = useBehavior(store.showCrashIncidents$);
   const showWorkGaps = useBehavior(store.showWorkGaps$);
@@ -154,7 +155,15 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
   const laneStyle = { '--now-pct': view.nowPct } as unknown as CSSProperties;
 
   const rightRef = useRef<HTMLDivElement>(null);
-  const [rulerRef, rulerWidth] = useElementWidth<HTMLDivElement>();
+  const rulerNodeRef = useRef<HTMLDivElement | null>(null);
+  const [bindRulerWidth, rulerWidth] = useElementWidth<HTMLDivElement>();
+  const rulerRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      rulerNodeRef.current = el;
+      bindRulerWidth(el);
+    },
+    [bindRulerWidth],
+  );
   const tipRef = useRef<HTMLDivElement>(null);
   const scrubRef = useRef<ConnectionScrubLayer | null>(null);
   const scrubOnRef = useRef(false);
@@ -194,7 +203,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
 
   const syncScrubGeom = useCallback(() => {
     const right = rightRef.current;
-    const ruler = rulerRef.current;
+    const ruler = rulerNodeRef.current;
     if (!right || !ruler) {
       return;
     }
@@ -206,7 +215,7 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
       rulerWidth: Math.max(1, ru.width),
     };
     scrubRef.current?.syncGeom(scrubGeomFromElements(right, ruler));
-  }, [rulerRef]);
+  }, []);
 
   const hideTip = useCallback(() => {
     const el = tipRef.current;
@@ -277,11 +286,20 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
 
   const onRightDoubleClick = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
+      if (!showRuler) {
+        return;
+      }
       e.preventDefault();
       setScrubActive(!scrubOnRef.current, e.clientX);
     },
-    [setScrubActive],
+    [setScrubActive, showRuler],
   );
+
+  useEffect(() => {
+    if (!showRuler && scrubOnRef.current) {
+      setScrubActive(false);
+    }
+  }, [showRuler, setScrubActive]);
 
   useEffect(() => {
     if (!scrubOn) {
@@ -383,7 +401,13 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
           </div>
         </div>
         <div
-          className={[styles.right, scrubOn ? styles.rightScrubOn : ''].filter(Boolean).join(' ')}
+          className={[
+            styles.right,
+            showRuler ? '' : styles.rightNoRuler,
+            scrubOn ? styles.rightScrubOn : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
           ref={rightRef}
           onDoubleClick={onRightDoubleClick}
           onMouseEnter={syncScrubGeom}
@@ -406,27 +430,31 @@ export function ConnectionLane({ connection }: { connection: ConnectionDto }) {
             scheduleRules={view.rules}
             tip={tipHandlers}
           />
-          <div
-            className={styles.ruler}
-            ref={rulerRef}
-            onMouseEnter={(e) => {
-              syncScrubGeom();
-              onRulerMove(e);
-            }}
-            onMouseMove={onRulerMove}
-            onMouseLeave={hideTip}
-          >
-            {rulerTicks.map((t, i) => (
-              <span
-                key={`tick${i}`}
-                className={[styles.tick, t.major ? styles.tickMajor : styles.tickMinor].join(' ')}
-                style={{ left: `${t.left}%` }}
+          {showRuler ? (
+            <>
+              <div
+                className={styles.ruler}
+                ref={rulerRef}
+                onMouseEnter={(e) => {
+                  syncScrubGeom();
+                  onRulerMove(e);
+                }}
+                onMouseMove={onRulerMove}
+                onMouseLeave={hideTip}
               >
-                <span className={styles.tickMark} />
-              </span>
-            ))}
-          </div>
-          <div className={styles.rulerTip} ref={tipRef} hidden role="tooltip" />
+                {rulerTicks.map((t, i) => (
+                  <span
+                    key={`tick${i}`}
+                    className={[styles.tick, t.major ? styles.tickMajor : styles.tickMinor].join(' ')}
+                    style={{ left: `${t.left}%` }}
+                  >
+                    <span className={styles.tickMark} />
+                  </span>
+                ))}
+              </div>
+              <div className={styles.rulerTip} ref={tipRef} hidden role="tooltip" />
+            </>
+          ) : null}
         </div>
       </div>
 

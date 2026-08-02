@@ -58,6 +58,8 @@ export interface PersistedViewState {
   showNowMarker?: boolean;
   /** Слой голубого/серого из `link_liveness` на Connection. */
   showLinkRibbon?: boolean;
+  /** Линейка времени под лентой Connection. */
+  showRuler?: boolean;
   /**
    * @deprecated → `showBreakIncidents` / `showCrashIncidents`.
    * При load: если новых ключей нет, оба наследуют это значение.
@@ -222,6 +224,7 @@ export function loadViewState(): PersistedViewState {
       showFilters: typeof parsed.showFilters === 'boolean' ? parsed.showFilters : undefined,
       showNowMarker: typeof parsed.showNowMarker === 'boolean' ? parsed.showNowMarker : undefined,
       showLinkRibbon: typeof parsed.showLinkRibbon === 'boolean' ? parsed.showLinkRibbon : undefined,
+      showRuler: typeof parsed.showRuler === 'boolean' ? parsed.showRuler : undefined,
       showIncidents: typeof parsed.showIncidents === 'boolean' ? parsed.showIncidents : undefined,
       showBreakIncidents:
         typeof parsed.showBreakIncidents === 'boolean'

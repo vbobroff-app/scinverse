@@ -354,6 +354,8 @@ export class OhsStore {
   readonly showNowMarker$ = new BehaviorSubject<boolean>(true);
   /** Слой ленты соединения (`link_liveness`) на Connection. */
   readonly showLinkRibbon$ = new BehaviorSubject<boolean>(true);
+  /** Линейка времени под лентой Connection (шестерёнка, default on). */
+  readonly showRuler$ = new BehaviorSubject<boolean>(true);
   /** Жёлтый break на Connection. */
   readonly showBreakIncidents$ = new BehaviorSubject<boolean>(true);
   /** Красный crash (сервер) на Connection. */
@@ -484,6 +486,9 @@ export class OhsStore {
     if (typeof v.showLinkRibbon === 'boolean') {
       this.showLinkRibbon$.next(v.showLinkRibbon);
     }
+    if (typeof v.showRuler === 'boolean') {
+      this.showRuler$.next(v.showRuler);
+    }
     if (typeof v.showBreakIncidents === 'boolean') {
       this.showBreakIncidents$.next(v.showBreakIncidents);
     }
@@ -536,6 +541,7 @@ export class OhsStore {
       showFilters: this.showFilters$.value,
       showNowMarker: this.showNowMarker$.value,
       showLinkRibbon: this.showLinkRibbon$.value,
+      showRuler: this.showRuler$.value,
       showBreakIncidents: this.showBreakIncidents$.value,
       showCrashIncidents: this.showCrashIncidents$.value,
       showScheduleMask: this.showScheduleMask$.value,
@@ -1181,6 +1187,14 @@ export class OhsStore {
   setShowLinkRibbon(on: boolean): void {
     if (this.showLinkRibbon$.value !== on) {
       this.showLinkRibbon$.next(on);
+      this.persistView();
+    }
+  }
+
+  /** Показывать / скрывать линейку времени на Connection. */
+  setShowRuler(on: boolean): void {
+    if (this.showRuler$.value !== on) {
+      this.showRuler$.next(on);
       this.persistView();
     }
   }

@@ -74,6 +74,7 @@ describe('viewStateStorage', () => {
       showFilters: false,
       showNowMarker: false,
       showLinkRibbon: false,
+      showRuler: false,
       showBreakIncidents: false,
       showCrashIncidents: true,
       showScheduleMask: false,
@@ -93,6 +94,7 @@ describe('viewStateStorage', () => {
     expect(v.showFilters).toBe(false);
     expect(v.showNowMarker).toBe(false);
     expect(v.showLinkRibbon).toBe(false);
+    expect(v.showRuler).toBe(false);
     expect(v.showBreakIncidents).toBe(false);
     expect(v.showCrashIncidents).toBe(true);
     expect(v.showScheduleMask).toBe(false);

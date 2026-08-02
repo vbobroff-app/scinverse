@@ -8,16 +8,17 @@ const DAY_MS = 24 * HOUR_MS;
 
 /** Целевое число major-делений окна (0–24ч → 12 × 2ч). */
 const MAJOR_TARGET = 12;
-/** Каждая major-доля делится на столько minor. */
-const MINORS_PER_MAJOR = 4;
 /** Минимальный визуальный шаг major (px); иначе берём следующий «красивый» шаг. */
 const MIN_MAJOR_PX = 28;
+/** Минимальный визуальный шаг minor (px); иначе укрупняем 1ч→2ч→3ч→6ч→12ч.
+ *  D3 (~72ч) → 1ч; D4 (~96ч) → уже 2ч при типичной ширине линейки. */
+const MIN_MINOR_PX = 5.5;
 /** Магнит к major-тику (px). */
 const MAJOR_SNAP_PX = 1;
 
 /**
- * «Красивые» major-шаги: major/4 даёт ровный minor
- * (1ч→15м, 2ч→30м, 4ч→1ч, 12ч→3ч, 1д→6ч, …).
+ * «Красивые» major-шаги (подбираются по span/ширине).
+ * Minor — отдельно: 1ч / 2ч / 3ч / 6ч / 12ч, кратные major.
  */
 const NICE_MAJOR_MS: readonly number[] = [
   HOUR_MS,
@@ -29,6 +30,15 @@ const NICE_MAJOR_MS: readonly number[] = [
   4 * DAY_MS,
   8 * DAY_MS,
   28 * DAY_MS,
+];
+
+/** Адаптивные minor-шаги: плотнее → реже, если не влезает. */
+const NICE_MINOR_MS: readonly number[] = [
+  HOUR_MS,
+  2 * HOUR_MS,
+  3 * HOUR_MS,
+  6 * HOUR_MS,
+  12 * HOUR_MS,
 ];
 
 export interface RulerTick {
@@ -85,8 +95,30 @@ export function pickMajorMs(spanMs: number, widthPx: number): number {
 }
 
 /**
- * Линейка по кратному времени: ~12 major на окно, каждая major → 4 minor.
- * Пример: 0–24ч → major каждые 2ч, minor каждые 30м. Позиция — через projector оси.
+ * Minor среди 1ч / 2ч / 3ч / 6ч / 12ч, кратный major: самый мелкий, что влезает по ширине.
+ * Не влезает ни один — только major (minorMs = majorMs).
+ */
+export function pickMinorMs(majorMs: number, spanMs: number, widthPx: number): number {
+  const candidates = NICE_MINOR_MS.filter((step) => majorMs % step === 0);
+  if (candidates.length === 0) {
+    return majorMs;
+  }
+  if (widthPx <= 0) {
+    // Ширина ещё не измерена — самый мелкий кандидат; не 3ч (иначе roundtrip линейки «залипает»).
+    return candidates[0]!;
+  }
+  for (const step of candidates) {
+    const count = Math.max(1, spanMs / step);
+    if (widthPx / count >= MIN_MINOR_PX) {
+      return step;
+    }
+  }
+  return majorMs;
+}
+
+/**
+ * Линейка по кратному времени: ~12 major на окно; minor адаптивно 1ч→2ч→3ч→6ч→12ч.
+ * Пример: широкий D3 → major 12ч, minor 1ч; уже → minor 3ч (как раньше major/4).
  */
 export function buildRulerTicks(
   widthPx: number,
@@ -97,7 +129,7 @@ export function buildRulerTicks(
 ): RulerTick[] {
   const span = Math.max(1, toMs - fromMs);
   const majorMs = pickMajorMs(span, widthPx);
-  const minorMs = majorMs / MINORS_PER_MAJOR;
+  const minorMs = pickMinorMs(majorMs, span, widthPx);
   const pct = makeProjector(fromMs, toMs, sessions);
   const off = tzOffsetMin * 60_000;
   const withDate = span > 36 * HOUR_MS || (sessions?.length ?? 0) > 1;
