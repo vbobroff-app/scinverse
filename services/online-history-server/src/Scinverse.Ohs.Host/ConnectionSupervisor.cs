@@ -44,6 +44,8 @@ public sealed class ConnectionSupervisor(
     private readonly ConcurrentDictionary<long, DateTimeOffset> _nextAttemptAt = new();
     // Дедуп сбоев тика по подключению (7j.18): сигнатура последней ошибки — чтобы не спамить NC.
     private readonly ConcurrentDictionary<long, string> _tickError = new();
+    /// <summary>Уже отправили WARN <c>restore_declined</c> по corr (после рестарта Host — заново).</summary>
+    private readonly ConcurrentDictionary<string, byte> _restoreDeclinedEmitted = new();
     // 7j.20: детект «плановый старт окна» (kickoff). _prevDesired — предыдущее IsConnectDesired на тике;
     // переход false→true ⇒ расписание только что открыло окно ⇒ _kickoffPending=true (держим до успешного
     // коннекта, чтобы вся серия попыток на открытии считалась плановой). Отличает «Auto подключение по
@@ -72,6 +74,17 @@ public sealed class ConnectionSupervisor(
     {
         var tick = TimeSpan.FromSeconds(
             options.LivenessProbeSeconds > 0 ? options.LivenessProbeSeconds : 15);
+
+        // Сразу при старте (до client-recovery барьера): open recovering/active вне окна → WARN + journal active.
+        // Иначе после рестарта Host тишина до 25с+, а Append без Hub.Adopt всё равно no-op.
+        try
+        {
+            await HealOutOfWindowOpenBreaksAsync(time.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "ConnectionSupervisor: startup heal out-of-window failed");
+        }
 
         // 7j.20: барьер восстановления клиента. Перед ПЕРВЫМ Auto-реконнектом ждём: клиент, ведущий инцидент
         // простоя, шлёт heads-up (hold) на реконнекте и backend.recovered при закрытии — тогда «Система
@@ -112,13 +125,8 @@ public sealed class ConnectionSupervisor(
 
     private async Task ReconcileAsync(CancellationToken cancellationToken)
     {
-        var states = await schedule.ListAutoEnabledAsync(cancellationToken).ConfigureAwait(false);
-        if (states.Count == 0)
-        {
-            return;
-        }
-
         var now = time.GetUtcNow();
+        var states = await schedule.ListAutoEnabledAsync(cancellationToken).ConfigureAwait(false);
         foreach (var state in states)
         {
             var connectionId = state.Settings.ConnectionId;
@@ -136,6 +144,63 @@ public sealed class ConnectionSupervisor(
                     connectionId);
                 await PublishTickFailureAsync(connectionId, ex, cancellationToken).ConfigureAwait(false);
             }
+        }
+
+        // Даже при Auto off: open break вне окна → WARN + journal active (не отмалчиваться).
+        try
+        {
+            await HealOutOfWindowOpenBreaksAsync(now, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "ConnectionSupervisor: heal out-of-window failed");
+        }
+    }
+
+    /// <summary>
+    /// После TRANSAQ→supervisor handover: войти в open-инцидент в любом случае.
+    /// Вне окна — WARN + journal <c>active</c>; Auto off в окне — journal <c>active</c>;
+    /// Auto on в окне — обычный nudge на reconnect.
+    /// </summary>
+    public async Task ReviewHandoverAsync(long connectionId, CancellationToken cancellationToken)
+    {
+        Nudge();
+        var now = time.GetUtcNow();
+        ConnectionScheduleState state;
+        try
+        {
+            state = await schedule.GetStateAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                ex,
+                "ConnectionSupervisor: ReviewHandover GetState failed for {ConnectionId}",
+                connectionId);
+            return;
+        }
+
+        var desired = await IsConnectDesiredAsync(state, now, cancellationToken).ConfigureAwait(false);
+        if (!desired)
+        {
+            await DeclineRestoreOutOfWindowAsync(connectionId, now, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (!state.Settings.AutoEnabled)
+        {
+            // В окне, но Auto выключен — reconnect не будет; recovering → active.
+            await MarkAwaitOperatorAsync(
+                    connectionId,
+                    now,
+                    code: "connection.await_operator",
+                    message: "Auto выключен — восстановление связи не выполняется",
+                    severity: "warning",
+                    reason: "auto_off",
+                    requireRecovering: true,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 
@@ -266,6 +331,9 @@ public sealed class ConnectionSupervisor(
                     connectionId);
             }
 
+            // Вне окна не ретраим: WARN в нить + journal recovering → active.
+            await DeclineRestoreOutOfWindowAsync(connectionId, nowUtc, cancellationToken)
+                .ConfigureAwait(false);
             return;
         }
 
@@ -663,6 +731,249 @@ public sealed class ConnectionSupervisor(
         logger.LogWarning(
             "ConnectionSupervisor: closed stale audit break {Corr} для {ConnectionId} (link=Live)",
             open.CorrelationId, connectionId);
+    }
+
+    /// <summary>
+    /// Тик/старт: open break (active|recovering) вне окна → decline WARN + journal active.
+    /// Работает и при Auto off (не зависит от ListAutoEnabled).
+    /// </summary>
+    private async Task HealOutOfWindowOpenBreaksAsync(
+        DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        // Два запроса: Query фильтрует один status.
+        foreach (var status in new[] { "recovering", "active" })
+        {
+            var rows = await incidentStore
+                .QueryAsync(
+                    new IncidentQuery
+                    {
+                        Module = "connection",
+                        Type = "break",
+                        Status = status,
+                        Limit = 100,
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var row in rows)
+            {
+                if (row.ConnectionId is not { } connectionId || row.DeletedAt is not null)
+                {
+                    continue;
+                }
+
+                ConnectionScheduleState state;
+                try
+                {
+                    state = await schedule.GetStateAsync(connectionId, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(
+                        ex,
+                        "ConnectionSupervisor: heal GetState failed for {ConnectionId}",
+                        connectionId);
+                    continue;
+                }
+
+                if (await IsConnectDesiredAsync(state, nowUtc, cancellationToken).ConfigureAwait(false))
+                {
+                    continue;
+                }
+
+                await DeclineRestoreOutOfWindowAsync(connectionId, nowUtc, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Вне окна: WARN в open-нить + journal <c>recovering → active</c>.
+    /// </summary>
+    private Task DeclineRestoreOutOfWindowAsync(
+        long connectionId, DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+        MarkAwaitOperatorAsync(
+            connectionId,
+            nowUtc,
+            code: "connection.restore_declined",
+            message: "Супервизор отклонил восстановление связи в нерабочее окно расписания",
+            severity: "warning",
+            reason: "out_of_schedule",
+            requireRecovering: false,
+            cancellationToken: cancellationToken);
+
+    private async Task MarkAwaitOperatorAsync(
+        long connectionId,
+        DateTimeOffset nowUtc,
+        string code,
+        string message,
+        string severity,
+        string reason,
+        bool requireRecovering,
+        CancellationToken cancellationToken)
+    {
+        // После рестарта Hub пуст — Append в нить no-op, пока не Adopt из journal.
+        await TryAdoptOpenBreakFromJournalAsync(connectionId, cancellationToken).ConfigureAwait(false);
+
+        var corr = connections.GetOpenBreakCorr(connectionId);
+        Incident? row = !string.IsNullOrWhiteSpace(corr)
+            ? await incidentStore.GetAsync(corr!, cancellationToken).ConfigureAwait(false)
+            : null;
+
+        if (row is null || row.Status is "resolved" || row.DeletedAt is not null)
+        {
+            row = await incidentStore.FindOpenBreakAsync(connectionId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (row is null || row.DeletedAt is not null || row.Status is "resolved")
+        {
+            return;
+        }
+
+        var isRecovering = row.Status is "recovering";
+        if (requireRecovering && !isRecovering)
+        {
+            return;
+        }
+
+        if (!isRecovering && row.Status is not "active")
+        {
+            return;
+        }
+
+        // Вне окна WARN «отклонил» — только решение супервизора (Auto/heal), не фон ручного reconnect.
+        if (reason == "out_of_schedule")
+        {
+            if (connections.IsOperatorReconnectPending(connectionId)
+                || connections.HasSession(connectionId)
+                || connections.GetStatus(connectionId) is "waiting" or "active" or "degraded")
+            {
+                return;
+            }
+        }
+
+        corr = row.CorrUid;
+        var linkSubject = ConnectionManager.LinkIncidentSubject(connectionId);
+        var alreadyWarned = _restoreDeclinedEmitted.ContainsKey(corr);
+
+        // Повторный heal: WARN уже был (уместный, при отказе супервизора) — не дублируем.
+        // Journal recovering после fail оператора → только sync → active, без второго WARN.
+        if (reason == "out_of_schedule" && alreadyWarned)
+        {
+            if (!isRecovering)
+            {
+                return;
+            }
+
+            await fanOut
+                .ApplyAsync(
+                    new IncidentStep(
+                        IncidentStepKind.AwaitOperator,
+                        linkSubject,
+                        nowUtc,
+                        CorrUid: corr,
+                        ConnectionId: connectionId),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var hubStatus = OpenLinkIncident.FromJournal(row).Status;
+        if (!notifications.TryGetOpenCorrelationId(linkSubject, out _))
+        {
+            if (!notifications.Adopt(linkSubject, corr, hubStatus))
+            {
+                logger.LogWarning(
+                    "ConnectionSupervisor: Hub.Adopt failed before {Code} for {Corr}",
+                    code,
+                    corr);
+            }
+        }
+
+        var label = await connections.ResolveLabelAsync(connectionId, cancellationToken)
+            .ConfigureAwait(false);
+        var text = $"{label}: {message}";
+        var data = new
+        {
+            connectionId,
+            sender = "supervisor",
+            reason,
+        };
+
+        // Append требует open в Hub; иначе Publish с тем же corr — всё равно в нить Incident.
+        var appended = notifications.Append(
+            linkSubject,
+            code,
+            text,
+            severity: severity,
+            data: data,
+            status: "active",
+            ts: nowUtc);
+        if (!appended)
+        {
+            notifications.Publish(
+                code,
+                text,
+                severity: severity,
+                sourceType: "system",
+                data: data,
+                status: "active",
+                correlationId: corr,
+                subject: linkSubject,
+                ts: nowUtc);
+        }
+
+        if (reason == "out_of_schedule")
+        {
+            _restoreDeclinedEmitted.TryAdd(corr, 0);
+        }
+
+        if (isRecovering)
+        {
+            await fanOut
+                .ApplyAsync(
+                    new IncidentStep(
+                        IncidentStepKind.AwaitOperator,
+                        linkSubject,
+                        nowUtc,
+                        CorrUid: corr,
+                        ConnectionId: connectionId),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        logger.LogInformation(
+            "ConnectionSupervisor: {Code} {ConnectionId} ({Reason}; journal={Status}; appended={Appended})",
+            code,
+            connectionId,
+            reason,
+            row.Status,
+            appended);
+    }
+
+    private async Task<bool> IsConnectDesiredAsync(
+        ConnectionScheduleState state, DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        var settings = state.Settings;
+        var local = ToLocal(nowUtc, settings.Tz);
+        var localTime = TimeOnly.FromDateTime(local.DateTime);
+        var localDate = DateOnly.FromDateTime(local.DateTime);
+        var tradingByDay = new Dictionary<DateOnly, bool>();
+        foreach (var openDay in new[] { localDate.AddDays(-1), localDate })
+        {
+            var session = await ResolveSessionAsync(settings.Engine, openDay, nowUtc, cancellationToken)
+                .ConfigureAwait(false);
+            tradingByDay[openDay] = session is not null;
+        }
+
+        return ConnectionScheduleResolver.IsConnectDesired(
+            state.LiveRules,
+            settings.Engine,
+            localDate,
+            localTime,
+            (_, day) => tradingByDay.GetValueOrDefault(day));
     }
 
     /// <summary>

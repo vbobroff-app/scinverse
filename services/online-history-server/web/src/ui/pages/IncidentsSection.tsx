@@ -72,6 +72,19 @@ export function IncidentsSection() {
 
   useEffect(() => reload(), [reload]);
 
+  /** Lifecycle NC → store обновил journal; страница догоняет список без ручного Refresh. */
+  useEffect(() => {
+    let cancelPrev: (() => void) | undefined;
+    const sub = store.journalInvalidate$.subscribe(() => {
+      cancelPrev?.();
+      cancelPrev = reload();
+    });
+    return () => {
+      cancelPrev?.();
+      sub.unsubscribe();
+    };
+  }, [store, reload]);
+
   return (
     <div className={styles.layout}>
       <div className={styles.main}>

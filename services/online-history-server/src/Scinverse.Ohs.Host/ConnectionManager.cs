@@ -81,10 +81,18 @@ public sealed class ConnectionManager(
     private readonly ConcurrentDictionary<long, (DateTimeOffset At, string? Detail)> _degradedPending = new();
     /// <summary>J5: прогресс TRANSAQ (t&lt;T) + handover по T — в Manager, не ждём тик Auto-супервизора.</summary>
     private readonly ConcurrentDictionary<long, CancellationTokenSource> _transaqProgress = new();
+    /// <summary>Ручной connect при open break — heal не должен писать «супервизор отклонил».</summary>
+    private readonly ConcurrentDictionary<long, byte> _operatorReconnect = new();
     private Timer? _idleMonitor;
 
     /// <summary>Пробудить <see cref="ConnectionSupervisor"/> после open/handover (wire в OhsWorker).</summary>
     public Action? RequestSupervisorNudge { get; set; }
+
+    /// <summary>
+    /// После TRANSAQ→supervisor handover: ревью open-инцидента (WARN вне окна / journal→active).
+    /// Wire в OhsWorker → <c>ConnectionSupervisor.ReviewHandoverAsync</c>.
+    /// </summary>
+    public Func<long, CancellationToken, Task>? OnBreakHandedOverAsync { get; set; }
 
     public ConnectorLinkState? GetLinkState(long connectionId) =>
         _linkStates.TryGetValue(connectionId, out var state) ? state : null;
@@ -182,6 +190,19 @@ public sealed class ConnectionManager(
 
     public string GetStatus(long connectionId) =>
         _status.TryGetValue(connectionId, out var status) ? status : "disconnected";
+
+    /// <summary>Сессия уже в памяти (в т.ч. mid-<see cref="ConnectAsync"/>) — не «отклонять» restore.</summary>
+    public bool HasSession(long connectionId) => _sessions.ContainsKey(connectionId);
+
+    /// <summary>Оператор чинит open break (ручной тумблер) — вне окна WARN «отклонил» не пишем.</summary>
+    public bool IsOperatorReconnectPending(long connectionId) =>
+        _operatorReconnect.ContainsKey(connectionId);
+
+    public void BeginOperatorReconnect(long connectionId) =>
+        _operatorReconnect[connectionId] = 0;
+
+    public void EndOperatorReconnect(long connectionId) =>
+        _operatorReconnect.TryRemove(connectionId, out _);
 
     /// <summary>Системный ярлык NC: только id (без имени провайдера).</summary>
     public static string ConnLabelSystem(long connectionId) => $"Подключение {connectionId}";
@@ -484,7 +505,7 @@ public sealed class ConnectionManager(
         // внутренний CloseAsync(ServerDown) — no-op (границу уже поставил маркер выше). Дальше связь поднимет
         // супервизор (connect ×5, ветка «не connected» в ReconcileOneAsync).
         await DisconnectAsync(connectionId, cancellationToken, LinkCloseReason.ServerDown).ConfigureAwait(false);
-        RequestSupervisorNudge?.Invoke();
+        await NotifyBreakHandedOverAsync(connectionId, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -533,6 +554,27 @@ public sealed class ConnectionManager(
                     ConnectionId: connectionId),
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private async Task NotifyBreakHandedOverAsync(long connectionId, CancellationToken cancellationToken)
+    {
+        if (OnBreakHandedOverAsync is { } onHanded)
+        {
+            try
+            {
+                await onHanded(connectionId, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Подключение {ConnectionId}: OnBreakHandedOverAsync failed — fallback Nudge",
+                    connectionId);
+            }
+        }
+
+        RequestSupervisorNudge?.Invoke();
     }
 
     public async Task<string> TestAsync(long connectionId, CancellationToken cancellationToken)
@@ -1248,7 +1290,7 @@ public sealed class ConnectionManager(
                 _incidentOwner[connectionId] = "supervisor";
                 RememberOpenCorr(connectionId, corr);
                 StopTransaqRecoverProgress(connectionId);
-                RequestSupervisorNudge?.Invoke();
+                await NotifyBreakHandedOverAsync(connectionId, cancellationToken).ConfigureAwait(false);
             }
 
             if (_sourceIds.TryGetValue(connectionId, out var srcId))
@@ -1275,7 +1317,7 @@ public sealed class ConnectionManager(
                 subject, "connection.lost", message, severity: "error", data: lostData, ts: atTs);
             await TransferBreakOwnerToSupervisorAsync(connectionId, atTs, reason, cancellationToken)
                 .ConfigureAwait(false);
-            RequestSupervisorNudge?.Invoke();
+            await NotifyBreakHandedOverAsync(connectionId, cancellationToken).ConfigureAwait(false);
         }
 
         await liveness.Value.OnServerDownAsync(connectionId, atTs, cancellationToken).ConfigureAwait(false);

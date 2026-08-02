@@ -148,6 +148,22 @@ const SERIES_STRIKES_LIMIT = 500;
 /** Как часто перезапрашивать покрытие (живые гэпы внутри активной сессии). */
 const COVERAGE_POLL_MS = 12_000;
 /**
+ * NC lifecycle → статус journal (active/recovering/resolved). Без этого бейдж/модалка
+ * ждут только COVERAGE_POLL (~12с) и «запаздывают» относительно ЦУ.
+ */
+const JOURNAL_STATUS_NOTIFY_CODES = new Set([
+  'connection.lost',
+  'connection.recovering',
+  'connection.reconnecting',
+  'connection.recovered',
+  'connection.incident_closed',
+  'connection.connect_failed',
+  'connection.restore_declined',
+  'connection.await_operator',
+]);
+/** Склеить пачку recovering-тиков в один GET /connections/{id}/incidents. */
+const JOURNAL_INCIDENTS_DEBOUNCE_MS = 250;
+/**
  * I12 / 7j.22 шаг 1 (+ задел под WebGL drag-zoom): склеить залп/жест в один проход.
  * Тишина debounce → полный последовательный refresh; in-flight отменяется (switchMap).
  */
@@ -380,6 +396,13 @@ export class OhsStore {
   private coveragePollTimer?: ReturnType<typeof setInterval>;
   /** I12: вход pipeline refresh ленты (полный проход coverage→activity→liveness). */
   private readonly ribbonRefresh$ = new Subject<void>();
+  /** Лёгкий refresh journal incidents (не весь ribbon) по NC lifecycle. */
+  private readonly journalIncidentsRefresh$ = new Subject<void>();
+  /**
+   * UI журнала (модалка Connection / страница «Журнал»): перечитать GET /incidents
+   * после смены статуса в store.
+   */
+  readonly journalInvalidate$ = new Subject<void>();
 
   // Инцидент недоступности бэка (7j.20). Фазы: grace → open (FATAL+тики) → warning → ok.
   // §9.2: к OK только через WARNING (не FATAL→OK). Пачка mid-stack 500 → один warn после кулдауна.
@@ -435,6 +458,12 @@ export class OhsStore {
         switchMap(() => this.runRibbonRefresh$()),
       )
       .subscribe({ error: (err) => console.error('ribbon refresh', err) });
+    this.journalIncidentsRefresh$
+      .pipe(
+        debounceTime(JOURNAL_INCIDENTS_DEBOUNCE_MS),
+        switchMap(() => this.fetchConnectionIncidents$()),
+      )
+      .subscribe({ error: (err) => console.error('journal incidents refresh', err) });
   }
 
   /**
@@ -925,6 +954,15 @@ export class OhsStore {
       }
     }
     void import('./notifications').then((m) => m.publishServerNotification(dto));
+    this.noteJournalLifecycleNotify(dto);
+  }
+
+  /** NC уже обновил threadStatus — догнать journal SoT (бейдж + модалка), не ждать poll 12с. */
+  private noteJournalLifecycleNotify(dto: NotificationDto): void {
+    if (!JOURNAL_STATUS_NOTIFY_CODES.has(dto.code)) {
+      return;
+    }
+    this.journalIncidentsRefresh$.next();
   }
 
   /**
@@ -2066,23 +2104,28 @@ export class OhsStore {
           }),
         ),
       ),
-      concatMap(() => {
-        // 11.13e: цветные эпизоды Connection + бинарный red Recording ← журнал incident.
-        if (connectionId == null) {
-          this.link$.next({ ...this.link$.value, incidents: undefined });
-          return of(null);
-        }
-        return this.api.getConnectionIncidents(connectionId, { from, to, limit: 500 }).pipe(
-          tap((incidents) => {
-            this.link$.next({ ...this.link$.value, incidents });
-            this.maybeClearCrashOptimisticFromJournal(incidents);
-          }),
-          catchError((err) => {
-            console.error('getConnectionIncidents', err);
-            // Не затираем кэш journal пустым ответом (outage / краткий сбой API).
-            return of(null);
-          }),
-        );
+      concatMap(() => this.fetchConnectionIncidents$()),
+    );
+  }
+
+  /** Только journal incidents для active connection (+ сигнал UI). */
+  private fetchConnectionIncidents$(): Observable<unknown> {
+    const connectionId = this.activeConnectionId$.value;
+    if (connectionId == null) {
+      this.link$.next({ ...this.link$.value, incidents: undefined });
+      return of(null);
+    }
+    const { from, to } = this.window$.value;
+    return this.api.getConnectionIncidents(connectionId, { from, to, limit: 500 }).pipe(
+      tap((incidents) => {
+        this.link$.next({ ...this.link$.value, incidents });
+        this.maybeClearCrashOptimisticFromJournal(incidents);
+        this.journalInvalidate$.next();
+      }),
+      catchError((err) => {
+        console.error('getConnectionIncidents', err);
+        // Не затираем кэш journal пустым ответом (outage / краткий сбой API).
+        return of(null);
       }),
     );
   }

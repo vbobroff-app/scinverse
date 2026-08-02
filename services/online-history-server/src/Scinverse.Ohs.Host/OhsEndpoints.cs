@@ -1047,55 +1047,64 @@ public static class OhsEndpoints
 
             if (breakOpen)
             {
-                notifications.Append(
-                    linkSubject,
-                    "connection.connect",
-                    $"{userLabel}: подключение по команде оператора",
-                    severity: "info",
-                    sourceType: "user",
-                    data: new { connectionId = id, sender = "user" });
-                await fanOut
-                    .ApplyAsync(
-                        new IncidentStep(
-                            IncidentStepKind.Recovering,
-                            linkSubject,
-                            DateTimeOffset.UtcNow,
-                            ConnectionId: id,
-                            NcCode: "connection.reconnecting",
-                            NcMessage: $"{userLabel}: восстановление связи по команде оператора…",
-                            NcSeverity: "warning",
-                            NcData: new { connectionId = id, owner = "supervisor", sender = "user" }),
-                        ct)
-                    .ConfigureAwait(false);
-
+                // Пока оператор чинит — supervisor heal не пишет «отклонил восстановление вне окна».
+                manager.BeginOperatorReconnect(id);
                 try
                 {
-                    var connect = await manager.ConnectAsync(id, ct);
-                    // recovered пишет ConnectAsync → CloseIncidentAsync в link-corr.
-                    recordingSupervisor.Nudge();
-                    return Results.Ok(ToDto(connection, connect.Status));
-                }
-                catch (InvalidOperationException ex)
-                {
-                    var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, systemLabel, ex.Message);
                     notifications.Append(
                         linkSubject,
-                        "connection.connect_failed",
-                        failedMessage,
-                        severity: "error",
-                        data: failedData);
-                    return Results.BadRequest(new { error = ex.Message });
+                        "connection.connect",
+                        $"{userLabel}: подключение по команде оператора",
+                        severity: "info",
+                        sourceType: "user",
+                        data: new { connectionId = id, sender = "user" });
+                    await fanOut
+                        .ApplyAsync(
+                            new IncidentStep(
+                                IncidentStepKind.Recovering,
+                                linkSubject,
+                                DateTimeOffset.UtcNow,
+                                ConnectionId: id,
+                                NcCode: "connection.reconnecting",
+                                NcMessage: $"{userLabel}: восстановление связи по команде оператора…",
+                                NcSeverity: "warning",
+                                NcData: new { connectionId = id, owner = "supervisor", sender = "user" }),
+                            ct)
+                        .ConfigureAwait(false);
+
+                    try
+                    {
+                        var connect = await manager.ConnectAsync(id, ct);
+                        // recovered пишет ConnectAsync → CloseIncidentAsync в link-corr.
+                        recordingSupervisor.Nudge();
+                        return Results.Ok(ToDto(connection, connect.Status));
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, systemLabel, ex.Message);
+                        notifications.Append(
+                            linkSubject,
+                            "connection.connect_failed",
+                            failedMessage,
+                            severity: "error",
+                            data: failedData);
+                        return Results.BadRequest(new { error = ex.Message });
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, systemLabel, ex.Message);
+                        notifications.Append(
+                            linkSubject,
+                            "connection.connect_failed",
+                            failedMessage,
+                            severity: "error",
+                            data: failedData);
+                        throw;
+                    }
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                finally
                 {
-                    var (failedMessage, failedData) = ConnectionManager.FormatConnectFailedNotification(id, systemLabel, ex.Message);
-                    notifications.Append(
-                        linkSubject,
-                        "connection.connect_failed",
-                        failedMessage,
-                        severity: "error",
-                        data: failedData);
-                    throw;
+                    manager.EndOperatorReconnect(id);
                 }
             }
 

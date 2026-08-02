@@ -196,6 +196,20 @@ export function ConnectionIncidentsModal({
     return reload();
   }, [open, reload]);
 
+  /** Пока открыта — догонять статус active/recovering вместе с NC (не ждать poll ленты). */
+  useEffect(() => {
+    if (!open) return;
+    let cancelPrev: (() => void) | undefined;
+    const sub = store.journalInvalidate$.subscribe(() => {
+      cancelPrev?.();
+      cancelPrev = reload();
+    });
+    return () => {
+      cancelPrev?.();
+      sub.unsubscribe();
+    };
+  }, [open, store, reload]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (ev: KeyboardEvent) => {

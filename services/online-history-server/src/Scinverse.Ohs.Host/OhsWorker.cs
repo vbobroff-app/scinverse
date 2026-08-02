@@ -23,6 +23,7 @@ public sealed class OhsWorker(
     {
         logger.LogInformation("OHS control-plane запущен");
         connectionManager.RequestSupervisorNudge = connectionSupervisor.Nudge;
+        connectionManager.OnBreakHandedOverAsync = connectionSupervisor.ReviewHandoverAsync;
 
         var batcherTask = RunBatcherResilientAsync(stoppingToken);
         var heartbeatTask = coverageTracker.RunHeartbeatAsync(HeartbeatInterval, stoppingToken);
