@@ -111,24 +111,24 @@
 
 /* Есть recovering — жёлтый (break). */
 .incidentsBtnRecovering {
-  border-color: #e0a92e;
-  color: #e0a92e;
+  border-color: #d29922;
+  color: #d29922;
 }
 
 .incidentsBtnRecovering:hover {
-  border-color: #e0a92e;
-  color: #e0a92e;
+  border-color: #d29922;
+  color: #d29922;
 }
 
 /* Есть active — красный (crash / start-маркер). */
 .incidentsBtnActive {
-  border-color: #dc3545;
-  color: #dc3545;
+  border-color: #ff6666;
+  color: #ff6666;
 }
 
 .incidentsBtnActive:hover {
-  border-color: #dc3545;
-  color: #dc3545;
+  border-color: #ff6666;
+  color: #ff6666;
 }
 
 .incidentsBtnIcon {
