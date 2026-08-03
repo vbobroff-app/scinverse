@@ -383,14 +383,26 @@ export interface IncidentDto {
   deletedBy?: string | null;
 }
 
+export interface IncidentPage {
+  items: IncidentDto[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface IncidentQueryParams {
   module?: string;
   status?: string;
+  /** Мульти-статус (модалка); приоритетнее status. */
+  statuses?: string[];
   type?: string;
+  /** Мульти close_outcome: recovered / recovered_manual / abandoned_manual. */
+  closeOutcomes?: string[];
   connectionId?: number;
   from?: string;
   to?: string;
   limit?: number;
+  offset?: number;
   /** Включить soft-deleted строки (модалка журнала). */
   includeDeleted?: boolean;
 }

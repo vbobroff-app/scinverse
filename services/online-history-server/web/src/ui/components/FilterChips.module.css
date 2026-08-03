@@ -198,6 +198,21 @@
   background: var(--color-bg-hover);
 }
 
+.checkAll {
+  font-weight: 600;
+}
+
+.checkDisabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.checkDivider {
+  height: 1px;
+  margin: 2px 6px;
+  background: var(--color-border);
+}
+
 .hint {
   margin-left: auto;
   padding-left: 10px;

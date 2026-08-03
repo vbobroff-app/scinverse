@@ -2524,8 +2524,8 @@ export class OhsStore {
     });
     // Journal SoT: набор soft-deleted corr для фильтра NC «Удалённые».
     this.api.getIncidents({ includeDeleted: true, limit: 500 }).subscribe({
-      next: (rows) => {
-        const deleted = rows
+      next: (page) => {
+        const deleted = page.items
           .filter((i) => i.deletedAt != null && i.deletedAt !== '')
           .map((i) => i.corrUid);
         void import('./notifications').then((m) => m.syncSoftDeletedCorrs(deleted));

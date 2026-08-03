@@ -193,9 +193,13 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
             $"/api/exchanges/{Uri.EscapeDataString(engine)}/schedule{query}", Json, cancellationToken);
     }
 
-    public Task<IReadOnlyList<IncidentDto>> GetIncidentsAsync(
-        IncidentQueryParams query, CancellationToken cancellationToken = default) =>
-        GetListAsync<IncidentDto>("/api/incidents" + BuildIncidentsQuery(query), cancellationToken);
+    public async Task<IncidentPageDto> GetIncidentsAsync(
+        IncidentQueryParams query, CancellationToken cancellationToken = default)
+    {
+        var page = await http.GetFromJsonAsync<IncidentPageDto>(
+            "/api/incidents" + BuildIncidentsQuery(query), Json, cancellationToken);
+        return page ?? new IncidentPageDto([], 0, query.Limit, query.Offset);
+    }
 
     public async Task<IncidentDto?> GetIncidentAsync(
         string corrUid, CancellationToken cancellationToken = default)
@@ -284,9 +288,31 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
             parts.Add($"status={Uri.EscapeDataString(query.Status)}");
         }
 
+        if (query.Statuses is { Length: > 0 })
+        {
+            foreach (var s in query.Statuses)
+            {
+                if (!string.IsNullOrWhiteSpace(s))
+                {
+                    parts.Add($"statuses={Uri.EscapeDataString(s)}");
+                }
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(query.Type))
         {
             parts.Add($"type={Uri.EscapeDataString(query.Type)}");
+        }
+
+        if (query.CloseOutcomes is { Length: > 0 })
+        {
+            foreach (var o in query.CloseOutcomes)
+            {
+                if (!string.IsNullOrWhiteSpace(o))
+                {
+                    parts.Add($"closeOutcomes={Uri.EscapeDataString(o)}");
+                }
+            }
         }
 
         if (query.ConnectionId is { } connectionId)
@@ -310,6 +336,11 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
         }
 
         parts.Add($"limit={query.Limit}");
+        if (query.Offset > 0)
+        {
+            parts.Add($"offset={query.Offset}");
+        }
+
         return parts.Count > 0 ? "?" + string.Join('&', parts) : string.Empty;
     }
 

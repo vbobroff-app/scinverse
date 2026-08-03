@@ -2,13 +2,18 @@ import { Tip, createOffsetFormatTs, formatTsUtc } from '@scinverse/notification-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OhsApi } from '../../core/api';
 import {
+  loadIncidentsModalFilters,
   loadIncidentsShowDeleted,
+  saveIncidentsModalFilters,
   saveIncidentsShowDeleted,
+  type IncidentsModalFilterKey,
 } from '../../core/incidentsJournalStorage';
 import type { IncidentDto } from '../../core/types';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { formatDurationMs } from '../pages/formatDurationMs';
+import { FilterChips } from './filters/FilterChips';
+import type { FilterMenuItem, FilterSpec } from './filters/filterModel';
 import { EyeIcon, PencilIcon } from './icons';
 import styles from './ConnectionIncidentsModal.module.css';
 
@@ -22,6 +27,24 @@ interface Props {
 type CloseStep = 'reason' | 'confirm';
 type DeleteStep = 'info' | 'confirm';
 type WizardKind = 'close' | 'delete' | null;
+
+const PAGE_SIZE = 100;
+const NEAR_END_PX = 200;
+
+const STATUS_IDS = ['active', 'recovering', 'resolved', 'deleted'] as const;
+const OUTCOME_IDS = ['recovered', 'abandoned_manual', 'recovered_manual'] as const;
+
+const FILTER_AVAILABLE: FilterMenuItem[] = [
+  { key: 'status', name: 'Статус' },
+  { key: 'outcome', name: 'Исход' },
+];
+
+/** Пусто или все опции → не фильтруем (как NC: empty set = off). */
+function effectiveMulti(selected: string[], allIds: readonly string[]): string[] | undefined {
+  if (selected.length === 0) return undefined;
+  if (allIds.every((id) => selected.includes(id))) return undefined;
+  return selected;
+}
 
 function isOpenStatus(status: string): boolean {
   return status === 'active' || status === 'recovering';
@@ -87,7 +110,17 @@ export function ConnectionIncidentsModal({
 
   const [editing, setEditing] = useState(false);
   const [showDeleted, setShowDeleted] = useState(() => loadIncidentsShowDeleted());
+  const [activeFilters, setActiveFilters] = useState<IncidentsModalFilterKey[]>(
+    () => loadIncidentsModalFilters().activeFilters,
+  );
+  const [statuses, setStatuses] = useState<string[]>(
+    () => loadIncidentsModalFilters().statuses,
+  );
+  const [outcomes, setOutcomes] = useState<string[]>(
+    () => loadIncidentsModalFilters().outcomes,
+  );
   const [items, setItems] = useState<IncidentDto[]>([]);
+  const [total, setTotal] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCorr, setSelectedCorr] = useState<string | null>(null);
@@ -99,6 +132,14 @@ export function ConnectionIncidentsModal({
   const [closeNote, setCloseNote] = useState('');
   const [busy, setBusy] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const loadingRef = useRef(false);
+  const subRef = useRef<{ unsubscribe: () => void } | null>(null);
+  const skipFilterSaveRef = useRef(false);
+  const itemsRef = useRef(items);
+  const totalRef = useRef(total);
+  itemsRef.current = items;
+  totalRef.current = total;
 
   const selected = useMemo(
     () => (selectedCorr ? (items.find((i) => i.corrUid === selectedCorr) ?? null) : null),
@@ -158,35 +199,164 @@ export function ConnectionIncidentsModal({
     setDeleteStep('info');
   }, [unlockDialogSize]);
 
-  const reload = useCallback(() => {
-    setError(null);
-    const sub = OhsApi.getIncidents({
-      module: 'connection',
-      connectionId,
-      limit: 200,
-      includeDeleted: showDeleted,
-    }).subscribe({
-      next: (list) => {
-        setItems(list);
-        setLoaded(true);
-        setSelectedCorr((cur) =>
-          cur && list.some((i) => i.corrUid === cur) ? cur : null,
-        );
+  const fetchPage = useCallback(
+    (offset: number, append: boolean) => {
+      setError(null);
+      if (append) {
+        if (loadingRef.current) return () => undefined;
+        if (itemsRef.current.length >= totalRef.current) return () => undefined;
+      } else {
+        subRef.current?.unsubscribe();
+        subRef.current = null;
+      }
+
+      loadingRef.current = true;
+      const statusFilter = activeFilters.includes('status')
+        ? effectiveMulti(statuses, STATUS_IDS)
+        : undefined;
+      // «Deleted» имеет смысл только при «Показывать удалённые».
+      const statusesForApi = statusFilter?.filter((s) => s !== 'deleted' || showDeleted);
+      const outcomeFilter = activeFilters.includes('outcome')
+        ? effectiveMulti(outcomes, OUTCOME_IDS)
+        : undefined;
+      const sub = OhsApi.getIncidents({
+        module: 'connection',
+        connectionId,
+        statuses: statusesForApi?.length ? statusesForApi : undefined,
+        closeOutcomes: outcomeFilter,
+        limit: PAGE_SIZE,
+        offset,
+        includeDeleted: showDeleted,
+      }).subscribe({
+        next: (page) => {
+          loadingRef.current = false;
+          if (subRef.current === sub) subRef.current = null;
+          setTotal(page.total);
+          setItems((prev) => (append ? [...prev, ...page.items] : page.items));
+          setLoaded(true);
+          setSelectedCorr((cur) => {
+            if (!cur) return null;
+            const list = append ? [...itemsRef.current, ...page.items] : page.items;
+            return list.some((i) => i.corrUid === cur) ? cur : null;
+          });
+        },
+        error: (err: unknown) => {
+          loadingRef.current = false;
+          if (subRef.current === sub) subRef.current = null;
+          setLoaded(true);
+          setError(err instanceof Error ? err.message : 'Не удалось загрузить журнал');
+        },
+      });
+      subRef.current = sub;
+      return () => {
+        sub.unsubscribe();
+        if (subRef.current === sub) {
+          subRef.current = null;
+          loadingRef.current = false;
+        }
+      };
+    },
+    [connectionId, showDeleted, activeFilters, statuses, outcomes],
+  );
+
+  const filterSpecs = useMemo<Record<string, FilterSpec>>(
+    () => ({
+      status: {
+        key: 'status',
+        name: 'Статус',
+        mode: 'multi',
+        masterAll: true,
+        options: [
+          { id: 'active', label: 'Active' },
+          { id: 'recovering', label: 'Recovering' },
+          { id: 'resolved', label: 'Resolved' },
+          {
+            id: 'deleted',
+            label: 'Deleted',
+            disabled: !showDeleted,
+            title: showDeleted
+              ? undefined
+              : 'Включи «Показывать удалённые» внизу',
+          },
+        ],
+        selected: statuses,
+        onChange: setStatuses,
       },
-      error: (err: unknown) => {
-        setLoaded(true);
-        setError(err instanceof Error ? err.message : 'Не удалось загрузить журнал');
+      outcome: {
+        key: 'outcome',
+        name: 'Исход',
+        mode: 'multi',
+        masterAll: true,
+        options: [
+          { id: 'recovered', label: 'Решено' },
+          { id: 'abandoned_manual', label: 'Закрыто пользователем' },
+          { id: 'recovered_manual', label: 'Решено пользователем' },
+        ],
+        selected: outcomes,
+        onChange: setOutcomes,
       },
-    });
-    return () => sub.unsubscribe();
-  }, [connectionId, showDeleted]);
+    }),
+    [statuses, outcomes, showDeleted],
+  );
+
+  const addFilter = useCallback((key: string) => {
+    const k = key as IncidentsModalFilterKey;
+    setActiveFilters((prev) => (prev.includes(k) ? prev : [...prev, k]));
+    if (k === 'status') setStatuses([...STATUS_IDS]);
+    if (k === 'outcome') setOutcomes([...OUTCOME_IDS]);
+  }, []);
+
+  const removeFilter = useCallback((key: string) => {
+    const k = key as IncidentsModalFilterKey;
+    setActiveFilters((prev) => prev.filter((x) => x !== k));
+    if (k === 'status') setStatuses([...STATUS_IDS]);
+    if (k === 'outcome') setOutcomes([...OUTCOME_IDS]);
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    setActiveFilters([]);
+    setStatuses([...STATUS_IDS]);
+    setOutcomes([...OUTCOME_IDS]);
+  }, []);
+
+  /** Пишем LS только из открытой модалки; пропускаем кадр restore с чужим in-memory state. */
+  useEffect(() => {
+    if (!open) return;
+    if (skipFilterSaveRef.current) {
+      skipFilterSaveRef.current = false;
+      return;
+    }
+    saveIncidentsModalFilters({ activeFilters, statuses, outcomes });
+  }, [open, activeFilters, statuses, outcomes]);
+
+  const reload = useCallback(() => fetchPage(0, false), [fetchPage]);
+
+  const loadMore = useCallback(() => {
+    if (loadingRef.current) return;
+    if (itemsRef.current.length >= totalRef.current) return;
+    fetchPage(itemsRef.current.length, true);
+  }, [fetchPage]);
+
+  const onTableScroll = useCallback(() => {
+    const el = tableWrapRef.current;
+    if (!el) return;
+    if (el.scrollHeight - (el.scrollTop + el.clientHeight) < NEAR_END_PX) {
+      loadMore();
+    }
+  }, [loadMore]);
 
   useEffect(() => {
     if (!open) return;
     setEditing(false);
     setShowDeleted(loadIncidentsShowDeleted());
+    skipFilterSaveRef.current = true;
+    const saved = loadIncidentsModalFilters();
+    setActiveFilters(saved.activeFilters);
+    setStatuses(saved.statuses);
+    setOutcomes(saved.outcomes);
     resetWizard();
     setLoaded(false);
+    setTotal(0);
     setSelectedCorr(null);
   }, [open, resetWizard]);
 
@@ -325,12 +495,17 @@ export function ConnectionIncidentsModal({
         className={styles.panel}
         role="dialog"
         aria-modal="true"
-        aria-label={`Журнал инцидентов · ${connectionName}`}
+        aria-label={
+          loaded
+            ? `Журнал инцидентов · ${connectionName} (${total})`
+            : `Журнал инцидентов · ${connectionName}`
+        }
         onClick={(e) => e.stopPropagation()}
       >
         <header className={styles.head}>
           <strong className={styles.headTitle}>
             Журнал инцидентов · {connectionName}
+            {loaded ? ` (${total})` : ''}
           </strong>
           <div className={styles.headActions}>
             <Tip content={editing ? 'Режим редактирования' : 'Режим просмотра'}>
@@ -364,6 +539,17 @@ export function ConnectionIncidentsModal({
             </button>
           </div>
         </header>
+
+        <div className={styles.filterRow}>
+          <FilterChips
+            available={FILTER_AVAILABLE}
+            active={activeFilters}
+            specs={filterSpecs}
+            onAdd={addFilter}
+            onRemove={removeFilter}
+            onClear={clearFilters}
+          />
+        </div>
 
         {editing ? (
           <div className={styles.toolbar}>
@@ -407,7 +593,7 @@ export function ConnectionIncidentsModal({
 
         {error ? <div className={styles.error}>{error}</div> : null}
 
-        <div className={styles.tableWrap}>
+        <div className={styles.tableWrap} ref={tableWrapRef} onScroll={onTableScroll}>
           {!loaded ? (
             <div className={styles.empty}>Загрузка…</div>
           ) : items.length === 0 ? (
@@ -472,18 +658,26 @@ export function ConnectionIncidentsModal({
           )}
         </div>
 
-        <label className={styles.footerCheck}>
-          <input
-            type="checkbox"
-            checked={showDeleted}
-            onChange={(e) => {
-              const next = e.target.checked;
-              setShowDeleted(next);
-              saveIncidentsShowDeleted(next);
-            }}
-          />
-          Показывать удалённые
-        </label>
+        <div className={styles.footer}>
+          <span className={styles.footerCount}>
+            {!loaded ? 'Загрузка…' : `${items.length} из ${total}`}
+          </span>
+          <label className={styles.footerCheck}>
+            <input
+              type="checkbox"
+              checked={showDeleted}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setShowDeleted(next);
+                saveIncidentsShowDeleted(next);
+                if (!next) {
+                  setStatuses((prev) => prev.filter((s) => s !== 'deleted'));
+                }
+              }}
+            />
+            Показывать удалённые
+          </label>
+        </div>
 
         {wizard === 'close' && selected ? (
           <div

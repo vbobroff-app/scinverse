@@ -199,9 +199,9 @@ public sealed class ConnectionManagerIncidentTests
         public Task<Incident?> FindOpenBreakAsync(long connectionId, CancellationToken cancellationToken) =>
             Task.FromResult<Incident?>(null);
 
-        public Task<IReadOnlyList<Incident>> QueryAsync(
+        public Task<IncidentPage> QueryAsync(
             IncidentQuery query, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<Incident>>([]);
+            Task.FromResult(new IncidentPage([], 0, query.Limit > 0 ? query.Limit : 100, Math.Max(0, query.Offset)));
 
         public Task<bool> SoftDeleteAsync(
             string corrUid, DateTimeOffset deletedAt, string? deletedBy, CancellationToken cancellationToken) =>

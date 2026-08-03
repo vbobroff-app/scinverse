@@ -303,7 +303,7 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
             ConnectionId = synthetic.ConnectionId,
             Limit = 50,
         });
-        var row = incidents.FirstOrDefault(i => i.CorrUid == corr);
+        var row = incidents.Items.FirstOrDefault(i => i.CorrUid == corr);
         row.Should().NotBeNull();
         row!.Status.Should().BeOneOf("active", "recovering");
         row.CloseOutcome.Should().BeNull();
@@ -360,28 +360,82 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
 
         var api = CreateApi();
         var all = await api.GetIncidentsAsync(new IncidentQueryParams { Module = "connection", Limit = 50 });
-        all.Should().Contain(i => i.CorrUid == corrA);
-        all.Should().Contain(i => i.CorrUid == corrB);
+        all.Items.Should().Contain(i => i.CorrUid == corrA);
+        all.Items.Should().Contain(i => i.CorrUid == corrB);
 
         var filtered = await api.GetIncidentsAsync(new IncidentQueryParams
         {
             ConnectionId = 41,
             Status = "resolved",
         });
-        filtered.Should().ContainSingle(i => i.CorrUid == corrA);
-        filtered[0].CloseOutcome.Should().Be("recovered");
-        filtered[0].DurationMs.Should().Be((long)TimeSpan.FromMinutes(5).TotalMilliseconds);
+        filtered.Items.Should().ContainSingle(i => i.CorrUid == corrA);
+        filtered.Items[0].CloseOutcome.Should().Be("recovered");
+        filtered.Items[0].DurationMs.Should().Be((long)TimeSpan.FromMinutes(5).TotalMilliseconds);
 
         var detail = await api.GetIncidentAsync(corrA);
         detail.Should().NotBeNull();
         detail!.Status.Should().Be("resolved");
-        detail.DurationMs.Should().Be(filtered[0].DurationMs);
+        detail.DurationMs.Should().Be(filtered.Items[0].DurationMs);
 
         var window = await api.GetConnectionIncidentsAsync(
             41, from: t0.AddMinutes(-1), to: t1.AddMinutes(1));
         window.Should().ContainSingle(i => i.CorrUid == corrA);
 
         (await api.GetIncidentAsync("connection:0:link:missing")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Incidents_api_paginates_with_total()
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IIncidentStore>();
+        var t0 = new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.Zero);
+        for (var i = 0; i < 3; i++)
+        {
+            await store.OpenAsync(
+                new Incident
+                {
+                    CorrUid = $"connection:43:link:page{i}",
+                    Module = "connection",
+                    Type = "break",
+                    Status = "active",
+                    OpenedAt = t0.AddMinutes(i),
+                    Subject = "connection:43:link",
+                    Severity = "error",
+                    Title = $"page{i}",
+                    LastActivityAt = t0.AddMinutes(i),
+                    ConnectionId = 43,
+                    SourceId = 1,
+                    Subtype = "down",
+                    Owner = "supervisor",
+                },
+                CancellationToken.None);
+        }
+
+        var api = CreateApi();
+        var first = await api.GetIncidentsAsync(new IncidentQueryParams
+        {
+            ConnectionId = 43,
+            Module = "connection",
+            Limit = 2,
+            Offset = 0,
+        });
+        first.Total.Should().Be(3);
+        first.Limit.Should().Be(2);
+        first.Offset.Should().Be(0);
+        first.Items.Should().HaveCount(2);
+        first.Items.Select(i => i.CorrUid).Should().Equal(
+            "connection:43:link:page2", "connection:43:link:page1");
+
+        var second = await api.GetIncidentsAsync(new IncidentQueryParams
+        {
+            ConnectionId = 43,
+            Module = "connection",
+            Limit = 2,
+            Offset = 2,
+        });
+        second.Total.Should().Be(3);
+        second.Items.Should().ContainSingle().Which.CorrUid.Should().Be("connection:43:link:page0");
     }
 
     [Fact]
@@ -462,7 +516,7 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
             Module = "connection",
             Limit = 50,
         });
-        hidden.Should().NotContain(i => i.CorrUid == corr);
+        hidden.Items.Should().NotContain(i => i.CorrUid == corr);
 
         var shown = await api.GetIncidentsAsync(new IncidentQueryParams
         {
@@ -471,7 +525,7 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
             IncludeDeleted = true,
             Limit = 50,
         });
-        shown.Should().ContainSingle(i => i.CorrUid == corr && i.DeletedAt != null);
+        shown.Items.Should().ContainSingle(i => i.CorrUid == corr && i.DeletedAt != null);
 
         var ribbon = await api.GetConnectionIncidentsAsync(56, from: t0.AddHours(-1), to: t0.AddHours(3));
         ribbon.Should().NotContain(i => i.CorrUid == corr, "ribbon всегда без soft-deleted");
@@ -486,7 +540,7 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
             Module = "connection",
             Limit = 50,
         });
-        visible.Should().Contain(i => i.CorrUid == corr && i.DeletedAt == null);
+        visible.Items.Should().Contain(i => i.CorrUid == corr && i.DeletedAt == null);
     }
 
     [Fact]
@@ -548,7 +602,7 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
             ConnectionId = synthetic.ConnectionId,
             Limit = 200,
         });
-        list.Should().Contain(i =>
+        list.Items.Should().Contain(i =>
             i.Type == "break"
             && i.Payload != null
             && i.Payload.Contains("gap_backfill", StringComparison.Ordinal));

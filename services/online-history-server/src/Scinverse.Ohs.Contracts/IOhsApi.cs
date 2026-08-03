@@ -110,8 +110,8 @@ public interface IOhsApi
     Task<MarketScheduleDto?> GetMarketScheduleAsync(
         string engine, DateOnly? on = null, CancellationToken cancellationToken = default);
 
-    /// <summary>GET /api/incidents?module=&amp;status=&amp;type=&amp;connectionId=&amp;from=&amp;to=&amp;limit=&amp;includeDeleted=</summary>
-    Task<IReadOnlyList<IncidentDto>> GetIncidentsAsync(
+    /// <summary>GET /api/incidents?module=&amp;status=&amp;statuses=&amp;type=&amp;closeOutcomes=&amp;connectionId=&amp;from=&amp;to=&amp;limit=&amp;offset=&amp;includeDeleted=</summary>
+    Task<IncidentPageDto> GetIncidentsAsync(
         IncidentQueryParams query, CancellationToken cancellationToken = default);
 
     /// <summary>GET /api/incidents/{corrUid}</summary>

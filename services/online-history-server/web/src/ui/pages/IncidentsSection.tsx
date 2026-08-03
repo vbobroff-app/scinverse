@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createOffsetFormatTs, formatTsUtc } from '@scinverse/notification-center';
 import { OhsApi } from '../../core/api';
 import {
@@ -14,6 +14,10 @@ import styles from './IncidentsSection.module.css';
 type StatusFilter = '' | 'active' | 'recovering' | 'resolved';
 type TypeFilter = '' | 'break' | 'crash';
 
+const PAGE_SIZE = 100;
+/** Порог до низа скролла (px), при котором догружаем следующую страницу. */
+const NEAR_END_PX = 200;
+
 /**
  * Журнал инцидентов (phase 11.13d): список эпизодов из OHS `GET /api/incidents`.
  * Не путать с доком NC (атомы notify) — здесь таблица `incident`.
@@ -27,6 +31,7 @@ export function IncidentsSection() {
   );
 
   const [items, setItems] = useState<IncidentDto[]>([]);
+  const [total, setTotal] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<StatusFilter>('');
@@ -36,39 +41,81 @@ export function IncidentsSection() {
   const [selected, setSelected] = useState<IncidentDto | null>(null);
   const [resolving, setResolving] = useState(false);
 
-  const reload = useCallback(() => {
-    setError(null);
-    const conn = connectionId.trim() === '' ? undefined : Number(connectionId);
-    if (connectionId.trim() !== '' && !Number.isFinite(conn)) {
-      setError('connectionId — число');
-      setLoaded(true);
-      return () => undefined;
-    }
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const loadingRef = useRef(false);
+  const subRef = useRef<{ unsubscribe: () => void } | null>(null);
+  const itemsRef = useRef(items);
+  const totalRef = useRef(total);
+  itemsRef.current = items;
+  totalRef.current = total;
 
-    const sub = OhsApi.getIncidents({
-      module: 'connection',
-      status: status || undefined,
-      type: type || undefined,
-      connectionId: conn,
-      limit: 200,
-      includeDeleted: showDeleted,
-    }).subscribe({
-      next: (list) => {
-        setItems(list);
+  const fetchPage = useCallback(
+    (offset: number, append: boolean) => {
+      setError(null);
+      const conn = connectionId.trim() === '' ? undefined : Number(connectionId);
+      if (connectionId.trim() !== '' && !Number.isFinite(conn)) {
+        setError('connectionId — число');
         setLoaded(true);
-        setSelected((cur) =>
-          cur && list.some((i) => i.corrUid === cur.corrUid)
-            ? (list.find((i) => i.corrUid === cur.corrUid) ?? null)
-            : null,
-        );
-      },
-      error: (err: unknown) => {
-        setLoaded(true);
-        setError(err instanceof Error ? err.message : 'Не удалось загрузить журнал');
-      },
-    });
-    return () => sub.unsubscribe();
-  }, [status, type, connectionId, showDeleted]);
+        return () => undefined;
+      }
+
+      // Append не стартует, пока идёт другой запрос; replace отменяет текущий.
+      if (append) {
+        if (loadingRef.current) return () => undefined;
+        if (itemsRef.current.length >= totalRef.current) return () => undefined;
+      } else {
+        subRef.current?.unsubscribe();
+        subRef.current = null;
+      }
+
+      loadingRef.current = true;
+      const sub = OhsApi.getIncidents({
+        module: 'connection',
+        status: status || undefined,
+        type: type || undefined,
+        connectionId: conn,
+        limit: PAGE_SIZE,
+        offset,
+        includeDeleted: showDeleted,
+      }).subscribe({
+        next: (page) => {
+          loadingRef.current = false;
+          if (subRef.current === sub) subRef.current = null;
+          setTotal(page.total);
+          setItems((prev) => (append ? [...prev, ...page.items] : page.items));
+          setLoaded(true);
+          setSelected((cur) => {
+            if (!cur) return null;
+            const list = append ? [...itemsRef.current, ...page.items] : page.items;
+            return list.find((i) => i.corrUid === cur.corrUid) ?? null;
+          });
+        },
+        error: (err: unknown) => {
+          loadingRef.current = false;
+          if (subRef.current === sub) subRef.current = null;
+          setLoaded(true);
+          setError(err instanceof Error ? err.message : 'Не удалось загрузить журнал');
+        },
+      });
+      subRef.current = sub;
+      return () => {
+        sub.unsubscribe();
+        if (subRef.current === sub) {
+          subRef.current = null;
+          loadingRef.current = false;
+        }
+      };
+    },
+    [status, type, connectionId, showDeleted],
+  );
+
+  const reload = useCallback(() => fetchPage(0, false), [fetchPage]);
+
+  const loadMore = useCallback(() => {
+    if (loadingRef.current) return;
+    if (itemsRef.current.length >= totalRef.current) return;
+    fetchPage(itemsRef.current.length, true);
+  }, [fetchPage]);
 
   useEffect(() => reload(), [reload]);
 
@@ -84,6 +131,14 @@ export function IncidentsSection() {
       sub.unsubscribe();
     };
   }, [store, reload]);
+
+  const onTableScroll = useCallback(() => {
+    const el = tableWrapRef.current;
+    if (!el) return;
+    if (el.scrollHeight - (el.scrollTop + el.clientHeight) < NEAR_END_PX) {
+      loadMore();
+    }
+  }, [loadMore]);
 
   return (
     <div className={styles.layout}>
@@ -130,7 +185,7 @@ export function IncidentsSection() {
 
         {error ? <div className={styles.error}>{error}</div> : null}
 
-        <div className={styles.tableWrap}>
+        <div className={styles.tableWrap} ref={tableWrapRef} onScroll={onTableScroll}>
           {!loaded ? (
             <div className={styles.empty}>Загрузка…</div>
           ) : items.length === 0 ? (
@@ -181,18 +236,23 @@ export function IncidentsSection() {
           )}
         </div>
 
-        <label className={styles.footerCheck}>
-          <input
-            type="checkbox"
-            checked={showDeleted}
-            onChange={(e) => {
-              const next = e.target.checked;
-              setShowDeleted(next);
-              saveIncidentsShowDeleted(next);
-            }}
-          />
-          Показывать удалённые
-        </label>
+        <div className={styles.footer}>
+          <span className={styles.footerCount}>
+            {!loaded ? 'Загрузка…' : `${items.length} из ${total}`}
+          </span>
+          <label className={styles.footerCheck}>
+            <input
+              type="checkbox"
+              checked={showDeleted}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setShowDeleted(next);
+                saveIncidentsShowDeleted(next);
+              }}
+            />
+            Показывать удалённые
+          </label>
+        </div>
       </div>
 
       <aside className={styles.detail}>

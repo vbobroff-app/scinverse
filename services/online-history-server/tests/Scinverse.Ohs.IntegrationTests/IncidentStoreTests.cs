@@ -138,8 +138,9 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
         var forConn1 = await _store.QueryAsync(
             new IncidentQuery { ConnectionId = 1, Module = "connection", Limit = 50 },
             CancellationToken.None);
-        forConn1.Should().HaveCount(2);
-        forConn1.Select(i => i.CorrUid).Should().Equal("connection:1:link:c", "connection:1:link:a");
+        forConn1.Total.Should().Be(2);
+        forConn1.Items.Should().HaveCount(2);
+        forConn1.Items.Select(i => i.CorrUid).Should().Equal("connection:1:link:c", "connection:1:link:a");
 
         // Закрытый до окна не попадает; open, начатый до From, пересекает окно (нужен на ribbon).
         await _store.ResolveAsync(
@@ -153,7 +154,7 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
                 To = day.AddHours(12),
             },
             CancellationToken.None);
-        window.Should().ContainSingle().Which.CorrUid.Should().Be("connection:1:link:c");
+        window.Items.Should().ContainSingle().Which.CorrUid.Should().Be("connection:1:link:c");
     }
 
     [Fact]
@@ -185,7 +186,7 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
         var hidden = await _store.QueryAsync(
             new IncidentQuery { ConnectionId = 3, Module = "connection", Limit = 50 },
             CancellationToken.None);
-        hidden.Should().NotContain(i => i.CorrUid == corr);
+        hidden.Items.Should().NotContain(i => i.CorrUid == corr);
 
         var withDeleted = await _store.QueryAsync(
             new IncidentQuery
@@ -196,7 +197,7 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
                 Limit = 50,
             },
             CancellationToken.None);
-        withDeleted.Should().ContainSingle(i => i.CorrUid == corr && i.DeletedAt != null);
+        withDeleted.Items.Should().ContainSingle(i => i.CorrUid == corr && i.DeletedAt != null);
 
         (await _store.RestoreAsync(corr, CancellationToken.None)).Should().BeTrue();
         var restored = await _store.GetAsync(corr, CancellationToken.None);
@@ -206,7 +207,7 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
         var visible = await _store.QueryAsync(
             new IncidentQuery { ConnectionId = 3, Module = "connection", Limit = 50 },
             CancellationToken.None);
-        visible.Should().Contain(i => i.CorrUid == corr);
+        visible.Items.Should().Contain(i => i.CorrUid == corr);
     }
 
     [Fact]
@@ -268,12 +269,12 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
         var forB = await _store.QueryAsync(
             new IncidentQuery { ConnectionId = b, Module = "connection", Limit = 50 },
             CancellationToken.None);
-        forB.Should().ContainSingle(i => i.CorrUid == corr);
+        forB.Items.Should().ContainSingle(i => i.CorrUid == corr);
 
         var forA = await _store.QueryAsync(
             new IncidentQuery { ConnectionId = a, Module = "connection", Limit = 50 },
             CancellationToken.None);
-        forA.Should().ContainSingle(i => i.CorrUid == corr);
+        forA.Items.Should().ContainSingle(i => i.CorrUid == corr);
 
         await _store.ReplaceConnectionScopeAsync(corr, [b], CancellationToken.None);
         (await _store.ListConnectionScopeAsync(corr, CancellationToken.None)).Should().Equal(b);
@@ -281,7 +282,34 @@ public sealed class IncidentStoreTests : IClassFixture<TimescaleFixture>, IAsync
         var after = await _store.QueryAsync(
             new IncidentQuery { ConnectionId = a, Module = "connection", Limit = 50 },
             CancellationToken.None);
-        after.Should().NotContain(i => i.CorrUid == corr);
+        after.Items.Should().NotContain(i => i.CorrUid == corr);
+    }
+
+    [Fact]
+    public async Task Query_paginates_with_total()
+    {
+        var day = new DateTimeOffset(2026, 8, 3, 0, 0, 0, TimeSpan.Zero);
+        for (var i = 0; i < 3; i++)
+        {
+            await _store.OpenAsync(
+                BreakOpen($"connection:9:link:page{i}", day.AddHours(i), connectionId: 9),
+                CancellationToken.None);
+        }
+
+        var first = await _store.QueryAsync(
+            new IncidentQuery { ConnectionId = 9, Module = "connection", Limit = 2, Offset = 0 },
+            CancellationToken.None);
+        first.Total.Should().Be(3);
+        first.Limit.Should().Be(2);
+        first.Offset.Should().Be(0);
+        first.Items.Should().HaveCount(2);
+        first.Items.Select(i => i.CorrUid).Should().Equal("connection:9:link:page2", "connection:9:link:page1");
+
+        var second = await _store.QueryAsync(
+            new IncidentQuery { ConnectionId = 9, Module = "connection", Limit = 2, Offset = 2 },
+            CancellationToken.None);
+        second.Total.Should().Be(3);
+        second.Items.Should().ContainSingle().Which.CorrUid.Should().Be("connection:9:link:page0");
     }
 
     private static Incident BreakOpen(

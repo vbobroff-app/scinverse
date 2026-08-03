@@ -51,8 +51,8 @@ public interface IIncidentStore
     Task<bool> BindConnectionIdIfNullAsync(
         string corrUid, long connectionId, CancellationToken cancellationToken);
 
-    /// <summary>Список newest-first по <c>opened_at</c> (лимит по умолчанию 100).</summary>
-    Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken);
+    /// <summary>Страница newest-first по <c>opened_at</c> (лимит по умолчанию 100).</summary>
+    Task<IncidentPage> QueryAsync(IncidentQuery query, CancellationToken cancellationToken);
 
     /// <summary>
     /// Soft-delete: проставить <c>deleted_at</c>/<c>deleted_by</c>. Идемпотентно, если уже deleted.

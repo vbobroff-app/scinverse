@@ -66,12 +66,28 @@ public sealed record IncidentQuery
 {
     public string? Module { get; init; }
     public string? Status { get; init; }
+
+    /// <summary>Мульти-статус (модалка); если задан — приоритетнее <see cref="Status"/>.</summary>
+    public IReadOnlyList<string>? Statuses { get; init; }
+
     public string? Type { get; init; }
+
+    /// <summary>Мульти close_outcome: recovered / recovered_manual / abandoned_manual.</summary>
+    public IReadOnlyList<string>? CloseOutcomes { get; init; }
+
     public long? ConnectionId { get; init; }
     public DateTimeOffset? From { get; init; }
     public DateTimeOffset? To { get; init; }
     public int Limit { get; init; } = 100;
+    public int Offset { get; init; }
 
     /// <summary>По умолчанию false — скрыть soft-deleted (ribbon всегда false).</summary>
     public bool IncludeDeleted { get; init; }
 }
+
+/// <summary>Страница журнала инцидентов: элементы + общее число под фильтром.</summary>
+public sealed record IncidentPage(
+    IReadOnlyList<Incident> Items,
+    int Total,
+    int Limit,
+    int Offset);

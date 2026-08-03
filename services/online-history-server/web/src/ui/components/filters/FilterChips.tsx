@@ -209,13 +209,47 @@ function SingleOptions({ spec, onPick }: { spec: FilterSpec; onPick: () => void 
 
 function MultiOptions({ spec }: { spec: FilterSpec }) {
   const selected = new Set(spec.selected);
+  const enabledIds = spec.options.filter((o) => !o.disabled).map((o) => o.id);
+  const allChecked =
+    enabledIds.length > 0 && enabledIds.every((id) => selected.has(id));
+  const someChecked = enabledIds.some((id) => selected.has(id)) && !allChecked;
   return (
     <>
+      {spec.masterAll ? (
+        <>
+          <label className={[styles.check, styles.checkAll].join(' ')}>
+            <input
+              type="checkbox"
+              checked={allChecked}
+              ref={(el) => {
+                if (el) el.indeterminate = someChecked;
+              }}
+              onChange={() => {
+                if (allChecked) {
+                  // Снять только доступные; disabled-выбор не трогаем.
+                  spec.onChange(spec.selected.filter((id) => !enabledIds.includes(id)));
+                } else {
+                  const next = new Set(spec.selected);
+                  for (const id of enabledIds) next.add(id);
+                  spec.onChange([...next]);
+                }
+              }}
+            />
+            Все
+          </label>
+          <div className={styles.checkDivider} aria-hidden="true" />
+        </>
+      ) : null}
       {spec.options.map((o) => (
-        <label key={o.id} className={styles.check}>
+        <label
+          key={o.id}
+          className={[styles.check, o.disabled ? styles.checkDisabled : ''].filter(Boolean).join(' ')}
+          title={o.title}
+        >
           <input
             type="checkbox"
             checked={selected.has(o.id)}
+            disabled={o.disabled}
             onChange={(e) => {
               const next = new Set(selected);
               if (e.target.checked) {

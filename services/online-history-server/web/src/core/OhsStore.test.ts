@@ -70,7 +70,7 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
     getCaptureLiveness: () => of({ intervals: [], gaps: [] }),
     getLinkLiveness: () => of({ intervals: [], gaps: [] }),
     getConnectionIncidents: () => of([]),
-    getIncidents: () => of([]),
+    getIncidents: () => of({ items: [], total: 0, limit: 100, offset: 0 }),
     getIncident: () =>
       of({
         corrUid: '',

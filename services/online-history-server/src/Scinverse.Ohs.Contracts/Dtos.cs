@@ -466,16 +466,32 @@ public sealed record IncidentDto(
     DateTimeOffset? DeletedAt = null,
     string? DeletedBy = null);
 
+/// <summary>Страница журнала инцидентов: элементы + общее число под фильтром.</summary>
+public sealed record IncidentPageDto(
+    IReadOnlyList<IncidentDto> Items,
+    int Total,
+    int Limit,
+    int Offset);
+
 /// <summary>Query-параметры <c>GET /api/incidents</c>.</summary>
 public sealed class IncidentQueryParams
 {
     public string? Module { get; init; }
     public string? Status { get; init; }
+
+    /// <summary>Мульти-статус (?statuses=active&amp;statuses=resolved); приоритетнее Status.</summary>
+    public string[]? Statuses { get; init; }
+
     public string? Type { get; init; }
+
+    /// <summary>Мульти исход (?closeOutcomes=recovered&amp;…).</summary>
+    public string[]? CloseOutcomes { get; init; }
+
     public long? ConnectionId { get; init; }
     public DateTimeOffset? From { get; init; }
     public DateTimeOffset? To { get; init; }
     public int Limit { get; init; } = 100;
+    public int Offset { get; init; }
 
     /// <summary>Включить soft-deleted строки (модалка журнала).</summary>
     public bool IncludeDeleted { get; init; }

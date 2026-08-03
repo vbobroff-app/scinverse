@@ -28,6 +28,7 @@ import type {
   BackfillOpenIncidentsResultDto,
   BackfillRecentIncidentsResultDto,
   IncidentDto,
+  IncidentPage,
   IncidentQueryParams,
   IntegrationProbeResultDto,
   ResolveIncidentRequest,
@@ -161,14 +162,21 @@ export const OhsApi = {
     const search = new URLSearchParams();
     if (params.module) search.set('module', params.module);
     if (params.status) search.set('status', params.status);
+    for (const s of params.statuses ?? []) {
+      if (s) search.append('statuses', s);
+    }
     if (params.type) search.set('type', params.type);
+    for (const o of params.closeOutcomes ?? []) {
+      if (o) search.append('closeOutcomes', o);
+    }
     if (params.connectionId != null) search.set('connectionId', String(params.connectionId));
     if (params.from) search.set('from', params.from);
     if (params.to) search.set('to', params.to);
     if (params.includeDeleted) search.set('includeDeleted', 'true');
     search.set('limit', String(params.limit ?? 100));
+    if (params.offset != null && params.offset > 0) search.set('offset', String(params.offset));
     const q = search.toString();
-    return getJSON<IncidentDto[]>(`/incidents${q ? `?${q}` : ''}`);
+    return getJSON<IncidentPage>(`/incidents${q ? `?${q}` : ''}`);
   },
 
   getIncident: (corrUid: string) =>

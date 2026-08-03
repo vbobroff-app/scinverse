@@ -948,7 +948,7 @@ public sealed class ConnectionSupervisor(
         // Два запроса: Query фильтрует один status.
         foreach (var status in new[] { "recovering", "active" })
         {
-            var rows = await incidentStore
+            var page = await incidentStore
                 .QueryAsync(
                     new IncidentQuery
                     {
@@ -960,7 +960,7 @@ public sealed class ConnectionSupervisor(
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            foreach (var row in rows)
+            foreach (var row in page.Items)
             {
                 if (row.ConnectionId is not { } connectionId || row.DeletedAt is not null)
                 {

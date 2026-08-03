@@ -11,6 +11,10 @@ export interface FilterOption {
   label: string;
   /** Доп. счётчик справа (напр. число выделенных инструментов). */
   count?: number;
+  /** Недоступна для выбора (галка disabled). */
+  disabled?: boolean;
+  /** Подсказка справа / title (напр. почему disabled). */
+  title?: string;
 }
 
 /** Описание одной плашки-фильтра: как отрисовать поповер и куда отдать выбор. */
@@ -23,6 +27,11 @@ export interface FilterSpec {
   /** Выбранные id. Пустой id ('') трактуется как нейтраль (без значения на плашке). */
   selected: string[];
   onChange: (selected: string[]) => void;
+  /**
+   * multi: мастер-галка «Все» + разделитель (как в NC DockFilters).
+   * Вкл/выкл все опции одной галкой; indeterminate при частичном выборе.
+   */
+  masterAll?: boolean;
   /** Нижняя секция с radio после разделителя (напр. «Применить» у фильтра «Выбор»). */
   applyScope?: FilterRadioGroup;
 }

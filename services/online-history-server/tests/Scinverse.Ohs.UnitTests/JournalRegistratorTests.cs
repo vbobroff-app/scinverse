@@ -240,7 +240,7 @@ public sealed class JournalRegistratorTests
             return Task.FromResult(open);
         }
 
-        public Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken)
+        public Task<IncidentPage> QueryAsync(IncidentQuery query, CancellationToken cancellationToken)
         {
             var rows = ByCorr.Values.AsEnumerable();
             if (!query.IncludeDeleted)
@@ -248,7 +248,10 @@ public sealed class JournalRegistratorTests
                 rows = rows.Where(i => i.DeletedAt is null);
             }
 
-            return Task.FromResult<IReadOnlyList<Incident>>(rows.ToList());
+            var list = rows.ToList();
+            var limit = query.Limit > 0 ? query.Limit : 100;
+            var offset = Math.Max(0, query.Offset);
+            return Task.FromResult(new IncidentPage(list, list.Count, limit, offset));
         }
 
         public Task<bool> SoftDeleteAsync(
@@ -314,7 +317,7 @@ public sealed class JournalRegistratorTests
         public Task<Incident?> FindOpenBreakAsync(long connectionId, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("db down");
 
-        public Task<IReadOnlyList<Incident>> QueryAsync(IncidentQuery query, CancellationToken cancellationToken) =>
+        public Task<IncidentPage> QueryAsync(IncidentQuery query, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("db down");
 
         public Task<bool> SoftDeleteAsync(

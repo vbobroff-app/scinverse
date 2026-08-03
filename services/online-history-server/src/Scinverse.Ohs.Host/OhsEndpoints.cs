@@ -418,31 +418,41 @@ public static class OhsEndpoints
         api.MapGet("/incidents", async (
             string? module,
             string? status,
+            string[]? statuses,
             string? type,
+            string[]? closeOutcomes,
             long? connectionId,
             DateTimeOffset? from,
             DateTimeOffset? to,
             int? limit,
+            int? offset,
             bool? includeDeleted,
             IIncidentStore store,
             TimeProvider time,
             CancellationToken ct) =>
         {
-            var rows = await store.QueryAsync(
+            var page = await store.QueryAsync(
                 new IncidentQuery
                 {
                     Module = module,
                     Status = status,
+                    Statuses = statuses,
                     Type = type,
+                    CloseOutcomes = closeOutcomes,
                     ConnectionId = connectionId,
                     From = from,
                     To = to,
                     Limit = limit ?? 100,
+                    Offset = offset ?? 0,
                     IncludeDeleted = includeDeleted ?? false,
                 },
                 ct).ConfigureAwait(false);
             var now = time.GetUtcNow();
-            return rows.Select(i => ToIncidentDto(i, now)).ToList();
+            return new IncidentPageDto(
+                page.Items.Select(i => ToIncidentDto(i, now)).ToList(),
+                page.Total,
+                page.Limit,
+                page.Offset);
         });
 
         api.MapGet("/incidents/{corrUid}", async (
@@ -701,7 +711,7 @@ public static class OhsEndpoints
                             },
                             ct)
                         .ConfigureAwait(false);
-                    openRows = all
+                    openRows = all.Items
                         .Where(r => r.Status is "active" or "recovering")
                         .ToList();
                 }
@@ -821,7 +831,7 @@ public static class OhsEndpoints
                     gaps = await linkLiveness
                         .QueryGapsAsync([connection.SourceId], fromUtc, toUtc, ct)
                         .ConfigureAwait(false);
-                    existing = await store
+                    existing = (await store
                         .QueryAsync(
                             new IncidentQuery
                             {
@@ -832,7 +842,7 @@ public static class OhsEndpoints
                                 Limit = 1000,
                             },
                             ct)
-                        .ConfigureAwait(false);
+                        .ConfigureAwait(false)).Items;
                 }
                 catch
                 {
@@ -888,7 +898,7 @@ public static class OhsEndpoints
             TimeProvider time,
             CancellationToken ct) =>
         {
-            var rows = await store.QueryAsync(
+            var page = await store.QueryAsync(
                 new IncidentQuery
                 {
                     ConnectionId = id,
@@ -898,7 +908,7 @@ public static class OhsEndpoints
                 },
                 ct).ConfigureAwait(false);
             var now = time.GetUtcNow();
-            return rows.Select(i => ToIncidentDto(i, now)).ToList();
+            return page.Items.Select(i => ToIncidentDto(i, now)).ToList();
         });
 
         // Heads-up барьеру старта супервизора (7j.20): клиент на реконнекте WS сообщает «у меня открыт

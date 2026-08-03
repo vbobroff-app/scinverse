@@ -199,19 +199,36 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
         return row is null ? null : ToIncident(row);
     }
 
-    public async Task<IReadOnlyList<Incident>> QueryAsync(
+    public async Task<IncidentPage> QueryAsync(
         IncidentQuery query, CancellationToken cancellationToken)
     {
         var limit = query.Limit > 0 ? Math.Min(query.Limit, 1000) : 100;
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var offset = Math.Max(0, query.Offset);
+
+        // Массивы всегда непустые (Npgsql), фильтр — булевым флагом (как InstrumentStore).
+        // Статус «deleted» — псевдо-статус soft-delete (не колонка status).
+        var rawStatuses = NormalizeList(query.Statuses, query.Status);
+        var wantDeleted = rawStatuses.Any(s =>
+            string.Equals(s, "deleted", StringComparison.OrdinalIgnoreCase));
+        var lifecycle = rawStatuses
+            .Where(s => !string.Equals(s, "deleted", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var hasLifecycle = lifecycle.Length > 0;
+        var closeOutcomes = NormalizeList(query.CloseOutcomes, null);
+        var hasCloseOutcomes = closeOutcomes.Length > 0;
+
         // Пересечение с окном [from, to): opened_at < to AND (open OR closed_at > from).
-        var rows = await connection.QueryAsync<Row>(new CommandDefinition(
-            $"""
-            SELECT {SelectColumns}
+        // Status-фильтр: lifecycle на не-deleted ∪ soft-deleted (если wantDeleted + includeDeleted).
+        const string whereClause = """
             FROM incident
             WHERE (@module IS NULL OR module = @module)
-              AND (@status IS NULL OR status = @status)
+              AND (
+                  (NOT @hasLifecycle AND NOT @wantDeleted)
+                  OR (@hasLifecycle AND deleted_at IS NULL AND status = ANY(@lifecycle))
+                  OR (@wantDeleted AND @includeDeleted AND deleted_at IS NOT NULL)
+              )
               AND (@type IS NULL OR type = @type)
+              AND (NOT @hasCloseOutcomes OR close_outcome = ANY(@closeOutcomes))
               AND (
                   @connectionId IS NULL
                   OR connection_id = @connectionId
@@ -225,22 +242,43 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
               AND (@from IS NULL OR closed_at IS NULL OR closed_at > @from)
               AND (@to IS NULL OR opened_at < @to)
               AND (@includeDeleted OR deleted_at IS NULL)
+            """;
+        var parameters = new
+        {
+            module = query.Module,
+            hasLifecycle,
+            lifecycle = hasLifecycle ? lifecycle : [""],
+            wantDeleted,
+            type = query.Type,
+            hasCloseOutcomes,
+            closeOutcomes,
+            connectionId = query.ConnectionId,
+            from = query.From?.ToUniversalTime(),
+            to = query.To?.ToUniversalTime(),
+            includeDeleted = query.IncludeDeleted,
+            limit,
+            offset,
+        };
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        // COUNT(*) OVER() — total под фильтром до LIMIT, без отдельного запроса.
+        var rows = (await connection.QueryAsync<QueryRow>(new CommandDefinition(
+            $"""
+            SELECT {SelectColumns}, COUNT(*) OVER() AS Total
+            {whereClause}
             ORDER BY opened_at DESC
-            LIMIT @limit;
+            LIMIT @limit OFFSET @offset;
             """,
-            new
-            {
-                module = query.Module,
-                status = query.Status,
-                type = query.Type,
-                connectionId = query.ConnectionId,
-                from = query.From?.ToUniversalTime(),
-                to = query.To?.ToUniversalTime(),
-                includeDeleted = query.IncludeDeleted,
-                limit,
-            },
-            cancellationToken: cancellationToken));
-        return rows.Select(ToIncident).ToList();
+            parameters,
+            cancellationToken: cancellationToken))).ToList();
+
+        var total = rows.Count > 0
+            ? rows[0].Total
+            : await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+                $"SELECT COUNT(*) {whereClause}", parameters, cancellationToken: cancellationToken));
+
+        var items = rows.Select(ToIncident).ToList();
+        return new IncidentPage(items, total, limit, offset);
     }
 
     public async Task<bool> SoftDeleteAsync(
@@ -348,6 +386,34 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
         DateTime? DeletedAt,
         string? DeletedBy);
 
+    /// <summary>
+    /// Class (не positional record): Dapper ставит свойства с приведением типов —
+    /// <c>COUNT(*) OVER()</c> из PG приходит как bigint, а не int.
+    /// </summary>
+    private sealed class QueryRow
+    {
+        public string CorrUid { get; init; } = "";
+        public string Module { get; init; } = "";
+        public string Type { get; init; } = "";
+        public string Status { get; init; } = "";
+        public string? CloseOutcome { get; init; }
+        public DateTime OpenedAt { get; init; }
+        public DateTime? ClosedAt { get; init; }
+        public string Subject { get; init; } = "";
+        public string Severity { get; init; } = "";
+        public string Title { get; init; } = "";
+        public DateTime LastActivityAt { get; init; }
+        public long? ConnectionId { get; init; }
+        public short? SourceId { get; init; }
+        public DateTime? EscalatedAt { get; init; }
+        public string? Subtype { get; init; }
+        public string? Owner { get; init; }
+        public string? Payload { get; init; }
+        public DateTime? DeletedAt { get; init; }
+        public string? DeletedBy { get; init; }
+        public int Total { get; init; }
+    }
+
     private static object ToRow(Incident i) => new
     {
         i.CorrUid,
@@ -392,6 +458,44 @@ public sealed class IncidentStore(NpgsqlDataSource dataSource) : IIncidentStore
         DeletedBy = r.DeletedBy,
     };
 
+    private static Incident ToIncident(QueryRow r) => new()
+    {
+        CorrUid = r.CorrUid,
+        Module = r.Module,
+        Type = r.Type,
+        Status = r.Status,
+        CloseOutcome = r.CloseOutcome,
+        OpenedAt = ToUtc(r.OpenedAt),
+        ClosedAt = r.ClosedAt is { } c ? ToUtc(c) : null,
+        Subject = r.Subject,
+        Severity = r.Severity,
+        Title = r.Title,
+        LastActivityAt = ToUtc(r.LastActivityAt),
+        ConnectionId = r.ConnectionId,
+        SourceId = r.SourceId,
+        EscalatedAt = r.EscalatedAt is { } e ? ToUtc(e) : null,
+        Subtype = r.Subtype,
+        Owner = r.Owner,
+        Payload = r.Payload,
+        DeletedAt = r.DeletedAt is { } d ? ToUtc(d) : null,
+        DeletedBy = r.DeletedBy,
+    };
+
     private static DateTimeOffset ToUtc(DateTime ts) =>
         new(DateTime.SpecifyKind(ts, DateTimeKind.Unspecified), TimeSpan.Zero);
+
+    /// <summary>Мульти-список или одиночное значение → массив для ANY(); пусто = фильтр выкл.</summary>
+    private static string[] NormalizeList(IReadOnlyList<string>? multi, string? single)
+    {
+        if (multi is { Count: > 0 })
+        {
+            return multi
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(s => s.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        return string.IsNullOrWhiteSpace(single) ? [] : [single.Trim()];
+    }
 }
