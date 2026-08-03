@@ -7,7 +7,8 @@ namespace Scinverse.Ohs.Host;
 /// Не полная история; forward + open-adopt остаются отдельно.
 /// Клип по расписанию — <c>ScheduleCutter</c> / UI mask, не journal-resolve.
 /// Gap с <see cref="LinkGap.Abandoned"/> (стык с scheduled/disconnected) → <c>active</c>, без
-/// <c>abandoned_schedule</c>; без green закрывает только оператор (<c>abandoned_manual</c>).
+/// <c>abandoned_schedule</c>. Terminal без green — wizard (<c>abandoned_manual</c>);
+/// тумблер off инцидент не закрывает.
 /// </summary>
 public static class IncidentRecentBackfill
 {

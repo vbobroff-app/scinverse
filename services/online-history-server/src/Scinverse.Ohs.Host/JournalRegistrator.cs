@@ -1,12 +1,19 @@
+using System.Collections.Concurrent;
 using Scinverse.Ohs.Domain;
 
 namespace Scinverse.Ohs.Host;
 
-/// <summary>Персист журнала инцидентов через <see cref="IIncidentStore"/>. Ошибки БД логируются, не роняют control-plane.</summary>
+/// <summary>
+/// Персист журнала инцидентов через <see cref="IIncidentStore"/>.
+/// Ошибки БД не роняют control-plane: лог + Single system·error в NC (не новый Incident).
+/// </summary>
 public sealed class JournalRegistrator(
     IIncidentStore store,
+    INotificationPublisher notifications,
     ILogger<JournalRegistrator> logger) : IJournalRegistrator
 {
+    /// <summary>Дедуп NC: одинаковая ошибка на corr+op не спамит.</summary>
+    private readonly ConcurrentDictionary<string, string> _lastError = new(StringComparer.Ordinal);
     public Task RegisterBreakOpenAsync(
         long connectionId,
         string corrUid,
@@ -319,7 +326,52 @@ public sealed class JournalRegistrator(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "JournalRegistrator {Op} failed for {CorrUid}", op, corrUid);
+            PublishJournalFailure(corrUid, op, ex);
         }
+    }
+
+    /// <summary>
+    /// Single system·error (код не в IsOpenCode — без нового break).
+    /// Полный стек остаётся в логе Host.
+    /// </summary>
+    private void PublishJournalFailure(string corrUid, string op, Exception ex)
+    {
+        var summary = SummarizeException(ex);
+        var key = $"{corrUid}|{op}";
+        if (_lastError.TryGetValue(key, out var previous)
+            && string.Equals(previous, summary, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastError[key] = summary;
+        try
+        {
+            notifications.Publish(
+                "connection.journal_error",
+                $"Журнал инцидентов: сбой {op} ({corrUid}): {summary}",
+                severity: "error",
+                sourceType: "system",
+                data: new
+                {
+                    corrUid,
+                    op,
+                    error_message = summary,
+                    sender = "backend",
+                },
+                subject: SubjectFromCorr(corrUid));
+        }
+        catch (Exception publishEx)
+        {
+            logger.LogWarning(
+                publishEx, "JournalRegistrator: не удалось опубликовать journal_error для {CorrUid}", corrUid);
+        }
+    }
+
+    private static string SummarizeException(Exception ex)
+    {
+        var summary = $"{ex.GetType().Name}: {ex.Message}";
+        return summary.Length > 300 ? summary[..300] + "…" : summary;
     }
 }
 

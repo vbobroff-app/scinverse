@@ -11,6 +11,8 @@ public static class NotificationThreadData
     public const string KindIncident = "incident";
     public const string KindGroup = "group";
     public const string OutcomeRecovered = "recovered";
+    /// <summary>Успешный подъём тумблером on (оператор); зелёный маркер как у <see cref="OutcomeRecovered"/>.</summary>
+    public const string OutcomeRecoveredManual = "recovered_manual";
     public const string OutcomeAbandonedSchedule = "abandoned_schedule";
     public const string OutcomeAbandonedManual = "abandoned_manual";
 
@@ -130,6 +132,12 @@ public static class NotificationThreadData
     {
         if (code is "connection.recovered" or "backend.recovered")
         {
+            if (TryGetString(data, "closeOutcome") is { } fromRecovered
+                && string.Equals(fromRecovered, OutcomeRecoveredManual, StringComparison.OrdinalIgnoreCase))
+            {
+                return OutcomeRecoveredManual;
+            }
+
             return OutcomeRecovered;
         }
 
@@ -143,6 +151,7 @@ public static class NotificationThreadData
             var reason = TryGetString(data, "reason");
             if (string.Equals(reason, "manual", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(reason, "manual_off", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "manual_journal", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(reason, "abandoned_manual", StringComparison.OrdinalIgnoreCase))
             {
                 return OutcomeAbandonedManual;

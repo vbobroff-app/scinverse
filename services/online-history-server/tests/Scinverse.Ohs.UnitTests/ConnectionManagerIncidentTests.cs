@@ -55,31 +55,11 @@ public sealed class ConnectionManagerIncidentTests
         closed.Severity.Should().Be("warning");
         closed.SourceType.Should().Be("system");
         DataString(closed, "closeOutcome").Should().Be(NotificationThreadData.OutcomeAbandonedManual);
-        DataString(closed, "reason").Should().Be("manual_off");
+        DataString(closed, "reason").Should().Be("manual_journal");
         list.ToList().FindIndex(e => e.Id == userClose.Id)
             .Should().BeLessThan(list.ToList().FindIndex(e => e.Id == closed.Id), "user до system");
         link.Markers.Should().ContainSingle(m =>
             m.SourceId == 1 && m.Reason == LinkCloseReason.Disconnected && m.At == end);
-    }
-
-    [Fact]
-    public async Task Disconnect_style_abandon_skips_force_close_wording()
-    {
-        var (manager, hub, _) = CreateSut();
-        var since = DateTimeOffset.Parse("2026-07-28T11:30:00Z");
-        var end = since.AddMinutes(1);
-
-        manager.EnsureBreakIncidentOnConnectFailure(ConnId, since, "Подключение 7 («t»)").Should().BeTrue();
-        (await manager.TryAbandonIncidentByManualAsync(
-                ConnId, end, CancellationToken.None, announceOperatorForceClose: false))
-            .Should().BeTrue();
-
-        var list = hub.List();
-        list.Should().NotContain(e => e.Code == NotificationThreadData.CodeIncidentForceClosed);
-        var closed = list.Last(e => e.Code == "connection.incident_closed");
-        closed.Message.Should().Contain("при отключении");
-        closed.Message.Should().NotContain("оператором");
-        DataString(closed, "closeOutcome").Should().Be(NotificationThreadData.OutcomeAbandonedManual);
     }
 
     [Fact]
@@ -114,6 +94,26 @@ public sealed class ConnectionManagerIncidentTests
         hub.List().Should().ContainSingle(e =>
             e.Code == "connection.reconnecting" && e.CorrelationId == corr);
         manager.GetOpenBreakCorr(ConnId).Should().Be(corr);
+    }
+
+    [Fact]
+    public async Task CloseBreak_marks_recent_close_to_block_orphan_stale_race()
+    {
+        var (manager, _, _) = CreateSut();
+        var since = DateTimeOffset.Parse("2026-08-03T09:33:00Z");
+        var end = since.AddMinutes(3);
+
+        manager.EnsureBreakIncidentOnConnectFailure(ConnId, since, "Подключение 7").Should().BeTrue();
+        var corr = manager.GetOpenBreakCorr(ConnId);
+        corr.Should().NotBeNullOrWhiteSpace();
+
+        manager.IsRecentBreakClose(ConnId, corr).Should().BeFalse();
+        (await manager.TryAbandonIncidentByManualAsync(ConnId, end, CancellationToken.None))
+            .Should().BeTrue();
+
+        // Пока TTL жив — TryAdopt/orphan/stale не должны второй раз Resolve.
+        manager.IsRecentBreakClose(ConnId, corr).Should().BeTrue();
+        manager.IsRecentBreakClose(ConnId, "connection:7:link:other").Should().BeFalse();
     }
 
     private static (ConnectionManager Manager, NotificationHub Hub, RecordingLinkLiveness Link) CreateSut()

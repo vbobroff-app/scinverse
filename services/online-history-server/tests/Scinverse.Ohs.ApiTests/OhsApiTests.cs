@@ -250,7 +250,7 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
     }
 
     [Fact]
-    public async Task Disconnect_while_link_down_emits_abandoned_manual()
+    public async Task Disconnect_while_link_down_keeps_break_open()
     {
         var api = CreateApi();
         var client = new OhsApiClient(factory.CreateClient());
@@ -262,34 +262,51 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         (await PollConnectionStatusAsync(synthetic.ConnectionId, "disconnected", TimeSpan.FromSeconds(5)))
             .Should().BeTrue("обрыв должен открыть break до recover");
 
-        // Пока synthetic ещё down — disconnect закрывает break как abandoned_manual (J11b / I11).
+        var open = await PollNotificationAsync(
+            http,
+            n => n.Code == "connection.lost"
+                && n.CorrelationId != null
+                && n.CorrelationId.StartsWith($"connection:{synthetic.ConnectionId}:link:", StringComparison.Ordinal),
+            TimeSpan.FromSeconds(5));
+        open.Should().NotBeNull();
+        var corr = open!.CorrelationId!;
+
+        // Тумблер off: стоп попыток, эпизод open (не abandoned_manual).
         await api.DisconnectConnectionAsync(synthetic.ConnectionId);
 
-        var closed = await PollNotificationAsync(
+        var linkOff = await PollNotificationAsync(
             http,
-            n => n.Code == "connection.incident_closed" && n.Status == "resolved",
+            n => n.Code == "connection.link_off" && n.CorrelationId == corr,
             TimeSpan.FromSeconds(5));
-        closed.Should().NotBeNull("ручной off при open break пишет incident_closed");
-        closed!.Severity.Should().Be("warning");
-        closed.CorrelationId.Should().StartWith($"connection:{synthetic.ConnectionId}:link:");
-        NotificationDataString(closed, "closeOutcome").Should().Be("abandoned_manual");
-        NotificationDataString(closed, "reason").Should().Be("manual_off");
+        linkOff.Should().NotBeNull("WARN «Соединение отключено» в том же corr");
+        linkOff!.Severity.Should().Be("warning");
+        linkOff.Status.Should().Be("active");
+        linkOff.Message.Should().Contain("Соединение отключено оператором");
 
         var notes = await GetNotificationsAsync(http);
         notes.Should().Contain(
-            n => n.Code == "connection.disconnect" && n.SourceType == "user",
-            "команда оператора остаётся отдельным user-событием");
+            n => n.Code == "connection.disconnect"
+                && n.SourceType == "user"
+                && n.CorrelationId == corr
+                && n.Message.Contains("Соединение отключено оператором", StringComparison.Ordinal),
+            "user·info тумблера off при open break — в том же corr");
+        notes.Should().NotContain(
+            n => n.Code == "connection.incident_closed" && n.CorrelationId == corr,
+            "disconnect больше не resolve'ит break");
         notes.Should().NotContain(
             n => n.Code == "connection.incident_force_closed",
-            "«принудительно» — только wizard журнала, не тумблер off");
-        notes.Should().Contain(
-            n => n.Code == "connection.incident_closed"
-                && n.CorrelationId == closed.CorrelationId
-                && n.Message.Contains("при отключении", StringComparison.Ordinal),
-            "Resolve после disconnect — нейтральная формулировка");
-        notes.Should().NotContain(
-            n => n.Code == "connection.recovered" && n.CorrelationId == closed.CorrelationId,
-            "не должны успеть закрыть тот же corr как recovered");
+            "«принудительно» — только wizard журнала");
+
+        var incidents = await api.GetIncidentsAsync(new IncidentQueryParams
+        {
+            Module = "connection",
+            ConnectionId = synthetic.ConnectionId,
+            Limit = 50,
+        });
+        var row = incidents.FirstOrDefault(i => i.CorrUid == corr);
+        row.Should().NotBeNull();
+        row!.Status.Should().BeOneOf("active", "recovering");
+        row.CloseOutcome.Should().BeNull();
     }
 
     [Fact]
@@ -768,6 +785,7 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
         string SourceType,
         string? Status,
         string? CorrelationId,
+        string Message,
         JsonElement? Data);
 
     private async Task<bool> PollConnectionStatusAsync(

@@ -12,7 +12,7 @@ public sealed class IncidentFanOutTests
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());
         var store = new MemIncidentStore();
-        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var journal = new JournalRegistrator(store, new NotificationHub(new WebSocketBroadcaster()), NullLogger<JournalRegistrator>.Instance);
         var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
 
         const string subject = "connection:7:link";
@@ -66,11 +66,70 @@ public sealed class IncidentFanOutTests
     }
 
     [Fact]
+    public async Task Second_resolve_after_recovered_manual_does_not_overwrite_outcome_or_emit_nc()
+    {
+        var hub = new NotificationHub(new WebSocketBroadcaster());
+        var store = new MemIncidentStore();
+        var journal = new JournalRegistrator(store, new NotificationHub(new WebSocketBroadcaster()), NullLogger<JournalRegistrator>.Instance);
+        var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
+
+        const string subject = "connection:3:link";
+        var t0 = DateTimeOffset.Parse("2026-08-03T09:33:09Z");
+        var corr = await fanOut.ApplyAsync(
+            new IncidentStep(
+                IncidentStepKind.Open,
+                subject,
+                t0,
+                ConnectionId: 3,
+                Owner: "supervisor",
+                Subtype: "down",
+                NcCode: "connection.lost",
+                NcMessage: "lost"),
+            CancellationToken.None);
+        var corrUid = corr!;
+
+        var tManual = t0.AddMinutes(3);
+        await fanOut.ApplyAsync(
+            new IncidentStep(
+                IncidentStepKind.Resolve,
+                subject,
+                tManual,
+                CorrUid: corrUid,
+                CloseOutcome: NotificationThreadData.OutcomeRecoveredManual,
+                Severity: "ok",
+                NcCode: "connection.recovered",
+                NcMessage: "Подключение 3: связь восстановлена оператором",
+                NcSeverity: "ok",
+                NcData: new { connectionId = 3L, closeOutcome = NotificationThreadData.OutcomeRecoveredManual }),
+            CancellationToken.None);
+
+        // orphan без Adopt: Hub уже closed — второй Resolve не шлёт NC и не меняет close_outcome.
+        await fanOut.ApplyAsync(
+            new IncidentStep(
+                IncidentStepKind.Resolve,
+                subject,
+                tManual.AddSeconds(1),
+                CorrUid: corrUid,
+                CloseOutcome: NotificationThreadData.OutcomeRecovered,
+                Severity: "ok",
+                NcCode: "connection.recovered",
+                NcMessage: "Подключение 3: связь восстановлена",
+                NcSeverity: "ok",
+                NcData: new { connectionId = 3L, closeOutcome = NotificationThreadData.OutcomeRecovered }),
+            CancellationToken.None);
+
+        store.ByCorr[corrUid].CloseOutcome.Should().Be(NotificationThreadData.OutcomeRecoveredManual);
+        hub.List().Should().ContainSingle(e => e.Code == "connection.recovered");
+        hub.List().Single(e => e.Code == "connection.recovered").Message
+            .Should().Contain("оператором");
+    }
+
+    [Fact]
     public async Task Resolve_without_preloaded_corr_uses_open_hub_before_close()
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());
         var store = new MemIncidentStore();
-        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var journal = new JournalRegistrator(store, new NotificationHub(new WebSocketBroadcaster()), NullLogger<JournalRegistrator>.Instance);
         var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
         const string subject = "connection:3:link";
         var t0 = DateTimeOffset.Parse("2026-07-29T11:00:00Z");
@@ -110,7 +169,7 @@ public sealed class IncidentFanOutTests
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());
         var store = new MemIncidentStore();
-        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var journal = new JournalRegistrator(store, new NotificationHub(new WebSocketBroadcaster()), NullLogger<JournalRegistrator>.Instance);
         var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
         const string subject = "ohs.backend.outage";
         var t0 = DateTimeOffset.Parse("2026-07-29T12:00:00Z");
@@ -139,7 +198,7 @@ public sealed class IncidentFanOutTests
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());
         var store = new MemIncidentStore();
-        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var journal = new JournalRegistrator(store, new NotificationHub(new WebSocketBroadcaster()), NullLogger<JournalRegistrator>.Instance);
         var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
         const string subject = "ohs.backend.outage";
         const string corr = "ohs.backend.outage:race01";
@@ -178,7 +237,7 @@ public sealed class IncidentFanOutTests
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());
         var store = new MemIncidentStore();
-        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var journal = new JournalRegistrator(store, new NotificationHub(new WebSocketBroadcaster()), NullLogger<JournalRegistrator>.Instance);
         var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
         const string subject = "ohs.backend.outage";
         const string corr = "ohs.backend.outage:race02";
@@ -215,7 +274,7 @@ public sealed class IncidentFanOutTests
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());
         var store = new MemIncidentStore();
-        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var journal = new JournalRegistrator(store, new NotificationHub(new WebSocketBroadcaster()), NullLogger<JournalRegistrator>.Instance);
         var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
         const string subject = "ohs.backend.outage";
         const string corr = "ohs.backend.outage:deadbeef";
@@ -253,7 +312,7 @@ public sealed class IncidentFanOutTests
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());
         var store = new MemIncidentStore();
-        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var journal = new JournalRegistrator(store, new NotificationHub(new WebSocketBroadcaster()), NullLogger<JournalRegistrator>.Instance);
         var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
         const string subject = "connection:1:link";
         var t0 = DateTimeOffset.Parse("2026-07-29T15:00:00Z");
@@ -292,7 +351,7 @@ public sealed class IncidentFanOutTests
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());
         var store = new MemIncidentStore();
-        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var journal = new JournalRegistrator(store, new NotificationHub(new WebSocketBroadcaster()), NullLogger<JournalRegistrator>.Instance);
         var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
         const string subject = "connection:9:link";
         var t0 = DateTimeOffset.Parse("2026-07-29T13:00:00Z");

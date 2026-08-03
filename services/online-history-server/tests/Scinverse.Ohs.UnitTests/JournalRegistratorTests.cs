@@ -11,7 +11,7 @@ public sealed class JournalRegistratorTests
     public async Task Open_handover_recovering_resolve_updates_store()
     {
         var store = new FakeIncidentStore();
-        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var journal = new JournalRegistrator(store, new NotificationHub(new WebSocketBroadcaster()), NullLogger<JournalRegistrator>.Instance);
         const string corr = "connection:7:link:abcd1234";
         var t0 = DateTimeOffset.Parse("2026-07-29T10:00:00Z");
 
@@ -56,7 +56,7 @@ public sealed class JournalRegistratorTests
     public async Task EnsureAdopted_inserts_when_missing_and_skips_when_present()
     {
         var store = new FakeIncidentStore();
-        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var journal = new JournalRegistrator(store, new NotificationHub(new WebSocketBroadcaster()), NullLogger<JournalRegistrator>.Instance);
         const string corr = "connection:3:link:deadbeef";
         var t0 = DateTimeOffset.Parse("2026-07-29T12:00:00Z");
 
@@ -73,13 +73,20 @@ public sealed class JournalRegistratorTests
     }
 
     [Fact]
-    public async Task Store_exception_is_swallowed()
+    public async Task Store_exception_is_swallowed_and_published_to_nc()
     {
+        var hub = new NotificationHub(new WebSocketBroadcaster());
         var journal = new JournalRegistrator(
-            new ThrowingIncidentStore(), NullLogger<JournalRegistrator>.Instance);
+            new ThrowingIncidentStore(), hub, NullLogger<JournalRegistrator>.Instance);
         var act = () => journal.RegisterBreakOpenAsync(
-            1, "c", DateTimeOffset.UtcNow, "supervisor", "down", null, "t", CancellationToken.None);
+            1, "connection:1:link:dead", DateTimeOffset.UtcNow, "supervisor", "down", null, "t",
+            CancellationToken.None);
         await act.Should().NotThrowAsync();
+        hub.List().Should().ContainSingle(e =>
+            e.Code == "connection.journal_error"
+            && e.Severity == "error"
+            && e.SourceType == "system"
+            && e.Message.Contains("open", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -88,7 +95,7 @@ public sealed class JournalRegistratorTests
         var hub = new NotificationHub(new WebSocketBroadcaster());
         var link = new RecordingLinkLivenessForJournal();
         var store = new FakeIncidentStore();
-        var journal = new JournalRegistrator(store, NullLogger<JournalRegistrator>.Instance);
+        var journal = new JournalRegistrator(store, new NotificationHub(new WebSocketBroadcaster()), NullLogger<JournalRegistrator>.Instance);
         var fanOut = new IncidentFanOut(hub, journal, NullLogger<IncidentFanOut>.Instance);
         var connStore = new SingleConnectionStore(7, 1);
         var manager = new ConnectionManager(

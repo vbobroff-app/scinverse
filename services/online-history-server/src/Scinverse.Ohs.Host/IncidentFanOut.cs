@@ -182,10 +182,19 @@ public sealed class IncidentFanOut(
         var corr = ResolveCorr(step);
         // WS recovered/closed ДО journal (как open) — но journal ждём: иначе CrashOpen
         // успевает вставить active, пока resolve крутится в фоне.
-        EmitNcResolve(step);
+        var hubResolved = EmitNcResolve(step);
         if (step.SkipJournal || corr is null)
         {
             return corr;
+        }
+
+        // Повторный Resolve после уже закрытого Hub (orphan/stale гонка): journal Resolve
+        // идемпотентен (status≠open → no-op) — не затираем recovered_manual вторым recovered.
+        if (!hubResolved)
+        {
+            logger.LogDebug(
+                "IncidentFanOut: Hub.Resolve no-op for {Subject} corr={Corr} — journal sync only if still open",
+                step.Subject, corr);
         }
 
         await CompleteResolveJournalAsync(step, corr, cancellationToken).ConfigureAwait(false);
@@ -305,16 +314,17 @@ public sealed class IncidentFanOut(
         }
     }
 
-    private void EmitNcResolve(IncidentStep step)
+    /// <returns><c>true</c> — Hub сменил статус на resolved и отправил NC; <c>false</c> — уже closed / нет open.</returns>
+    private bool EmitNcResolve(IncidentStep step)
     {
         if (string.IsNullOrWhiteSpace(step.NcCode))
         {
-            return;
+            return false;
         }
 
         try
         {
-            notifications.Resolve(
+            return notifications.Resolve(
                 step.Subject,
                 step.NcCode,
                 step.NcMessage ?? step.Title ?? step.NcCode,
@@ -325,6 +335,7 @@ public sealed class IncidentFanOut(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "IncidentFanOut Resolve NC failed for {Subject}", step.Subject);
+            return false;
         }
     }
 

@@ -256,6 +256,7 @@ public static class OhsEndpoints
 
             try
             {
+                var before = await schedule.GetSettingsAsync(id, ct);
                 var settings = await schedule.SetSettingsAsync(
                     id, request.AutoEnabled, request.Engine, request.Tz, ct);
                 supervisor.Nudge();
@@ -263,10 +264,29 @@ public static class OhsEndpoints
                 // 2a: публикуем только при явном переключении Auto (плановое действие оператора → info).
                 if (request.AutoEnabled is { } auto)
                 {
+                    var autoMessage = auto
+                        ? $"{ConnectionManager.ConnLabelSystem(id)}: Режим AUTO включен. Подключение по расписанию"
+                        : $"{ScheduleWho(id, connection.Name)}: автоподключение выключено";
                     notifications.Publish(
                         auto ? "connection.schedule.auto_enabled" : "connection.schedule.auto_disabled",
-                        $"{ScheduleWho(id, connection.Name)}: автоподключение {(auto ? "включено" : "выключено")}",
+                        autoMessage,
                         severity: "info", sourceType: "user", data: new { connectionId = id });
+
+                    // Auto off при open break — стоп попыток, эпизод open; WARN в corr (не resolve).
+                    if (!auto && before.AutoEnabled)
+                    {
+                        await supervisor
+                            .NotifyOperatorHaltAsync(
+                                id, announceAutoOff: true, announceLinkOff: false, ct)
+                            .ConfigureAwait(false);
+                    }
+
+                    // Auto on после halt/×N — снова Connect в окне (закрыть active break → recovered).
+                    if (auto && !before.AutoEnabled)
+                    {
+                        supervisor.ResumeAutoRecovery(id);
+                        supervisor.Nudge();
+                    }
                 }
 
                 return Results.Ok(ToScheduleSettingsDto(settings));
@@ -1039,11 +1059,12 @@ public static class OhsEndpoints
                 return Results.NotFound(new { error = $"Подключение {id} не найдено" });
             }
 
-            var userLabel = ConnectionManager.ConnLabelUser(id, connection.Name);
             var systemLabel = ConnectionManager.ConnLabelSystem(id);
             var linkSubject = ConnectionManager.LinkIncidentSubject(id);
             // Открытый break → вся ручная попытка в ТОТ ЖЕ link-corr (не новый connect: «инцидент»).
             var breakOpen = manager.GetIncidentSince(id) is not null;
+            var connectUserMessage = $"{systemLabel}: Соединение включено оператором";
+            var connectUserData = new { connectionId = id };
 
             if (breakOpen)
             {
@@ -1051,22 +1072,27 @@ public static class OhsEndpoints
                 manager.BeginOperatorReconnect(id);
                 try
                 {
-                    notifications.Append(
+                    // Тумблер on при open break → user·info в corr, затем system recovering (ts позже).
+                    var userAt = DateTimeOffset.UtcNow;
+                    PublishToggleUserInBreakOrSingle(
+                        notifications,
+                        manager,
+                        id,
                         linkSubject,
-                        "connection.connect",
-                        $"{userLabel}: подключение по команде оператора",
-                        severity: "info",
-                        sourceType: "user",
-                        data: new { connectionId = id, sender = "user" });
+                        code: "connection.connect",
+                        connectUserMessage,
+                        connectUserData,
+                        ts: userAt);
+
                     await fanOut
                         .ApplyAsync(
                             new IncidentStep(
                                 IncidentStepKind.Recovering,
                                 linkSubject,
-                                DateTimeOffset.UtcNow,
+                                userAt.AddMilliseconds(1),
                                 ConnectionId: id,
                                 NcCode: "connection.reconnecting",
-                                NcMessage: $"{userLabel}: восстановление связи по команде оператора…",
+                                NcMessage: $"{systemLabel}: восстановление связи по команде оператора…",
                                 NcSeverity: "warning",
                                 NcData: new { connectionId = id, owner = "supervisor", sender = "user" }),
                             ct)
@@ -1108,12 +1134,14 @@ public static class OhsEndpoints
                 }
             }
 
-            // I11: нет open break — user intent без corr; Group connect: только после успеха.
+            // I11: нет open break — Single user + Group connect только после успеха.
             // Fail → Open link: Incident (без throwaway connect: Group).
             notifications.Publish(
                 "connection.connect",
-                $"{userLabel}: подключение по команде оператора",
-                severity: "info", sourceType: "user", data: new { connectionId = id });
+                connectUserMessage,
+                severity: "info",
+                sourceType: "user",
+                data: connectUserData);
 
             var previous = await linkLiveness.GetLastAsync(connection.SourceId, ct);
 
@@ -1175,28 +1203,43 @@ public static class OhsEndpoints
             CancellationToken ct) =>
         {
             // Ручной off тумблера связи → Auto off (phase 7j), как Стоп записи снимает Auto записи.
-            await schedule.SetAutoAsync(id, false, ct);
-            supervisor.Nudge();
-
-            var status = await manager.DisconnectAsync(id, ct);
+            // Инцидент НЕ закрываем: стоп попыток + WARN в corr (если open); terminal — wizard / recover.
+            // NC до DisconnectAsync: teardown TRANSAQ при обрыве сети может висеть секунды —
+            // иначе оператор жмёт повторно и получает дубль link_off / auto_off.
             var connection = await store.GetAsync(id, ct);
             if (connection is null)
             {
                 return Results.NotFound(new { error = $"Подключение {id} не найдено" });
             }
 
-            // J11b / I11: open break → abandoned_manual без «принудительно» (это wizard журнала).
-            var userLabel = ConnectionManager.ConnLabelUser(id, connection.Name);
-            await manager
-                .TryAbandonIncidentByManualAsync(
-                    id, DateTimeOffset.UtcNow, ct, announceOperatorForceClose: false)
+            var before = await schedule.GetSettingsAsync(id, ct);
+            var autoWasOn = before.AutoEnabled;
+            await schedule.SetAutoAsync(id, false, ct);
+            supervisor.Nudge();
+
+            // Тумблер off: сначала user·info, потом system WARN (NotifyOperatorHalt, ts строго позже).
+            var linkSubject = ConnectionManager.LinkIncidentSubject(id);
+            var userAt = DateTimeOffset.UtcNow;
+            PublishToggleUserInBreakOrSingle(
+                notifications,
+                manager,
+                id,
+                linkSubject,
+                code: "connection.disconnect",
+                message: $"{ConnectionManager.ConnLabelSystem(id)}: Соединение отключено оператором",
+                data: new { connectionId = id },
+                ts: userAt);
+
+            await supervisor
+                .NotifyOperatorHaltAsync(
+                    id,
+                    announceAutoOff: autoWasOn,
+                    announceLinkOff: true,
+                    ct,
+                    notBeforeTs: userAt.AddMilliseconds(1))
                 .ConfigureAwait(false);
-            notifications.Publish(
-                "connection.disconnect",
-                $"{userLabel}: отключение по команде оператора",
-                severity: "info",
-                sourceType: "user",
-                data: new { connectionId = id });
+
+            var status = await manager.DisconnectAsync(id, ct);
             return Results.Ok(ToDto(connection, status));
         });
 
@@ -1637,6 +1680,75 @@ public static class OhsEndpoints
         "Настройка не сохранена — ошибка хранилища",
         "Повторите попытку; при повторной ошибке — обратитесь к администратору",
     ];
+
+    /// <summary>
+    /// Тумблер связи (connect/disconnect): при open break — user·info в link-corr;
+    /// иначе Single без corr. Текст/severity вызывающий не меняет.
+    /// Явный <paramref name="ts"/> — чтобы system WARN после него имели строго больший ts.
+    /// </summary>
+    private static void PublishToggleUserInBreakOrSingle(
+        INotificationPublisher notifications,
+        ConnectionManager manager,
+        long connectionId,
+        string linkSubject,
+        string code,
+        string message,
+        object data,
+        DateTimeOffset? ts = null)
+    {
+        var at = ts ?? DateTimeOffset.UtcNow;
+        var corr = manager.GetOpenBreakCorr(connectionId);
+        if (string.IsNullOrWhiteSpace(corr) && manager.GetIncidentSince(connectionId) is null)
+        {
+            notifications.Publish(
+                code,
+                message,
+                severity: "info",
+                sourceType: "user",
+                data: data,
+                ts: at);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(corr))
+        {
+            // Manager помнит since, но corr ещё не проставлен — Single, чтобы не терять user-событие.
+            notifications.Publish(
+                code,
+                message,
+                severity: "info",
+                sourceType: "user",
+                data: data,
+                ts: at);
+            return;
+        }
+
+        if (!notifications.TryGetOpenCorrelationId(linkSubject, out _))
+        {
+            notifications.Adopt(linkSubject, corr, "active");
+        }
+
+        var appended = notifications.Append(
+            linkSubject,
+            code,
+            message,
+            severity: "info",
+            sourceType: "user",
+            data: data,
+            ts: at);
+        if (!appended)
+        {
+            notifications.Publish(
+                code,
+                message,
+                severity: "info",
+                sourceType: "user",
+                data: data,
+                correlationId: corr,
+                subject: linkSubject,
+                ts: at);
+        }
+    }
 
     /// <summary>User-подпись расписания: id основной, имя в скобках (имя может меняться).</summary>
     private static string ScheduleWho(long connectionId, string name) => $"Расписание {connectionId} («{name}»)";

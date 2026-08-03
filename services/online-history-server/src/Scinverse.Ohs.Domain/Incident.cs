@@ -18,7 +18,7 @@ public sealed record Incident
     /// <summary>active | recovering | resolved.</summary>
     public required string Status { get; init; }
 
-    /// <summary>recovered | abandoned_schedule | abandoned_manual; null пока open.</summary>
+    /// <summary>recovered | recovered_manual | abandoned_schedule | abandoned_manual; null пока open.</summary>
     public string? CloseOutcome { get; init; }
 
     public required DateTimeOffset OpenedAt { get; init; }

@@ -46,6 +46,9 @@ public sealed class ConnectionSupervisor(
     private readonly ConcurrentDictionary<long, string> _tickError = new();
     /// <summary>Уже отправили WARN <c>restore_declined</c> по corr (после рестарта Host — заново).</summary>
     private readonly ConcurrentDictionary<string, byte> _restoreDeclinedEmitted = new();
+    /// <summary>Дедуп WARN halt в open-corr (повторный /disconnect при долгом teardown).</summary>
+    private readonly ConcurrentDictionary<string, byte> _haltAutoOffEmitted = new();
+    private readonly ConcurrentDictionary<string, byte> _haltLinkOffEmitted = new();
     // 7j.20: детект «плановый старт окна» (kickoff). _prevDesired — предыдущее IsConnectDesired на тике;
     // переход false→true ⇒ расписание только что открыло окно ⇒ _kickoffPending=true (держим до успешного
     // коннекта, чтобы вся серия попыток на открытии считалась плановой). Отличает «Auto подключение по
@@ -345,6 +348,13 @@ public sealed class ConnectionSupervisor(
             return;
         }
 
+        // Grace T (owner=transaq): даже при status=disconnected не Connect — ждём тики/handover в Manager.
+        if (string.Equals(connections.GetIncidentOwner(connectionId), "transaq", StringComparison.Ordinal))
+        {
+            await TickRecoveringAsync(connectionId, nowUtc, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         if (_nextAttemptAt.TryGetValue(connectionId, out var next) && nowUtc < next)
         {
             return;
@@ -419,12 +429,12 @@ public sealed class ConnectionSupervisor(
             var connect = await connections.ConnectAsync(connectionId, cancellationToken).ConfigureAwait(false);
             _failCounts.TryRemove(connectionId, out _);
             _nextAttemptAt.TryRemove(connectionId, out _);
+            _kickoffPending.TryRemove(connectionId, out _);
             // Успех без open break → короткая Group auto: (connecting→connected) + Single INFO.
             // ts = ConnectResult.ReadyAt (= link_liveness.from), не UtcNow Publish.
             // Не сюда: recovered инцидента связи (ConnectAsync → CloseBreak в link:) — incidentOpen=true.
             if (!incidentOpen && connectedData is not null)
             {
-                _kickoffPending.TryRemove(connectionId, out _);
                 var corr = $"connection:{connectionId}:auto:{Guid.NewGuid().ToString("N")[..8]}";
                 var readyAt = connect.ReadyAt;
                 notifications.Publish(
@@ -528,14 +538,183 @@ public sealed class ConnectionSupervisor(
         _failCounts.GetValueOrDefault(connectionId) >= MaxConnectAttempts;
 
     /// <summary>
-    /// Оператор закрыл break во время recovering — стоп retry (как после ×N), без ожидания fail-счётчика.
-    /// Persist Auto off — на вызывающей стороне (schedule settings).
+    /// Оператор закрыл break во время recovering / тумблер off — стоп retry (как после ×N).
+    /// Persist Auto off — на вызывающей стороне. При следующем Auto on — <see cref="ResumeAutoRecovery"/>.
     /// </summary>
     public void HaltAutoRecovery(long connectionId)
     {
         _failCounts[connectionId] = MaxConnectAttempts;
         _nextAttemptAt.TryRemove(connectionId, out _);
         _kickoffPending.TryRemove(connectionId, out _);
+    }
+
+    /// <summary>
+    /// Оператор снова включил Auto — снять halt/×N, чтобы супервизор в окне снова Connect
+    /// (в т.ч. закрыть open active break через recovered).
+    /// </summary>
+    public void ResumeAutoRecovery(long connectionId)
+    {
+        _failCounts.TryRemove(connectionId, out _);
+        _nextAttemptAt.TryRemove(connectionId, out _);
+        // Плановый старт после ручного Auto on в окне — как kickoff.
+        _kickoffPending[connectionId] = true;
+    }
+
+    /// <summary>
+    /// Тумблер off / Auto off: стоп попыток, эпизод остаётся open.
+    /// WARN в тот же link-corr (если open есть); иначе no-op по нити.
+    /// <paramref name="announceAutoOff"/> — только если Auto реально переключили true→false.
+    /// </summary>
+    public async Task NotifyOperatorHaltAsync(
+        long connectionId,
+        bool announceAutoOff,
+        bool announceLinkOff,
+        CancellationToken cancellationToken,
+        DateTimeOffset? notBeforeTs = null)
+    {
+        if (!announceAutoOff && !announceLinkOff)
+        {
+            return;
+        }
+
+        HaltAutoRecovery(connectionId);
+
+        await TryAdoptOpenBreakFromJournalAsync(connectionId, cancellationToken).ConfigureAwait(false);
+
+        var corr = connections.GetOpenBreakCorr(connectionId);
+        Incident? row = !string.IsNullOrWhiteSpace(corr)
+            ? await incidentStore.GetAsync(corr!, cancellationToken).ConfigureAwait(false)
+            : null;
+
+        if (row is null || row.Status is "resolved" || row.DeletedAt is not null)
+        {
+            row = await incidentStore.FindOpenBreakAsync(connectionId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        // Нет open break — WARN в corr некуда; user Single (disconnect / schedule) уже снаружи.
+        if (row is null || row.DeletedAt is not null || row.Status is "resolved")
+        {
+            return;
+        }
+
+        if (row.Status is not ("active" or "recovering"))
+        {
+            return;
+        }
+
+        corr = row.CorrUid;
+        var linkSubject = ConnectionManager.LinkIncidentSubject(connectionId);
+        var hubStatus = OpenLinkIncident.FromJournal(row).Status;
+        if (!notifications.TryGetOpenCorrelationId(linkSubject, out _))
+        {
+            notifications.Adopt(linkSubject, corr, hubStatus);
+        }
+
+        var label = ConnectionManager.ConnLabelSystem(connectionId);
+
+        // Повторный /disconnect (пока первый ждёт StopAsync) не должен плодить WARN.
+        if (announceAutoOff && !_haltAutoOffEmitted.TryAdd(corr, 0))
+        {
+            announceAutoOff = false;
+        }
+
+        if (announceLinkOff && !_haltLinkOffEmitted.TryAdd(corr, 0))
+        {
+            announceLinkOff = false;
+        }
+
+        // После user·info: ts WARN ≥ notBeforeTs (и ≥ сейчас после await journal).
+        var warnAt = time.GetUtcNow();
+        if (notBeforeTs is { } floor && warnAt <= floor)
+        {
+            warnAt = floor.AddMilliseconds(1);
+        }
+
+        if (announceAutoOff)
+        {
+            // Side-effect disconnect/halt — система сама сняла Auto вслед за off, не «оператор».
+            AppendOrPublishInCorr(
+                linkSubject,
+                corr,
+                code: "connection.auto_off",
+                message: $"{label}: Режим AUTO выключен",
+                warnAt,
+                connectionId,
+                reason: "system_auto_off");
+            warnAt = warnAt.AddMilliseconds(1);
+        }
+
+        if (announceLinkOff)
+        {
+            AppendOrPublishInCorr(
+                linkSubject,
+                corr,
+                code: "connection.link_off",
+                message: $"{label}: Соединение отключено оператором",
+                warnAt,
+                connectionId,
+                reason: "operator_link_off");
+        }
+
+        if (row.Status is "recovering")
+        {
+            await fanOut
+                .ApplyAsync(
+                    new IncidentStep(
+                        IncidentStepKind.AwaitOperator,
+                        linkSubject,
+                        warnAt.AddMilliseconds(1),
+                        CorrUid: corr,
+                        ConnectionId: connectionId),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        logger.LogInformation(
+            "ConnectionSupervisor: operator halt {ConnectionId} (autoOff={AutoOff}, linkOff={LinkOff}, journal={Status})",
+            connectionId,
+            announceAutoOff,
+            announceLinkOff,
+            row.Status);
+    }
+
+    private void AppendOrPublishInCorr(
+        string linkSubject,
+        string corr,
+        string code,
+        string message,
+        DateTimeOffset at,
+        long connectionId,
+        string reason)
+    {
+        var data = new
+        {
+            connectionId,
+            sender = "system",
+            reason,
+        };
+        var appended = notifications.Append(
+            linkSubject,
+            code,
+            message,
+            severity: "warning",
+            data: data,
+            status: "active",
+            ts: at);
+        if (!appended)
+        {
+            notifications.Publish(
+                code,
+                message,
+                severity: "warning",
+                sourceType: "system",
+                data: data,
+                status: "active",
+                correlationId: corr,
+                subject: linkSubject,
+                ts: at);
+        }
     }
 
     /// <summary>
@@ -643,6 +822,12 @@ public sealed class ConnectionSupervisor(
             return;
         }
 
+        // CloseBreak уже закрыл Hub/Manager; journal может ещё миг быть open — не Adopt и не второй Resolve.
+        if (connections.IsRecentBreakClose(connectionId, row.CorrUid))
+        {
+            return;
+        }
+
         var open = OpenLinkIncident.FromJournal(row);
         var subject = ConnectionManager.LinkIncidentSubject(connectionId);
         var linkState = connections.GetLinkState(connectionId);
@@ -702,10 +887,26 @@ public sealed class ConnectionSupervisor(
         OpenLinkIncident open,
         CancellationToken cancellationToken)
     {
+        if (connections.IsRecentBreakClose(connectionId, open.CorrelationId))
+        {
+            logger.LogDebug(
+                "ConnectionSupervisor: stale-close пропущен — {Corr} только что закрыт ({ConnectionId})",
+                open.CorrelationId, connectionId);
+            return;
+        }
+
+        var closeOutcome = connections.IsOperatorReconnectPending(connectionId)
+            ? NotificationThreadData.OutcomeRecoveredManual
+            : NotificationThreadData.OutcomeRecovered;
+        var label = ConnectionManager.ConnLabelSystem(connectionId);
+        var ncMessage = closeOutcome == NotificationThreadData.OutcomeRecoveredManual
+            ? $"{label}: связь восстановлена оператором"
+            : $"{label}: связь восстановлена";
+
         // Stale journal open + Live: закрываем journal (и NC если Hub.Adopt ок). Hub не гейтит SoT.
+        // Сюда не попадаем сразу после CloseBreak — см. IsRecentBreakClose выше.
         _ = notifications.Adopt(subject, open.CorrelationId, open.Status);
 
-        var label = ConnectionManager.ConnLabelSystem(connectionId);
         await fanOut
             .ApplyAsync(
                 new IncidentStep(
@@ -714,23 +915,27 @@ public sealed class ConnectionSupervisor(
                     DateTimeOffset.UtcNow,
                     CorrUid: open.CorrelationId,
                     ConnectionId: connectionId,
-                    CloseOutcome: NotificationThreadData.OutcomeRecovered,
+                    CloseOutcome: closeOutcome,
                     Severity: "ok",
                     NcCode: "connection.recovered",
-                    NcMessage: $"{label}: связь восстановлена",
+                    NcMessage: ncMessage,
                     NcSeverity: "ok",
                     NcData: new
                     {
                         connectionId,
-                        result = "Восстановлено (stale audit close)",
-                        sender = "supervisor",
-                        closeOutcome = NotificationThreadData.OutcomeRecovered,
+                        result = closeOutcome == NotificationThreadData.OutcomeRecoveredManual
+                            ? "Восстановлено оператором; (stale audit close)"
+                            : "Восстановлено (stale audit close)",
+                        sender = closeOutcome == NotificationThreadData.OutcomeRecoveredManual
+                            ? "user"
+                            : "supervisor",
+                        closeOutcome,
                     }),
                 cancellationToken)
             .ConfigureAwait(false);
         logger.LogWarning(
-            "ConnectionSupervisor: closed stale audit break {Corr} для {ConnectionId} (link=Live)",
-            open.CorrelationId, connectionId);
+            "ConnectionSupervisor: closed stale audit break {Corr} для {ConnectionId} (link=Live, {Outcome})",
+            open.CorrelationId, connectionId, closeOutcome);
     }
 
     /// <summary>
@@ -982,8 +1187,19 @@ public sealed class ConnectionSupervisor(
     /// </summary>
     private async Task TickRecoveringAsync(long connectionId, DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
-        if (connections.GetLinkState(connectionId) != ConnectorLinkState.Degraded
-            || connections.GetIncidentSince(connectionId) is not { } since)
+        // Backup к Manager.RunTransaqRecoverProgress: Degraded/Down + owner=transaq + elapsed≥T.
+        if (connections.GetIncidentSince(connectionId) is not { } since)
+        {
+            return;
+        }
+
+        if (!string.Equals(connections.GetIncidentOwner(connectionId), "transaq", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var link = connections.GetLinkState(connectionId);
+        if (link is not (ConnectorLinkState.Degraded or ConnectorLinkState.Down))
         {
             return;
         }

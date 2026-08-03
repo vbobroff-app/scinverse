@@ -83,7 +83,15 @@ public sealed class ConnectionManager(
     private readonly ConcurrentDictionary<long, CancellationTokenSource> _transaqProgress = new();
     /// <summary>Ручной connect при open break — heal не должен писать «супервизор отклонил».</summary>
     private readonly ConcurrentDictionary<long, byte> _operatorReconnect = new();
+    /// <summary>
+    /// Только что закрытый break (corr+outcome): пока journal/Hub догоняют — orphan/stale
+    /// не должны Adopt+Resolve вторым <c>recovered</c> и затирать <c>recovered_manual</c>.
+    /// </summary>
+    private readonly ConcurrentDictionary<long, RecentBreakClose> _recentBreakClose = new();
+    private static readonly TimeSpan RecentBreakCloseTtl = TimeSpan.FromSeconds(60);
     private Timer? _idleMonitor;
+
+    private readonly record struct RecentBreakClose(string? CorrUid, string Outcome, DateTimeOffset At);
 
     /// <summary>Пробудить <see cref="ConnectionSupervisor"/> после open/handover (wire в OhsWorker).</summary>
     public Action? RequestSupervisorNudge { get; set; }
@@ -105,6 +113,10 @@ public sealed class ConnectionManager(
     /// <summary>Corr текущего open break в Manager или null.</summary>
     public string? GetOpenBreakCorr(long connectionId) =>
         _incidentCorr.TryGetValue(connectionId, out var corr) ? corr : null;
+
+    /// <summary>Владелец open break: <c>transaq</c> (grace T) / <c>supervisor</c> / null.</summary>
+    public string? GetIncidentOwner(long connectionId) =>
+        _incidentOwner.TryGetValue(connectionId, out var owner) ? owner : null;
 
     /// <summary>
     /// Засеять открытый break в память после рестарта (I10/I13): since/owner/corr из journal.
@@ -203,6 +215,40 @@ public sealed class ConnectionManager(
 
     public void EndOperatorReconnect(long connectionId) =>
         _operatorReconnect.TryRemove(connectionId, out _);
+
+    /// <summary>
+    /// CloseBreak только что прошёл (или journal ещё open на гонке) — не Adopt/stale-NC заново.
+    /// </summary>
+    public bool IsRecentBreakClose(long connectionId, string? corrUid = null)
+    {
+        if (!_recentBreakClose.TryGetValue(connectionId, out var recent))
+        {
+            return false;
+        }
+
+        if (DateTimeOffset.UtcNow - recent.At > RecentBreakCloseTtl)
+        {
+            _recentBreakClose.TryRemove(connectionId, out _);
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(corrUid) || string.IsNullOrWhiteSpace(recent.CorrUid))
+        {
+            return true;
+        }
+
+        return string.Equals(recent.CorrUid, corrUid, StringComparison.Ordinal);
+    }
+
+    private void NoteBreakClosed(long connectionId, string? corrUid, string closeOutcome) =>
+        _recentBreakClose[connectionId] = new RecentBreakClose(
+            corrUid, closeOutcome, DateTimeOffset.UtcNow);
+
+    /// <summary>Исход close-break: тумблер on → <c>recovered_manual</c>, иначе <c>recovered</c>.</summary>
+    private string ResolveRecoveryOutcome(long connectionId) =>
+        IsOperatorReconnectPending(connectionId)
+            ? NotificationThreadData.OutcomeRecoveredManual
+            : NotificationThreadData.OutcomeRecovered;
 
     /// <summary>Системный ярлык NC: только id (без имени провайдера).</summary>
     public static string ConnLabelSystem(long connectionId) => $"Подключение {connectionId}";
@@ -453,6 +499,9 @@ public sealed class ConnectionManager(
         // реальные пути: grace (`HandoverToSupervisorAsync`) и Degraded→Down (`OpenLinkLostAsync`).
         // Manual/schedule abandon клипают дыру своим маркером без фейкового server_down.
 
+        // Сразу off в UI/API — не ждать TRANSAQ SendCommand (на обрыве сети 20–50 с).
+        SetStatus(connectionId, "disconnected");
+
         if (_sessions.TryRemove(connectionId, out var session))
         {
             await session.StopAsync().ConfigureAwait(false);
@@ -481,7 +530,6 @@ public sealed class ConnectionManager(
                 .ConfigureAwait(false);
         }
 
-        SetStatus(connectionId, "disconnected");
         return "disconnected";
     }
 
@@ -947,7 +995,7 @@ public sealed class ConnectionManager(
 
     /// <summary>
     /// I11: единый close-break — сначала Hub.Resolve (WS), потом Manager clear + маркеры ленты.
-    /// Исходы: <c>recovered</c> / <c>abandoned_manual</c>. (P4: <c>abandoned_schedule</c> снят.)
+    /// Исходы: <c>recovered</c> / <c>recovered_manual</c> / <c>abandoned_manual</c>.
     /// </summary>
     private async Task<bool> CloseBreakAsync(
         long connectionId,
@@ -971,13 +1019,8 @@ public sealed class ConnectionManager(
         var subject = LinkIncidentSubject(connectionId);
 
         var corrUid = GetOpenBreakCorr(connectionId);
-        // Disconnect уже пишет user·info «отключение по команде» — без «принудительно закрыл».
-        var abandonNcMessage = announceOperatorForceClose
-            ? "Инцидент закрыт оператором"
-            : "Инцидент связи закрыт при отключении";
-        var abandonResult = announceOperatorForceClose
-            ? $"Закрыто оператором; {gapLine}"
-            : $"Закрыто при отключении; {gapLine}";
+        // До await journal: supervisor/Live orphan не должны Adopt этот corr как «ещё open».
+        NoteBreakClosed(connectionId, corrUid, closeOutcome);
         IncidentStep resolveStep = closeOutcome switch
         {
             NotificationThreadData.OutcomeAbandonedManual => new IncidentStep(
@@ -989,18 +1032,36 @@ public sealed class ConnectionManager(
                 CloseOutcome: closeOutcome,
                 Severity: "warning",
                 NcCode: "connection.incident_closed",
-                NcMessage: abandonNcMessage,
+                NcMessage: "Инцидент закрыт оператором",
                 NcSeverity: "warning",
                 NcData: new
                 {
                     connectionId,
                     kind = "break",
-                    reason = "manual_off",
+                    reason = "manual_journal",
                     sender = "system",
-                    result = abandonResult,
+                    result = $"Закрыто оператором; {gapLine}",
                     closeOutcome,
                     closeNote,
                     resolvedBy,
+                }),
+            NotificationThreadData.OutcomeRecoveredManual => new IncidentStep(
+                IncidentStepKind.Resolve,
+                subject,
+                atTs,
+                CorrUid: corrUid,
+                ConnectionId: connectionId,
+                CloseOutcome: NotificationThreadData.OutcomeRecoveredManual,
+                Severity: "ok",
+                NcCode: "connection.recovered",
+                NcMessage: $"{label}: связь восстановлена оператором",
+                NcSeverity: "ok",
+                NcData: new
+                {
+                    connectionId,
+                    result = $"Восстановлено оператором; {gapLine}",
+                    sender = "user",
+                    closeOutcome = NotificationThreadData.OutcomeRecoveredManual,
                 }),
             _ => new IncidentStep(
                 IncidentStepKind.Resolve,
@@ -1024,7 +1085,7 @@ public sealed class ConnectionManager(
                 }),
         };
 
-        // Wizard «Закрыть» в журнале: user·info → system·warning. Disconnect — только Resolve.
+        // Wizard «Закрыть» в журнале: user·info → system·warning Resolve (тот же corr).
         if (closeOutcome == NotificationThreadData.OutcomeAbandonedManual
             && announceOperatorForceClose
             && !string.IsNullOrWhiteSpace(corrUid))
@@ -1084,6 +1145,12 @@ public sealed class ConnectionManager(
                 "Подключение {ConnectionId}: break-инцидент закрыт вручную (с {Start:o} по {End:o})",
                 connectionId, incidentStart, atTs);
         }
+        else if (closeOutcome == NotificationThreadData.OutcomeRecoveredManual)
+        {
+            logger.LogInformation(
+                "Подключение {ConnectionId}: break-инцидент recovered_manual (с {Start:o} по {End:o})",
+                connectionId, incidentStart, atTs);
+        }
         else
         {
             logger.LogInformation(
@@ -1096,7 +1163,7 @@ public sealed class ConnectionManager(
 
     /// <summary>
     /// Manager пуст, journal/Hub ещё open (гонка или рестарт без adopt) → recovered по journal corr.
-    /// Hub без journal — только NC hygiene.
+    /// Hub без journal — только NC hygiene. Не дублирует только что закрытый CloseBreak.
     /// </summary>
     private async Task<bool> TryResolveOrphanOpenBreakAsync(
         long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken)
@@ -1121,11 +1188,26 @@ public sealed class ConnectionManager(
             return false;
         }
 
+        if (IsRecentBreakClose(connectionId, corr))
+        {
+            logger.LogDebug(
+                "Подключение {ConnectionId}: orphan-close пропущен — break {Corr} только что закрыт",
+                connectionId,
+                corr);
+            return false;
+        }
+
+        var closeOutcome = ResolveRecoveryOutcome(connectionId);
         var label = ConnLabelSystem(connectionId);
+        var ncMessage = closeOutcome == NotificationThreadData.OutcomeRecoveredManual
+            ? $"{label}: связь восстановлена оператором"
+            : $"{label}: связь восстановлена";
         logger.LogWarning(
-            "Подключение {ConnectionId}: orphan open break {Corr} — Resolve без _incidentSince",
+            "Подключение {ConnectionId}: orphan open break {Corr} — Resolve без _incidentSince ({Outcome})",
             connectionId,
-            corr);
+            corr,
+            closeOutcome);
+        NoteBreakClosed(connectionId, corr, closeOutcome);
         await fanOut
             .ApplyAsync(
                 new IncidentStep(
@@ -1134,17 +1216,21 @@ public sealed class ConnectionManager(
                     atTs,
                     CorrUid: corr,
                     ConnectionId: connectionId,
-                    CloseOutcome: NotificationThreadData.OutcomeRecovered,
+                    CloseOutcome: closeOutcome,
                     Severity: "ok",
                     NcCode: "connection.recovered",
-                    NcMessage: $"{label}: связь восстановлена",
+                    NcMessage: ncMessage,
                     NcSeverity: "ok",
                     NcData: new
                     {
                         connectionId,
-                        result = "Восстановлено TRANSAQ; (orphan close)",
-                        sender = "transaq",
-                        closeOutcome = NotificationThreadData.OutcomeRecovered,
+                        result = closeOutcome == NotificationThreadData.OutcomeRecoveredManual
+                            ? "Восстановлено оператором; (orphan close)"
+                            : "Восстановлено TRANSAQ; (orphan close)",
+                        sender = closeOutcome == NotificationThreadData.OutcomeRecoveredManual
+                            ? "user"
+                            : "transaq",
+                        closeOutcome,
                     }),
                 cancellationToken)
             .ConfigureAwait(false);
@@ -1152,11 +1238,17 @@ public sealed class ConnectionManager(
         return true;
     }
 
-    /// <summary>Закрывает открытый инцидент связи (<c>connection.recovered</c>) через
-    /// <see cref="CloseBreakAsync"/>. Пути: Degraded/Down→Live и реконнект супервизора (ConnectAsync).</summary>
+    /// <summary>
+    /// Закрывает open break: тумблер on (<see cref="IsOperatorReconnectPending"/>) →
+    /// <c>recovered_manual</c>; иначе Auto/TRANSAQ → <c>recovered</c>.
+    /// </summary>
     private Task<bool> CloseIncidentAsync(
         long connectionId, DateTimeOffset atTs, CancellationToken cancellationToken) =>
-        CloseBreakAsync(connectionId, atTs, NotificationThreadData.OutcomeRecovered, cancellationToken);
+        CloseBreakAsync(
+            connectionId,
+            atTs,
+            ResolveRecoveryOutcome(connectionId),
+            cancellationToken);
 
     /// <summary>
     /// Страховка супервизора: link уже Live, а break ещё open (Manager / journal / Hub session) → recovered.
@@ -1177,10 +1269,8 @@ public sealed class ConnectionManager(
     }
 
     /// <summary>
-    /// J11b / I11: ручной off / закрытие журнала при открытом break — Manager+Hub вместе,
-    /// <c>abandoned_manual</c>, маркер <c>disconnected</c> (без green). Нет open → false.
-    /// <paramref name="announceOperatorForceClose"/> — true для wizard журнала («принудительно»);
-    /// false для disconnect (уже есть «отключение по команде оператора»).
+    /// Wizard журнала: open break → <c>abandoned_manual</c> (Manager+Hub), маркер disconnected.
+    /// Тумблер off инцидент больше не закрывает — см. <c>ConnectionSupervisor.NotifyOperatorHaltAsync</c>.
     /// </summary>
     public Task<bool> TryAbandonIncidentByManualAsync(
         long connectionId,
@@ -1263,7 +1353,8 @@ public sealed class ConnectionManager(
         ConnectorLinkState state,
         string? detail,
         string sender,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool grantTransaqGrace = false)
     {
         var subject = LinkIncidentSubject(connectionId);
         var isNew = _incidentSince.TryAdd(connectionId, atTs);
@@ -1278,12 +1369,14 @@ public sealed class ConnectionManager(
         };
         if (isNew)
         {
-            // Сразу Down/Error/ping — owner=supervisor с t0 (жёлтой фазы не было).
+            // server_status Down/Error — TRANSAQ сдался → supervisor с t0.
+            // Ping-stall при живой сессии — сначала grace T (тики), как Degraded.
+            var owner = grantTransaqGrace ? "transaq" : "supervisor";
             var corr = await FanOutBreakOpenAsync(
                     connectionId,
                     atTs,
-                    owner: "supervisor",
-                    subtype: "down",
+                    owner: owner,
+                    subtype: grantTransaqGrace ? "degraded" : "down",
                     message,
                     sender,
                     state: state.ToString(),
@@ -1300,10 +1393,21 @@ public sealed class ConnectionManager(
             }
             else
             {
-                _incidentOwner[connectionId] = "supervisor";
+                _incidentOwner[connectionId] = owner;
                 RememberOpenCorr(connectionId, corr);
-                StopTransaqRecoverProgress(connectionId);
-                await NotifyBreakHandedOverAsync(connectionId, cancellationToken).ConfigureAwait(false);
+                if (grantTransaqGrace)
+                {
+                    StartTransaqRecoverProgress(connectionId, atTs);
+                    RequestSupervisorNudge?.Invoke();
+                    logger.LogWarning(
+                        "Подключение {ConnectionId}: ping-stall — инцидент (владелец TRANSAQ, grace T)",
+                        connectionId);
+                }
+                else
+                {
+                    StopTransaqRecoverProgress(connectionId);
+                    await NotifyBreakHandedOverAsync(connectionId, cancellationToken).ConfigureAwait(false);
+                }
             }
 
             if (_sourceIds.TryGetValue(connectionId, out var srcId))
@@ -1335,15 +1439,20 @@ public sealed class ConnectionManager(
 
         await liveness.Value.OnServerDownAsync(connectionId, atTs, cancellationToken).ConfigureAwait(false);
         await recordings.Value.OnLinkDownAsync(connectionId, segmentStatus, atTs, cancellationToken).ConfigureAwait(false);
-        SetStatus(connectionId, StatusForLinkState(state));
+        // Grace T: статус degraded → IsConnected, супервизор не рвёт Connect до handover.
+        SetStatus(
+            connectionId,
+            grantTransaqGrace && isNew
+                ? StatusForLinkState(ConnectorLinkState.Degraded)
+                : StatusForLinkState(state));
     }
 
     /// <summary>
     /// Стелс-разрыв данных (7j.19/I3): тишина сделок дольше порога + активный пинг НЕ прошёл ⇒ связь мертва,
     /// хотя коннектор ещё считает себя connected (server_status Down не пришёл). Фиксируем инцидент с началом
     /// = последняя сделка (<paramref name="lastActivityAt"/>) — честная левая граница дыры. Дедуп: если
-    /// инцидент уже открыт или статус уже «вниз» — тихо выходим (тик 15 c не должен спамить). Восстановление
-    /// придёт штатно через Live новой сессии (реконнект супервизора) → recovered с длительностью.
+    /// инцидент уже открыт или статус уже «вниз» — тихо выходим (тик 15 c не должен спамить).
+    /// Сессия ещё жива → owner=transaq + тики NC, через T — handover супервизору (как Degraded).
     /// </summary>
     public async Task ReportStallAsync(long connectionId, DateTimeOffset lastActivityAt, CancellationToken cancellationToken)
     {
@@ -1357,7 +1466,8 @@ public sealed class ConnectionManager(
             return;
         }
 
-        _linkStates[connectionId] = ConnectorLinkState.Down;
+        // Как Degraded: жёлтая фаза TRANSAQ (тики + grace T), не мгновенный supervisor.
+        _linkStates[connectionId] = ConnectorLinkState.Degraded;
         _linkSince[connectionId] = lastActivityAt;
         var label = await ResolveLabelAsync(connectionId, cancellationToken).ConfigureAwait(false);
         logger.LogWarning(
@@ -1370,10 +1480,11 @@ public sealed class ConnectionManager(
             $"{label}: связь потеряна (нет данных)",
             LinkCloseReason.PingFailed,
             "disconnected",
-            ConnectorLinkState.Down,
+            ConnectorLinkState.Degraded,
             "нет данных: активный пинг не прошёл",
-            sender: "supervisor",
-            cancellationToken).ConfigureAwait(false);
+            sender: "transaq",
+            cancellationToken,
+            grantTransaqGrace: true).ConfigureAwait(false);
     }
 
     /// <summary>Строка разрыва для expanded recovered: «Разрыв HH:mm:ss → HH:mm:ss (МСК), длительность HH:MM:SS».
@@ -1661,7 +1772,9 @@ public sealed class ConnectionManager(
             while (!cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(stepSec), cancellationToken).ConfigureAwait(false);
-                if (GetLinkState(connectionId) != ConnectorLinkState.Degraded
+                // Degraded (server_status / ping-stall grace) или Down при ещё живом owner=transaq.
+                var link = GetLinkState(connectionId);
+                if (link is not (ConnectorLinkState.Degraded or ConnectorLinkState.Down)
                     || GetIncidentSince(connectionId) is not { } since
                     || !_incidentOwner.TryGetValue(connectionId, out var owner)
                     || !string.Equals(owner, "transaq", StringComparison.Ordinal))

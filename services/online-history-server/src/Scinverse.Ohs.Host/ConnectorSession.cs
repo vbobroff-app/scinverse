@@ -41,41 +41,77 @@ public sealed class ConnectorSession(
             await _cts.CancelAsync().ConfigureAwait(false);
         }
 
-        if (_pumpTask is not null)
+        // При обрыве: pumps / TRANSAQ SendCommand(disconnect) — sync DLL, 20–50 с.
+        // Жёсткий потолок, иначе тумблер «жёлтый halt» и повторные /disconnect.
+        const int stopBudgetMs = 2_500;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        try
         {
-            try
-            {
-                await _pumpTask.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                // Штатная остановка pump.
-            }
+            var pumpBudget = TimeSpan.FromMilliseconds(Math.Max(200, stopBudgetMs - (int)sw.ElapsedMilliseconds));
+            await Task.WhenAll(WaitPumpAsync(_pumpTask), WaitPumpAsync(_linkPumpTask))
+                .WaitAsync(pumpBudget)
+                .ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            logger.LogWarning(
+                "ConnectorSession.StopAsync: pumps не завершились за {Ms} мс",
+                (int)sw.ElapsedMilliseconds);
         }
 
-        if (_linkPumpTask is not null)
+        // SendCommand синхронный — выносим в ThreadPool, иначе WaitAsync не сработает.
+        var teardownBudget = TimeSpan.FromMilliseconds(Math.Max(200, stopBudgetMs - (int)sw.ElapsedMilliseconds));
+        try
         {
-            try
-            {
-                await _linkPumpTask.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                // Штатная остановка link pump.
-            }
+            await Task.Run(async () =>
+                {
+                    try
+                    {
+                        await connector.DisconnectAsync(CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // best-effort
+                    }
+
+                    try
+                    {
+                        await connector.DisposeAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "ConnectorSession.StopAsync: DisposeAsync");
+                    }
+                })
+                .WaitAsync(teardownBudget)
+                .ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            logger.LogWarning(
+                "ConnectorSession.StopAsync: Disconnect/Dispose TRANSAQ превысили бюджет {Ms} мс — бросаем",
+                stopBudgetMs);
+        }
+
+        _cts?.Dispose();
+    }
+
+    private static async Task WaitPumpAsync(Task? pump)
+    {
+        if (pump is null)
+        {
+            return;
         }
 
         try
         {
-            await connector.DisconnectAsync(CancellationToken.None).ConfigureAwait(false);
+            await pump.ConfigureAwait(false);
         }
-        catch (InvalidOperationException)
+        catch (OperationCanceledException)
         {
-            // best-effort disconnect
+            // Штатная остановка pump.
         }
-
-        await connector.DisposeAsync().ConfigureAwait(false);
-        _cts?.Dispose();
     }
 
     private async Task PumpAsync(short sourceId, CancellationToken cancellationToken)
