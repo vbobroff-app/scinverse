@@ -6,11 +6,37 @@ namespace Scinverse.Ohs.Ingestion;
 /// <summary>Кэш-реестр инструментов: (ticker, board) → instrument_id и параметры цены.</summary>
 public interface IInstrumentRegistry
 {
-    /// <summary>Загружает справочник из хранилища в кэш.</summary>
+    /// <summary>Загружает справочник из хранилища в кэш; помечает каталог свежим.</summary>
     Task InitializeAsync(CancellationToken cancellationToken);
 
-    /// <summary>Идемпотентно регистрирует инструмент (upsert в хранилище) и кэширует его.</summary>
+    /// <summary>
+    /// Наблюдение справочника из pump (неблокирующее для hit). Cache-hit при свежем каталоге —
+    /// no-op; при invalidate — фоновый persist; miss — батч-запись (синхронный flush по порогу).
+    /// </summary>
+    void Observe(SecurityInfo security);
+
+    /// <summary>Сбрасывает накопленные miss в БД (вызывать перед обработкой сделок в pump).</summary>
+    Task FlushPendingAsync(CancellationToken cancellationToken);
+
+    /// <summary>Если miss-буфер ≥ порога — сбросить батч в БД (из pump после Observe).</summary>
+    Task TryFlushMissThresholdAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Полная регистрация (maintenance/reenrich): Observe + FlushPending + возврат из кэша.
+    /// </summary>
     Task<Instrument> RegisterAsync(SecurityInfo security, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Инвалидация каталога (разрешить persist hit-ов). <paramref name="force"/> — кнопка Refresh
+    /// (игнор суточного гейта); иначе — не чаще раза в торговый день (МСК), типично Auto-on.
+    /// </summary>
+    bool Invalidate(bool force = false);
+
+    /// <summary>Каталог свеж: hit → без записи в БД.</summary>
+    bool IsFresh { get; }
+
+    /// <summary>Помечает каталог свежим (после idle фонового persist).</summary>
+    void MarkFresh();
 
     bool TryResolve(InstrumentKey key, [MaybeNullWhen(false)] out Instrument instrument);
 

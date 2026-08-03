@@ -95,6 +95,7 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
       }),
     putConnectionScheduleSettings: () =>
       of({ connectionId: 0, autoEnabled: false, engine: 'futures', tz: 'Europe/Moscow' }),
+    refreshInstrumentCatalog: () => of({ invalidated: true, isFresh: false }),
     applyScheduleBatch: () => of({ ok: true, applied: [], superseded: [] }),
     getConnectionScheduleHistory: () => of([]),
     getNotifications: () => of([]),

@@ -102,6 +102,13 @@ public interface IOhsApi
     /// <summary>POST /api/exchanges/asset-classes/refresh — актуализация справочника из ISS (по кнопке).</summary>
     Task<AssetClassRefreshResultDto> RefreshAssetClassesAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// POST /api/instruments/catalog/refresh — разрешить persist справочника на следующем dump
+    /// (force-инвалидация кэша; данные придут с коннектора).
+    /// </summary>
+    Task<InstrumentCatalogRefreshResultDto> RefreshInstrumentCatalogAsync(
+        CancellationToken cancellationToken = default);
+
     /// <summary>GET /api/exchanges/{engine}/calendar?from=&amp;till= — торговый календарь движка (ISS).</summary>
     Task<IReadOnlyList<CalendarDayDto>> GetEngineCalendarAsync(
         string engine, DateOnly? from = null, DateOnly? till = null, CancellationToken cancellationToken = default);

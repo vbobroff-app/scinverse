@@ -284,7 +284,9 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 - **H1.** `Degraded` = дыра в записи: recording-путь (`capture_liveness`/`CoverageTrack`) даёт **красное** и
   на `Degraded` (сейчас «живой»).
 - **H2.** Recording-ribbon — бинарный сплошной красный (`[blue][red][blue]`), без причин/владельцев.
-- **H3.** (DEFERRED) 3-мин старт данных — [../phase7h/startup-latency.md](../phase7h/startup-latency.md).
+- **H3.** ~~(DEFERRED)~~ **DONE** (2026-08-03) — 3-мин старт данных: cache-first + суточная
+  инвалидация / Refresh + фоновый batch persist —
+  [../phase7h/startup-latency.md](../phase7h/startup-latency.md) (приёмка Finam: ~10–16 с).
 
 ### Порядок работ
 

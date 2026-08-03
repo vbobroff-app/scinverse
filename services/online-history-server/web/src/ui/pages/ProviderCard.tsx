@@ -98,6 +98,18 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
                     />
                     Now-маркер
                   </label>
+                  <button
+                    type="button"
+                    className={styles.settingsAction}
+                    role="menuitem"
+                    title="Разрешить обновление справочника на следующем dump с коннектора (обычно reconnect)"
+                    onClick={() => {
+                      store.refreshInstrumentCatalog();
+                      setSettingsOpen(false);
+                    }}
+                  >
+                    Обновить справочник
+                  </button>
                 </div>
                 <div className={styles.settingsSection}>
                   <span className={styles.settingsSectionTitle}>Связь</span>

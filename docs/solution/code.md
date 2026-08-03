@@ -156,12 +156,17 @@ TRANSAQ XML → Parser (ACL) → [Ingestion: Registry + Normalizer + Batcher] �
 каноническому виду, разрешает инструмент и сглаживает скорость записи.
 
 - `IInstrumentRegistry` / `InstrumentRegistry` — кэш-реестр `(Ticker, Board) → Instrument`
-  на `ConcurrentDictionary` (потокобезопасно):
-  - `InitializeAsync` — прогрев кэша из БД (`IInstrumentStore.LoadAllAsync`);
-  - `RegisterAsync(SecurityInfo)` — **обогащает** справку деривативными атрибутами через
-    `IDerivativeSpecParser`, затем идемпотентный upsert в БД + кэширование (получаем
-    стабильный `InstrumentId` и `MinStep`);
-  - `TryResolve(key, out instrument)` — быстрый lookup на горячем пути без БД.
+  на `ConcurrentDictionary` (потокобезопасно); политика свежести каталога —
+  [startup-latency.md](../dev/phase7h/startup-latency.md):
+  - `InitializeAsync` — прогрев кэша из БД (`IInstrumentStore.LoadAllAsync`), каталог **fresh**;
+  - `Observe(SecurityInfo)` — hot path pump: hit+fresh → no-op; hit+stale → память + фоновый
+    persist; miss → батч-буфер (`UpsertBatchAsync`);
+  - `FlushPendingAsync` / `TryFlushMissThresholdAsync` — сброс miss перед сделками / по порогу 500;
+  - `Invalidate` / `MarkFresh` — суточная (Auto-on) / force Refresh; idle writer → снова fresh;
+  - `RegisterAsync` — maintenance/reenrich: Observe + Flush + возврат из кэша;
+  - `TryResolve(key, out instrument)` — lookup на горячем пути сделок без БД.
+- `InstrumentCatalogPersistQueue` + Host `InstrumentCatalogPersistWriter` — фоновый batch upsert
+  после invalidate (не блокирует pump).
 - `TradeNormalizer` — `TryNormalize(TradeEvent, sourceId, out TradeRecord)`: переводит `TradeEvent`
   (цена в деньгах) в `TradeRecord` (`InstrumentId` + `SourceId` + `PriceTicks` через
   `instrument.ToTicks`). Сделки по незарегистрированному инструменту отбрасываются (`false`), а не
@@ -193,6 +198,9 @@ TRANSAQ XML → Parser (ACL) → [Ingestion: Registry + Normalizer + Batcher] �
   3. если справка — дериватив (`UnderlyingCode` + `Expiration`), upsert строки `derivative`
      (`underlying_id` резолвится best-effort по коду базового фьючерса);
   4. возвращает доменный `Instrument`.
+- `UpsertBatchAsync(IReadOnlyList<SecurityInfo>)` — пакетный upsert (unnest + одна транзакция):
+  markets/boards + multi-row instrument + derivative; для miss-буфера и фонового persist
+  после invalidate каталога ([startup-latency.md](../dev/phase7h/startup-latency.md)).
 - `QueryAsync(InstrumentQuery)` — параметризованный каталог: `LEFT JOIN derivative`, склейка
   `WHERE` (`ILIKE` по поиску, `EXISTS` для `onlyRecording`/`nonEmpty`, `= ANY(...)` для
   `instrumentIds`/`boards` (биржи через `ExchangeCatalog.BoardsFilter`), фильтры `underlyingCode`/`expiration`),

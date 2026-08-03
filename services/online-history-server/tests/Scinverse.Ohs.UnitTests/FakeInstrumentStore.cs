@@ -42,6 +42,24 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
 
     public Task<Instrument> UpsertAsync(SecurityInfo security, CancellationToken cancellationToken)
     {
+        var instrument = UpsertCore(security);
+        return Task.FromResult(instrument);
+    }
+
+    public Task<IReadOnlyList<Instrument>> UpsertBatchAsync(
+        IReadOnlyList<SecurityInfo> securities, CancellationToken cancellationToken)
+    {
+        var result = new List<Instrument>(securities.Count);
+        foreach (var security in securities)
+        {
+            result.Add(UpsertCore(security));
+        }
+
+        return Task.FromResult<IReadOnlyList<Instrument>>(result);
+    }
+
+    private Instrument UpsertCore(SecurityInfo security)
+    {
         var existing = _instruments.FirstOrDefault(i => i.Key == security.Key);
         var instrument = new Instrument
         {
@@ -54,7 +72,7 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
 
         _instruments.RemoveAll(i => i.Key == security.Key);
         _instruments.Add(instrument);
-        return Task.FromResult(instrument);
+        return instrument;
     }
 
     public Task<InstrumentScopeInfo?> GetScopeInfoAsync(long instrumentId, CancellationToken cancellationToken)

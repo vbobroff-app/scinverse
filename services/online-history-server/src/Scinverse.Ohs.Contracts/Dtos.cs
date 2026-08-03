@@ -339,6 +339,12 @@ public sealed record FuturesAssetClassDto(
 public sealed record AssetClassRefreshResultDto(int Total, int Inserted, int Unresolved);
 
 /// <summary>
+/// Итог инвалидации in-memory каталога инструментов (POST /api/instruments/catalog/refresh).
+/// Полный dump обычно приходит с коннектора на connect/reconnect.
+/// </summary>
+public sealed record InstrumentCatalogRefreshResultDto(bool Invalidated, bool IsFresh);
+
+/// <summary>
 /// День торгового календаря движка (бесплатный <c>/iss/engines/{engine}</c>): торговый ли день,
 /// его вид и внешние часы (МСК). <c>Kind</c>: <c>regular</c>|<c>transfer</c>|<c>dsvd</c>|
 /// <c>weekend</c>|<c>holiday</c>. <c>Open</c>/<c>Close</c> заполнены только у торгового дня.

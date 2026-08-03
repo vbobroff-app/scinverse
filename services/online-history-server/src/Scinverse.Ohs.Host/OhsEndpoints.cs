@@ -74,6 +74,22 @@ public static class OhsEndpoints
             return Results.Ok(new { processed = candidates.Count });
         });
 
+        // Инвалидация in-memory каталога (force): следующий dump securities с коннектора
+        // уйдёт в фоновый persist. Полный словарь TRANSAQ обычно приходит на connect/reconnect.
+        api.MapPost("/instruments/catalog/refresh", (
+            IInstrumentRegistry registry, INotificationPublisher notifications) =>
+        {
+            var invalidated = registry.Invalidate(force: true);
+            notifications.Publish(
+                "instruments.catalog.refresh",
+                invalidated
+                    ? "Справочник инструментов: обновление разрешено (ожидается dump с коннектора)"
+                    : "Справочник инструментов: уже помечен к обновлению",
+                severity: "info",
+                sourceType: "user");
+            return Results.Ok(new InstrumentCatalogRefreshResultDto(invalidated, registry.IsFresh));
+        });
+
         api.MapGet("/sources", async (ISourceStore store, CancellationToken ct) =>
         {
             var sources = await store.ListAsync(ct);
@@ -245,6 +261,7 @@ public static class OhsEndpoints
             IConnectionStore connections,
             IConnectionScheduleStore schedule,
             ConnectionSupervisor supervisor,
+            IInstrumentRegistry registry,
             INotificationPublisher notifications,
             CancellationToken ct) =>
         {
@@ -282,8 +299,10 @@ public static class OhsEndpoints
                     }
 
                     // Auto on после halt/×N — снова Connect в окне (закрыть active break → recovered).
+                    // Раз в торговый день (МСК) разрешаем persist hit-ов справочника на следующем dump.
                     if (auto && !before.AutoEnabled)
                     {
+                        registry.Invalidate(force: false);
                         supervisor.ResumeAutoRecovery(id);
                         supervisor.Nudge();
                     }

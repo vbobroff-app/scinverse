@@ -536,6 +536,12 @@ export interface AssetClassRefreshResultDto {
   unresolved: number;
 }
 
+/** Итог инвалидации in-memory каталога инструментов (POST /api/instruments/catalog/refresh). */
+export interface InstrumentCatalogRefreshResultDto {
+  invalidated: boolean;
+  isFresh: boolean;
+}
+
 /** Вид дня торгового календаря движка. */
 export type CalendarDayKind = 'regular' | 'transfer' | 'dsvd' | 'weekend' | 'holiday';
 

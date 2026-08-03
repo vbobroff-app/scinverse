@@ -2241,6 +2241,16 @@ export class OhsStore {
   }
 
   /**
+   * Force-инвалидация каталога инструментов: следующий dump securities с коннектора
+   * уйдёт в фоновый persist (обычно после reconnect).
+   */
+  refreshInstrumentCatalog(): void {
+    this.api.refreshInstrumentCatalog().subscribe({
+      error: (err) => console.error('refreshInstrumentCatalog', err),
+    });
+  }
+
+  /**
    * Атомарная пачка schedule-операций (Saga, всё-или-ничего): один POST …/schedule/batch.
    * Сервер применяет всё в одной транзакции и публикует сводку в NC. Клиент только сверяет
    * истину (refresh) и решает судьбу попапа через {@link handlers}: `onSuccess` — закрыть,

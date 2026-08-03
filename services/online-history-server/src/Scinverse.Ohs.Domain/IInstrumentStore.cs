@@ -18,6 +18,13 @@ public interface IInstrumentStore
     Task<Instrument> UpsertAsync(SecurityInfo security, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Пакетный upsert справочника (startup-latency #2): markets/boards + multi-row instrument
+    /// + derivative. Возвращает инструменты со стабильными id (порядок не гарантирован).
+    /// </summary>
+    Task<IReadOnlyList<Instrument>> UpsertBatchAsync(
+        IReadOnlyList<SecurityInfo> securities, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Scope-атрибуты инструмента для расписания: board, sec_type (SHARE/FUT/OPT…) и underlying_code
     /// (ASSETCODE деривативa, напр. Si). null, если инструмента нет. Используется резолвером scopeOf.
     /// </summary>

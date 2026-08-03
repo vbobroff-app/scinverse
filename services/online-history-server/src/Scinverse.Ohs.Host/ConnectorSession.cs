@@ -125,17 +125,25 @@ public sealed class ConnectorSession(
                     switch (message)
                     {
                         case SecurityInfo security:
-                            await registry.RegisterAsync(security, cancellationToken).ConfigureAwait(false);
-                            break;
-
-                        case TradeEvent trade when normalizer.TryNormalize(trade, sourceId, out var record):
-                            await batcher.EnqueueAsync(record, cancellationToken).ConfigureAwait(false);
-                            coverageTracker.Track(trade.Key, record.Timestamp);
-                            onData?.Invoke();
+                            // Cache-hit (свежий каталог) — no-op; stale hit — фоновый persist;
+                            // miss — буфер + батч по порогу (не транзакция на каждый SecurityInfo).
+                            registry.Observe(security);
+                            await registry.TryFlushMissThresholdAsync(cancellationToken).ConfigureAwait(false);
                             break;
 
                         case TradeEvent trade:
-                            logger.LogDebug("Сделка по незарегистрированному инструменту {Key} отброшена", trade.Key);
+                            await registry.FlushPendingAsync(cancellationToken).ConfigureAwait(false);
+                            if (normalizer.TryNormalize(trade, sourceId, out var record))
+                            {
+                                await batcher.EnqueueAsync(record, cancellationToken).ConfigureAwait(false);
+                                coverageTracker.Track(trade.Key, record.Timestamp);
+                                onData?.Invoke();
+                            }
+                            else
+                            {
+                                logger.LogDebug("Сделка по незарегистрированному инструменту {Key} отброшена", trade.Key);
+                            }
+
                             break;
                     }
                 }

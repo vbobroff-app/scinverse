@@ -1,7 +1,9 @@
 # Data-path: 3 минуты до «первых данных» после connect (регистрация справочника)
 
-**Статус:** `OPEN · DEFERRED` (вынесено из scope 7j — это уровень **данных/инструментов**, не
-connection-lifecycle). **Дата:** 2026-07-24 (живой тест Finam id=3).
+**Статус:** `DONE` (2026-08-03). **Дата находки:** 2026-07-24 (живой тест Finam id=3).  
+**Issue-якорь (7j):** вынесено из connection-lifecycle → этот файл; ссылки —
+[phase7j/issue.md](../phase7j/issue.md) (хвост), [phase7j/plan.md](../phase7j/plan.md) **H3**,
+[phase7j/incident.md](../phase7j/incident.md) §H3.
 
 **Уровни (договорённость):**
 - **Соединение** (scope 7j) — запуск/инциденты/восстановление связи (`link_liveness`, супервизор, NC).
@@ -11,9 +13,9 @@ connection-lifecycle). **Дата:** 2026-07-24 (живой тест Finam id=3)
 
 ---
 
-## Симптом
+## 1. Симптом (было)
 
-После успешного connect тумблер связи **~3 минуты висит зелёным** (`waiting`) и лишь затем становится
+После успешного connect тумблер связи **~3 минуты висел зелёным** (`waiting`) и лишь затем становился
 голубым (`active`). В логе:
 
 ```text
@@ -22,62 +24,91 @@ connection-lifecycle). **Дата:** 2026-07-24 (живой тест Finam id=3)
 11:07:34  Подключение 3: первые данные через 195 689 мс (3.26 мин) после установки связи
 ```
 
-Связь жива, сделки физически идут в канал — но статус `active` не наступает, пока не обработается
+Связь жива, сделки физически шли в канал — но статус `active` не наступал, пока не обработается
 первая нормализованная сделка.
 
 ---
 
-## Корневая причина
+## 2. Корневая причина
 
 При `connect` TRANSAQ сам (без запроса) выгружает **весь справочник инструментов** (`<securities>` /
-`sec_info`) — для FORTS это десятки тысяч позиций (фьючерсы + вся линейка опционов). Единственный
-pump-цикл (`ConnectorSession.PumpAsync`, `SingleReader`) читает поток **строго последовательно** и на
-каждом `SecurityInfo` блокируется на `await registry.RegisterAsync(...)`, а тот делает **отдельную
-транзакцию в БД на инструмент** (`InstrumentStore.UpsertAsync`: open connection + `BEGIN` + market/board
-INSERT + instrument UPSERT + `COMMIT`).
+`sec_info`) — для FORTS это десятки тысяч позиций. Pump читал поток последовательно и на каждом
+`SecurityInfo` ждал `RegisterAsync` → **отдельная транзакция в БД на инструмент**, даже если ключ
+уже был в прогретом `_cache` (`InitializeAsync` грузит Postgres на старте Host).
 
-`onData` (→ статус `active`, зелёный→голубой) срабатывает **только на нормализованной сделке**
-(`ConnectorSession.PumpAsync`, ветка `TradeEvent … TryNormalize`). `TradeEvent`-ы стоят в FIFO-канале
-**позади** справочника, поэтому до них pump доходит лишь после слива всего словаря.
-
-**Арифметика:** ~30–60 тыс. инструментов × ~4–6 мс/транзакция ≈ 150–200 с ≈ **3.2 мин** = ровно
-195 689 мс из лога.
-
-**Усугубляющий факт:** `RegisterAsync` пишет в БД **всегда**, даже если инструмент уже в прогретом
-`_cache` (`InstrumentRegistry.InitializeAsync` грузит всё из БД на старте). То есть словарь бессмысленно
-переписывается на **каждом** коннекте/реконнекте — плата ~3 мин каждый раз.
-
-**Код:** `ConnectorSession.PumpAsync` (блокирующий `await RegisterAsync` в цикле),
-`InstrumentRegistry.RegisterAsync` (всегда upsert), `InstrumentStore.UpsertAsync` (транзакция на строку).
+`TradeEvent`-ы стояли в FIFO **позади** справочника → ~30–60k × 4–6 мс ≈ **3.2 мин**.
 
 ---
 
-## Побочные эффекты
+## 3. Решение (реализовано)
 
-- Ложная интерпретация состояния: зелёный `waiting` 3 минуты выглядит как «TRANSAQ не запускается».
-- На каждом реконнекте задержка повторяется (важно для сценариев сон/пробуждение, авто-reconnect 7j).
-- Возможная потеря сделок по инструменту, чей `SecurityInfo` ещё не обработан: `TradeEvent` по
-  незарегистрированному ключу **отбрасывается** (DEBUG-лог), без backfill. На практике словарь идёт в
-  потоке раньше сделок, но при интерливе — риск дыры в самом начале.
+### 3.1. In-memory кэш + политика свежести
+
+Кэш — `ConcurrentDictionary<InstrumentKey, Instrument>` в singleton `InstrumentRegistry`
+(процесс Host). SoT — Postgres; при рестарте Host словарь прогревается `InitializeAsync` →
+`LoadAllAsync` (секунды, не минуты). Redis / IndexedDB для этого hot path не нужны:
+resolve сделок — серверный, после рестарта SoT уже в памяти.
+
+| Состояние каталога | Hit `Observe(SecurityInfo)` | Miss |
+|--------------------|------------------------------|------|
+| **Fresh** (после init / idle persist) | no-op, без БД | батч upsert → кэш |
+| **Stale** (после invalidate) | обновить поля в памяти + enqueue фоновый persist | то же |
+
+Инвалидация (разрешить persist hit-ов):
+
+- **Auto-on** соединения — не чаще **раза в торговый день (МСК)** (`Invalidate(force: false)` в
+  `PUT /api/connections/{id}/schedule/settings`);
+- кнопка **«Обновить справочник»** (⚙️ провайдера) —
+  `POST /api/instruments/catalog/refresh` (`Invalidate(force: true)`).
+
+Refresh **сам dump не скачивает** — помечает каталог stale; полный словарь TRANSAQ обычно приходит
+на connect/reconnect. После фонового persist и **idle ~3 с** writer вызывает `MarkFresh()`.
+
+### 3.2. #2 Батч + #3 развязка пути сделок
+
+| Путь | Поведение |
+|------|-----------|
+| Hit + fresh | мгновенно, без БД |
+| Hit + stale | память сразу; `InstrumentCatalogPersistQueue` → `InstrumentCatalogPersistWriter` → `UpsertBatchAsync` (~500) |
+| Miss | miss-буфер → sync `UpsertBatchAsync` по порогу 500 / `FlushPending` перед сделкой в pump |
+
+Pump (`ConnectorSession.PumpAsync`): `Observe` + `TryFlushMissThresholdAsync` на `SecurityInfo`;
+перед `TradeEvent` — `FlushPendingAsync`. Hot path сделок не ждёт построчный upsert справочника.
+
+### 3.3. Карта кода / API
+
+| Слой | Путь |
+|------|------|
+| Реестр | `Scinverse.Ohs.Ingestion/InstrumentRegistry.cs`, `IInstrumentRegistry` |
+| Очередь | `InstrumentCatalogPersistQueue.cs` |
+| Writer | `Scinverse.Ohs.Host/InstrumentCatalogPersistWriter.cs` (BackgroundService) |
+| Store | `InstrumentStore.UpsertBatchAsync` (+ порт `IInstrumentStore`) |
+| Pump | `ConnectorSession.PumpAsync` |
+| API | `POST /api/instruments/catalog/refresh` → `InstrumentCatalogRefreshResultDto` |
+| Auto-on | `OhsEndpoints` schedule/settings → `registry.Invalidate(force: false)` |
+| UI | `ProviderCard` → «Обновить справочник»; `OhsStore.refreshInstrumentCatalog` |
+| Тесты | `InstrumentRegistryTests` (unit) |
 
 ---
 
-## Варианты фикса (от дешёвого к системному)
+## 4. Приёмка (живой Finam id=3, 2026-08-03)
 
-| # | Что | Эффект | Минус |
-|---|-----|--------|-------|
-| 1 | **Дедуп в `RegisterAsync`:** ключ уже в `_cache` и данные не изменились → вернуть кэш без записи в БД | Реконнект/тёплый старт — мгновенно | Первый (холодный) прогон всё ещё медленный; редкие интрадей-изменения спеки — до рестарта |
-| 2 | **Батч-запись** словаря (multi-row `INSERT … ON CONFLICT` / COPY по ~500) | Режет round-trips в сотни раз, чинит и холодный старт | Больше кода в store |
-| 3 | **Развязать регистрацию и путь сделок:** класть `SecurityInfo` в кэш сразу (in-memory), персист в БД фоново-батчами; сделки не ждут словарь | Убирает задержку «первых данных» даже на холодную | Нужен фоновый воркер + аккуратность с `instrument_id` из БД |
+| Метрика | До | После |
+|---------|----|--------|
+| `первые данные через …` | ~140–214 с (типично ~2.5–3.5 мин) | **~10–16 с** (`9888` / `15588` мс) |
+| Handshake TRANSAQ | ~7–14 с (без изменений) | то же |
+| Subscribe → первая сделка | утопало в dump+DB | **~2 с** после Auto-старта записи |
 
-Рекомендация: **#1** снимает наблюдаемый кейс (БД прогрета) минимальной правкой; **#2 + #3** нужны, чтобы
-и первый в жизни прогон был быстрым. Реализовать после текущего блока 7j (connection lifecycle).
+Остаток ~10 с после Live — приём/разбор XML dump `<securities>` в pump (без построчного upsert),
+не блокирующая запись справочника в БД.
 
 ---
 
-## Как проверить после фикса
+## 5. Как проверить
 
-1. Connect на прогретой БД → `active`/голубой в течение секунд, не минут.
-2. В логе: `первые данные через <N> мс` — N в пределах секунд (плюс реальная разреженность рынка).
-3. Реконнект (авто/ручной) → повтор быстрый.
-4. Регресс: новые/изменённые инструменты по-прежнему появляются в реестре и БД.
+1. Connect на прогретой БД (свежий каталог) → `active`/голубой за секунды, не минуты.
+2. В логе: `первые данные через <N> мс` — N порядка **10–20 с** (не 150+).
+3. Реконнект без Refresh / без первого Auto-on за день → снова быстро (hit+fresh).
+4. Auto-on (первый за день) или «Обновить справочник» + reconnect → dump уходит в фон.
+5. Регресс: новые инструменты (miss) появляются в реестре и БД.
+6. Unit: `dotnet test …UnitTests --filter InstrumentRegistryTests`.

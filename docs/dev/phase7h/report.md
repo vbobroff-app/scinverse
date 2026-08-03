@@ -2,8 +2,8 @@
 
 Актуальный статус фазы 7h. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
-**Текущий статус:** `DONE`.
-**Обновлено:** 2026-07-13.
+**Текущий статус:** `DONE` (+ follow-up H3 startup-latency **DONE** 2026-08-03).
+**Обновлено:** 2026-08-03.
 
 ## Статус задач
 
@@ -62,6 +62,7 @@
 ### Документация
 
 - [incident.md](incident.md) — таксономия инцидентов, таблицы, pipeline, визуализация, SQL
+- [startup-latency.md](startup-latency.md) — **DONE**: cache-first справочник (~10–16 с вместо ~3 мин)
 
 ### Dev / вспомогательное (временное)
 
@@ -91,6 +92,13 @@
 | `b163b68` | feat(ohs-7h): link automaton, re-subscribe, connectionStateChanged WS |
 | `01958db` | feat(ohs-7h): UI break styling, degraded toggle, debug drop |
 | *(этот коммит)* | docs(ohs-7h): incident guide, reconnect fix, promt handoff 7i |
+
+## Follow-up: startup-latency справочника (H3) — DONE 2026-08-03
+
+Блокирующий per-row upsert dump `<securities>` → ~3 мин до первых данных. Исправлено:
+in-memory cache-first, суточная инвалидация (Auto-on) + Refresh UI, фоновый/batch persist.
+Живая приёмка Finam id=3: `первые данные` 9888 / 15588 мс. Канон —
+[startup-latency.md](startup-latency.md); якоря 7j — plan **H3**, issue хвост, incident §H3.
 
 ## Вне области (осталось на follow-up)
 

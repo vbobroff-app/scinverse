@@ -166,6 +166,10 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
     public Task<AssetClassRefreshResultDto> RefreshAssetClassesAsync(CancellationToken cancellationToken = default) =>
         PostAsync<AssetClassRefreshResultDto>("/api/exchanges/asset-classes/refresh", cancellationToken);
 
+    public Task<InstrumentCatalogRefreshResultDto> RefreshInstrumentCatalogAsync(
+        CancellationToken cancellationToken = default) =>
+        PostAsync<InstrumentCatalogRefreshResultDto>("/api/instruments/catalog/refresh", cancellationToken);
+
     public Task<IReadOnlyList<CalendarDayDto>> GetEngineCalendarAsync(
         string engine, DateOnly? from = null, DateOnly? till = null, CancellationToken cancellationToken = default)
     {

@@ -300,6 +300,132 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
         return Map(row);
     }
 
+    public async Task<IReadOnlyList<Instrument>> UpsertBatchAsync(
+        IReadOnlyList<SecurityInfo> securities, CancellationToken cancellationToken)
+    {
+        if (securities.Count == 0)
+        {
+            return [];
+        }
+
+        // Дедуп по ключу (последний выигрывает).
+        var byKey = new Dictionary<InstrumentKey, SecurityInfo>(securities.Count);
+        foreach (var security in securities)
+        {
+            byKey[security.Key] = security;
+        }
+
+        var items = byKey.Values.ToList();
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        var marketIds = items
+            .Where(s => s.MarketId is not null)
+            .Select(s => s.MarketId!.Value)
+            .Distinct()
+            .ToArray();
+        if (marketIds.Length > 0)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO market (market_id)
+                SELECT DISTINCT m FROM unnest(@ids) AS m
+                ON CONFLICT (market_id) DO NOTHING;
+                """,
+                new { ids = marketIds },
+                transaction,
+                cancellationToken: cancellationToken));
+        }
+
+        var boards = items
+            .GroupBy(s => s.Key.Board)
+            .Select(g => g.First())
+            .ToList();
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO board (board_id, market_id)
+            SELECT b, m FROM unnest(@boards, @markets) AS t(b, m)
+            ON CONFLICT (board_id) DO NOTHING;
+            """,
+            new
+            {
+                boards = boards.Select(s => s.Key.Board).ToArray(),
+                markets = boards.Select(s => s.MarketId).ToArray()
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        const string upsert = $"""
+            INSERT INTO instrument
+                (ticker, board_id, transaq_secid, short_name, name, sec_type,
+                 decimals, min_step, lot_size, point_cost, currency, last_seen_at)
+            SELECT ticker, board_id, transaq_secid, short_name, name, sec_type,
+                   decimals, min_step, lot_size, point_cost, currency, now()
+            FROM unnest(
+                @tickers::text[], @boards::text[], @secids::int[], @shortNames::text[], @names::text[],
+                @secTypes::text[], @decimals::smallint[], @minSteps::numeric[], @lotSizes::int[],
+                @pointCosts::numeric[], @currencies::text[])
+            AS t(ticker, board_id, transaq_secid, short_name, name, sec_type,
+                 decimals, min_step, lot_size, point_cost, currency)
+            ON CONFLICT (ticker, board_id) DO UPDATE SET
+                transaq_secid = EXCLUDED.transaq_secid,
+                short_name    = EXCLUDED.short_name,
+                name          = EXCLUDED.name,
+                sec_type      = EXCLUDED.sec_type,
+                decimals      = EXCLUDED.decimals,
+                min_step      = EXCLUDED.min_step,
+                lot_size      = EXCLUDED.lot_size,
+                point_cost    = EXCLUDED.point_cost,
+                currency      = EXCLUDED.currency,
+                active        = TRUE,
+                last_seen_at  = now()
+            RETURNING {SelectColumns};
+            """;
+
+        var rows = (await connection.QueryAsync<InstrumentRow>(new CommandDefinition(
+            upsert,
+            new
+            {
+                tickers = items.Select(s => s.Key.Ticker).ToArray(),
+                boards = items.Select(s => s.Key.Board).ToArray(),
+                secids = items.Select(s => s.TransaqSecId).ToArray(),
+                shortNames = items.Select(s => s.ShortName).ToArray(),
+                names = items.Select(s => s.Name).ToArray(),
+                secTypes = items.Select(s => s.SecType).ToArray(),
+                decimals = items.Select(s => (short?)s.Decimals).ToArray(),
+                minSteps = items.Select(s => s.MinStep).ToArray(),
+                lotSizes = items.Select(s => s.LotSize).ToArray(),
+                pointCosts = items.Select(s => s.PointCost).ToArray(),
+                currencies = items.Select(s => s.Currency).ToArray()
+            },
+            transaction,
+            cancellationToken: cancellationToken))).ToList();
+
+        var byReturnedKey = rows.ToDictionary(
+            r => new InstrumentKey(r.Ticker, r.BoardId),
+            Map);
+
+        foreach (var security in items)
+        {
+            if (security is not { UnderlyingCode: not null, Expiration: { } expiration })
+            {
+                continue;
+            }
+
+            if (!byReturnedKey.TryGetValue(security.Key, out var instrument))
+            {
+                continue;
+            }
+
+            await UpsertDerivativeAsync(
+                connection, transaction, instrument.InstrumentId, security, expiration, cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return byReturnedKey.Values.ToList();
+    }
+
     private static async Task UpsertDerivativeAsync(
         NpgsqlConnection connection, System.Data.Common.DbTransaction transaction,
         long instrumentId, SecurityInfo security, DateOnly expiration, CancellationToken cancellationToken)

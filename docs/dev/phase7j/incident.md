@@ -524,8 +524,9 @@ As-is файлы: `web/src/ui/components/CoverageTrack.tsx` + `coverageGeometry.
 - [x] **H2. Recording-лента = бинарная проекция `incident`.** Сплошной red без маркеров /
   break\|crash / owner; merge overlap (`[blue][red][blue]`). Не путать с Connection-лентой (J7).
   Спека — [../phase11/incident-journal.md](../phase11/incident-journal.md) §3.0b.
-- [ ] **H3. (Отдельно, DEFERRED)** 3-мин задержка «первых данных» — см.
-  [../phase7h/startup-latency.md](../phase7h/startup-latency.md). Не входит в эту модель.
+- [x] **H3. Startup-latency справочника — DONE** (2026-08-03). Не входит в модель инцидентов;
+  спека/приёмка — [../phase7h/startup-latency.md](../phase7h/startup-latency.md)
+  (cache-first, ~10–16 с до первых данных вместо ~3 мин).
 
 ---
 

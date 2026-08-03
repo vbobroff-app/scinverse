@@ -33,6 +33,7 @@ import type {
   IntegrationProbeResultDto,
   ResolveIncidentRequest,
   SoftDeleteIncidentRequest,
+  InstrumentCatalogRefreshResultDto,
   InstrumentGroupDto,
   InstrumentPage,
   InstrumentQueryParams,
@@ -263,6 +264,10 @@ export const OhsApi = {
   // Справочник классов базового актива фьючерсов + актуализация из ISS (по кнопке).
   getAssetClasses: () => getJSON<FuturesAssetClassDto[]>('/exchanges/asset-classes'),
   refreshAssetClasses: () => post<AssetClassRefreshResultDto>('/exchanges/asset-classes/refresh'),
+
+  /** Force-инвалидация каталога инструментов (dump придёт с коннектора на connect/reconnect). */
+  refreshInstrumentCatalog: () =>
+    post<InstrumentCatalogRefreshResultDto>('/instruments/catalog/refresh'),
 
   // Торговый календарь движка (бесплатный /iss/engines/{engine}).
   getEngineCalendar: (engine: string, from?: string, till?: string) => {

@@ -747,7 +747,12 @@ I8 обещал: «одиночный 500 → health-probe … **висящих 
 NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).
 Gate Admin Front + NC — 11→12 ([../plan.md](../plan.md)).
 
-**Вне scope 7j (уровень данных).** Задержка ~3 мин до «первых данных» после connect (зелёный `waiting`
-не сменяется голубым `active`) — это **data-path**: блокирующая регистрация справочника инструментов в
-pump, не connection-lifecycle. Вынесено отдельно → [phase7h/startup-latency.md](../phase7h/startup-latency.md).
+**Вне scope 7j (уровень данных) — H3 DONE (2026-08-03).**  
+Задержка ~3 мин до «первых данных» после connect: блокирующий per-row `RegisterAsync` на dump
+`<securities>` в pump. Исправлено — [phase7h/startup-latency.md](../phase7h/startup-latency.md):
+
+- in-memory cache-first (hit+fresh → без БД); invalidate раз в день (Auto-on МСК) + Refresh UI;
+- miss / stale → `UpsertBatchAsync` + фоновый `InstrumentCatalogPersistWriter`;
+- живая приёмка Finam id=3: `первые данные` **9888 / 15588 мс** (было ~140–214 с).
+
 7j остаётся про соединение: запуск / инциденты / восстановление связи.

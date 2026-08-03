@@ -171,10 +171,12 @@ ORDER BY d.strike;
 - нераспознанный код (напр. акция `SBER`) → инструмент остаётся «плоским», строка `derivative`
   не создаётся.
 
-`InstrumentRegistry.RegisterAsync` обогащает `SecurityInfo` (поля `UnderlyingCode`,
-`UnderlyingFuturesCode`, `Expiration`, `OptionType`, `Strike`), а `InstrumentStore.UpsertAsync`
-в той же транзакции делает upsert в `derivative` (`underlying_id` резолвится best-effort по коду
-базового фьючерса; при отсутствии — `NULL`, группировка держится на `underlying_code`).
+`InstrumentRegistry` обогащает `SecurityInfo` (поля `UnderlyingCode`,
+`UnderlyingFuturesCode`, `Expiration`, `OptionType`, `Strike`) в `Observe`/`RegisterAsync`.
+Запись в БД — `InstrumentStore.UpsertAsync` (один инструмент) или `UpsertBatchAsync` (пакет;
+горячий dump TRANSAQ после invalidate). Hit при свежем in-memory каталоге в БД не пишется —
+см. [startup-latency.md](../dev/phase7h/startup-latency.md). Upsert `derivative` —
+`underlying_id` best-effort по коду базового фьючерса; при отсутствии — `NULL`.
 
 ### Read-model группировки (лениво-иерархический каталог)
 

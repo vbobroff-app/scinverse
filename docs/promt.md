@@ -330,6 +330,8 @@ PowerShell: `;` не `&&`. Commit-msg → UTF-8 без BOM + `git commit -F`.
 - Gate 11→12: NC-сервис / MFE + Keycloak.
 - P1.2 ScheduleCutter writers (если ещё deferred).
 - 7j.15/16 UI tails; Host pool I12 step 3.
+- ~~Startup-latency справочника (~3 мин)~~ — **DONE** (Finam ~10–16 с;
+  [startup-latency.md](./dev/phase7h/startup-latency.md) · 7j H3).
 
 Уточнять у пользователя scope — не начинать gate/WebGL «заодно».
 
