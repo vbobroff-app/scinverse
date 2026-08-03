@@ -30,6 +30,8 @@ type WizardKind = 'close' | 'delete' | null;
 
 const PAGE_SIZE = 100;
 const NEAR_END_PX = 200;
+/** Как ConnectionSchedulePopover — длительность exit-анимации. */
+const CLOSE_ANIM_MS = 180;
 
 const STATUS_IDS = ['active', 'recovering', 'resolved', 'deleted'] as const;
 const OUTCOME_IDS = ['recovered', 'abandoned_manual', 'recovered_manual'] as const;
@@ -131,6 +133,9 @@ export function ConnectionIncidentsModal({
   const [stepBackIn, setStepBackIn] = useState(false);
   const [closeNote, setCloseNote] = useState('');
   const [busy, setBusy] = useState(false);
+  /** Смонтирована (включая фазу закрытия) — как schedule popover. */
+  const [panelPresent, setPanelPresent] = useState(open);
+  const [panelExiting, setPanelExiting] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
   const loadingRef = useRef(false);
@@ -140,6 +145,33 @@ export function ConnectionIncidentsModal({
   const totalRef = useRef(total);
   itemsRef.current = items;
   totalRef.current = total;
+
+  const closeMs = () =>
+    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? 0
+      : CLOSE_ANIM_MS;
+
+  useEffect(() => {
+    if (open) {
+      setPanelPresent(true);
+      setPanelExiting(false);
+      return;
+    }
+    setPanelPresent((present) => {
+      if (!present) return false;
+      setPanelExiting(true);
+      return true;
+    });
+  }, [open]);
+
+  useEffect(() => {
+    if (!panelExiting) return;
+    const t = window.setTimeout(() => {
+      setPanelPresent(false);
+      setPanelExiting(false);
+    }, closeMs());
+    return () => window.clearTimeout(t);
+  }, [panelExiting]);
 
   const selected = useMemo(
     () => (selectedCorr ? (items.find((i) => i.corrUid === selectedCorr) ?? null) : null),
@@ -416,7 +448,7 @@ export function ConnectionIncidentsModal({
     goDeleteInfo,
   ]);
 
-  if (!open) return null;
+  if (!panelPresent) return null;
 
   const afterMutate = (wasRecovering: boolean) => {
     setBusy(false);
@@ -485,14 +517,17 @@ export function ConnectionIncidentsModal({
 
   return (
     <div
-      className={styles.backdrop}
+      className={[styles.backdrop, panelExiting ? styles.backdropOut : '']
+        .filter(Boolean)
+        .join(' ')}
       role="presentation"
       onClick={(e) => {
+        if (panelExiting) return;
         if (e.target === e.currentTarget && wizard == null) onClose();
       }}
     >
       <div
-        className={styles.panel}
+        className={[styles.panel, panelExiting ? styles.panelOut : ''].filter(Boolean).join(' ')}
         role="dialog"
         aria-modal="true"
         aria-label={
