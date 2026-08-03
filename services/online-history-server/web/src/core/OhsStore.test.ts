@@ -219,6 +219,54 @@ describe('OhsStore live merge', () => {
     store.stop();
   });
 
+  it('error на тумблере сбрасывается в disconnected через 5с', () => {
+    vi.useFakeTimers();
+    const live = new Subject<LiveEvent>();
+    const store = new OhsStore(
+      fakeApi({ connect: () => throwError(() => new Error('TRANSAQ connect failed')) }),
+      live,
+    );
+    store.start();
+
+    store.connect(1);
+    expect(store.connections$.value[0].status).toBe('error');
+
+    vi.advanceTimersByTime(4_999);
+    expect(store.connections$.value[0].status).toBe('error');
+
+    vi.advanceTimersByTime(1);
+    expect(store.connections$.value[0].status).toBe('disconnected');
+    store.stop();
+    vi.useRealTimers();
+  });
+
+  it('новый connect снимает error сразу (connecting)', () => {
+    vi.useFakeTimers();
+    const live = new Subject<LiveEvent>();
+    let calls = 0;
+    const store = new OhsStore(
+      fakeApi({
+        connect: () => {
+          calls += 1;
+          return calls === 1
+            ? throwError(() => new Error('fail'))
+            : of(connection({ status: 'waiting' }));
+        },
+      }),
+      live,
+    );
+    store.start();
+
+    store.connect(1);
+    expect(store.connections$.value[0].status).toBe('error');
+
+    store.connect(1);
+    // of(waiting) синхронно сменяет connecting — красный error снят.
+    expect(store.connections$.value[0].status).toBe('waiting');
+    store.stop();
+    vi.useRealTimers();
+  });
+
   it('двигает счётчик активной колбаски по coverageExtended без перезапроса', () => {
     vi.useFakeTimers();
     const live = new Subject<LiveEvent>();

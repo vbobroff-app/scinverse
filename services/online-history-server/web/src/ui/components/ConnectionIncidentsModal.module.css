@@ -2,19 +2,24 @@
   position: fixed;
   inset: 0;
   z-index: 40;
+  box-sizing: border-box;
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(1px);
   -webkit-backdrop-filter: blur(1px);
   display: flex;
   align-items: flex-start;
   justify-content: center;
+  /* Симметричные поля: панель всегда внутри viewport при ресайзе. */
   padding-top: 10vh;
+  padding-bottom: 10vh;
 }
 
 .panel {
   position: relative;
   width: min(820px, 94vw);
-  max-height: calc(100vh - 10vh - 24px);
+  /* Жёсткий потолок 750px, но не выше области между padding backdrop. */
+  max-height: min(750px, calc(100vh - 20vh));
+  max-height: min(750px, calc(100dvh - 20vh));
   overflow: hidden;
   padding: 16px;
   border-radius: var(--radius-md);

@@ -21,6 +21,26 @@ function breakIncident(partial: Partial<IncidentDto> & Pick<IncidentDto, 'corrUi
 }
 
 describe('projectConnectionIncidents', () => {
+  it('paints green recover marker for recovered_manual', () => {
+    const paint = projectConnectionIncidents(
+      [
+        breakIncident({
+          corrUid: 'connection:1:link:manual',
+          openedAt: '2026-07-29T14:51:10.620Z',
+          closedAt: '2026-07-29T14:51:40.000Z',
+          closeOutcome: 'recovered_manual',
+          status: 'resolved',
+        }),
+      ],
+      Date.parse('2026-07-29T15:00:00.000Z'),
+    );
+    expect(paint.markers.map((m) => m.label)).toEqual([
+      'Обрыв связи',
+      'Связь восстановлена оператором',
+    ]);
+    expect(paint.markers.some((m) => m.kind === 'recover')).toBe(true);
+  });
+
   it('paints short recovered break as single red (no yellow stitch)', () => {
     const paint = projectConnectionIncidents(
       [

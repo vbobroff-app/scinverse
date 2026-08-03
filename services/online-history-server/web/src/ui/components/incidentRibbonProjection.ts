@@ -68,14 +68,19 @@ export function projectConnectionIncidents(
 
     if (
       incident.closedAt &&
-      incident.closeOutcome === 'recovered' &&
+      (incident.closeOutcome === 'recovered' || incident.closeOutcome === 'recovered_manual') &&
       Number.isFinite(Date.parse(incident.closedAt))
     ) {
+      const recoverLabel = isCrash
+        ? 'Система восстановлена'
+        : incident.closeOutcome === 'recovered_manual'
+          ? 'Связь восстановлена оператором'
+          : 'Связь восстановлена';
       markers.push({
         corrUid: incident.corrUid,
         atMs: Date.parse(incident.closedAt),
         kind: 'recover',
-        label: isCrash ? 'Система восстановлена' : 'Связь восстановлена',
+        label: recoverLabel,
       });
     }
 

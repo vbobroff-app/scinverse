@@ -160,9 +160,13 @@ const JOURNAL_STATUS_NOTIFY_CODES = new Set([
   'connection.connect_failed',
   'connection.restore_declined',
   'connection.await_operator',
+  'connection.auto_off',
+  'connection.link_off',
 ]);
 /** Склеить пачку recovering-тиков в один GET /connections/{id}/incidents. */
 const JOURNAL_INCIDENTS_DEBOUNCE_MS = 250;
+/** Красный крест на тумблере связи/Auto после fail — затем обычный off. */
+const CONNECTION_ERROR_FLASH_MS = 5_000;
 /**
  * I12 / 7j.22 шаг 1 (+ задел под WebGL drag-zoom): склеить залп/жест в один проход.
  * Тишина debounce → полный последовательный refresh; in-flight отменяется (switchMap).
@@ -394,6 +398,8 @@ export class OhsStore {
   private extentFetchSub?: Subscription;
   private windowTimer?: ReturnType<typeof setInterval>;
   private coveragePollTimer?: ReturnType<typeof setInterval>;
+  /** Таймеры сброса UI-статуса error → disconnected (красный крест не вечный). */
+  private readonly connectionErrorTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /** I12: вход pipeline refresh ленты (полный проход coverage→activity→liveness). */
   private readonly ribbonRefresh$ = new Subject<void>();
   /** Лёгкий refresh journal incidents (не весь ribbon) по NC lifecycle. */
@@ -1920,6 +1926,11 @@ export class OhsStore {
       next: (x) => {
         this.connections$.next(x);
         for (const c of x) {
+          if (c.status === 'error') {
+            this.armConnectionErrorFlash(c.connectionId);
+          } else {
+            this.clearConnectionErrorTimer(c.connectionId);
+          }
           this.refreshConnectionSchedule(c.connectionId);
         }
       },
@@ -2167,7 +2178,8 @@ export class OhsStore {
   connect(connectionId: number): void {
     // Оптимистичный промежуточный статус: connect на бэке синхронный, но пока
     // POST в полёте — показываем «подключается» (жёлтый), затем connected/error.
-    this.patchConnectionStatus(connectionId, 'connecting');
+    // Снимает красный error сразу (новый цикл on).
+    this.applyConnectionStatus(connectionId, 'connecting');
     this.api
       .connect(connectionId)
       .pipe(
@@ -2175,7 +2187,7 @@ export class OhsStore {
         catchError((err: { response?: { error?: string }; message?: string }) => {
           const detail = err?.response?.error ?? err?.message ?? 'неизвестная ошибка';
           console.error('connect', detail, err);
-          this.patchConnectionStatus(connectionId, 'error');
+          this.applyConnectionStatus(connectionId, 'error');
           return EMPTY;
         }),
         finalize(() => {
@@ -2189,10 +2201,11 @@ export class OhsStore {
         next: (c) => {
           if (c.status === 'disconnected') {
             // Бэк не смог поднять сессию (осиротевший коннектор / обрыв сразу после connect).
-            this.patchConnectionStatus(c.connectionId, 'error');
+            this.applyConnectionStatus(c.connectionId, 'error');
             return;
           }
           this.upsertConnection(c);
+          this.clearConnectionErrorTimer(c.connectionId);
         },
       });
   }
@@ -2203,13 +2216,19 @@ export class OhsStore {
   }
 
   disconnect(connectionId: number): void {
+    // Сразу busy — повторный клик не шлёт второй /disconnect, пока teardown TRANSAQ висит.
+    this.applyConnectionStatus(connectionId, 'disconnecting');
     this.api.disconnect(connectionId).subscribe({
       next: (c) => {
         this.upsertConnection(c);
+        this.clearConnectionErrorTimer(c.connectionId);
         // Бэкенд снимает Auto; подтягиваем актуальное schedule.
         this.refreshConnectionSchedule(connectionId);
       },
-      error: (err) => console.error('disconnect', err),
+      error: (err) => {
+        console.error('disconnect', err);
+        this.refreshConnections();
+      },
     });
   }
 
@@ -2436,20 +2455,12 @@ export class OhsStore {
   onLive(event: LiveEvent): void {
     switch (event.type) {
       case 'connectionStatusChanged':
-        this.connections$.next(
-          this.connections$.value.map((c) =>
-            c.connectionId === event.connectionId ? { ...c, status: event.status } : c,
-          ),
-        );
+        this.applyConnectionStatus(event.connectionId, event.status);
         break;
 
       case 'connectionStateChanged': {
         const status = linkStateToConnectionStatus(event.state);
-        this.connections$.next(
-          this.connections$.value.map((c) =>
-            c.connectionId === event.connectionId ? { ...c, status } : c,
-          ),
-        );
+        this.applyConnectionStatus(event.connectionId, status);
         this.refreshLiveness();
         if (status === 'disconnected' || status === 'error') {
           this.refreshCoverage();
@@ -2634,7 +2645,53 @@ export class OhsStore {
     );
   }
 
+  /**
+   * Статус тумблера: error — красный flash, через {@link CONNECTION_ERROR_FLASH_MS} → disconnected;
+   * любой другой статус снимает flash (в т.ч. connecting при новом on).
+   */
+  private applyConnectionStatus(connectionId: number, status: string): void {
+    if (status === 'error') {
+      this.flashConnectionError(connectionId);
+      return;
+    }
+    this.clearConnectionErrorTimer(connectionId);
+    this.patchConnectionStatus(connectionId, status);
+  }
+
+  private flashConnectionError(connectionId: number): void {
+    this.patchConnectionStatus(connectionId, 'error');
+    this.armConnectionErrorFlash(connectionId);
+  }
+
+  private armConnectionErrorFlash(connectionId: number): void {
+    this.clearConnectionErrorTimer(connectionId);
+    this.connectionErrorTimers.set(
+      connectionId,
+      setTimeout(() => {
+        this.connectionErrorTimers.delete(connectionId);
+        const row = this.connections$.value.find((c) => c.connectionId === connectionId);
+        if (row?.status === 'error') {
+          this.patchConnectionStatus(connectionId, 'disconnected');
+        }
+      }, CONNECTION_ERROR_FLASH_MS),
+    );
+  }
+
+  private clearConnectionErrorTimer(connectionId: number): void {
+    const timer = this.connectionErrorTimers.get(connectionId);
+    if (timer === undefined) {
+      return;
+    }
+    clearTimeout(timer);
+    this.connectionErrorTimers.delete(connectionId);
+  }
+
   private upsertConnection(connection: ConnectionDto): void {
+    if (connection.status === 'error') {
+      this.flashConnectionError(connection.connectionId);
+      return;
+    }
+    this.clearConnectionErrorTimer(connection.connectionId);
     const exists = this.connections$.value.some((c) => c.connectionId === connection.connectionId);
     this.connections$.next(
       exists
