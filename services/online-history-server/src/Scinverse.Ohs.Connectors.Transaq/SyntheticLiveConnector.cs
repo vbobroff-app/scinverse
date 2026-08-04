@@ -12,7 +12,7 @@ namespace Scinverse.Ohs.Connectors.Transaq;
 /// <see cref="FakeReplayConnector"/>): для каждого подписанного инструмента периодически
 /// публикует <c>alltrades</c>-фрагменты. Даёт «живые» ползущие колбаски покрытия без TRANSAQ.
 /// </summary>
-public sealed class SyntheticLiveConnector : IMarketConnector
+public sealed class SyntheticLiveConnector : IMarketConnector, IOptionCatalogLoader
 {
     private sealed class State
     {
@@ -177,6 +177,75 @@ public sealed class SyntheticLiveConnector : IMarketConnector
 
     public Task<bool> ProbeConnectionAsync(CancellationToken cancellationToken) =>
         Task.FromResult(IsConnected);
+
+    public Task<decimal?> WaitFuturesTradePriceAsync(
+        InstrumentKey futures, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        // Демо: фиксированная «ATM» около середины лесенки страйков Si.
+        decimal? price = futures.Ticker.StartsWith("Si", StringComparison.OrdinalIgnoreCase) ? 77500m
+            : futures.Ticker.StartsWith("RI", StringComparison.OrdinalIgnoreCase) ? 120000m
+            : 100m;
+        return Task.FromResult(price);
+    }
+
+    public Task<IReadOnlyList<OptionFamily>> GetOptionFamiliesAsync(
+        InstrumentKey underlying, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var families = DemoCatalog
+            .Where(s => s.SecType == "OPT" && s.ShortName.StartsWith("Si-", StringComparison.Ordinal))
+            .Select(s => MoexFortsSpecParserTryExp(s))
+            .Where(d => d is not null)
+            .Select(d => d!.Value)
+            .Distinct()
+            .OrderBy(d => d)
+            .Select(d => new OptionFamily(d, 1, null))
+            .ToList();
+        return Task.FromResult<IReadOnlyList<OptionFamily>>(families);
+    }
+
+    public Task<IReadOnlyList<OptionStrikeQuote>> GetFamilyStrikesAsync(
+        InstrumentKey underlying, DateOnly matDate, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var parser = new MoexFortsSpecParser();
+        var list = new List<OptionStrikeQuote>();
+        foreach (var s in DemoCatalog.Where(x => x.SecType == "OPT"))
+        {
+            if (!parser.TryParse(new InstrumentKey(s.Ticker, s.Board), s.SecType, s.ShortName, matDate, out var spec)
+                || spec.Expiration != matDate
+                || spec.Strike is null)
+            {
+                continue;
+            }
+
+            list.Add(new OptionStrikeQuote(spec.Strike.Value, spec.OptionType, s.Ticker));
+        }
+
+        return Task.FromResult<IReadOnlyList<OptionStrikeQuote>>(list);
+    }
+
+    public Task<OptionLoadCommandResult> GetOptionsAsync(
+        IReadOnlyList<string> optCodes, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var set = optCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var matched = DemoCatalog.Where(s => set.Contains(s.Ticker)).ToArray();
+        if (matched.Length == 0)
+        {
+            return Task.FromResult(new OptionLoadCommandResult(true, false, true, null, "options_failed"));
+        }
+
+        var xml = BuildSecurities(matched);
+        _messages.Writer.TryWrite(xml);
+        return Task.FromResult(new OptionLoadCommandResult(true, true, false, xml, "securities"));
+    }
+
+    private static DateOnly? MoexFortsSpecParserTryExp(DemoSecurity s)
+    {
+        var parser = new MoexFortsSpecParser();
+        return parser.TryParse(new InstrumentKey(s.Ticker, s.Board), s.SecType, s.ShortName,
+            new DateOnly(2026, 7, 1), out var spec)
+            ? spec.Expiration
+            : null;
+    }
 
     public async Task DisconnectAsync(CancellationToken cancellationToken)
     {

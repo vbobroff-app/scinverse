@@ -63,6 +63,14 @@ public sealed class OhsOptions
 
     /// <summary>Инструменты для подписки на ленту сделок.</summary>
     public IList<InstrumentRef> Instruments { get; } = new List<InstrumentRef>();
+
+    /// <summary>
+    /// Полуокно ATM-страйков при load опционов (ATM ± N). Конфиг <c>Ohs:OptionAtmDepth</c>, без UI.
+    /// </summary>
+    public int OptionAtmDepth { get; set; } = 15;
+
+    /// <summary>Ожидание живой сделки FUT для ATM (сек) перед fallback на md_trade.</summary>
+    public double OptionAtmLiveWaitSeconds { get; set; } = 3;
 }
 
 /// <summary>Ссылка на инструмент в конфигурации.</summary>

@@ -13,7 +13,7 @@ namespace Scinverse.Ohs.Connectors.Transaq;
 /// и точные сигнатуры следует сверять с версией используемого коннектора.
 /// Не покрывается юнит-тестами (требует нативную DLL и учётные данные).
 /// </summary>
-public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe
+public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe, IOptionCatalogLoader
 {
     private const string NativeDll = "txmlconnector.dll";
     private const CallingConvention Convention = CallingConvention.StdCall;
@@ -43,6 +43,12 @@ public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe
 
     /// <summary>In-flight SendCommand probe — DLL сериализует команды; не стартуем второй, пока висит первый.</summary>
     private Task<bool>? _probeTask;
+
+    private readonly SemaphoreSlim _optionGate = new(1, 1);
+    private volatile TaskCompletionSource<decimal>? _futPriceProbe;
+    private volatile string? _futPriceSeccode;
+    private volatile TaskCompletionSource<string>? _optionXmlProbe;
+    private volatile Func<string, bool>? _optionXmlMatch;
 
     public TransaqConnector(TransaqConnectorOptions options)
     {
@@ -392,6 +398,114 @@ public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe
         }
     }
 
+    /// <inheritdoc />
+    public async Task<decimal?> WaitFuturesTradePriceAsync(
+        InstrumentKey futures, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (!IsConnected)
+        {
+            return null;
+        }
+
+        var tcs = new TaskCompletionSource<decimal>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _futPriceSeccode = futures.Ticker;
+        _futPriceProbe = tcs;
+        try
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            linked.CancelAfter(timeout);
+            return await tcs.Task.WaitAsync(linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        finally
+        {
+            _futPriceProbe = null;
+            _futPriceSeccode = null;
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<OptionFamily>> GetOptionFamiliesAsync(
+        InstrumentKey underlying, TimeSpan timeout, CancellationToken cancellationToken) =>
+        WithOptionGateAsync(async () =>
+        {
+            var xml = await SendOptionCommandAsync(
+                BuildSecurityCommand("get_option_families", underlying, matDate: null),
+                TransaqOptionXml.IsOptionFamilies,
+                timeout,
+                cancellationToken).ConfigureAwait(false);
+            return (IReadOnlyList<OptionFamily>)(xml is null ? [] : TransaqOptionXml.ParseFamilies(xml));
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<OptionStrikeQuote>> GetFamilyStrikesAsync(
+        InstrumentKey underlying, DateOnly matDate, TimeSpan timeout, CancellationToken cancellationToken) =>
+        WithOptionGateAsync(async () =>
+        {
+            var xml = await SendOptionCommandAsync(
+                BuildSecurityCommand("get_family_strikes", underlying, matDate),
+                TransaqOptionXml.IsFamilyStrikes,
+                timeout,
+                cancellationToken).ConfigureAwait(false);
+            return (IReadOnlyList<OptionStrikeQuote>)(xml is null ? [] : TransaqOptionXml.ParseStrikes(xml));
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<OptionLoadCommandResult> GetOptionsAsync(
+        IReadOnlyList<string> optCodes, TimeSpan timeout, CancellationToken cancellationToken) =>
+        WithOptionGateAsync(async () =>
+        {
+            if (optCodes.Count == 0)
+            {
+                return new OptionLoadCommandResult(false, false, false, null, "Пустой список opt_code");
+            }
+
+            var sb = new StringBuilder("<command id=\"get_options\">");
+            foreach (var code in optCodes)
+            {
+                sb.Append("<opt_code>").Append(SecurityElement.Escape(code)).Append("</opt_code>");
+            }
+
+            sb.Append("</command>");
+
+            bool Match(string xml) =>
+                TransaqOptionXml.IsSecurities(xml) || TransaqOptionXml.IsOptionsFailed(xml);
+
+            string? commandXml;
+            try
+            {
+                commandXml = SendCommandRaw(sb.ToString());
+                if (!IsCommandSuccess(commandXml))
+                {
+                    return new OptionLoadCommandResult(
+                        false, false, false, commandXml,
+                        ExtractCommandMessage(commandXml) ?? "get_options success=false");
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                return new OptionLoadCommandResult(false, false, false, null, ex.Message);
+            }
+
+            var callback = await WaitOptionXmlAsync(Match, timeout, cancellationToken).ConfigureAwait(false);
+            if (callback is null)
+            {
+                return new OptionLoadCommandResult(
+                    true, false, false, null,
+                    $"get_options принят, колбэк за {timeout.TotalSeconds:0} с не пришёл");
+            }
+
+            if (TransaqOptionXml.IsOptionsFailed(callback))
+            {
+                return new OptionLoadCommandResult(true, false, true, callback, "options_failed");
+            }
+
+            return new OptionLoadCommandResult(true, true, false, callback, "securities");
+        }, cancellationToken);
+
     public async ValueTask DisposeAsync()
     {
         try
@@ -405,6 +519,83 @@ public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe
 
         _messages.Writer.TryComplete();
         _linkState.Writer.TryComplete();
+        _optionGate.Dispose();
+    }
+
+    private async Task<T> WithOptionGateAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken)
+    {
+        await _optionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!IsConnected)
+            {
+                throw new InvalidOperationException("Нет активного соединения с TRANSAQ");
+            }
+
+            return await action().ConfigureAwait(false);
+        }
+        finally
+        {
+            _optionGate.Release();
+        }
+    }
+
+    private static string BuildSecurityCommand(string commandId, InstrumentKey key, DateOnly? matDate)
+    {
+        var sb = new StringBuilder()
+            .Append("<command id=\"").Append(commandId).Append("\">")
+            .Append("<security>")
+            .Append("<board>").Append(SecurityElement.Escape(key.Board)).Append("</board>")
+            .Append("<seccode>").Append(SecurityElement.Escape(key.Ticker)).Append("</seccode>")
+            .Append("</security>");
+        if (matDate is { } d)
+        {
+            sb.Append("<mat_date>").Append(TransaqOptionXml.FormatMatDate(d)).Append("</mat_date>");
+        }
+
+        return sb.Append("</command>").ToString();
+    }
+
+    private async Task<string?> SendOptionCommandAsync(
+        string command, Func<string, bool> match, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var commandXml = SendCommandRaw(command);
+            if (!IsCommandSuccess(commandXml))
+            {
+                return null;
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+
+        return await WaitOptionXmlAsync(match, timeout, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<string?> WaitOptionXmlAsync(
+        Func<string, bool> match, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _optionXmlMatch = match;
+        _optionXmlProbe = tcs;
+        try
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            linked.CancelAfter(timeout);
+            return await tcs.Task.WaitAsync(linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        finally
+        {
+            _optionXmlProbe = null;
+            _optionXmlMatch = null;
+        }
     }
 
     private bool OnRawData(IntPtr data)
@@ -414,6 +605,8 @@ public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe
         {
             HandleServerStatus(xml);
             TryCompleteSecurityProbe(xml);
+            TryCompleteFutPriceProbe(xml);
+            TryCompleteOptionXmlProbe(xml);
             _messages.Writer.TryWrite(xml);
         }
 
@@ -434,6 +627,36 @@ public sealed class TransaqConnector : IMarketConnector, ISecurityCatalogProbe
             && (xml.Contains("sec_info", StringComparison.OrdinalIgnoreCase)
                 || xml.Contains("<securities", StringComparison.OrdinalIgnoreCase)
                 || xml.Contains("<security", StringComparison.OrdinalIgnoreCase)))
+        {
+            probe.TrySetResult(xml);
+        }
+    }
+
+    private void TryCompleteFutPriceProbe(string xml)
+    {
+        var probe = _futPriceProbe;
+        var code = _futPriceSeccode;
+        if (probe is null || string.IsNullOrEmpty(code) || probe.Task.IsCompleted)
+        {
+            return;
+        }
+
+        if (TransaqOptionXml.TryParseAlltradePrice(xml, code, out var price))
+        {
+            probe.TrySetResult(price);
+        }
+    }
+
+    private void TryCompleteOptionXmlProbe(string xml)
+    {
+        var probe = _optionXmlProbe;
+        var match = _optionXmlMatch;
+        if (probe is null || match is null || probe.Task.IsCompleted)
+        {
+            return;
+        }
+
+        if (match(xml))
         {
             probe.TrySetResult(xml);
         }

@@ -74,14 +74,16 @@ public static class OhsEndpoints
             return Results.Ok(new { processed = candidates.Count });
         });
 
-        // Force: dump-кэш stale + lifecycle sweep (архив по exp). OPT-window reset — в 7h.OPT.
+        // Force: dump-кэш stale + lifecycle sweep (архив по exp) + сброс OPT-окон.
         api.MapPost("/instruments/catalog/refresh", async (
             IInstrumentRegistry registry,
             InstrumentLifecycleService lifecycle,
+            OptionWindowFreshness optionFreshness,
             INotificationPublisher notifications,
             CancellationToken ct) =>
         {
             var invalidated = registry.Invalidate(force: true);
+            optionFreshness.InvalidateAll();
             var sweep = await lifecycle.TrySweepAsync(force: true, ct).ConfigureAwait(false);
             notifications.Publish(
                 "instruments.catalog.refresh",
@@ -1327,6 +1329,29 @@ public static class OhsEndpoints
                     request.Seccode.Trim(),
                     result.CommandResultXml,
                     result.CallbackXml,
+                    result.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        // 7h.OPT: явный load ATM ±N опционов (diag / ensure перед записью).
+        api.MapPost("/connections/{id:long}/load-options", async (
+            long id, LoadOptionsRequest request, OptionCatalogService options, CancellationToken ct) =>
+        {
+            try
+            {
+                var result = await options.EnsureOptionsAsync(
+                    id, request.FuturesInstrumentId, request.Expiration, request.Force, ct);
+                return Results.Ok(new LoadOptionsResultDto(
+                    result.Loaded,
+                    result.SkippedFresh,
+                    result.OptCodesRequested,
+                    result.FamiliesFound,
+                    result.StrikesFound,
+                    result.AtmPrice,
                     result.Message));
             }
             catch (InvalidOperationException ex)

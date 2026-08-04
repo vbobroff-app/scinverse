@@ -316,6 +316,22 @@ public sealed record ProbeSecurityResultDto(
     string? CallbackXml,
     string Message);
 
+/// <summary>Запрос load ATM-окна опционов (diag / ensure).</summary>
+public sealed record LoadOptionsRequest(
+    long FuturesInstrumentId,
+    DateOnly Expiration,
+    bool Force = false);
+
+/// <summary>Итог load OPT-окна.</summary>
+public sealed record LoadOptionsResultDto(
+    bool Loaded,
+    bool SkippedFresh,
+    int OptCodesRequested,
+    int FamiliesFound,
+    int StrikesFound,
+    decimal? AtmPrice,
+    string Message);
+
 /// <summary>ВРЕМЕННО (dev): дефолтные креды Transaq из appsettings.Local.json для префилла формы.</summary>
 public sealed record TransaqLocalDefaultsDto(string? Login, string? Password);
 

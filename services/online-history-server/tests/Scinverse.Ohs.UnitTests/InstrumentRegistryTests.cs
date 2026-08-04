@@ -174,5 +174,8 @@ public sealed class InstrumentRegistryTests
         public Task<IReadOnlyList<long>> ArchiveExpiredAsync(
             DateOnly todayMsk, CancellationToken cancellationToken) =>
             _inner.ArchiveExpiredAsync(todayMsk, cancellationToken);
+
+        public Task<decimal?> GetLastTradePriceAsync(long instrumentId, CancellationToken cancellationToken) =>
+            _inner.GetLastTradePriceAsync(instrumentId, cancellationToken);
     }
 }

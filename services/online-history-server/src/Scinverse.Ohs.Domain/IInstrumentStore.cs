@@ -40,6 +40,9 @@ public interface IInstrumentStore
     /// Возвращает id только что заархивированных.
     /// </summary>
     Task<IReadOnlyList<long>> ArchiveExpiredAsync(DateOnly todayMsk, CancellationToken cancellationToken);
+
+    /// <summary>Последняя цена сделки из <c>md_trade</c> (для ATM fallback).</summary>
+    Task<decimal?> GetLastTradePriceAsync(long instrumentId, CancellationToken cancellationToken);
 }
 
 /// <summary>Scope-атрибуты инструмента (для маппинга SECID → market/sec_type/category расписания).</summary>

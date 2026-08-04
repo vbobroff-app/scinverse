@@ -129,4 +129,7 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
     /// <summary>Тестовый хелпер: задать expiration для уже засеянного инструмента.</summary>
     public void SetExpiration(long instrumentId, DateOnly? expiration) =>
         _expirations[instrumentId] = expiration;
+
+    public Task<decimal?> GetLastTradePriceAsync(long instrumentId, CancellationToken cancellationToken) =>
+        Task.FromResult<decimal?>(null);
 }

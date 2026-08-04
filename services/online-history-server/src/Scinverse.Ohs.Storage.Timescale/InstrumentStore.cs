@@ -515,6 +515,29 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource, TimeProvider ti
         return ids.ToList();
     }
 
+    public async Task<decimal?> GetLastTradePriceAsync(long instrumentId, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var row = await connection.QueryFirstOrDefaultAsync<LastTradePriceRow>(new CommandDefinition(
+            """
+            SELECT t.price_ticks AS PriceTicks, i.min_step AS MinStep
+            FROM md_trade t
+            JOIN instrument i ON i.instrument_id = t.instrument_id
+            WHERE t.instrument_id = @instrumentId
+            ORDER BY t.ts DESC
+            LIMIT 1;
+            """,
+            new { instrumentId },
+            cancellationToken: cancellationToken));
+        return row is null ? null : TickMath.ToPrice(row.PriceTicks, row.MinStep);
+    }
+
+    private sealed class LastTradePriceRow
+    {
+        public long PriceTicks { get; init; }
+        public decimal MinStep { get; init; }
+    }
+
     private static Instrument Map(InstrumentRow row) => new()
     {
         InstrumentId = row.InstrumentId,
