@@ -98,7 +98,9 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource, TimeProvider ti
                            WHERE cs.instrument_id = i.instrument_id AND cs.ended_at IS NULL) AS Recording,
                    COUNT(*) OVER() AS Total
             {whereClause}
-            ORDER BY i.ticker, i.board_id
+            -- Листья серии (OPT): по страйку, затем C/P; иначе ticker (строковая сортировка
+            -- Si100000… выше Si60000… — ломает дерево страйков).
+            ORDER BY d.strike NULLS LAST, d.option_type NULLS LAST, i.ticker, i.board_id
             LIMIT @limit OFFSET @offset;
             """;
 
