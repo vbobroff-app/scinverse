@@ -42,7 +42,7 @@ public sealed class OhsApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         }
 
         await using var dataSource = new NpgsqlDataSourceBuilder(_connectionString).Build();
-        var instrumentStore = new InstrumentStore(dataSource);
+        var instrumentStore = new InstrumentStore(dataSource, TimeProvider.System);
         var sber = await instrumentStore.UpsertAsync(
             new SecurityInfo
             {

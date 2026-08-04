@@ -40,7 +40,7 @@ public sealed class TimescaleFixture : IAsyncLifetime
 
         DataSource = new NpgsqlDataSourceBuilder(connectionString).Build();
 
-        var store = new InstrumentStore(DataSource);
+        var store = new InstrumentStore(DataSource, TimeProvider.System);
         var instrument = await store.UpsertAsync(
             new SecurityInfo
             {

@@ -21,7 +21,7 @@ public sealed class DerivativeStoreTests : IClassFixture<TimescaleFixture>
     public DerivativeStoreTests(TimescaleFixture fixture)
     {
         _fixture = fixture;
-        _store = new InstrumentStore(fixture.DataSource);
+        _store = new InstrumentStore(fixture.DataSource, TimeProvider.System);
     }
 
     [Fact]
