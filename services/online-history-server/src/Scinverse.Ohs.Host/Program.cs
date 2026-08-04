@@ -37,6 +37,8 @@ builder.Services.AddSingleton<IInstrumentStore, InstrumentStore>();
 builder.Services.AddSingleton<ISourceStore, SourceStore>();
 builder.Services.AddSingleton<ICoverageStore, CoverageStore>();
 builder.Services.AddSingleton<ITradeActivityStore, TradeActivityStore>();
+builder.Services.AddSingleton<ITradeBracketStore, TradeBracketStore>();
+builder.Services.AddSingleton<WriteGapService>();
 builder.Services.AddSingleton<ICaptureLivenessStore, CaptureLivenessStore>();
 builder.Services.AddSingleton<ILinkLivenessStore, LinkLivenessStore>();
 builder.Services.AddSingleton<IConnectionStore, ConnectionStore>();

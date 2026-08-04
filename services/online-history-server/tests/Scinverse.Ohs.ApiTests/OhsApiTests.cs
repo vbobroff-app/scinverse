@@ -137,6 +137,23 @@ public sealed class OhsApiTests(OhsApiFactory factory) : IClassFixture<OhsApiFac
     }
 
     [Fact]
+    public async Task WriteGaps_endpoint_returns_list_for_connection()
+    {
+        var api = CreateApi();
+        var synthetic = (await api.GetConnectionsAsync()).First(c => c.Kind == "synthetic");
+        var now = DateTimeOffset.UtcNow;
+
+        // Без incident ∩ intention → пусто; контракт и маршрут проверяем.
+        var gaps = await api.GetWriteGapsAsync(new WriteGapsRequest(
+            synthetic.ConnectionId,
+            now.AddHours(-1),
+            now.AddHours(1),
+            [factory.SberInstrumentId]));
+        gaps.Should().NotBeNull();
+        gaps.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task DebugDrop_synthetic_emits_connection_state_events()
     {
         var api = CreateApi();

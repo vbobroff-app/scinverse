@@ -2,8 +2,8 @@
 
 Актуальный статус фазы 7h. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
-**Текущий статус:** `DONE` (+ follow-up H3 startup-latency **DONE** 2026-08-03).
-**Обновлено:** 2026-08-03.
+**Текущий статус:** `DONE` (+ startup-latency **DONE**; Write Gaps **DONE** 2026-08-04).
+**Обновлено:** 2026-08-04.
 
 ## Статус задач
 
@@ -100,6 +100,12 @@ in-memory cache-first, суточная инвалидация (Auto-on) + Refre
 Живая приёмка Finam id=3: `первые данные` 9888 / 15588 мс. Канон —
 [startup-latency.md](startup-latency.md); якоря 7j — plan **H3**, issue хвост, incident §H3.
 
+## Follow-up: Write Gaps (Writers Gantt) — DESIGN AGREED 2026-08-04
+
+Пересчёт красного на дорожке инструмента: `WriteGap = ScheduleCutter(WriteHole ∩ desired)`,
+края WriteHole по last/first trade. Спека — [write-gaps.md](write-gaps.md); продукт —
+[wiki write-gaps](../../wiki-readme/write-gaps.md). Код — NOT STARTED (после/вместе с P1.2 Cutter).
+
 ## Вне области (осталось на follow-up)
 
 - Backfill непокрытых участков (phase 7c ISS / 9 qsh)
@@ -136,7 +142,8 @@ Phase 7h **завершена**. Гант показывает три слоя (
 | 7h.8c | api: история связи (`/coverage/link`) + DTO | DONE | `LinkLivenessDto`; интервалы + gaps по source |
 | 7h.8e | core: `link$` в `OhsStore` + `getLinkLiveness` | DONE | тянется вместе с `refreshLiveness`; gaps с сервера (вкл. серый `disconnected`) |
 | 7h.8f | UI: лента Connection над инструментами (общая ось) | DONE | `ConnectionRibbon` (зелёный/серый/красный) в `InstrumentPicker` над списком |
-| 7h.8d | lifecycle: сегмент живёт через обрыв + проекция `intent ∩ linkDown` | **TODO (2-й заход)** | reconnect → тот же сегмент; апдейт api-тестов; красная проекция на инструмент |
+| 7h.8d | lifecycle: сегмент живёт через обрыв + проекция `intent ∩ linkDown` | **TODO (2-й заход)** | reconnect → тот же сегмент; апдейт api-тестов |
+| **Write Gaps** | `WriteHole→ScheduleCutter→WriteGap` + UI cutover | **DONE** | `POST /api/coverage/write-gaps`; `showWriteGaps`; убран `mergeIncidentReds` с инструмента |
 
-**Проверка:** `dotnet build` (Host + tests) — 0 ошибок; `tsc --noEmit` — чисто; `vitest run` — 69 зелёных;
+**Проверка:** `dotnet build` (Host + tests) — 0 ошибок; `tsc --noEmit` — чисто; `vitest run` — зелёные;
 `LinkLivenessStoreTests` — 7 зелёных (Testcontainers). Требует применения `V020` (рестарт хоста/мигратор).

@@ -5,7 +5,8 @@
 
 > **To-be идеология (факты ⊥ schedule):** [`schedule-projection.md`](../dev/phase11/schedule-projection.md)  
 > Crash as-is: [`crash-dispatch.md`](../dev/phase11/crash-dispatch.md) · продукт: [`incident.md`](incident.md) ·
-> journal: [`incident-journal.md`](../dev/phase11/incident-journal.md).
+> journal: [`incident-journal.md`](../dev/phase11/incident-journal.md) ·
+> разрывы записи: [`write-gaps.md`](write-gaps.md).
 
 ---
 
@@ -118,10 +119,12 @@ Crash Host **проецируется** на C (1 Thread + N scope) после �
 | | |
 |--|--|
 | Привязка | `writerId`; связан с `connectionId` и `instrumentId` |
-| Визуал | Recording-лента — бинарная проекция (blue/red), без owner/type маркеров Connection |
-| Gaps (to-be) | **ScheduleCutter**: type-agnostic gaps ∩ desired — для recovery/backfill |
+| Визуал | подложка + сделки; красный = **WriteGap** (без owner/type) |
+| Gaps (to-be) | `WriteGap = ScheduleCutter(WriteHole ∩ desired)` — recovery |
 
-Детали ганта Recording — в [`incident-journal.md`](../dev/phase11/incident-journal.md) §3.0b.
+Продукт: [`write-gaps.md`](write-gaps.md).  
+Спека: [`write-gaps.md`](../dev/phase7h/write-gaps.md).  
+As-is Recording-red — [`incident-journal.md`](../dev/phase11/incident-journal.md) §3.0b (заменяется).  
 Маска/Cutter — [`schedule-projection.md`](../dev/phase11/schedule-projection.md).
 
 ---
@@ -213,6 +216,8 @@ TL/WL (в т.ч. crash с `connectionIds` для ribbon) **не режутся**
 | [`plan-schedule-projection.md`](../dev/phase11/plan-schedule-projection.md) | порядок миграции |
 | [`crash-dispatch.md`](../dev/phase11/crash-dispatch.md) | Host crash (P3 always-Incident) |
 | [`incident.md`](incident.md) | продукт: что такое инцидент |
+| [`write-gaps.md`](write-gaps.md) | продукт: разрывы записи / recovery |
+| [`write-gaps.md`](../dev/phase7h/write-gaps.md) | спека WriteHole / WriteGap (phase 7h) |
 | [`incident-journal.md`](../dev/phase11/incident-journal.md) | таблица `incident`, ленты |
 | [`to-threads.md`](../dev/phase11/to-threads.md) | Single / Thread / Incident / Group |
 | [`phase7j/incident.md`](../dev/phase7j/incident.md) | break/crash продюсер |

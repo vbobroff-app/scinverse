@@ -13,7 +13,6 @@ import { seriesKey, isInTradingSession, type CoverageWindow } from '../../core/O
 import { makeProjector, makeInverseProjector } from '../../core/sessionProjection';
 import { exchangeForBoard } from '../../core/exchange';
 import type {
-  CaptureGapDto,
   ConnectionDto,
   CoverageSegmentDto,
   InstrumentDto,
@@ -24,7 +23,6 @@ import type {
 } from '../../core/types';
 import { RecordingAutoToggle } from './RecordingAutoToggle';
 import { autoPhase, type AutoPhase } from './recordingAutoPhase';
-import { mergeIncidentReds } from './incidentRibbonProjection';
 import styles from './InstrumentPicker.module.css';
 
 const ROW_HEIGHT = 50;
@@ -101,8 +99,7 @@ interface RowProps {
   activityBucketMs: number;
   activitySourceId: number;
   livenessIntervals?: LivenessIntervalDto[];
-  captureGaps?: CaptureGapDto[];
-  incidentReds?: { fromMs: number; toMs: number }[] | null;
+  writeGaps?: { fromMs: number; toMs: number }[] | null;
   tzOffsetMin: number;
   sessions: SessionDto[];
   sourceCodeById: Map<number, string>;
@@ -138,8 +135,7 @@ const Row = memo(function Row({
   activityBucketMs,
   activitySourceId,
   livenessIntervals,
-  captureGaps,
-  incidentReds,
+  writeGaps,
   tzOffsetMin,
   sessions,
   sourceCodeById,
@@ -300,8 +296,7 @@ const Row = memo(function Row({
           activityBucketMs={activityBucketMs}
           activitySourceId={activitySourceId}
           livenessIntervals={livenessIntervals}
-          captureGaps={captureGaps}
-          incidentReds={incidentReds}
+          writeGaps={writeGaps}
           tzOffsetMin={tzOffsetMin}
           sourceCodeById={sourceCodeById}
           sessions={sessions}
@@ -322,8 +317,8 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const recordings = useBehavior(store.recordings$);
   const coverage = useBehavior(store.coverage$);
   const activity = useBehavior(store.activity$);
+  const writeGapsByInstrument = useBehavior(store.writeGaps$);
   const liveness = useBehavior(store.liveness$);
-  const link = useBehavior(store.link$);
   const sources = useBehavior(store.sources$);
   const selected = useBehavior(store.selectedInstruments$);
   const expandedFutures = useBehavior(store.expandedFutures$);
@@ -337,8 +332,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   const window = useBehavior(store.window$);
   const sessions = useBehavior(store.sessions$);
   const tzOffsetMin = useBehavior(store.displayTz$).offsetMin;
-  const showBreakIncidents = useBehavior(store.showBreakIncidents$);
-  const showCrashIncidents = useBehavior(store.showCrashIncidents$);
+  const showWriteGaps = useBehavior(store.showWriteGaps$);
   const now = useNow(1000);
 
   // Подключением считаем оба «живых» статуса: active (идут данные) и waiting (тишина).
@@ -353,21 +347,6 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
     () => new Map(sources.map((s) => [s.sourceId, s.code])),
     [sources],
   );
-
-  /** Recording binary red ← journal; фильтр по тумблерам break/crash Connection. */
-  const incidentReds = useMemo(() => {
-    const showAny = showBreakIncidents || showCrashIncidents;
-    if (!showAny) {
-      return [];
-    }
-    if (link.incidents == null) {
-      return null;
-    }
-    const filtered = link.incidents.filter((i) =>
-      i.type === 'crash' ? showCrashIncidents : showBreakIncidents,
-    );
-    return mergeIncidentReds(filtered, now);
-  }, [link.incidents, now, showBreakIncidents, showCrashIncidents]);
 
   const recordingByInstrument = useMemo(
     () => new Map(recordings.map((r) => [r.instrumentId, r])),
@@ -445,8 +424,8 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
   }, [rows]);
 
   useEffect(() => {
-    store.setActivityContext(activityIds, connection.sourceId);
-  }, [store, activityIds, connection.sourceId]);
+    store.setActivityContext(activityIds, connection.sourceId, connection.connectionId);
+  }, [store, activityIds, connection.sourceId, connection.connectionId]);
 
   const nowPct = useMemo(
     () => makeProjector(Date.parse(window.from), Date.parse(window.to), sessions)(now),
@@ -675,8 +654,11 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
               activityBucketMs={activity.bucketMs}
               activitySourceId={connection.sourceId}
               livenessIntervals={liveness.intervals}
-              captureGaps={liveness.gaps}
-              incidentReds={incidentReds}
+              writeGaps={
+                showWriteGaps && instrumentId >= 0
+                  ? (writeGapsByInstrument.get(instrumentId) ?? [])
+                  : null
+              }
               tzOffsetMin={tzOffsetMin}
               sessions={sessions}
               sourceCodeById={sourceCodeById}

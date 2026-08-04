@@ -153,6 +153,8 @@ Handoff — [`docs/promt.md`](../../promt.md) §8.
 ([issue.md](issue.md) I2, [incident-journal.md](incident-journal.md) §7).
 **Crash dispatch D1–D8 — DONE** ([crash-dispatch.md](crash-dispatch.md)).
 Далее: gate 11→12 / 7j.15–16 / hard-delete retention (later).
+Write Gaps (Gantt записи) — follow-up **phase 7h**:
+[../phase7h/write-gaps.md](../phase7h/write-gaps.md) (не scope NC).
 
 **Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 ПРИНЯТО**
 ([../phase7j/issue.md](../phase7j/issue.md)). **I12** клиент (ribbon pipeline + close-all orphan

@@ -183,6 +183,22 @@ export interface TradeActivityRequest {
   instrumentIds: number[];
 }
 
+/** Запрос WriteGap (recovery-красный на Writers Gantt). */
+export interface WriteGapsRequest {
+  connectionId: number;
+  from: string;
+  to: string;
+  instrumentIds: number[];
+}
+
+/** Клип WriteGap: WriteHole ∩ desired. */
+export interface WriteGapDto {
+  instrumentId: number;
+  sourceId: number;
+  from: string;
+  to: string;
+}
+
 export interface LivenessIntervalDto {
   from: string;
   to: string;

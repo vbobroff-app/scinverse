@@ -29,9 +29,9 @@ handoff [`docs/promt.md`](../../promt.md) §8.
 incident_journal (факты, полный span)
         │
         ├── UI: Schedule void mask (чёрный ~0.8) поверх Connection-трека
-        └── Writers: ScheduleCutter → type-agnostic gaps ∩ desired
-                     ▲
-                   SCD-2 schedule
+        └── Writers: WriteGap = ScheduleCutter(WriteHole ∩ desired)
+                     ▲              ▲
+                   SCD-2      см. phase7h/write-gaps.md
 link_liveness ──► голубое/серое (факт link); с маской тот же трек гасится вместе
 ```
 
@@ -109,12 +109,15 @@ Local Single FATAL на WS drop (память) остаётся UX-слоем д
 
 ## 6. ScheduleCutter (writers / gaps)
 
-Вход: интервалы «нет данных» (из journal и/или coverage gaps) + SCD-2 desired окна connection.
+Вход: **WriteHole** (expand incident∩intention → last/first trade) + SCD-2 desired окна connection.
 
-Выход: **только** `interval ∩ desired` — без маркеров, без различия crash vs break
+Выход: **WriteGap** = `WriteHole ∩ desired` — без маркеров, без различия crash vs break
 (для recovery это «дыра в окне записи»).
 
-Потребители: backfill / catch-up writers, отчёты покрытия в work time.
+Канон WriteHole / WriteGap — [`phase7h/write-gaps.md`](../phase7h/write-gaps.md) · продукт —
+[`wiki-readme/write-gaps.md`](../../wiki-readme/write-gaps.md).
+
+Потребители: Writers Gantt (красный слой), backfill / catch-up, отчёты покрытия в work time.
 
 Cutter **не** пишет в `incident` и **не** меняет NC.
 

@@ -5,13 +5,10 @@ import {
   gapIntersectsSegment,
   intersectMs,
   intentSpanForGaps,
-  isBreakGap,
   livenessEndMs,
-  resolveGapEndMs,
-  segmentRecordedEndMs,
   visibleTradeSpans,
 } from '../../core/coverageGeometry';
-import type { CaptureGapDto, CoverageSegmentDto, LivenessIntervalDto, SessionDto } from '../../core/types';
+import type { CoverageSegmentDto, LivenessIntervalDto, SessionDto } from '../../core/types';
 import { colorForSourceCode } from '../../core/sourceColors';
 import { makeProjector } from '../../core/sessionProjection';
 import styles from './CoverageTrack.module.css';
@@ -30,13 +27,11 @@ interface Props {
   tzOffsetMin?: number;
   /** Интервалы живости захвата (source) — честная подложка = намерение ∩ живость. */
   livenessIntervals?: LivenessIntervalDto[];
-  /** Журнал разрывов захвата (красная разметка). As-is / fallback, если нет `incidentReds`. */
-  captureGaps?: CaptureGapDto[];
   /**
-   * Бинарная проекция журнала `incident` (11.13e §3.0b): сплошной red без маркеров/type.
-   * Если задано (в т.ч. `[]`) — вместо `captureGaps` для красной дыры записи.
+   * WriteGap (сервер): единственный красный слой на дорожке инструмента.
+   * `null` / не передано — слой скрыт (тумблер off).
    */
-  incidentReds?: { fromMs: number; toMs: number }[] | null;
+  writeGaps?: { fromMs: number; toMs: number }[] | null;
   sessions?: SessionDto[];
   /** Текущее время (ms) — правый край открытой живости и открытого намерения. */
   nowMs?: number;
@@ -50,17 +45,11 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-/** `HH:MM` в заданном ТЗ (для тултипа бакета слоя сделок). */
-function hhmm(ms: number, offMin: number): string {
+/** `HH:MM:SS` в заданном ТЗ (тултипы сделок / WriteGap). */
+function hhmmss(ms: number, offMin: number): string {
   const d = new Date(ms + offMin * 60_000);
-  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
 }
-
-const GAP_CAUSE_LABEL: Record<string, string> = {
-  server_down: 'Обрыв связи',
-  ping_failed: 'Связь потеряна (пинг)',
-  interrupted: 'Прервано (краш/рестарт)',
-};
 
 const SEGMENT_STATUS_LABEL: Record<string, string> = {
   recording: 'Запись',
@@ -69,8 +58,6 @@ const SEGMENT_STATUS_LABEL: Record<string, string> = {
   error: 'Ошибка соединения',
   interrupted: 'Прервано (краш/рестарт)',
 };
-
-const BREAK_SEGMENT_STATUSES = new Set(['disconnected', 'error', 'interrupted']);
 
 /** Подложка «стояло на запись» по границам сегмента намерения. */
 function intentBar(
@@ -125,8 +112,7 @@ export const CoverageTrack = memo(function CoverageTrack({
   activitySourceId,
   tzOffsetMin = 180,
   livenessIntervals,
-  captureGaps,
-  incidentReds,
+  writeGaps,
   sessions,
   highlightDays,
   showNowMarker = true,
@@ -230,72 +216,29 @@ export const CoverageTrack = memo(function CoverageTrack({
             />,
           );
         }
-        if (!open && BREAK_SEGMENT_STATUSES.has(seg.status)) {
-          const seamAt = segmentRecordedEndMs(seg, liveEdgeMs, windowToMs);
-          const seamLeft = pct(seamAt);
-          bars.push(
-            <span
-              key={`${seg.segmentId}-seam`}
-              className={styles.breakSeam}
-              style={{ left: `${seamLeft}%` }}
-              title={`${SEGMENT_STATUS_LABEL[seg.status] ?? seg.status} · ${hhmm(seamAt, tzOffsetMin)}`}
-            />,
-          );
-        }
         return bars;
       })}
 
-      {/* Красные дыры записи: журнал incident (merge) или legacy captureGaps. */}
+      {/* WriteGap — точные края last/first trade (сек), не бакеты. */}
       {honestMode &&
         intentSpan &&
-        (() => {
-          const gaps: ReactNode[] = [];
-          if (incidentReds != null) {
-            for (let i = 0; i < incidentReds.length; i++) {
-              const red = incidentReds[i];
-              const inter = gapIntersectsSegment(
-                intentSpan.from,
-                intentSpan.to,
-                red.fromMs,
-                red.toMs,
-              );
-              if (!inter) continue;
-              const left = pct(inter.from);
-              gaps.push(
-                <div
-                  key={`ired-${i}`}
-                  className={styles.captureGap}
-                  style={{ left: `${left}%`, width: `${Math.max(0.4, pct(inter.to) - left)}%` }}
-                  title={`Нет данных · ${hhmm(inter.from, tzOffsetMin)}–${hhmm(inter.to, tzOffsetMin)}`}
-                />,
-              );
-            }
-            return gaps;
-          }
-
-          for (let i = 0; i < (captureGaps?.length ?? 0); i++) {
-            const gap = captureGaps![i];
-            if (!isBreakGap(gap)) continue;
-
-            const gapEnd = resolveGapEndMs(gap, livenessIntervals, liveEdgeMs, windowToMs);
-            if (gapEnd === null) continue;
-
-            const inter = gapIntersectsSegment(intentSpan.from, intentSpan.to, Date.parse(gap.from), gapEnd);
-            if (!inter) continue;
-
-            const left = pct(inter.from);
-            const label = GAP_CAUSE_LABEL[gap.cause] ?? gap.cause;
-            gaps.push(
-              <div
-                key={`gap-${i}`}
-                className={styles.captureGap}
-                style={{ left: `${left}%`, width: `${Math.max(0.4, pct(inter.to) - left)}%` }}
-                title={`${label} · ${hhmm(inter.from, tzOffsetMin)}–${hhmm(inter.to, tzOffsetMin)}`}
-              />,
-            );
-          }
-          return gaps;
-        })()}
+        writeGaps != null &&
+        writeGaps.length > 0 &&
+        writeGaps.map((g, i) => {
+          const inter = gapIntersectsSegment(intentSpan.from, intentSpan.to, g.fromMs, g.toMs);
+          if (!inter) return null;
+          const left = pct(inter.from);
+          const width = pct(inter.to) - left;
+          if (width <= 0) return null;
+          return (
+            <div
+              key={`wgap-${i}`}
+              className={styles.writeGap}
+              style={{ left: `${left}%`, width: `${width}%` }}
+              title={`WriteGap ${hhmmss(g.fromMs, tzOffsetMin)}–${hhmmss(g.toMs, tzOffsetMin)}`}
+            />
+          );
+        })}
 
       {/* Слой сделок: яркие ячейки непустых бакетов ∩ живость (честный режим). */}
       {activityBuckets && activityBucketMs
@@ -315,7 +258,7 @@ export const CoverageTrack = memo(function CoverageTrack({
                     key={`${b}-${i}`}
                     className={styles.trade}
                     style={{ left: `${cellLeft}%`, width: `${cellWidth}%`, background: color }}
-                    title={`Торговля была · ${hhmm(span.from, tzOffsetMin)}–${hhmm(span.to, tzOffsetMin)}`}
+                    title={`Торговля ${hhmmss(span.from, tzOffsetMin)}–${hhmmss(span.to, tzOffsetMin)}`}
                   />,
                 );
               }

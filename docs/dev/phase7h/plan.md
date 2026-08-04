@@ -7,9 +7,15 @@
 [report.md](report.md). Справочник по разрывам захвата — [incident.md](incident.md)
 (**SUPERSEDED** как канон платформенного «инцидента»; см. шапку файла → wiki / 7j / phase11 журнал).
 
-**Статус:** `DONE`. **Stage:** 1. **Зависимости:** phase 6a/6b (`coverage_segment`,
+**Статус:** `DONE` (ядро подложки/liveness) · **follow-up:** Write Gaps —
+[write-gaps.md](write-gaps.md) (`DESIGN AGREED`, код не начат).  
+**Stage:** 1. **Зависимости:** phase 6a/6b (`coverage_segment`,
 `ConnectionManager`, `ConnectorSession`), phase 7e (провайдеры/тумблер статуса), phase 7g (слой сделок
 поверх подложки). Открывает дорогу к backfill (7c ISS / 9 qsh).
+
+> Часть текста ниже (красный = дыра живости / as-is Recording-red) **устаревает** в пользу
+> WriteGap — см. [write-gaps.md](write-gaps.md) · продукт [wiki](../../wiki-readme/write-gaps.md).
+> План/report будут актуализированы при внедрении W2+.
 
 ## Мотивация (проблема)
 
@@ -274,3 +280,58 @@ Disconnected → Connecting → Live ⇄ Degraded → Down/Error → (reconnect)
 
 7h.8a → 7h.8b → 7h.8c → (7h.8e core) → 7h.8f UI лента → 7h.8d lifecycle + проекция. Модель — в
 [incident.md](incident.md) (раздел «Лента Connection»), статус — в [report.md](report.md).
+
+---
+
+## Follow-up: Write Gaps — план реализации
+
+**Статус:** `DONE` (2026-08-04).  
+Канон — [write-gaps.md](write-gaps.md) · продукт — [wiki write-gaps](../../wiki-readme/write-gaps.md).
+
+```text
+WriteHole  = expand(incident ∩ intention) → last/first trade
+WriteGap   = ScheduleCutter(WriteHole ∩ desired)
+```
+
+### Исходная точка
+
+- As-is красный на инструменте: `InstrumentPicker` → `mergeIncidentReds(link.incidents)` →
+  `CoverageTrack.incidentReds` — span incident, один на все инструменты connection, без trade-краёв.
+- `ScheduleCutter` уже в Domain (+ unit) — нужен wire (P1.2) в WriteGap pipeline.
+- `showWorkGaps` — про ConnectionRibbon (`paintGapsAsIncidents`); **не трогать**. Writers —
+  отдельный `showWriteGaps`.
+- Connection-ribbon / NC — out of scope.
+
+### Архитектура
+
+```text
+coverage_segment + incident + md_trade brackets
+        → WriteHoleBuilder
+        → ScheduleCutter.Cut(desired)
+        → POST /api/coverage/write-gaps
+        → CoverageTrack (тумблер showWriteGaps)
+```
+
+Расчёт на **сервере** (SoT для будущего backfill).
+
+### Шаги
+
+| # | Что | Детали |
+|---|-----|--------|
+| **W1** | Docs | wiki + спека + этот план — **DONE** |
+| **W2** | Domain WriteHole | `WriteHoleBuilder` + `TradeBracketStore` + unit — **DONE** |
+| **W3** | WriteGap API | `DesiredWindowEnumerator` + `WriteGapService` + `POST /api/coverage/write-gaps` — **DONE** |
+| **W4** | UI | `showWriteGaps$` (default true) + ProviderCard + `CoverageTrack.writeGaps` — **DONE** |
+| **W5** | Cutover | `mergeIncidentReds` снят с дорожки инструмента; ribbon/`showWorkGaps` нетронуты — **DONE** |
+| **W6** | Приёмка | unit + vitest + pointer journal §3.0b — **DONE** (живой Finam stall — ручная) |
+
+### Вне scope
+
+Backfill execution, NC, Connection-ribbon semantics, WebGL, hard-delete.
+
+### Коммиты (ориентир)
+
+1. `feat(ohs-7h): WriteHole builder + trade brackets`
+2. `feat(ohs-7h): WriteGap API via ScheduleCutter`
+3. `feat(ohs-web): showWriteGaps + CoverageTrack cutover`
+4. `docs(7h): write-gaps implemented / journal pointer`

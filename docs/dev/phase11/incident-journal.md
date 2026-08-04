@@ -103,6 +103,11 @@ Post-factum Group `connection.connecting` после успеха — **не** �
 
 ### 3.0b. Recording-лента (полнота данных: шли / не шли)
 
+> **Канон (Writers Gantt):** красный = **WriteGap** (края по сделкам ∩ schedule), не span
+> incident. См. [`phase7h/write-gaps.md`](../phase7h/write-gaps.md) ·
+> [`wiki-readme/write-gaps.md`](../../wiki-readme/write-gaps.md).
+> Ниже — исторический as-is 11.13e (заменён на дорожке инструмента).
+
 **Бинарная проекция** того же журнала `incident` (не отдельная таблица причин):
 
 ```text

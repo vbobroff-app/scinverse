@@ -46,6 +46,8 @@ import type {
   StartRecordingRequest,
   TradeActivityDto,
   TradeActivityRequest,
+  WriteGapDto,
+  WriteGapsRequest,
   TransaqLocalDefaultsDto,
   UpsertConnectionRequest,
   UpsertExternalServiceRequest,
@@ -128,6 +130,9 @@ export const OhsApi = {
 
   getTradeActivity: (body: TradeActivityRequest) =>
     post<TradeActivityDto[]>('/coverage/activity', body),
+
+  getWriteGaps: (body: WriteGapsRequest) =>
+    post<WriteGapDto[]>('/coverage/write-gaps', body),
 
   getCaptureLiveness: (body: LivenessQueryRequest) =>
     post<CaptureLivenessDto>('/coverage/liveness', body),

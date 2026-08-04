@@ -76,6 +76,8 @@ export interface PersistedViewState {
    * Mutex с showBreak/CrashIncidents: при true инциденты off.
    */
   showWorkGaps?: boolean;
+  /** WriteGap (recovery-красный) на дорожке инструмента. */
+  showWriteGaps?: boolean;
 }
 
 const EMPTY: PersistedViewState = {
@@ -241,6 +243,7 @@ export function loadViewState(): PersistedViewState {
       showScheduleMask:
         typeof parsed.showScheduleMask === 'boolean' ? parsed.showScheduleMask : undefined,
       showWorkGaps: typeof parsed.showWorkGaps === 'boolean' ? parsed.showWorkGaps : undefined,
+      showWriteGaps: typeof parsed.showWriteGaps === 'boolean' ? parsed.showWriteGaps : undefined,
     };
   } catch {
     return { ...EMPTY };

@@ -27,9 +27,10 @@ REST/WebSocket наружу + админ-фронт для управления 
 scinverse/
 ├─ README.md                     # обзор монорепо (+ mermaid)
 ├─ docs/promt.md                 # вход нового чата / handoff (этот файл, §8)
-├─ docs/wiki-readme/             # продукт: incident.md, layers.md
+├─ docs/wiki-readme/             # продукт: incident.md, layers.md, write-gaps.md
 ├─ docs/dev/phase11/             # NC + journal; soft-delete → incident-soft-delete.md
 ├─ docs/dev/phase11/schedule-projection.md  # канон: факты ⊥ mask/Cutter
+├─ docs/dev/phase7h/write-gaps.md           # Writers Gantt: WriteHole/WriteGap (спека)
 ├─ docs/architecture/c4/         # C4 PlantUML to-be (NC, dual front, Keycloak)
 ├─ docs/architecture/ohs-connectors-deploy.md  # TRANSAQ Windows-агент / finam-ws to-be
 ├─ tools/plantuml/               # Local plantuml.jar (gitignore) + README
@@ -332,6 +333,8 @@ PowerShell: `;` не `&&`. Commit-msg → UTF-8 без BOM + `git commit -F`.
 - 7j.15/16 UI tails; Host pool I12 step 3.
 - ~~Startup-latency справочника (~3 мин)~~ — **DONE** (Finam ~10–16 с;
   [startup-latency.md](./dev/phase7h/startup-latency.md) · 7j H3).
+- **Write Gaps (Writers / 7h):** спека [write-gaps.md](./dev/phase7h/write-gaps.md) ·
+  продукт [wiki write-gaps](./wiki-readme/write-gaps.md); код — после/вместе с P1.2 Cutter.
 
 Уточнять у пользователя scope — не начинать gate/WebGL «заодно».
 

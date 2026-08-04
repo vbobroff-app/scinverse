@@ -145,6 +145,15 @@ public static class OhsEndpoints
             return activity.Select(a => new TradeActivityDto(a.InstrumentId, a.Buckets)).ToList();
         });
 
+        // WriteGap: expand(incident ∩ intention) → trade brackets → ScheduleCutter(desired).
+        api.MapPost("/coverage/write-gaps", async (
+            WriteGapsRequest request, WriteGapService service, CancellationToken ct) =>
+        {
+            var gaps = await service.QueryAsync(
+                request.ConnectionId, request.From, request.To, request.InstrumentIds, ct);
+            return gaps.Select(g => new WriteGapDto(g.InstrumentId, g.SourceId, g.From, g.To)).ToList();
+        });
+
         api.MapPost("/coverage/liveness", async (
             LivenessQueryRequest request, ICaptureLivenessStore store, CancellationToken ct) =>
         {

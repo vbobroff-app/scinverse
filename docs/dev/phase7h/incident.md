@@ -43,6 +43,10 @@
 
 ## Три слоя дорожки Ганта
 
+> **To-be красный на Writers:** не «дыра живости», а **WriteGap** (trade-края ∩ schedule) —
+> [`write-gaps.md`](write-gaps.md) · продукт [`wiki write-gaps`](../../wiki-readme/write-gaps.md).
+> Ниже — канон подложки 7h (намерение ∩ живость), он остаётся.
+
 Инциденты живут на пересечении слоёв:
 
 ```mermaid

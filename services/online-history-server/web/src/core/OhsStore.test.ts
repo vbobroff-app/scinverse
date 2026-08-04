@@ -67,6 +67,7 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
     getSessions: () => of<SessionDto[]>([]),
     getCoverageExtent: () => of<CoverageExtentDto>({ from: null, to: null }),
     getTradeActivity: () => of([]),
+    getWriteGaps: () => of([]),
     getCaptureLiveness: () => of({ intervals: [], gaps: [] }),
     getLinkLiveness: () => of({ intervals: [], gaps: [] }),
     getConnectionIncidents: () => of([]),
@@ -298,7 +299,7 @@ describe('OhsStore live merge', () => {
     );
     store.start();
 
-    store.setActivityContext([100], 2);
+    store.setActivityContext([100], 2, 1);
     flushRibbonRefresh();
 
     expect(store.activity$.value.byInstrument.get(100)).toEqual([Date.parse(bucketTs)]);
@@ -314,7 +315,7 @@ describe('OhsStore live merge', () => {
       live,
     );
     store.start();
-    store.setActivityContext([100], 2);
+    store.setActivityContext([100], 2, 1);
     flushRibbonRefresh();
     expect(store.activity$.value.byInstrument.get(100)).toEqual([]);
 
@@ -368,7 +369,7 @@ describe('OhsStore live merge', () => {
       new Subject<LiveEvent>(),
     );
     store.setLivenessSource(2);
-    store.setActivityContext([100], 2);
+    store.setActivityContext([100], 2, 1);
     // Залп как после recover / break (до debounce).
     store.refreshCoverage();
     store.refreshActivity();

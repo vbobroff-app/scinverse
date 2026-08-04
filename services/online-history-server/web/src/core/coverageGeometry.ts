@@ -212,6 +212,99 @@ export function gapIntersectsSegment(
   return intersectMs(segFromMs, segToMs, gapFromMs, gapEndMs);
 }
 
+/**
+ * Вычитает бакеты сделок из полуинтервала [fromMs, toMs).
+ * WriteGap не должен краситься поверх уже известных ячеек торговли.
+ */
+export function subtractActivityBuckets(
+  fromMs: number,
+  toMs: number,
+  buckets: readonly number[] | undefined,
+  bucketMs: number,
+): { from: number; to: number }[] {
+  if (!(fromMs < toMs)) {
+    return [];
+  }
+  if (!buckets?.length || !(bucketMs > 0)) {
+    return [{ from: fromMs, to: toMs }];
+  }
+
+  const trades = buckets
+    .map((b) => ({ from: b, to: b + bucketMs }))
+    .filter((t) => t.from < toMs && t.to > fromMs)
+    .sort((a, b) => a.from - b.from);
+
+  const out: { from: number; to: number }[] = [];
+  let cur = fromMs;
+  for (const t of trades) {
+    const tf = Math.max(t.from, fromMs);
+    const tt = Math.min(t.to, toMs);
+    if (cur < tf) {
+      out.push({ from: cur, to: tf });
+    }
+    if (tt > cur) {
+      cur = tt;
+    }
+  }
+  if (cur < toMs) {
+    out.push({ from: cur, to: toMs });
+  }
+  return out;
+}
+
+/**
+ * Тишины между соседними бакетами сделок, пересекающие WriteGap.
+ * Края = границы ячеек (flush к deals), не «обрезанный» mid-bucket WriteGap.
+ */
+export function writeGapPaintSpans(
+  writeGaps: readonly { fromMs: number; toMs: number }[],
+  buckets: readonly number[] | undefined,
+  bucketMs: number,
+): { from: number; to: number; gapFromMs: number; gapToMs: number }[] {
+  if (!writeGaps.length) {
+    return [];
+  }
+
+  if (!buckets?.length || !(bucketMs > 0)) {
+    return writeGaps
+      .filter((g) => g.fromMs < g.toMs)
+      .map((g) => ({
+        from: g.fromMs,
+        to: g.toMs,
+        gapFromMs: g.fromMs,
+        gapToMs: g.toMs,
+      }));
+  }
+
+  const starts = [...new Set(buckets)].filter((b) => Number.isFinite(b)).sort((a, b) => a - b);
+  const out: { from: number; to: number; gapFromMs: number; gapToMs: number }[] = [];
+
+  for (let i = 0; i < starts.length - 1; i++) {
+    const silenceFrom = starts[i] + bucketMs;
+    const silenceTo = starts[i + 1];
+    if (!(silenceFrom < silenceTo)) {
+      continue;
+    }
+
+    for (const g of writeGaps) {
+      const hit = intersectMs(silenceFrom, silenceTo, g.fromMs, g.toMs);
+      if (!hit) {
+        continue;
+      }
+      // Flush: красим всю тишину между ячейками, если WriteGap её задел.
+      out.push({
+        from: silenceFrom,
+        to: silenceTo,
+        gapFromMs: g.fromMs,
+        gapToMs: g.toMs,
+      });
+      break;
+    }
+  }
+
+  return out;
+}
+
 export interface LinkLivenessSnapshot {
   intervals: LivenessIntervalDto[];
   gaps: CaptureGapDto[];

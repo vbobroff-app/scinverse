@@ -106,6 +106,20 @@ public sealed record TradeActivityRequest(
     short SourceId,
     IReadOnlyList<long> InstrumentIds);
 
+/// <summary>Запрос WriteGap (recovery-красный на Writers Gantt).</summary>
+public sealed record WriteGapsRequest(
+    long ConnectionId,
+    DateTimeOffset From,
+    DateTimeOffset To,
+    IReadOnlyList<long> InstrumentIds);
+
+/// <summary>Клип WriteGap: WriteHole ∩ desired для инструмента.</summary>
+public sealed record WriteGapDto(
+    long InstrumentId,
+    short SourceId,
+    DateTimeOffset From,
+    DateTimeOffset To);
+
 /// <summary>Интервал живости захвата (связь жива) на подключение (source).</summary>
 public sealed record LivenessIntervalDto(
     DateTimeOffset From,

@@ -35,6 +35,10 @@ public interface IOhsApi
     Task<IReadOnlyList<TradeActivityDto>> GetTradeActivityAsync(
         TradeActivityRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>POST /api/coverage/write-gaps — WriteGap = ScheduleCutter(WriteHole ∩ desired).</summary>
+    Task<IReadOnlyList<WriteGapDto>> GetWriteGapsAsync(
+        WriteGapsRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>GET /api/recordings</summary>
     Task<IReadOnlyList<RecordingDto>> GetRecordingsAsync(CancellationToken cancellationToken = default);
 

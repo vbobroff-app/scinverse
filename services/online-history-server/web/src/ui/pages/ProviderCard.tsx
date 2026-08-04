@@ -17,6 +17,7 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
   const showBreakIncidents = useBehavior(store.showBreakIncidents$);
   const showCrashIncidents = useBehavior(store.showCrashIncidents$);
   const showWorkGaps = useBehavior(store.showWorkGaps$);
+  const showWriteGaps = useBehavior(store.showWriteGaps$);
   const showScheduleMask = useBehavior(store.showScheduleMask$);
   const ohsUnavailable = useBehavior(store.backendOutage$);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -164,6 +165,14 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
                 </div>
                 <div className={styles.settingsSection}>
                   <span className={styles.settingsSectionTitle}>Запись</span>
+                  <label className={styles.settingsCheck}>
+                    <input
+                      type="checkbox"
+                      checked={showWriteGaps}
+                      onChange={() => store.setShowWriteGaps(!showWriteGaps)}
+                    />
+                    Write Gaps
+                  </label>
                   <label className={styles.settingsCheck}>
                     <input
                       type="checkbox"

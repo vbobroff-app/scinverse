@@ -64,6 +64,15 @@ public sealed class OhsApiClient(HttpClient http) : IOhsApi
         return result ?? [];
     }
 
+    public async Task<IReadOnlyList<WriteGapDto>> GetWriteGapsAsync(
+        WriteGapsRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsJsonAsync("/api/coverage/write-gaps", request, Json, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<List<WriteGapDto>>(Json, cancellationToken);
+        return result ?? [];
+    }
+
     public Task<IReadOnlyList<RecordingDto>> GetRecordingsAsync(CancellationToken cancellationToken = default) =>
         GetListAsync<RecordingDto>("/api/recordings", cancellationToken);
 

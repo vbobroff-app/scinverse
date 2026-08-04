@@ -82,13 +82,13 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-function hhmm(ms: number, offMin: number): string {
+function hhmmss(ms: number, offMin: number): string {
   const d = new Date(ms + offMin * 60_000);
-  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
 }
 
 function tipRange(fromMs: number, toMs: number, open: boolean, offMin: number): string {
-  return `${hhmm(fromMs, offMin)}–${open ? 'сейчас' : hhmm(toMs, offMin)}`;
+  return `${hhmmss(fromMs, offMin)}–${open ? 'сейчас' : hhmmss(toMs, offMin)}`;
 }
 
 function tipLabel(label: string, time: string): string {
@@ -429,7 +429,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
       {/* 4. markers */}
       {useJournalIncidents
         ? journalPaint!.markers.map((m, i) => {
-            const label = tipLabel(m.label, hhmm(m.atMs, tzOffsetMin));
+            const label = tipLabel(m.label, hhmmss(m.atMs, tzOffsetMin));
             return m.kind === 'start' ? (
               <span
                 key={`is${m.corrUid}-${i}`}
@@ -455,7 +455,7 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
               className={styles.startMarker}
               style={{ left: `${pct(Date.parse(gap.from))}%` }}
               {...bindTip(
-                tipLabel('Системный сбой', hhmm(Date.parse(gap.from), tzOffsetMin)),
+                tipLabel('Системный сбой', hhmmss(Date.parse(gap.from), tzOffsetMin)),
                 tip,
               )}
             />
@@ -470,8 +470,8 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             const from = Date.parse(gap.from);
             const startLabel =
               gap.cause === 'interrupted'
-                ? tipLabel('Системный сбой', hhmm(from, tzOffsetMin))
-                : tipLabel('Обрыв связи', hhmm(from, tzOffsetMin));
+                ? tipLabel('Системный сбой', hhmmss(from, tzOffsetMin))
+                : tipLabel('Обрыв связи', hhmmss(from, tzOffsetMin));
             return (
               <span
                 key={`s${i}`}
@@ -491,8 +491,8 @@ export const ConnectionRibbon = memo(function ConnectionRibbon({
             const to = Date.parse(gap.to);
             const recoverLabel =
               gap.cause === 'interrupted'
-                ? tipLabel('Система восстановлена', hhmm(to, tzOffsetMin))
-                : tipLabel('Связь восстановлена', hhmm(to, tzOffsetMin));
+                ? tipLabel('Система восстановлена', hhmmss(to, tzOffsetMin))
+                : tipLabel('Связь восстановлена', hhmmss(to, tzOffsetMin));
             return (
               <span
                 key={`r${i}`}

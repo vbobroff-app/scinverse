@@ -12,7 +12,9 @@ import {
   overlayCrashOutageOnLink,
   resolveGapEndMs,
   segmentRecordedEndMs,
+  subtractActivityBuckets,
   visibleTradeSpans,
+  writeGapPaintSpans,
 } from './coverageGeometry';
 import type { CaptureGapDto, CoverageSegmentDto, LivenessIntervalDto } from './types';
 
@@ -73,6 +75,37 @@ describe('coverageGeometry', () => {
       Date.parse('2026-07-12T15:00:00.000Z'),
     );
     expect(inter).toBeNull();
+  });
+
+  it('subtractActivityBuckets: вырезает ячейки сделок из WriteGap', () => {
+    const t0 = Date.parse('2026-07-12T10:00:00.000Z');
+    const bucketMs = 60_000;
+    // hole 10:00–10:05; trades at 10:00 and 10:03
+    const parts = subtractActivityBuckets(t0, t0 + 5 * bucketMs, [t0, t0 + 3 * bucketMs], bucketMs);
+    expect(parts).toEqual([
+      { from: t0 + bucketMs, to: t0 + 3 * bucketMs },
+      { from: t0 + 4 * bucketMs, to: t0 + 5 * bucketMs },
+    ]);
+  });
+
+  it('writeGapPaintSpans: тишина между бакетами flush к deals', () => {
+    const t0 = Date.parse('2026-07-12T08:13:00.000Z');
+    const bucketMs = 60_000;
+    const next = Date.parse('2026-07-12T09:13:00.000Z');
+    // WriteGap чуть короче тишины (как после Cutter) — красим всю тишину 08:14–09:13.
+    const spans = writeGapPaintSpans(
+      [{ fromMs: t0 + 45_000, toMs: next - 4 * 60_000 }],
+      [t0, next],
+      bucketMs,
+    );
+    expect(spans).toEqual([
+      {
+        from: t0 + bucketMs,
+        to: next,
+        gapFromMs: t0 + 45_000,
+        gapToMs: next - 4 * 60_000,
+      },
+    ]);
   });
 
   it('effectiveSegmentEndMs: interrupted тянется до следующей живости', () => {

@@ -132,10 +132,11 @@ export interface LinkLivenessState {
   incidents?: IncidentDto[];
 }
 
-/** Контекст запроса слоя сделок: какие инструменты и по какому источнику сейчас видно. */
+/** Контекст запроса слоя сделок / WriteGap: видимые инструменты + connection. */
 interface ActivityContext {
   instrumentIds: readonly number[];
   sourceId: number;
+  connectionId: number;
 }
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -338,6 +339,10 @@ export class OhsStore {
 
   /** Слой сделок: присутствие по бакетам для видимых инструментов (см. setActivityContext). */
   readonly activity$ = new BehaviorSubject<TradeActivityState>({ bucketMs: 30_000, byInstrument: new Map() });
+  /** WriteGap по инструменту: recovery-красный (серверный расчёт). */
+  readonly writeGaps$ = new BehaviorSubject<ReadonlyMap<number, { fromMs: number; toMs: number }[]>>(
+    new Map(),
+  );
   /** Живость захвата и разрывы связи (честная подложка, phase 7h). */
   readonly liveness$ = new BehaviorSubject<LivenessState>({ intervals: [], gaps: [] });
   /** Жизненный цикл связи (лента Connection, phase 7h.8) — история связи независимо от записи. */
@@ -387,6 +392,8 @@ export class OhsStore {
    * Mutex с showBreak/CrashIncidents — default off.
    */
   readonly showWorkGaps$ = new BehaviorSubject<boolean>(false);
+  /** WriteGap (recovery-красный) на дорожке инструмента — default on. */
+  readonly showWriteGaps$ = new BehaviorSubject<boolean>(true);
 
   /** Раскрытые серии, ожидающие регидрации после перезагрузки (одноразово, см. hydrateExpanded). */
   private pendingSeriesHydration: PersistedSeries[] = [];
@@ -540,6 +547,9 @@ export class OhsStore {
     if (typeof v.showWorkGaps === 'boolean') {
       this.showWorkGaps$.next(v.showWorkGaps);
     }
+    if (typeof v.showWriteGaps === 'boolean') {
+      this.showWriteGaps$.next(v.showWriteGaps);
+    }
     // Mutex: гэпы побеждают сохранённые инциденты.
     if (this.showWorkGaps$.value) {
       this.showBreakIncidents$.next(false);
@@ -585,6 +595,7 @@ export class OhsStore {
       showCrashIncidents: this.showCrashIncidents$.value,
       showScheduleMask: this.showScheduleMask$.value,
       showWorkGaps: this.showWorkGaps$.value,
+      showWriteGaps: this.showWriteGaps$.value,
     });
   }
 
@@ -1316,6 +1327,14 @@ export class OhsStore {
     }
   }
 
+  /** Показывать / скрывать WriteGap на дорожке инструмента (⊥ Connection-ribbon). */
+  setShowWriteGaps(on: boolean): void {
+    if (this.showWriteGaps$.value !== on) {
+      this.showWriteGaps$.next(on);
+      this.persistView();
+    }
+  }
+
   /** Нужно ли генерировать выходные (для счётчика сессий) — по набору дней недели. */
   private genIncludeWeekends(): boolean {
     const w = this.timelineFilter$.value.weekdays;
@@ -1951,17 +1970,22 @@ export class OhsStore {
   }
 
   /**
-   * Задаёт, для каких инструментов и по какому источнику показывать слой сделок (обычно —
-   * видимые строки провайдера + его `sourceId`). Пере-запрашивает активность при изменении.
+   * Задаёт, для каких инструментов / connection показывать слой сделок и WriteGap.
+   * Пере-запрашивает активность при изменении.
    */
-  setActivityContext(instrumentIds: readonly number[], sourceId: number): void {
+  setActivityContext(
+    instrumentIds: readonly number[],
+    sourceId: number,
+    connectionId: number,
+  ): void {
     const prev = this.activityContext;
     const changed =
       prev === null ||
       prev.sourceId !== sourceId ||
+      prev.connectionId !== connectionId ||
       prev.instrumentIds.length !== instrumentIds.length ||
       instrumentIds.some((id, i) => prev.instrumentIds[i] !== id);
-    this.activityContext = { instrumentIds: [...instrumentIds], sourceId };
+    this.activityContext = { instrumentIds: [...instrumentIds], sourceId, connectionId };
     if (changed) {
       this.refreshActivity();
     }
@@ -1994,6 +2018,7 @@ export class OhsStore {
     return concat(
       this.fetchCoverage$(),
       this.fetchActivity$(),
+      this.fetchWriteGaps$(),
       this.fetchLiveness$(),
     ).pipe(ignoreElements(), defaultIfEmpty(undefined as void));
   }
@@ -2038,6 +2063,37 @@ export class OhsStore {
         }),
         catchError((err) => {
           console.error('getTradeActivity', err);
+          return of(null);
+        }),
+      );
+  }
+
+  private fetchWriteGaps$(): Observable<unknown> {
+    const ctx = this.activityContext;
+    if (ctx === null || ctx.instrumentIds.length === 0) {
+      this.writeGaps$.next(new Map());
+      return of(null);
+    }
+    const { from, to } = this.window$.value;
+    return this.api
+      .getWriteGaps({
+        connectionId: ctx.connectionId,
+        from,
+        to,
+        instrumentIds: [...ctx.instrumentIds],
+      })
+      .pipe(
+        tap((rows) => {
+          const byInstrument = new Map<number, { fromMs: number; toMs: number }[]>();
+          for (const g of rows) {
+            const list = byInstrument.get(g.instrumentId) ?? [];
+            list.push({ fromMs: Date.parse(g.from), toMs: Date.parse(g.to) });
+            byInstrument.set(g.instrumentId, list);
+          }
+          this.writeGaps$.next(byInstrument);
+        }),
+        catchError((err) => {
+          console.error('getWriteGaps', err);
           return of(null);
         }),
       );

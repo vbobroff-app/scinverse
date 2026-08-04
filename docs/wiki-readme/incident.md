@@ -2,7 +2,8 @@
 
 > **To-be идеология (канон):** [`docs/dev/phase11/schedule-projection.md`](../dev/phase11/schedule-projection.md)  
 > Журнал `incident` (as-is + миграция): [`incident-journal.md`](../dev/phase11/incident-journal.md)  
-> Слои T/C/W: [`layers.md`](layers.md) · Crash (as-is): [`crash-dispatch.md`](../dev/phase11/crash-dispatch.md)  
+> Слои T/C/W: [`layers.md`](layers.md) · разрывы записи: [`write-gaps.md`](write-gaps.md) ·
+> Crash (as-is): [`crash-dispatch.md`](../dev/phase11/crash-dispatch.md) ·
 > Break/crash продюсер: [`docs/dev/phase7j/incident.md`](../dev/phase7j/incident.md)
 
 ---
