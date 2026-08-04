@@ -2370,11 +2370,15 @@ export class OhsStore {
   }
 
   /**
-   * Force-инвалидация каталога инструментов: следующий dump securities с коннектора
-   * уйдёт в фоновый persist (обычно после reconnect).
+   * Force-обновление каталога: dump stale + lifecycle sweep + сброс OPT-окон;
+   * полный dump придёт на следующем connect/reconnect.
    */
   refreshInstrumentCatalog(): void {
     this.api.refreshInstrumentCatalog().subscribe({
+      next: () => {
+        // Sweep мог убрать архив из Online-списка сразу.
+        this.fetchInstruments(false);
+      },
       error: (err) => console.error('refreshInstrumentCatalog', err),
     });
   }

@@ -39,6 +39,7 @@
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
   word-break: break-word;
+  white-space: pre-line;
 }
 
 .checkbox {

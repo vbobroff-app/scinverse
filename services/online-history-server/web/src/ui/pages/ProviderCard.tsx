@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ConnectionLane } from '../components/ConnectionLane';
 import { ConnectionToggle } from '../components/ConnectionToggle';
 import { FilterBar } from '../components/FilterBar';
 import { InstrumentPicker } from '../components/InstrumentPicker';
 import type { ConnectionDto } from '../../core/types';
 import styles from './ProviderCard.module.css';
+
+const CATALOG_REFRESH_MESSAGE =
+  'Будет выполнено:\n' +
+  '• инвалидация кэша dump-справочника;\n' +
+  '• архивация просроченных инструментов по дате экспирации;\n' +
+  '• сброс окон опционов (ATM) — при следующем раскрытии серии загрузка заново.\n\n' +
+  'Invalidate и sweep — обычно секунды. Полный dump справочника придёт при следующем ' +
+  'connect/reconnect (типично ~10–20 с разбора). UI не блокируется.';
 
 export function ProviderCard({ connection }: { connection: ConnectionDto }) {
   const store = useOhsStore();
@@ -21,6 +30,7 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
   const showScheduleMask = useBehavior(store.showScheduleMask$);
   const ohsUnavailable = useBehavior(store.backendOutage$);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -62,6 +72,29 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
             onDisconnect={() => store.disconnect(connection.connectionId)}
             onCancelConnect={() => store.cancelConnect()}
           />
+          <button
+            type="button"
+            className={styles.settingsBtn}
+            title="Обновить справочник"
+            aria-label="Обновить справочник"
+            onClick={() => {
+              setSettingsOpen(false);
+              setRefreshConfirmOpen(true);
+            }}
+          >
+            <svg
+              className={styles.settingsIcon}
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path d="M0 0h24v24H0z" fill="none" />
+              <path
+                fill="currentColor"
+                d="M12 3c4.42 0 8 1.79 8 4s-3.58 4-8 4s-8-1.79-8-4s3.58-4 8-4M4 9c0 2.21 3.58 4 8 4c1.11 0 2.18-.11 3.14-.32c-.95.86-1.64 1.99-1.96 3.28L12 16c-4.42 0-8-1.79-8-4zm16 0v2h-.5l-.6.03c.7-.6 1.1-1.29 1.1-2.03M4 14c0 2.21 3.58 4 8 4l1-.03c.09 1.06.42 2.03.95 2.91L12 21c-4.42 0-8-1.79-8-4zm15-.5c1.11 0 2.11.45 2.83 1.17L23 13.5v4h-4l1.77-1.77A2.5 2.5 0 1 0 21 19h1.71A3.99 3.99 0 0 1 19 21.5c-2.21 0-4-1.79-4-4s1.79-4 4-4"
+              />
+            </svg>
+          </button>
           <div className={styles.settingsWrap} ref={settingsRef}>
             <button
               type="button"
@@ -99,18 +132,6 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
                     />
                     Now-маркер
                   </label>
-                  <button
-                    type="button"
-                    className={styles.settingsAction}
-                    role="menuitem"
-                    title="Разрешить обновление справочника на следующем dump с коннектора (обычно reconnect)"
-                    onClick={() => {
-                      store.refreshInstrumentCatalog();
-                      setSettingsOpen(false);
-                    }}
-                  >
-                    Обновить справочник
-                  </button>
                 </div>
                 <div className={styles.settingsSection}>
                   <span className={styles.settingsSectionTitle}>Связь</span>
@@ -191,6 +212,21 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
       <ConnectionLane connection={connection} />
       {showFilters && <FilterBar />}
       <InstrumentPicker connection={connection} />
+
+      {refreshConfirmOpen && (
+        <ConfirmDialog
+          title="Обновить справочник"
+          message={CATALOG_REFRESH_MESSAGE}
+          severity="info"
+          confirmLabel="ОК"
+          cancelLabel="Отмена"
+          onConfirm={() => {
+            setRefreshConfirmOpen(false);
+            store.refreshInstrumentCatalog();
+          }}
+          onCancel={() => setRefreshConfirmOpen(false)}
+        />
+      )}
     </section>
   );
 }
