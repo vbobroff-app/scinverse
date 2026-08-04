@@ -58,6 +58,7 @@ builder.Services.AddSingleton<IInstrumentRegistry, InstrumentRegistry>();
 builder.Services.AddSingleton<InstrumentLifecycleService>();
 builder.Services.AddSingleton<OptionWindowFreshness>();
 builder.Services.AddSingleton<OptionCatalogService>();
+builder.Services.AddSingleton<CatalogRefreshNc>();
 builder.Services.AddHostedService<InstrumentCatalogPersistWriter>();
 builder.Services.AddSingleton<TradeNormalizer>();
 builder.Services.AddSingleton<TradeBatcher>();

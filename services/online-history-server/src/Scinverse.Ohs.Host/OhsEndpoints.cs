@@ -75,34 +75,18 @@ public static class OhsEndpoints
         });
 
         // Force: dump-кэш stale + lifecycle sweep (архив по exp) + сброс OPT-окон.
+        // NC: два независимых corr (кэш / актуальность) — см. CatalogRefreshNc.
         api.MapPost("/instruments/catalog/refresh", async (
             IInstrumentRegistry registry,
             InstrumentLifecycleService lifecycle,
             OptionWindowFreshness optionFreshness,
-            INotificationPublisher notifications,
+            CatalogRefreshNc catalogRefreshNc,
             CancellationToken ct) =>
         {
             var invalidated = registry.Invalidate(force: true);
             optionFreshness.InvalidateAll();
             var sweep = await lifecycle.TrySweepAsync(force: true, ct).ConfigureAwait(false);
-            notifications.Publish(
-                "instruments.catalog.refresh",
-                invalidated
-                    ? "Справочник инструментов: обновление разрешено (ожидается dump с коннектора)"
-                    : "Справочник инструментов: уже помечен к обновлению",
-                severity: "info",
-                sourceType: "user");
-            if (sweep.Ran)
-            {
-                notifications.Publish(
-                    "instruments.catalog.lifecycle",
-                    sweep.ArchivedInstrumentIds.Count > 0
-                        ? $"Актуальность каталога: архивировано {sweep.ArchivedInstrumentIds.Count} инструмент(ов)"
-                        : "Актуальность каталога: просроченных не найдено",
-                    severity: "info",
-                    sourceType: "system");
-            }
-
+            catalogRefreshNc.PublishForceRefresh(invalidated, sweep);
             return Results.Ok(new InstrumentCatalogRefreshResultDto(invalidated, registry.IsFresh));
         });
 

@@ -11,6 +11,7 @@ public sealed class InstrumentCatalogPersistWriter(
     InstrumentCatalogPersistQueue queue,
     IInstrumentStore store,
     IInstrumentRegistry registry,
+    CatalogRefreshNc catalogRefreshNc,
     ILogger<InstrumentCatalogPersistWriter> logger) : BackgroundService
 {
     private const int MaxBatch = 500;
@@ -42,6 +43,7 @@ public sealed class InstrumentCatalogPersistWriter(
                     if (hadWork && !registry.IsFresh && queue.ApproxCount == 0)
                     {
                         registry.MarkFresh();
+                        catalogRefreshNc.OnCatalogMarkedFresh();
                         logger.LogInformation("Справочник инструментов снова помечен свежим (idle persist)");
                         hadWork = false;
                     }
