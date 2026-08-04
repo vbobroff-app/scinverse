@@ -614,14 +614,15 @@ export class OhsStore {
    * данные дерева пусты). Идемпотентно: грузит только отсутствующее в кэше.
    */
   private hydrateExpanded(): void {
+    const connectionId = this.resolveOptionConnectionId();
     for (const futuresId of this.expandedFutures$.value) {
       if (!this.seriesByFutures$.value.has(futuresId)) {
-        this.loadSeries(futuresId);
+        this.loadSeries(futuresId, connectionId);
       }
     }
     for (const { futuresId, expiration } of this.pendingSeriesHydration) {
       if (!this.strikesBySeries$.value.has(seriesKey(futuresId, expiration))) {
-        this.loadStrikes(futuresId, expiration);
+        this.loadStrikes(futuresId, expiration, connectionId);
       }
     }
     this.pendingSeriesHydration = [];
@@ -1611,22 +1612,22 @@ export class OhsStore {
   }
 
   /** Раскрывает/сворачивает фьючерс; при первом раскрытии лениво грузит серии. */
-  toggleFutures(instrument: InstrumentDto): void {
+  toggleFutures(instrument: InstrumentDto, connectionId?: number | null): void {
     const next = new Set(this.expandedFutures$.value);
     if (next.has(instrument.instrumentId)) {
       next.delete(instrument.instrumentId);
     } else {
       next.add(instrument.instrumentId);
       if (!this.seriesByFutures$.value.has(instrument.instrumentId)) {
-        this.loadSeries(instrument.instrumentId);
+        this.loadSeries(instrument.instrumentId, connectionId);
       }
     }
     this.expandedFutures$.next(next);
     this.persistView();
   }
 
-  /** Раскрывает/сворачивает серию; при первом раскрытии лениво грузит страйки. */
-  toggleSeries(futuresId: number, expiration: string): void {
+  /** Раскрывает/сворачивает серию; при первом раскрытии ensure OPT + страйки. */
+  toggleSeries(futuresId: number, expiration: string, connectionId?: number | null): void {
     const key = seriesKey(futuresId, expiration);
     const next = new Set(this.expandedSeries$.value);
     if (next.has(key)) {
@@ -1634,35 +1635,107 @@ export class OhsStore {
     } else {
       next.add(key);
       if (!this.strikesBySeries$.value.has(key)) {
-        this.loadStrikes(futuresId, expiration);
+        this.loadStrikes(futuresId, expiration, connectionId);
       }
     }
     this.expandedSeries$.next(next);
     this.persistView();
   }
 
-  private loadSeries(futuresId: number): void {
+  /** Connected connectionId для OPT-load (явный предпочтителен). */
+  private resolveOptionConnectionId(preferred?: number | null): number | null {
+    if (preferred != null) {
+      const row = this.connections$.value.find((c) => c.connectionId === preferred);
+      if (row?.status === 'connected') {
+        return preferred;
+      }
+    }
+    return this.connections$.value.find((c) => c.status === 'connected')?.connectionId ?? null;
+  }
+
+  private publishSeries(futuresId: number, series: InstrumentGroupDto[]): void {
+    const map = new Map(this.seriesByFutures$.value);
+    map.set(futuresId, series);
+    this.seriesByFutures$.next(map);
+  }
+
+  private loadSeries(futuresId: number, connectionId?: number | null): void {
+    const connId = this.resolveOptionConnectionId(connectionId);
     this.api.getInstrumentSeries(futuresId).subscribe({
       next: (series) => {
-        const map = new Map(this.seriesByFutures$.value);
-        map.set(futuresId, series);
-        this.seriesByFutures$.next(map);
+        if (series.length > 0 || connId == null) {
+          this.publishSeries(futuresId, series);
+          return;
+        }
+        // В БД пусто — серии из get_option_families (FUT без OPT после connect-dump).
+        this.api.getOptionFamilies(connId, futuresId).subscribe({
+          next: (families) => this.publishSeries(futuresId, families),
+          error: (err) => {
+            console.error('getOptionFamilies', err);
+            this.publishSeries(futuresId, []);
+          },
+        });
       },
       error: (err) => console.error('getInstrumentSeries', err),
     });
   }
 
-  private loadStrikes(futuresId: number, expiration: string): void {
-    this.ensureStrikes(futuresId, expiration).subscribe({
+  private loadStrikes(
+    futuresId: number,
+    expiration: string,
+    connectionId?: number | null,
+  ): void {
+    this.ensureOptionsThenStrikes(futuresId, expiration, connectionId).subscribe({
       error: (err) => console.error('loadStrikes', err),
     });
   }
 
+  /**
+   * При живом connect: ensure ATM-окно, затем страйки из каталога.
+   * Без connect — только чтение БД (кэш).
+   */
+  private ensureOptionsThenStrikes(
+    futuresId: number,
+    expiration: string,
+    connectionId?: number | null,
+  ): Observable<InstrumentDto[]> {
+    const connId = this.resolveOptionConnectionId(connectionId);
+    const ensure$ =
+      connId == null
+        ? of(null)
+        : this.api
+            .loadOptions(connId, {
+              futuresInstrumentId: futuresId,
+              expiration,
+              force: false,
+            })
+            .pipe(
+              tap((result) => {
+                if (result.loaded) {
+                  // Counts серий могли стать > 0 после upsert OPT.
+                  this.loadSeries(futuresId, connId);
+                }
+              }),
+              catchError((err) => {
+                console.error('loadOptions', err);
+                return of(null);
+              }),
+            );
+
+    return ensure$.pipe(
+      switchMap(() => this.ensureStrikes(futuresId, expiration, connId != null)),
+    );
+  }
+
   /** Возвращает страйки серии из кэша либо подтягивает их (и кладёт в кэш). */
-  private ensureStrikes(futuresId: number, expiration: string): Observable<InstrumentDto[]> {
+  private ensureStrikes(
+    futuresId: number,
+    expiration: string,
+    forceReload = false,
+  ): Observable<InstrumentDto[]> {
     const key = seriesKey(futuresId, expiration);
     const cached = this.strikesBySeries$.value.get(key);
-    if (cached) {
+    if (!forceReload && cached) {
       return of(cached);
     }
     return this.api
@@ -1698,7 +1771,7 @@ export class OhsStore {
       return;
     }
     this.setSeriesBusy(key, true);
-    this.ensureStrikes(futuresId, expiration)
+    this.ensureOptionsThenStrikes(futuresId, expiration, connectionId)
       .pipe(
         switchMap((strikes) => {
           const recording = new Set(this.recordings$.value.map((r) => r.instrumentId));
@@ -1797,7 +1870,7 @@ export class OhsStore {
       return;
     }
     this.setSeriesBusy(key, true);
-    this.ensureStrikes(futuresId, expiration)
+    this.ensureOptionsThenStrikes(futuresId, expiration, connectionId)
       .pipe(
         switchMap((strikes) => {
           const targets = autoEnabled ? strikes.filter((o) => o.active) : strikes;
@@ -1910,18 +1983,19 @@ export class OhsStore {
             return;
           }
 
+          const connectionId = this.resolveOptionConnectionId();
           const futures = new Set(this.expandedFutures$.value);
           const series = new Set(this.expandedSeries$.value);
           for (const [futuresId, exps] of spine) {
             futures.add(futuresId);
             if (!this.seriesByFutures$.value.has(futuresId)) {
-              this.loadSeries(futuresId);
+              this.loadSeries(futuresId, connectionId);
             }
             for (const expiration of exps) {
               const key = seriesKey(futuresId, expiration);
               series.add(key);
               if (!this.strikesBySeries$.value.has(key)) {
-                this.loadStrikes(futuresId, expiration);
+                this.loadStrikes(futuresId, expiration, connectionId);
               }
             }
           }
@@ -2122,7 +2196,6 @@ export class OhsStore {
       return of(null);
     }
     const { from, to } = this.window$.value;
-    const connectionId = this.activeConnectionId$.value;
     return this.api.getCaptureLiveness({ from, to, sourceId }).pipe(
       tap((dto) => {
         const gaps =

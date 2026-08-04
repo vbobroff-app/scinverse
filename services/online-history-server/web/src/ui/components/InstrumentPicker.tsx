@@ -10,6 +10,7 @@ import { CoverageTrack } from './CoverageTrack';
 import { CrosshairOverlay } from './CrosshairOverlay';
 import { showCrosshair, hideCrosshair } from '../../core/crosshair';
 import { seriesKey, isInTradingSession, type CoverageWindow } from '../../core/OhsStore';
+import { futuresMayHaveOptions } from '../../core/futuresOptions';
 import { makeProjector, makeInverseProjector } from '../../core/sessionProjection';
 import { exchangeForBoard } from '../../core/exchange';
 import type {
@@ -225,7 +226,7 @@ const Row = memo(function Row({
   const isStrike = row.kind === 'strike';
   const inst = isStrike ? row.option : row.instrument;
   const tradeable = inst.active;
-  const canExpand = row.kind === 'inst' && inst.hasOptions;
+  const canExpand = row.kind === 'inst' && futuresMayHaveOptions(inst);
   const autoOn = autoPh !== 'off';
 
   const label = isStrike
@@ -376,7 +377,7 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
     const out: TreeRow[] = [];
     for (const inst of instruments) {
       out.push({ kind: 'inst', key: `i${inst.instrumentId}`, instrument: inst });
-      if (!inst.hasOptions || !expandedFutures.has(inst.instrumentId)) {
+      if (!futuresMayHaveOptions(inst) || !expandedFutures.has(inst.instrumentId)) {
         continue;
       }
       const allowedExps = pruneToLeaves ? selectedOptionSpine.get(inst.instrumentId) : undefined;
@@ -512,10 +513,14 @@ export function InstrumentPicker({ connection }: { connection: ConnectionDto }) 
     hideCrosshair();
   }, []);
 
-  const onToggleFutures = useCallback((inst: InstrumentDto) => store.toggleFutures(inst), [store]);
+  const onToggleFutures = useCallback(
+    (inst: InstrumentDto) => store.toggleFutures(inst, connection.connectionId),
+    [store, connection.connectionId],
+  );
   const onToggleSeries = useCallback(
-    (futuresId: number, expiration: string) => store.toggleSeries(futuresId, expiration),
-    [store],
+    (futuresId: number, expiration: string) =>
+      store.toggleSeries(futuresId, expiration, connection.connectionId),
+    [store, connection.connectionId],
   );
   const onToggleSelect = useCallback(
     (instrumentId: number) => store.toggleInstrumentSelection(instrumentId),

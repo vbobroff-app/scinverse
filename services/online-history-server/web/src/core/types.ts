@@ -558,6 +558,24 @@ export interface InstrumentCatalogRefreshResultDto {
   isFresh: boolean;
 }
 
+/** Запрос load ATM-окна опционов (POST /connections/{id}/load-options). */
+export interface LoadOptionsRequest {
+  futuresInstrumentId: number;
+  expiration: string;
+  force?: boolean;
+}
+
+/** Итог ensure/load OPT-окна. */
+export interface LoadOptionsResultDto {
+  loaded: boolean;
+  skippedFresh: boolean;
+  optCodesRequested: number;
+  familiesFound: number;
+  strikesFound: number;
+  atmPrice: number | null;
+  message: string;
+}
+
 /** Вид дня торгового календаря движка. */
 export type CalendarDayKind = 'regular' | 'transfer' | 'dsvd' | 'weekend' | 'holiday';
 

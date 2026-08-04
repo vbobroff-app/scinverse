@@ -60,6 +60,17 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
   const base: Partial<OhsApiClient> = {
     getInstruments: () => of(emptyPage),
     getInstrumentSeries: () => of([]),
+    getOptionFamilies: () => of([]),
+    loadOptions: () =>
+      of({
+        loaded: false,
+        skippedFresh: true,
+        optCodesRequested: 0,
+        familiesFound: 0,
+        strikesFound: 0,
+        atmPrice: null,
+        message: 'fresh',
+      }),
     getSources: () => of([]),
     getConnections: () => of([connection()]),
     getRecordings: () => of<RecordingDto[]>([]),
@@ -571,6 +582,74 @@ describe('OhsStore фильтры-плашки', () => {
     const reloaded = new OhsStore(fakeApi(), new Subject<LiveEvent>());
     expect([...reloaded.expandedFutures$.value]).toEqual([500]);
     expect([...reloaded.expandedSeries$.value]).toEqual(['500:2026-07-16']);
+  });
+
+  it('при раскрытии серии на connected вызывает loadOptions перед страйками', () => {
+    const loadOptions = vi.fn(() =>
+      of({
+        loaded: true,
+        skippedFresh: false,
+        optCodesRequested: 2,
+        familiesFound: 1,
+        strikesFound: 10,
+        atmPrice: 90000,
+        message: 'ok',
+      }),
+    );
+    const getInstruments = vi.fn(() =>
+      of({
+        items: [futures({ instrumentId: 901, secType: 'OPT', hasOptions: false })],
+        total: 1,
+        limit: 500,
+        offset: 0,
+      }),
+    );
+    const store = new OhsStore(
+      fakeApi({
+        loadOptions,
+        getInstruments,
+        getConnections: () => of([connection({ connectionId: 7, status: 'connected' })]),
+      }),
+      new Subject<LiveEvent>(),
+    );
+    store.refreshConnections();
+    store.toggleSeries(500, '2026-07-16', 7);
+
+    expect(loadOptions).toHaveBeenCalledWith(7, {
+      futuresInstrumentId: 500,
+      expiration: '2026-07-16',
+      force: false,
+    });
+    expect(getInstruments).toHaveBeenCalled();
+    store.stop();
+  });
+
+  it('при пустых сериях в БД подтягивает option-families с connect', () => {
+    const getOptionFamilies = vi.fn(() =>
+      of([
+        {
+          key: '2026-07-16',
+          label: 'Si N26',
+          count: 0,
+          expiration: '2026-07-16',
+          badge: 'M7',
+        },
+      ]),
+    );
+    const store = new OhsStore(
+      fakeApi({
+        getInstrumentSeries: () => of([]),
+        getOptionFamilies,
+        getConnections: () => of([connection({ connectionId: 7, status: 'connected' })]),
+      }),
+      new Subject<LiveEvent>(),
+    );
+    store.refreshConnections();
+    store.toggleFutures(futures({ instrumentId: 500, hasOptions: false }), 7);
+
+    expect(getOptionFamilies).toHaveBeenCalledWith(7, 500);
+    expect(store.seriesByFutures$.value.get(500)?.[0]?.expiration).toBe('2026-07-16');
+    store.stop();
   });
 
   it('сохраняет активного провайдера и восстанавливает после перезагрузки', () => {

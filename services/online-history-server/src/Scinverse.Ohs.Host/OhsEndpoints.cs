@@ -1337,7 +1337,24 @@ public static class OhsEndpoints
             }
         });
 
-        // 7h.OPT: явный load ATM ±N опционов (diag / ensure перед записью).
+        // 7h.OPT: серии из get_option_families (expand FUT без OPT в БД).
+        api.MapGet("/connections/{id:long}/option-families", async (
+            long id, long futuresInstrumentId, OptionCatalogService options, CancellationToken ct) =>
+        {
+            try
+            {
+                var groups = await options.ListOptionFamiliesAsync(id, futuresInstrumentId, ct);
+                return Results.Ok(groups
+                    .Select(g => new InstrumentGroupDto(g.Key, g.Label, g.Count, g.Expiration, g.Badge))
+                    .ToList());
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        // 7h.OPT: явный load ATM ±N опционов (diag / ensure перед записью / expand серии).
         api.MapPost("/connections/{id:long}/load-options", async (
             long id, LoadOptionsRequest request, OptionCatalogService options, CancellationToken ct) =>
         {

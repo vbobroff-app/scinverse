@@ -17,6 +17,43 @@ public sealed class OptionCatalogService(
     TimeProvider time,
     ILogger<OptionCatalogService> logger)
 {
+    /// <summary>
+    /// Список серий из <c>get_option_families</c> (для expand FUT без OPT в БД).
+    /// Не грузит ATM-окно — только mat_date для дерева.
+    /// </summary>
+    public async Task<IReadOnlyList<InstrumentGroup>> ListOptionFamiliesAsync(
+        long connectionId,
+        long futuresInstrumentId,
+        CancellationToken cancellationToken)
+    {
+        var (futures, loader, connector) = ResolveLoader(connectionId, futuresInstrumentId);
+        var cmdTimeout = CommandTimeout();
+
+        await connector.SubscribeTradesAsync([futures.Key], cancellationToken).ConfigureAwait(false);
+        var families = await loader
+            .GetOptionFamiliesAsync(futures.Key, cmdTimeout, cancellationToken)
+            .ConfigureAwait(false);
+
+        var today = InstrumentLifecycle.TodayMoscow(time);
+        var scope = await store.GetScopeInfoAsync(futuresInstrumentId, cancellationToken).ConfigureAwait(false);
+        var underlying = scope?.UnderlyingCode;
+
+        return families
+            .Where(f => f.Expiration >= today)
+            .GroupBy(f => f.Expiration)
+            .Select(g => g.First())
+            .OrderBy(f => f.Expiration)
+            .Select(f => new InstrumentGroup
+            {
+                Key = f.Expiration.ToString("yyyy-MM-dd"),
+                Label = MoexSeries.Label(underlying, f.Expiration),
+                Badge = MoexSeries.Badge(f.Expiration, week: null),
+                Count = 0,
+                Expiration = f.Expiration,
+            })
+            .ToList();
+    }
+
     public async Task<LoadOptionsResult> EnsureOptionsAsync(
         long connectionId,
         long futuresInstrumentId,
@@ -34,29 +71,11 @@ public sealed class OptionCatalogService(
             return new LoadOptionsResult(false, true, 0, 0, 0, null, "OPT-окно уже свежо сегодня (МСК)");
         }
 
-        if (!registry.TryResolveById(futuresInstrumentId, out var futures))
-        {
-            return new LoadOptionsResult(false, false, 0, 0, 0, null, $"Фьючерс {futuresInstrumentId} не в реестре");
-        }
-
-        var connector = connections.GetConnector(connectionId)
-            ?? throw new InvalidOperationException($"Подключение {connectionId} не активно");
-
-        if (connector is not IOptionCatalogLoader loader)
-        {
-            throw new InvalidOperationException("Load options доступен для TRANSAQ / synthetic");
-        }
-
-        if (!connector.IsConnected)
-        {
-            throw new InvalidOperationException($"Подключение {connectionId} не connected");
-        }
+        var (futures, loader, connector) = ResolveLoader(connectionId, futuresInstrumentId);
 
         var timeout = TimeSpan.FromSeconds(
             Math.Clamp(options.OptionAtmLiveWaitSeconds > 0 ? options.OptionAtmLiveWaitSeconds : 3, 1, 30));
-        var cmdTimeout = TimeSpan.FromSeconds(Math.Clamp(
-            // reuse probe-ish window
-            10, 3, 60));
+        var cmdTimeout = CommandTimeout();
 
         await connector.SubscribeTradesAsync([futures.Key], cancellationToken).ConfigureAwait(false);
 
@@ -121,4 +140,30 @@ public sealed class OptionCatalogService(
             true, false, codes.Count, families.Count, strikes.Count, atm,
             $"Загружено окно ATM ±{depth}: {codes.Count} opt_code");
     }
+
+    private (Instrument Futures, IOptionCatalogLoader Loader, IMarketConnector Connector) ResolveLoader(
+        long connectionId, long futuresInstrumentId)
+    {
+        if (!registry.TryResolveById(futuresInstrumentId, out var futures))
+        {
+            throw new InvalidOperationException($"Фьючерс {futuresInstrumentId} не в реестре");
+        }
+
+        var connector = connections.GetConnector(connectionId)
+            ?? throw new InvalidOperationException($"Подключение {connectionId} не активно");
+
+        if (connector is not IOptionCatalogLoader loader)
+        {
+            throw new InvalidOperationException("Load options доступен для TRANSAQ / synthetic");
+        }
+
+        if (!connector.IsConnected)
+        {
+            throw new InvalidOperationException($"Подключение {connectionId} не connected");
+        }
+
+        return (futures, loader, connector);
+    }
+
+    private static TimeSpan CommandTimeout() => TimeSpan.FromSeconds(Math.Clamp(10, 3, 60));
 }

@@ -39,6 +39,8 @@ import type {
   InstrumentQueryParams,
   LivenessQueryRequest,
   IssSecurityDto,
+  LoadOptionsRequest,
+  LoadOptionsResultDto,
   MarketDto,
   RecordingDto,
   SessionDto,
@@ -104,6 +106,16 @@ export const OhsApi = {
 
   getInstrumentSeries: (underlyingId: number) =>
     getJSON<InstrumentGroupDto[]>(`/instruments/groups?level=series&underlyingId=${underlyingId}`),
+
+  /** Серии из TRANSAQ get_option_families (когда в БД ещё нет OPT). */
+  getOptionFamilies: (connectionId: number, futuresInstrumentId: number) =>
+    getJSON<InstrumentGroupDto[]>(
+      `/connections/${connectionId}/option-families?futuresInstrumentId=${futuresInstrumentId}`,
+    ),
+
+  /** Ensure ATM ±N окно опционов перед показом страйков. */
+  loadOptions: (connectionId: number, body: LoadOptionsRequest) =>
+    post<LoadOptionsResultDto>(`/connections/${connectionId}/load-options`, body),
 
   getSources: () => getJSON<SourceDto[]>('/sources'),
   getConnections: () => getJSON<ConnectionDto[]>('/connections'),
