@@ -16,10 +16,12 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
     /// <summary>
     /// Публикует две операции после force refresh. Cache остаётся underway до
     /// <see cref="OnCatalogMarkedFresh"/> (idle persist после dump).
+    /// <paramref name="sessionLive"/> — есть живая TRANSAQ-сессия: dump сам не придёт, нужен reconnect.
     /// </summary>
     public (string CacheCorr, string LifecycleCorr) PublishForceRefresh(
         bool invalidated,
-        InstrumentLifecycleSweepResult sweep)
+        InstrumentLifecycleSweepResult sweep,
+        bool sessionLive = false)
     {
         var runId = Guid.NewGuid().ToString("N")[..12];
         var cacheCorr = $"instruments.catalog.cache:{runId}";
@@ -41,7 +43,7 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             _pendingCacheCorr = cacheCorr;
         }
 
-        PublishCacheSteps(cacheCorr, invalidated);
+        PublishCacheSteps(cacheCorr, invalidated, sessionLive);
         PublishLifecycleSteps(lifecycleCorr, sweep);
         return (cacheCorr, lifecycleCorr);
     }
@@ -70,7 +72,7 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             status: "resolved");
     }
 
-    private void PublishCacheSteps(string corr, bool invalidated)
+    private void PublishCacheSteps(string corr, bool invalidated, bool sessionLive)
     {
         Publish(
             corr,
@@ -98,11 +100,15 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             sourceType: "system",
             status: "underway");
 
+        // Живая сессия dump не повторяет — иначе оператор видит «ожидание» при зелёном тумблере.
+        var waitMsg = sessionLive
+            ? "Кэш справочника: нужен reconnect — текущая сессия dump не повторит"
+            : "Кэш справочника: ожидание dump с коннектора (connect)";
         Publish(
             corr,
             "instruments.catalog.cache.wait_dump",
-            "Кэш справочника: ожидание dump с коннектора (connect/reconnect)",
-            severity: "info",
+            waitMsg,
+            severity: sessionLive ? "warning" : "info",
             sourceType: "system",
             status: "underway");
     }

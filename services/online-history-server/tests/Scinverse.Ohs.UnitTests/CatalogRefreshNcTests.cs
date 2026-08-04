@@ -30,9 +30,26 @@ public sealed class CatalogRefreshNcTests
 
         list.Last(e => e.CorrelationId == cacheCorr).Status.Should().Be("underway");
         list.Last(e => e.CorrelationId == cacheCorr).Code.Should().Be("instruments.catalog.cache.wait_dump");
+        list.Last(e => e.CorrelationId == cacheCorr).Message.Should().Contain("ожидание dump");
 
         list.Last(e => e.CorrelationId == lifeCorr).Status.Should().Be("resolved");
         list.Last(e => e.CorrelationId == lifeCorr).Message.Should().Contain("архивировано 2");
+    }
+
+    [Fact]
+    public void PublishForceRefresh_when_session_live_asks_for_reconnect()
+    {
+        var (nc, hub) = CreateSut();
+        var (cacheCorr, _) = nc.PublishForceRefresh(
+            invalidated: true,
+            new InstrumentLifecycleSweepResult(true, []),
+            sessionLive: true);
+
+        var wait = hub.List().Last(e => e.CorrelationId == cacheCorr);
+        wait.Code.Should().Be("instruments.catalog.cache.wait_dump");
+        wait.Severity.Should().Be("warning");
+        wait.Message.Should().Contain("нужен reconnect");
+        wait.Message.Should().Contain("dump не повторит");
     }
 
     [Fact]

@@ -81,12 +81,15 @@ public static class OhsEndpoints
             InstrumentLifecycleService lifecycle,
             OptionWindowFreshness optionFreshness,
             CatalogRefreshNc catalogRefreshNc,
+            ConnectionManager connections,
             CancellationToken ct) =>
         {
             var invalidated = registry.Invalidate(force: true);
             optionFreshness.InvalidateAll();
             var sweep = await lifecycle.TrySweepAsync(force: true, ct).ConfigureAwait(false);
-            catalogRefreshNc.PublishForceRefresh(invalidated, sweep);
+            // Dump `<securities>` приходит только на connect — при живой сессии нужен reconnect.
+            var sessionLive = connections.ListSessions().Count > 0;
+            catalogRefreshNc.PublishForceRefresh(invalidated, sweep, sessionLive);
             return Results.Ok(new InstrumentCatalogRefreshResultDto(invalidated, registry.IsFresh));
         });
 

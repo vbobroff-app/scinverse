@@ -9,13 +9,29 @@ import { InstrumentPicker } from '../components/InstrumentPicker';
 import type { ConnectionDto } from '../../core/types';
 import styles from './ProviderCard.module.css';
 
-const CATALOG_REFRESH_MESSAGE =
-  'Будет выполнено:\n' +
-  '• инвалидация кэша dump-справочника;\n' +
-  '• архивация просроченных инструментов по дате экспирации;\n' +
-  '• сброс окон опционов (ATM) — при следующем раскрытии серии загрузка заново.\n\n' +
-  'Invalidate и sweep — обычно секунды. Полный dump справочника придёт при следующем ' +
-  'connect/reconnect (типично ~10–20 с разбора). UI не блокируется.';
+function catalogRefreshMessage(sessionLive: boolean): string {
+  const body =
+    'Будет выполнено:\n' +
+    '• инвалидация кэша dump-справочника;\n' +
+    '• архивация просроченных инструментов по дате экспирации;\n' +
+    '• сброс окон опционов (ATM) — при следующем раскрытии серии загрузка заново.\n\n' +
+    'Invalidate и sweep — обычно секунды. UI не блокируется.';
+  if (sessionLive) {
+    return (
+      body +
+      '\n\nСейчас сессия уже connected: полный dump справочника текущая сессия не повторит. ' +
+      'Нужен reconnect (Disconnect → Connect), типично ~10–20 с разбора.'
+    );
+  }
+  return (
+    body +
+    '\n\nПолный dump справочника придёт при следующем connect (типично ~10–20 с разбора).'
+  );
+}
+
+function isSessionLive(status: string): boolean {
+  return status === 'waiting' || status === 'active' || status === 'degraded' || status === 'connecting';
+}
 
 export function ProviderCard({ connection }: { connection: ConnectionDto }) {
   const store = useOhsStore();
@@ -216,8 +232,8 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
       {refreshConfirmOpen && (
         <ConfirmDialog
           title="Обновить справочник"
-          message={CATALOG_REFRESH_MESSAGE}
-          severity="info"
+          message={catalogRefreshMessage(isSessionLive(connection.status))}
+          severity={isSessionLive(connection.status) ? 'warning' : 'info'}
           confirmLabel="ОК"
           cancelLabel="Отмена"
           onConfirm={() => {
