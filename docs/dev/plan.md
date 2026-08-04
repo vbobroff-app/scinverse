@@ -4,21 +4,28 @@
 состоит из **фаз** (`phaseN`) со сквозной нумерацией. Архитектурные решения по модели данных — в
 [`../architecture/db-design.md`](../architecture/db-design.md); дизайн Stage 1 — в [apply.md](apply.md).
 
-Статусы: **TODO** — не начато; **IN PROGRESS** — в работе; **DONE** — завершено.
+Статусы: **TODO** — не начато; **IN PROGRESS** — в работе; **DONE** — завершено;
+**FUTURE** — вне текущего горизонта закрытия.
 
 ## Stages
 
 | Stage | Тема | Фазы | Статус |
 | ----- | ---- | ---- | ------ |
-| 0 | Data foundation: создание БД / инфраструктура миграций | phase0, phase1, phase3 | DONE |
-| 1 | OHS apply + admin frontend: управление записью + панель покрытия (Гант) | phase4–phase10 | IN PROGRESS |
-| 2 | OrderLog / Plaza2 (event sourcing) | — | FUTURE |
+| 0 | Data foundation: создание БД / инфраструктура миграций | phase0–phase3 | DONE |
+| 1 | OHS apply + admin frontend MVP (запись, Гант, журнал инцидентов) | phase4–phase8 | **DONE** |
+| 2 | Multi-user & auth + разделение сервисов (OHS / Admin Front / NC) | phase10–phase11 | PLANNED |
+| 3 | Гант-рендер WebGL2 + LOD | phase12 | FUTURE |
+| 4 | Сквозное кэширование + CI/CD на стенды | phase13–phase14 | PLANNED |
+
+**Future Features** (вне Stages): QScalp `.qsh`, OrderLog / Plaza2 — см. § ниже.
+
+Хвосты Stage 1 (вне MVP, production backlog) — **[stage1/abandoned.md](stage1/abandoned.md)**.
 
 ---
 
 ## Stage 0. Data foundation (DB) — *DONE*
 
-Фундамент данных: инфраструктура миграций (DbUp), базовая схema и проверки.
+Фундамент данных: инфраструктура миграций (DbUp), базовая схема и проверки.
 
 | Фаза | Содержание | Объём | Статус | Детали |
 | ---- | ---------- | ----- | ------ | ------ |
@@ -55,88 +62,110 @@ DDL — в [phase1/apply.md](phase1/apply.md), статус — в [phase1/repor
 
 ---
 
-## Stage 1. OHS apply + admin frontend — *IN PROGRESS*
+## Stage 1. OHS apply + admin frontend MVP — *DONE*
 
 Превращаем OHS из «воркера на статическом конфиге» в управляемый сервис записи с админ-панелью:
 пользователь выбирает инструмент и ведёт online-запись через коннектор, а Гант показывает «колбаски»
 покрытия данными (цвет = источник), растущие в реальном времени, с видимыми разрывами. Полный дизайн
-Stage 1 (архитектура, модель данных, API/WS, граница админка/публичная, принятые решения) — в
-**[apply.md](apply.md)**. Семейство фаз 7 (`7`, `7b`–`7i`) — прототипный MVP админки; его цели, карта
-подфаз и текущий фокус (разрывы) собраны в **[phase7/roadmap.md](phase7/roadmap.md)**, а швы и сложности
-перехода MVP→release — в **[phase7/mvp-to-release.md](phase7/mvp-to-release.md)**.
+Stage 1 — в **[apply.md](apply.md)**. Семейство фаз 7 (`7`, `7b`–`7j`) — прототипный MVP админки;
+карта подфаз — **[phase7/roadmap.md](phase7/roadmap.md)**.
+
+**Закрыто 2026-08-04.** Рабочий монолит Host + Admin web + журнал инцидентов OHS (phase 8).
+Без выноса сервисов, без Keycloak, без WebGL, без CI на стенды.
+Хвосты для дальнейшей (production) реализации вынесены за пределы MVP —
+**[stage1/abandoned.md](stage1/abandoned.md)**.
 
 | Фаза | Содержание | Статус | Детали |
 | ---- | ---------- | ------ | ------ |
-| 4 | Локальный E2E OHS (запись): смоук (fake) + реальный TRANSAQ, отладка коннектора | DONE | [phase4](phase4/report.md) — живой ингест SBER/TQBR |
-| 5 | Мультиисточник: `V004` (`data_source` + `source_id`), сквозной `SourceId` | DONE | [phase5](phase5/report.md) — PK+source_id, нахлёст источников |
-| 6a | Схема + запись: `V005` (coverage_segment), `V006` (connector_connection), `RecordingManager`, `CoverageStore` | DONE | [phase6a](phase6a/report.md) — сегменты покрытия, E2E `trade_count=500` |
-| 6b | Control-plane сеть: хост → ASP.NET Core, REST (Minimal API + контракт `IOhsApi`) + WebSocket, фабрика коннекторов, in-memory креды | DONE | [phase6b](phase6b/report.md) — 31 тест, живой хост отвечает |
-| 6c | Иерархия инструментов: наполнение `derivative` (`V007`), read-model группировки (`/api/instruments/groups`), фильтры цепочки | DONE | [phase6c](phase6c/report.md) — питает фильтры каталога (дерево descoped) |
-| 7 | Админ-фронт (React + Vite + TS): список инструментов, Гант, старт/стоп, управление подключениями | IN PROGRESS | [phase7](phase7/report.md) — ур.3 готов; далее ур.2/ур.1 (дерево снято, см. [issue](phase7/issue.md)) |
-| 7b | Таймфреймы и сессионное окно: панель `D/W/M/Q/Y/All/диапазон`, сессионная модель MOEX, сепараторы сессий | DONE | [phase7b](phase7b/report.md) — `/api/sessions`, `/api/coverage/extent`, `TimeframePanel` + `DateRangePicker` |
-| 7c | Реальное расписание MOEX (ISS): производств. календарь + `session_schedule`, страница «Биржи → Структура» (движки/рынки/борды/инструменты) | MVP DONE | [phase7c](phase7c/report.md) — бесплатный `/iss/engines` (timetable+dailytable), in-mem кэш, fallback `MoexSchedule`, «Структура»+«Календарь», категоризация фьючерсов; новости/статус борда отложены |
-| 7d | Динамические фильтры каталога: плашки (Инструменты/Выбор/Биржи) + `[+]`/`[×]`, поиск справа; бэкенд-фильтры `nonEmpty`/`instrumentIds`/`exchanges` | MVP DONE | [phase7d](phase7d/report.md) — chips-паттерн (как `mars`), generic `FilterChips`/`FilterBar` переисп. в 7c; vitest 42 зелёные |
-| 7e | Управление подключениями: UI создания/редактирования коннектора (Transaq), ввод кред, realtime-connect | MVP DONE | [phase7e](phase7e/report.md) — `ConnectionForm` (create/edit, префилл+PUT, кредшы) над control-plane (phase 6b) |
-| 7f | Тайм-лайн-фильтр оси Ганта (дни + окно дня) + единый стандарт времени (UTC/МСК/UTC+N) в шапке | MVP DONE | [phase7f](phase7f/report.md) — сессия = атрибут площадки; проекция на клиенте; задел под 7c/мультибиржу |
-| 7g | Слой сделок на Ганте: присутствие торгов по бакетам (статическая лесенка), app-кэш `V008`, `/coverage/activity` | DONE | [phase7g](phase7g/plan.md) — двухслойный Гант: подложка записи + яркие ячейки сделок |
-| 7h | Честная подложка: recovery осиротевших (`V009`), живость захвата (`V010` `capture_liveness`), автомат связи + пинг, красная разметка обрывов | DONE | [phase7h](phase7h/report.md) — валидировано на Finam; gaps + ре-подписка |
-| 7i | «Управление записью»: расписание автозаписи (Supervisor) — авто-connect → запись в сессию площадки → авто-stop; мультибиржа/US-tz | IN PROGRESS | [phase7i](phase7i/plan.md) — не поднимает линк (владелец connect = 7j) |
-| **7j** | Расписание соединения + инциденты v2 + abandon schedule | **инциденты ГОТОВЫ**; очередь 7j.15/16 + J11b | [phase7j](phase7j/report.md) · [todo](phase7j/todo.md) |
-| 8 | CI/CD: GitHub Actions (build + unit + integration) + compose-сервис `migrator` | TODO | — |
-| 9 | Импорт истории QScalp `.qsh` (бэкфилл, `source=qscalp`) — поздний этап | TODO | — |
-| 10 | Multi-user & auth: Keycloak (OIDC/JWT для .NET+Python), таблица `user_settings`, примитивные роли | PLANNED | [phase10](phase10/plan.md) — единая identity; **обязателен на gate перед phase 12** |
-| **11** | **NC:** лента Thread DONE; **11.13 журнал DONE** (`incident` в OHS) | **IN PROGRESS** (gate 11→12) | [incident-journal](phase11/incident-journal.md) · [plan](phase11/plan.md) · handoff [`promt.md` §8](../promt.md) |
-| **11→12** | **Gate: вынос Admin Front + NC по to-be архитектуре** — отдельные деплои/репо, Keycloak везде, NC↔Admin через MFE. **До** WebGL (phase 12) | FUTURE | см. ниже § «Gate перед phase 12»; C4 — [`../architecture/c4/arch.md`](../architecture/c4/arch.md) |
-| 12 | **Гант-рендер: MVP → WebGL2 + LOD** — на уже вынесенном Admin Front | FUTURE | [phase12](phase12/plan.md) — только после gate 11→12 |
-| 13 | **Кэширование (сквозное)** — единый слой кэша для всей системы (не только ISS): персистентный/распределённый бэкенд, stale-on-error + refresh-ahead, политики TTL/инвалидации по видам данных, метрики hit/miss | PLANNED | [phase13](phase13/plan.md) — обобщает in-memory ISS-кэш (7c) в сквозную инфраструктуру |
+| 4 | Локальный E2E OHS (запись): смоук (fake) + реальный TRANSAQ | DONE | [phase4](phase4/report.md) |
+| 5 | Мультиисточник: `V004` (`data_source` + `source_id`) | DONE | [phase5](phase5/report.md) |
+| 6a | Схема + запись: `V005`/`V006`, `RecordingManager`, `CoverageStore` | DONE | [phase6a](phase6a/report.md) |
+| 6b | Control-plane: ASP.NET Core, REST + WebSocket | DONE | [phase6b](phase6b/report.md) |
+| 6c | Иерархия инструментов: `derivative` (`V007`), groups | DONE | [phase6c](phase6c/report.md) |
+| 7 | Админ-фронт: каталог, Гант, старт/стоп (ур.3 MVP) | DONE | [phase7](phase7/report.md) |
+| 7b | Таймфреймы и сессионное окно | DONE | [phase7b](phase7b/report.md) |
+| 7c | Расписание MOEX (ISS) + «Биржи → Структура» | MVP DONE | [phase7c](phase7c/report.md) |
+| 7d | Динамические фильтры каталога | MVP DONE | [phase7d](phase7d/report.md) |
+| 7e | Управление подключениями (Transaq UI) | MVP DONE | [phase7e](phase7e/report.md) |
+| 7f | Тайм-лайн-фильтр оси Ганта + стандарт времени | MVP DONE | [phase7f](phase7f/report.md) |
+| 7g | Слой сделок на Ганте (`/coverage/activity`) | DONE | [phase7g](phase7g/plan.md) |
+| 7h | Честная подложка + liveness + **Write Gaps** | DONE | [phase7h](phase7h/report.md) |
+| 7i | Auto / Supervisor + база `market_schedule` + Integrations | MVP DONE | [phase7i](phase7i/report.md) |
+| 7j | Расписание соединения + инциденты v2 + abandon | MVP DONE | [phase7j](phase7j/report.md) |
+| **8** | **Журнал `incident`, soft-delete, ribbon, crash fan-out** | DONE | [phase8](phase8/plan.md) |
 
-Порядок и зависимости: 4 → 5 → 6a → 6b → 7 (фронт можно начинать параллельно на моках); 6c
-вклинивается между итерациями phase7 (даёт иерархию деривативов; отдельный «древовидный» вид
-descoped — навигация по структуре решается фильтрами 7d, `groups` питает значения фильтра); 7b расширяет phase7
-(управление окном Ганта); 7c заменяет эвристику расписания на реальные данные MOEX ISS и добавляет
-страницу «Биржи → Структура»; 7d добавляет динамические фильтры-плашки каталога (параллельно 7c);
-7e даёт UI управления подключениями (Transaq realtime) поверх готового control-plane (phase 6b);
-7f расширяет ось Ганта тайм-лайн-фильтром (дни + окно дня) и выносит стандарт времени в шапку —
-чистая клиентская проекция поверх `sessions$`/`window$` (phase 7b), сессия = атрибут площадки
-(задел под 7c: реальные календари/дат-точные расписания, и под мультибиржу Finam/CME) → 8 (можно
-рано) → 9. Фаза 10 (multi-user & auth на Keycloak + `user_settings` + роли) — сквозная
-по всей системе (.NET горячий + Python холодный контуры валидируют один OIDC-токен), стартует
-независимо, когда потребуется многопользовательский режим. Фаза 11 (центр уведомлений — сквозная
-лента событий, нижний док, MFE) — тоже сквозная: singleton-шина (RxJS) поверх WS-транспорта
-(phase 6b), персистенция состояния — при наличии phase 10; стартует независимо.
-**Gate перед phase 12 (вынос Admin Front + NC).** Пока MVP живёт монолитом Host+web+локальная шина NC
-в этом репо. Перед переходом на WebGL-рендер Ганта фиксируем to-be из
-[`architecture/c4/arch.md`](../architecture/c4/arch.md): отдельный **OHS Admin Front**, отдельный
-**Notification Center**, связка **MFE**, **Keycloak** на API/UI. Product Front / ODS — следующий
-горизонт (не блокер этого gate).
-
-Состояние на вход в gate / готовность к phase 12:
-
-| Контур | К gate (вынос) | После выноса (фаза 12 и дальше) |
-| --- | --- | --- |
-| **OHS** | Готов полностью: весь функционал write/control, стабильный API/WS | Остаётся data-plane + control-plane; JWT Keycloak |
-| **Admin Front** | Рабочий MVP в монолите достаточен для выноса кодовой базы | Доработки UI + **WebGL (phase 12)** + **NC MFE integration** |
-| **NC** | Частично готов (пакет + события OHS / mock) | Доработки UI, взаимодействие, **MFE remote**, отдельный деплой |
-| **Keycloak (10)** | Включён в gate (auth сразу везде при выносе) | Штатный issuer |
-
-Фаза 12 (Гант-рендер: WebGL2 + LOD) — крупная веха **на вынесенном** Admin Front; не стартует из
-монолита. LOD (Timescale caggs) ортогонален рендереру. Детали — [phase12/plan.md](phase12/plan.md).
-Фаза 13 (кэширование — сквозное) — независимая инфраструктурная веха: обобщает in-memory ISS-кэш
-(phase 7c) в сквозной слой. Детали — [phase13/plan.md](phase13/plan.md).
-Каждая фаза документируется как `phaseN/{plan,apply,report}.md` по общему шаблону.
+NC-пакет / Thread / вынос MFE — **Stage 2 / phase 11**, не Stage 1.
 
 ---
 
-## Stage 2. OrderLog / Plaza2 — *FUTURE*
+## Stage 2. Multi-user & auth + разделение сервисов — *PLANNED*
 
-Реализация Решения 5 из `db-design.md`: `md_orderlog` + `md_book_snapshot` (event sourcing), коннектор
-Plaza2/CGate, деривация ленты/стакана. Стартует при появлении источника OrderLog (MOEX Plaza2).
-Мультиисточник (`data_source`/`source_id`), ранее числившийся здесь, перенесён в Stage 1 (активирован
-требованием «цвет = источник»).
+Auth и вынос из монолита: отдельные деплои **OHS**, **Admin Front**, **Notification Center**.
+C4 — [`../architecture/c4/arch.md`](../architecture/c4/arch.md).
+
+| Фаза | Содержание | Статус | Детали |
+| ---- | ---------- | ------ | ------ |
+| 10 | Multi-user & auth: Keycloak (OIDC/JWT), `user_settings`, примитивные роли | PLANNED | [phase10](phase10/plan.md) |
+| 11 | **NC как продукт** + **split** OHS / Admin Front / NC (MFE, отдельные деплои) | PLANNED | [phase11](phase11/plan.md) |
+
+**Gate перед Stage 3 (phase 12):** Keycloak на API/UI; Admin Front и NC вынесены; OHS остаётся
+data/control-plane. Product Front / ODS — следующий горизонт (не блокер этого gate).
+
+| Контур | К gate (вынос) | После выноса |
+| --- | --- | --- |
+| **OHS** | Функционал write/control + журнал (Stage 1 / phase 8) стабилен | JWT Keycloak |
+| **Admin Front** | MVP монолита достаточен для выноса | WebGL (phase 12) + NC MFE |
+| **NC** | Пакет + шина в монолите (база уже есть) | Отдельный сервис, MFE remote |
+| **Keycloak (10)** | Включён в gate | Штатный issuer |
+
+---
+
+## Stage 3. Гант-рендер WebGL — *FUTURE*
+
+| Фаза | Содержание | Статус | Детали |
+| ---- | ---------- | ------ | ------ |
+| 12 | Гант: MVP DOM → WebGL2 + LOD (на вынесенном Admin Front) | FUTURE | [phase12](phase12/plan.md) |
+
+Стартует **только после** gate Stage 2. LOD (Timescale caggs) ортогонален рендереру.
+Концепт — [`../architecture/ui-charting.md`](../architecture/ui-charting.md) / [`../gant.md`](../gant.md).
+
+---
+
+## Stage 4. Инфраструктура (кэш + CI/CD) — *PLANNED*
+
+| Фаза | Содержание | Статус | Детали |
+| ---- | ---------- | ------ | ------ |
+| 13 | Сквозное кэширование (не только ISS): L1/L2, stale-on-error, TTL/инвалидация | PLANNED | [phase13](phase13/plan.md) |
+| 14 | CI/CD: GitHub Actions при публикации сервиса на стенд/prod (не для локального MVP) | TODO | [phase14](phase14/plan.md) |
+
+**Критерий phase 14:** пайплайн нужен, когда сервис (начиная с NC или Admin Front) публикуется
+в org-стенд/prod — не для локального монолита Stage 1.
+
+---
+
+## Future Features
+
+Вне текущих Stages закрытия. Нет отдельных `phase9/*` папок — только регистрация здесь.
+
+| Тема | Бывший номер / источник | Содержание | Статус |
+| ---- | ----------------------- | ---------- | ------ |
+| **QScalp `.qsh`** | phase 9 | Импорт истории (бэкфилл), `source=qscalp` | FUTURE |
+| **OrderLog / Plaza2** | Stage 2 (старый) | `md_orderlog` + `md_book_snapshot`, коннектор Plaza2/CGate (Решение 5 `db-design`) | FUTURE |
+
+**QScalp.** Поздний бэкфилл ленты сделок из файлов `.qsh` в `md_trade` с отдельным `source_id`.
+Не блокер Stage 1–3.
+
+**OrderLog / Plaza2.** Реализация Решения 5 из `db-design.md`: event sourcing стакана/ордерлога,
+коннектор Plaza2/CGate, деривация ленты. Стартует при появлении источника OrderLog (MOEX Plaza2).
+Мультиисточник (`data_source`/`source_id`) уже в Stage 1 (phase 5).
+
+---
 
 ## Связанные документы
 
 - [apply.md](apply.md) — дизайн Stage 1 (OHS: управление записью + панель покрытия).
+- [stage1/abandoned.md](stage1/abandoned.md) — хвосты Stage 1 вне MVP.
 - [`../architecture/db-design.md`](../architecture/db-design.md) — решения по модели данных (Р1–Р5).
 - [`../ohs.md`](../ohs.md) — обзор OHS.
 - [`../solution/code.md`](../solution/code.md) — обзор кода vertical slice.
+- [`../architecture/c4/arch.md`](../architecture/c4/arch.md) — to-be C4 (split сервисов).

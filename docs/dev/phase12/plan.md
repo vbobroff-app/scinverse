@@ -6,13 +6,12 @@
 > Концепт и обоснование выбора стека (почему не DOM/canvas/сырой WebGL, сравнение regl/PixiJS/deck.gl,
 > подводный камень zoom ⟂ проекция) — в [`docs/gant.md`](../../gant.md). Здесь — план реализации.
 
-**Статус:** `FUTURE` (регистрируем решение; стартует после того, как «быстрая графика» станет узким
-местом — при сотнях инструментов на записи). **Stage:** 1 (admin frontend), поздний этап.
+**Статус:** `FUTURE`. **Stage:** 3 (WebGL). Стартует после gate Stage 2 (phase 10+11).
 
 **Входной gate (обязателен до старта кода phase 12):** вынос **Admin Front** и **NC** по to-be
-архитектуре ([`docs/architecture/c4/arch.md`](../../architecture/c4/arch.md), строка **11→12** в
-[`docs/dev/plan.md`](../plan.md)). WebGL делается уже в отдельном Admin Front shell; NC — отдельный
-сервис, подключение через **MFE**; **Keycloak** на control API и UI.
+архитектуре ([`docs/architecture/c4/arch.md`](../../architecture/c4/arch.md), Stage 2 в
+[`docs/dev/plan.md`](../plan.md)). WebGL — в отдельном Admin Front shell; NC — отдельный сервис
+(MFE); **Keycloak** на control API и UI. Журнал OHS к этому моменту уже в Stage 1 / phase 8.
 
 | Контур | Состояние к gate |
 | --- | --- |

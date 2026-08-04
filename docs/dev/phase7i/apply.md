@@ -1,7 +1,8 @@
 # Phase 7i — apply: полуавтомат записи (Auto + Supervisor)
 
-**Статус:** IN PROGRESS. Урезанный MVP относительно [plan.md](plan.md): без диалога политик,
+**Статус:** `MVP DONE`. Урезанный MVP относительно [plan.md](plan.md): без диалога политик,
 без weekdays/warmup/US-tz. Политика = switcher **Auto** рядом со Старт/Стоп.
+Хвосты — [../stage1/abandoned.md](../stage1/abandoned.md).
 
 ## UX (зафиксировано)
 

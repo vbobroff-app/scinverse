@@ -27,10 +27,12 @@ REST/WebSocket наружу + админ-фронт для управления 
 scinverse/
 ├─ README.md                     # обзор монорепо (+ mermaid)
 ├─ docs/promt.md                 # вход нового чата / handoff (этот файл, §8)
-├─ docs/wiki-readme/             # продукт: incident.md, layers.md, write-gaps.md
-├─ docs/dev/phase11/             # NC + journal; soft-delete → incident-soft-delete.md
-├─ docs/dev/phase11/schedule-projection.md  # канон: факты ⊥ mask/Cutter
-├─ docs/dev/phase7h/write-gaps.md           # Writers Gantt: WriteHole/WriteGap (спека)
+├─ docs/wiki-readme/             # пользовательская wiki (черновик; без ссылок на docs/dev)
+├─ docs/dev/plan.md              # Stages 0–4 + Future Features
+├─ docs/dev/stage1/abandoned.md  # хвосты Stage 1 вне MVP
+├─ docs/dev/phase8/              # OHS journal + schedule-projection + crash (Stage 1)
+├─ docs/dev/phase7h/write-gaps.md # Writers Gantt WriteHole/WriteGap (DONE)
+├─ docs/dev/phase11/             # NC + split (Stage 2); journal stubs → phase8
 ├─ docs/architecture/c4/         # C4 PlantUML to-be (NC, dual front, Keycloak)
 ├─ docs/architecture/ohs-connectors-deploy.md  # TRANSAQ Windows-агент / finam-ws to-be
 ├─ tools/plantuml/               # Local plantuml.jar (gitignore) + README
@@ -38,7 +40,7 @@ scinverse/
 ├─ db/Scinverse.Db.Migrator/     # DbUp (SQL-first, V001…V030+)
 └─ services/online-history-server/
    ├─ src/                       # backend (.NET 8)
-   │  ├─ Scinverse.Ohs.Domain            # домен (InstrumentKey, schedule, link_liveness, …)
+   │  ├─ Scinverse.Ohs.Domain            # домен (+ ScheduleCutter, schedule, link_liveness, …)
    │  ├─ Scinverse.Ohs.Contracts         # DTO + IOhsApi
    │  ├─ Scinverse.Ohs.Ingestion         # нормализация/батчинг
    │  ├─ Scinverse.Ohs.Storage.Timescale # Npgsql COPY / Dapper
@@ -71,52 +73,61 @@ scinverse/
   схема БД (миграции), тесты. **Живой документ — держим в актуальном состоянии.**
 
 **План разработки (Stages → фазы)**
-- [`docs/dev/plan.md`](./dev/plan.md) — верхнеуровневая дорожная карта (Stage 0/1/2, таблица фаз, статусы).
+- [`docs/dev/plan.md`](./dev/plan.md) — дорожная карта: **Stage 0–4** + Future Features (QScalp/Plaza2).
+- [`docs/dev/stage1/abandoned.md`](./dev/stage1/abandoned.md) — хвосты Stage 1 **вне MVP** (production backlog).
 - [`docs/dev/apply.md`](./dev/apply.md) — дизайн Stage 1 (управление записью + панель покрытия).
-- [`docs/dev/phase7/roadmap.md`](./dev/phase7/roadmap.md) — **карта семейства фаз 7** (MVP админки): цели
-  (интерфейс / прототип Ганта-разрывы / фундамент), таблица подфаз, текущий фокус. **Читать при работе по фазе 7.**
-- [`docs/dev/phase7/mvp-to-release.md`](./dev/phase7/mvp-to-release.md) — швы MVP→release и известные
-  сложности перехода (LOD/DOM/сессионная ось/caggs/сессии-таймзоны/креды).
-- Каждая фаза — папка `docs/dev/phaseN/{plan,apply,report}.md`:
-  - **plan** — цели/scope/критерии; **apply** — детали реализации/DDL/ссылки; **report** — статус/лог/итог.
+- [`docs/dev/phase7/roadmap.md`](./dev/phase7/roadmap.md) — карта семейства фаз 7 (MVP админки).
+- [`docs/dev/phase7/mvp-to-release.md`](./dev/phase7/mvp-to-release.md) — швы MVP→release.
+- Каждая фаза — `docs/dev/phaseN/{plan,apply,report}.md`.
 
-**Статус фаз (Stage 1, OHS + admin frontend)**
+**Stages (кратко)**
+
+| Stage | Тема | Фазы | Статус |
+| ----- | ---- | ---- | ------ |
+| 0 | Data foundation | 0–3 | DONE |
+| **1** | OHS + admin MVP (запись, Гант, журнал) | **4–8** | **DONE** |
+| 2 | Keycloak + NC/split сервисов | 10–11 | PLANNED |
+| 3 | WebGL Гант | 12 | FUTURE |
+| 4 | Кэш + CI/CD на стенды | 13–14 | PLANNED |
+
+**Статус фаз Stage 1 (закрыт 2026-08-04)**
 
 | Фаза | Тема | Статус | Ссылка |
 | ---- | ---- | ------ | ------ |
-| 0,1,3 | Data foundation (миграции, V003, проверки) | DONE | [phase0](./dev/phase0/report.md) |
-| 4 | Локальный E2E (живой ингест TRANSAQ) | DONE | [phase4](./dev/phase4/report.md) |
-| 5 | Мультиисточник (V004, `source_id`) | DONE | [phase5](./dev/phase5/report.md) |
-| 6a | Схема+запись (coverage_segment, RecordingManager) | DONE | [phase6a](./dev/phase6a/report.md) |
-| 6b | Control-plane (REST + WS, фабрика коннекторов) | DONE | [phase6b](./dev/phase6b/report.md) |
-| 6c | Иерархия деривативов (V007, группировки) | DONE | [phase6c](./dev/phase6c/report.md) |
-| 7 | Админ-фронт (список, Гант, старт/стоп, подключения) | IN PROGRESS | [phase7](./dev/phase7/report.md) |
-| 7b | Таймфреймы + сессионное окно (панель D/W/M/Q/Y/All/диапазон) | DONE | [phase7b](./dev/phase7b/report.md) |
-| 7c | Реальное расписание MOEX (ISS) + страница «Биржи → Структура» | MVP DONE | [phase7c](./dev/phase7c/report.md) |
-| 7d | Динамические фильтры каталога (плашки Инструмент/Выбор/Биржи + поиск справа) | MVP DONE | [phase7d](./dev/phase7d/report.md) |
-| 7e | Управление подключениями (провайдеры): создание/креды/realtime-connect | MVP DONE | [phase7e](./dev/phase7e/report.md) |
-| 7f | Тайм-лайн-фильтр оси + стандарт времени + вертикальный crosshair + подсветка дней | MVP DONE | [phase7f](./dev/phase7f/report.md) |
-| 7g | Слой сделок на Ганте: присутствие торгов по бакетам (лесенка), app-кэш `V008`, `/coverage/activity` | DONE | [phase7g](./dev/phase7g/plan.md) |
-| **7h** | **Честная подложка: recovery (`V009`), живость (`V010`/`V011`), автомат связи + пинг, красная разметка разрывов** | **DONE** | [phase7h/report](./dev/phase7h/report.md), [incident](./dev/phase7h/incident.md) |
-| 7i | «Управление записью»: полуавтомат Auto + Supervisor (MOEX) | IN PROGRESS | [phase7i/apply](./dev/phase7i/apply.md) |
-| **7j** | Расписание + инциденты v2 | **I10/I11 ПРИНЯТО**; **I12 клиент DONE** (pool defer); очередь 7j.15/16 | [wrap-up](./dev/incident-model-wrapup.md) · [plan §7j.22](./dev/phase7j/plan.md) · [I12](./dev/phase7j/issue.md) |
-| 8 | CI/CD | TODO | — |
-| 9 | Импорт QScalp `.qsh` | TODO | — |
-| 10 | Keycloak + `user_settings` | PLANNED · **обязателен на gate 11→12** | [phase10](./dev/phase10/plan.md) |
-| **11** | NC Thread + journal + soft-delete + crash | **11.13a–g DONE**; soft-delete V030 | [soft-delete](./dev/phase11/incident-soft-delete.md) · [report](./dev/phase11/report.md) · [journal](./dev/phase11/incident-journal.md) |
-| **11→12** | **Gate:** вынос Admin Front + NC (MFE, Keycloak) по to-be C4 | FUTURE | [dev/plan.md](./dev/plan.md) §gate · [arch](./architecture/c4/arch.md) |
-| 12 | Гант WebGL2 + LOD — **только после gate** | FUTURE | [phase12](./dev/phase12/plan.md) |
+| 0,1,3 | Data foundation | DONE | [phase0](./dev/phase0/report.md) |
+| 4 | Локальный E2E TRANSAQ | DONE | [phase4](./dev/phase4/report.md) |
+| 5 | Мультиисточник (`source_id`) | DONE | [phase5](./dev/phase5/report.md) |
+| 6a–6c | Coverage + control-plane + derivative | DONE | [6a](./dev/phase6a/report.md) · [6b](./dev/phase6b/report.md) · [6c](./dev/phase6c/report.md) |
+| 7 | Админ-фронт (ур.3 MVP; ур.1 WONT; общий Гант → после WebGL) | DONE | [phase7](./dev/phase7/report.md) |
+| 7b–7g | Таймфреймы, ISS, фильтры, connect UI, ось, слой сделок | DONE / MVP DONE | roadmap |
+| **7h** | Liveness + Connection-ribbon + **Write Gaps** | **DONE** | [report](./dev/phase7h/report.md) · [write-gaps](./dev/phase7h/write-gaps.md) |
+| 7i | Auto / Supervisor + `market_schedule` + Integrations | MVP DONE | [report](./dev/phase7i/report.md) |
+| 7j | Расписание соединения + инциденты v2 | MVP DONE | [report](./dev/phase7j/report.md) · [wrap-up](./dev/incident-model-wrapup.md) |
+| **8** | **OHS journal, soft-delete, crash, void mask, schedule-projection** | **DONE** | [phase8/plan](./dev/phase8/plan.md) · [journal](./dev/phase8/incident-journal.md) |
+
+Хвосты 7i/7j/… — [`stage1/abandoned.md`](./dev/stage1/abandoned.md).
+
+**Дальше (не Stage 1)**
+
+| Фаза | Тема | Статус | Ссылка |
+| ---- | ---- | ------ | ------ |
+| 10 | Keycloak + `user_settings` | PLANNED · Stage 2 | [phase10](./dev/phase10/plan.md) |
+| 11 | NC продукт + split OHS / Admin Front / NC | PLANNED · Stage 2 (база NC в монолите DONE) | [phase11](./dev/phase11/plan.md) |
+| 12 | WebGL2 + LOD | FUTURE · Stage 3 (после gate 10+11) | [phase12](./dev/phase12/plan.md) |
+| 13 | Сквозной кэш | PLANNED · Stage 4 | [phase13](./dev/phase13/plan.md) |
+| 14 | CI/CD на стенд/prod | TODO · Stage 4 | [phase14](./dev/phase14/plan.md) |
+| — | QScalp / Plaza2 | Future Features | [plan.md](./dev/plan.md) §Future |
 
 ## 4. Ключевые доменные факты (быстрый ввод)
 
 - **Инструмент** — `(ticker, board)`; мультиисточник: PK фактов включает `source_id`
   (одна бумага может иметь сделки из разных провайдеров — цвет колбаски = источник).
-- **Деривативы** — таблица `derivative` (FUT/OPT), ленивое дерево на фронте: `фьючерс → серии
-  (экспирации) → страйки`. Парсинг MOEX FORTS — `MoexFortsSpecParser`, нотация серий — `MoexSeries`.
-- **Расписание MOEX** (`MoexSchedule` / фронтовый `moexSession.ts`): будни (ЕТС) **08:50–23:50**,
-  доп. сессия выходного дня (с 01.03.2025) **09:50–19:00**; не каждые выходные (список исключений).
-  **С 14.07.2026 СР/FORTS → 06:50–23:50** (moex.com/n101980) — хардкод дат-независим и станет неверным,
-  реальные дат-зависимые часы подтянем из **ISS API** (phase 7c, см. [apply §3c](./dev/phase7c/apply.md)).
+- **Деривативы** — таблица `derivative` (FUT/OPT); навигация — **фильтры 7d** (дерево descoped),
+  `groups` питает значения. Парсинг MOEX FORTS — `MoexFortsSpecParser`, серии — `MoexSeries`.
+- **Расписание сессий** — `/api/sessions` через `IMarketCalendar` (ISS `timetable`/`dailytable`,
+  fallback `MoexSchedule`). Курируемая история в `market_schedule` (7i); ось Ганта пока ещё на
+  «текущем» ISS — хвост **7i.S1** в [abandoned](./dev/stage1/abandoned.md). Integrations:
+  адаптер **scinverse** (Finam/ISS с приоритетом) — confirmer, не тот же контур что `/api/sessions`.
 - **Таймлайн (Гант) — посессионная проекция** (`web/src/core/sessionProjection.ts`): ось делится
   по сессиям, ширина доли ∝ длительности торгов, неторговые разрывы схлопнуты в шов. Выходные
   **не схлопываем** — короче + подсветка (схлопывание станет опциональным фильтром). D/W/M/Q/Y и
@@ -136,12 +147,18 @@ scinverse/
   (не пиксель); размер по **статической лесенке** (`bucketSecondsForTimeframe`, ~7 ступеней 30с…1д) —
   стабильный ключ кэша. Агрегация: TimescaleDB `time_bucket` **на лету** + свой app-кэш закрытых дней
   (`trade_activity_bucket`/`_computed`); continuous aggregates — на release (см. `mvp-to-release.md`).
-- **Честная подложка / разрывы** (phase 7h, **DONE**) — модель трёх слоёв: **Намерение**
-  (`coverage_segment`) ∩ **Живость** (`capture_liveness`: хартбит 15 c / пинг = «связь жива») даёт честный фон;
-  дыра в живости внутри намерения = **обрыв связи** (красным), дыра в сделках при живой подложке =
-  **тихий рынок** (не разрыв). Recovery на старте, автомат связи, WS `connectionStateChanged`.
-  **Вне торговой сессии пинги не идут** — гейт в `LivenessProbe`. Справочник — [phase7h/incident.md](./dev/phase7h/incident.md);
-  отчёт и сценарии проверки — [phase7h/report.md](./dev/phase7h/report.md).
+- **Честная подложка / разрывы** (phase 7h, **DONE**) — **Намерение** ∩ **Живость** (`capture_liveness`);
+  дыра в живости = обрыв; дыра в сделках при живой подложке = тихий рынок. Вне сессии пинги не идут
+  (`LivenessProbe`). Отчёт — [phase7h/report.md](./dev/phase7h/report.md).
+- **Connection Gantt** (phase 8 / 7h.8) — лента `link_liveness` + инциденты из journal; сверху
+  **schedule void mask** (`showScheduleMask$`, вне desired). Soft-delete скрывает с ribbon.
+- **Writers Gantt — Write Gaps** (7h, **DONE**) — красный на инструменте =
+  `WriteGap = ScheduleCutter(WriteHole ∩ desired)`; API `POST /api/coverage/write-gaps`;
+  тумблер `showWriteGaps$`. Спека — [write-gaps.md](./dev/phase7h/write-gaps.md) ·
+  wiki [write-gaps](./wiki-readme/write-gaps.md).
+- **Журнал `incident`** (phase 8, бывш. 11.13) — SoT эпизодов в OHS; fan-out в NC atoms; soft-delete V030.
+  Канон — [phase8/incident-journal.md](./dev/phase8/incident-journal.md).
+- **Schedule-as-projection** — факты ⊥ mask/Cutter: [phase8/schedule-projection.md](./dev/phase8/schedule-projection.md).
 
 ## 5. Как запустить (локально)
 
@@ -186,74 +203,67 @@ scinverse/
 
 ## 7. Текущий момент
 
-**OHS MVP** (монолит Host + admin web + пакет NC) — активная разработка.
+**Stage 1 = DONE** (2026-08-04): монолит Host + admin web + журнал OHS + Write Gaps + void mask.
+Пакет NC в монолите готов; **вынос NC / Keycloak / WebGL — Stage 2–3**.
 
-**Инцидентная модель стабилизирована** (2026-07-31) — якорь:
-[incident-model-wrapup.md](./dev/incident-model-wrapup.md).
+Хвосты вне MVP — [`dev/stage1/abandoned.md`](./dev/stage1/abandoned.md).  
+План Stages — [`dev/plan.md`](./dev/plan.md).
 
 | Контур | Статус |
 |--------|--------|
-| `incident` journal ⊥ NC (fan-out) | DONE · приёмка |
-| `link_liveness` / ribbon от journal | DONE |
-| Thread UI + crash dispatch Host (T/C) | DONE (phase 11) |
-| Adopt crash-inside-break (stale-close **только Live**) | **ПРИНЯТО** |
-| TRANSAQ `request_timeout=10` (~8 с Degraded на кабеле) | DONE |
-| NC: при равном ts **ok выше warning** | DONE |
-| CloseBreak sourceId из store; Resolve journal await | DONE (`255cc93`) |
-| **I12 / 7j.22** pool exhausted → пачка FATAL | **КЛИЕНТ DONE** (`6871a57` · `327c8fe`); pool defer @100 |
-| Soft-delete journal (V030 / 11.13g / I14) | **DONE** (`738b384`…`7b3c75d`) |
-| Schedule-as-projection P1–P5.5 | **DONE** (Cutter writers P1.2 — deferred) |
+| Stage 1 phase 4–8 | **DONE** |
+| `incident` journal ⊥ NC (fan-out) · soft-delete V030 | DONE · docs home **phase 8** |
+| Connection-ribbon + schedule void mask | DONE |
+| Writers Write Gaps (`ScheduleCutter`) | DONE |
+| NC Thread UI (монолит) | DONE · Stage 2 = split/MFE |
+| Adopt / I10 / I12 клиент | ПРИНЯТО / DONE; pool defer @100 |
+| Schedule-as-projection P1–P5 + P2 mask | **DONE** |
 
-**Коммиты wrap-up:** `6c7c36c` · `255cc93`. **I12 клиент:** `6871a57` · `327c8fe`.  
-**Soft-delete:** `738b384`…`cc634c2` + audit label `7b3c75d`.  
-Host при `dotnet test` не должен держать DLL (остановить VS/Host).
-
-**Handoff нового чата:** §8 ниже.  
-**Later:** gate **11→12** (NC MFE + Keycloak); hard-delete / retention; deploy —
-[ohs-connectors-deploy.md](./architecture/ohs-connectors-deploy.md).
+Host при `dotnet test` — остановить (lock DLL).  
+**Handoff:** §8. **Next Stage:** 2 (phase 10 Keycloak → phase 11 NC split).
 
 ---
 
-## 8. ➡️ НОВЫЙ ЧАТ — soft-delete DONE + контекст (2026-08-02)
+## 8. ➡️ НОВЫЙ ЧАТ — Stage 1 закрыт (2026-08-04)
 
-Единственный handoff-файл — **этот** (`docs/promt.md`). Спеки фазы — в `docs/dev/phase11/`.
+Единственный handoff-файл — **этот** (`docs/promt.md`).
 
 **Отвечать по-русски**, если пользователь пишет по-русски.  
 Коммит — **только по явной просьбе**.
 
 ### 8.1. Baseline
 
-| Тема | Статус |
-|------|--------|
-| NC Thread 11.8–11.12 | DONE |
-| Journal 11.13a–f + I2 fan-out | DONE |
-| Crash dispatch D1–D8 + P5 2NF + I13 adopt-from-journal | DONE |
-| Schedule projection P1–P4 (+ Cutter writers deferred) | DONE / partial |
-| **Soft-delete journal (11.13g / I14)** | **DONE** |
-| Gate 11→12 (NC MFE), WebGL 12, hard-delete retention | later |
-| 7j I12 Host pool size | defer @100 |
+| Тема | Статус | Docs |
+|------|--------|------|
+| Stage 1 (phase 4–8) | **DONE** | [plan.md](./dev/plan.md) · [abandoned](./dev/stage1/abandoned.md) |
+| Journal OHS + soft-delete + crash | DONE | [phase8/](./dev/phase8/plan.md) |
+| Write Gaps + ScheduleCutter | DONE | [write-gaps](./dev/phase7h/write-gaps.md) |
+| Void mask Connection | DONE | [schedule-projection](./dev/phase8/schedule-projection.md) |
+| NC Thread в монолите | DONE | [phase11](./dev/phase11/plan.md) (Stage 2 = split) |
+| Gate Stage 2 → WebGL | later | phase 10 + 11 |
+| Production хвосты (pre-flight, sessions←SCD-2, …) | backlog | [abandoned](./dev/stage1/abandoned.md) |
 
-### Soft-delete — суть
+### Soft-delete — суть (кратко)
 
-Ось **видимости** ⊥ lifecycle: `incident.deleted_at` / `deleted_by` (**V030**).  
-Не `status=deleted`. Delete open = `abandoned_manual` (+ Halt/Auto-off при recovering) → tombstone.
-Restore снимает tombstone. Ribbon **всегда** без deleted; журнал — галка + `includeDeleted`;
-ЦУ — Выбор «Удалённые» (`softDeletedCorrs$` + badge deleted). Атомы hub/V025 **не** удаляются.
-Audit NC: `Журнал инцидентов {id} («{name}»): Запись удалена/восстановлена оператором`
-(не `ScheduleWho` / «Расписание»). Hard delete / retention — вне scope.
-
-Канон: [`incident-soft-delete.md`](./dev/phase11/incident-soft-delete.md).
+Ось **видимости** ⊥ lifecycle: `deleted_at` / `deleted_by` (**V030**). Не `status=deleted`.
+Ribbon всегда без deleted; journal — `includeDeleted`; NC — Выбор «Удалённые».
+Канон: [`phase8/incident-soft-delete.md`](./dev/phase8/incident-soft-delete.md).
 
 ### 8.2. Прочитай первым
 
 1. Этот файл (§1–§7 + этот §8).
-2. Спека: [`incident-soft-delete.md`](./dev/phase11/incident-soft-delete.md).
-3. Journal: [`incident-journal.md`](./dev/phase11/incident-journal.md) (§6, §8, §12 **11.13g**).
-4. NC Выбор: [`nc-marks.md`](./dev/phase11/nc-marks.md) (`deleted`).
-5. Статус: [`report.md`](./dev/phase11/report.md) · [`plan.md`](./dev/phase11/plan.md).
-6. Issues: [`issue.md`](./dev/phase11/issue.md) **I14** (I2/I13 при fan-out/adopt).
-7. Расписание / mask: [`schedule-projection.md`](./dev/phase11/schedule-projection.md).
-8. Wrap-up: [`incident-model-wrapup.md`](./dev/incident-model-wrapup.md).
+2. Дорожная карта: [`dev/plan.md`](./dev/plan.md).
+3. Хвосты Stage 1: [`dev/stage1/abandoned.md`](./dev/stage1/abandoned.md).
+4. Journal / soft-delete / crash / mask: [`phase8/`](./dev/phase8/plan.md)
+   ([journal](./dev/phase8/incident-journal.md) · [soft-delete](./dev/phase8/incident-soft-delete.md) ·
+   [schedule-projection](./dev/phase8/schedule-projection.md) · [crash](./dev/phase8/crash-dispatch.md)).
+5. Write Gaps: [`phase7h/write-gaps.md`](./dev/phase7h/write-gaps.md).
+6. NC (Stage 2 продукт): [`phase11/plan.md`](./dev/phase11/plan.md) · [nc-marks](./dev/phase11/nc-marks.md).
+7. Wrap-up модели: [`incident-model-wrapup.md`](./dev/incident-model-wrapup.md).
+8. Wiki: [`wiki-readme/incident.md`](./wiki-readme/incident.md) · [`layers.md`](./wiki-readme/layers.md) ·
+   [`write-gaps.md`](./wiki-readme/write-gaps.md).
+
+> Старые пути `phase11/incident-*.md` — **stubs** → `phase8/`. Канон только в phase8.
 
 ### 8.3. Миграции (DbUp)
 
@@ -323,27 +333,32 @@ cd services/online-history-server/web; pnpm exec tsc --noEmit; pnpm exec vitest 
 ```
 
 PowerShell: `;` не `&&`. Commit-msg → UTF-8 без BOM + `git commit -F`.  
-Стиль: `feat(ohs-11): …` / `feat(ohs-web): …` / `feat(nc): …` / `docs(11): …`.
+Стиль: `feat(ohs-8): …` / `feat(ohs-7h): …` / `feat(ohs-web): …` / `feat(nc): …` / `docs: …`.
 
 ### 8.7. Возможные следующие задачи
 
-- Hard delete / retention purge soft-deleted (+ опц. старые resolved).
-- Gate 11→12: NC-сервис / MFE + Keycloak.
-- P1.2 ScheduleCutter writers (если ещё deferred).
-- 7j.15/16 UI tails; Host pool I12 step 3.
-- ~~Startup-latency справочника (~3 мин)~~ — **DONE** (Finam ~10–16 с;
-  [startup-latency.md](./dev/phase7h/startup-latency.md) · 7j H3).
-- **Write Gaps (Writers / 7h):** спека [write-gaps.md](./dev/phase7h/write-gaps.md) ·
-  продукт [wiki write-gaps](./wiki-readme/write-gaps.md); код — после/вместе с P1.2 Cutter.
+Уточнять scope у пользователя. Не стартовать gate/WebGL «заодно».
 
-Уточнять у пользователя scope — не начинать gate/WebGL «заодно».
+**Stage 2 (типичный next):**
+- Phase 10 — Keycloak + `user_settings`.
+- Phase 11 — split OHS / Admin Front / NC (MFE); база NC в монолите уже DONE.
+
+**Production backlog (не MVP)** — полный список:
+[`stage1/abandoned.md`](./dev/stage1/abandoned.md), в т.ч.:
+- 7i.S2 daily-sync + pre-flight;
+- 7i.S1 `/api/sessions` ← SCD-2 `market_schedule`;
+- 7j.15/16 market profile / пагинация календаря;
+- WG.1 backfill WriteGaps из истории коннектора;
+- hard-delete / retention purge.
+
+**Уже DONE (не брать в работу как «хвост»):**
+- Write Gaps + ScheduleCutter; void mask Connection; soft-delete; crash T/C; startup-latency.
 
 ### 8.8. Архив: schedule-as-projection (DONE)
 
-Идеология: факты ⊥ schedule-as-mask/Cutter — [`schedule-projection.md`](./dev/phase11/schedule-projection.md).  
-P1–P4 + P5.0–P5.5 (2NF crash, I13) — **DONE**; `:h` отклонён; Group-by-desired / Auto
-`abandoned_schedule` сняты (P4). План шагов —
-[`plan-schedule-projection.md`](./dev/phase11/plan-schedule-projection.md).
+Идеология: факты ⊥ mask/Cutter — [`phase8/schedule-projection.md`](./dev/phase8/schedule-projection.md).  
+P1 Cutter + P2 void mask + P3–P5 crash/journal — **DONE**; `:h` отклонён.
+План шагов — [`phase8/plan-schedule-projection.md`](./dev/phase8/plan-schedule-projection.md).
 
 ---
 

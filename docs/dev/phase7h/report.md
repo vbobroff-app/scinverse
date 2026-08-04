@@ -100,11 +100,13 @@ in-memory cache-first, суточная инвалидация (Auto-on) + Refre
 Живая приёмка Finam id=3: `первые данные` 9888 / 15588 мс. Канон —
 [startup-latency.md](startup-latency.md); якоря 7j — plan **H3**, issue хвост, incident §H3.
 
-## Follow-up: Write Gaps (Writers Gantt) — DESIGN AGREED 2026-08-04
+## Follow-up: Write Gaps (Writers Gantt) — **DONE** 2026-08-04
 
 Пересчёт красного на дорожке инструмента: `WriteGap = ScheduleCutter(WriteHole ∩ desired)`,
 края WriteHole по last/first trade. Спека — [write-gaps.md](write-gaps.md); продукт —
-[wiki write-gaps](../../wiki-readme/write-gaps.md). Код — NOT STARTED (после/вместе с P1.2 Cutter).
+[wiki write-gaps](../../wiki-readme/write-gaps.md).
+Код: `WriteGapService` + `POST /api/coverage/write-gaps` + `showWriteGaps$`; as-is incident red
+с инструмента снят. Connection void mask — phase 8 / P2 (**DONE**).
 
 ## Вне области (осталось на follow-up)
 
@@ -128,9 +130,9 @@ Phase 7h **завершена**. Гант показывает три слоя (
 
 ## Follow-up 7h.8: две ленты (Connection + честная проекция)
 
-**Статус:** `IN PROGRESS` (см. [plan.md](plan.md) §«Follow-up 7h.8»). Разносим ответственность: лента
-**Connection** знает всю историю связи (в т.ч. вне записи), дорожка **инструмента** — проекция «слушаю ∩
-связь лежит». Чинит эмпирический баг: красное тянулось до возобновления записи, а не до восстановления связи.
+**Статус:** лента Connection **DONE**; красный на Writers — **Write Gaps DONE** (не проекция
+`intent ∩ linkDown`). Остаток 7h.8d (тот же coverage-сегмент через обрыв) — опц. later,
+см. [../stage1/abandoned.md](../stage1/abandoned.md).
 
 **Разделение (по решению пользователя):** сначала — сущность «Соединение» end-to-end (лента Connection);
 проекция «слушаю ∩ связь лежит» на инструмент + смена лайфцикла сегмента — **отдельным вторым заходом**.

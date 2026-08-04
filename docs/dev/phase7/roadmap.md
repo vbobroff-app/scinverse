@@ -32,7 +32,7 @@
 
 | Подфаза | Что даёт | Цель | Статус | Детали |
 | ------- | -------- | ---- | ------ | ------ |
-| 7 | Каркас React/Vite/TS, ядро RxJS, уровень 3 (карточка провайдера), Start/Stop | 1 | IN PROGRESS (ур.2/1 остаются; дерево снято) | [plan](plan.md) · [issue](issue.md) |
+| 7 | Каркас React/Vite/TS, ядро RxJS, уровень 3 (карточка провайдера), Start/Stop | 1 | **DONE** (ур.3 MVP; ур.1 WONT; ур.2 после WebGL) | [plan](plan.md) · [report](report.md) |
 | 7b | Таймфреймы `D/W/M/Q/Y/All/диапазон`, сессионное окно MOEX | 2 | DONE | [7b](../phase7b/report.md) |
 | 7c | Реальное расписание MOEX (ISS): календарь + `session_schedule`, «Биржи→Структура» | 3 | MVP DONE | [7c](../phase7c/report.md) — бесплатный `/iss/engines`, «Структура»+«Календарь», категоризация фьючерсов; новости/статус борда отложены |
 | 7d | Динамические фильтры каталога (плашки Инструменты/Выбор/Биржи, поиск) | 1 | MVP DONE | [7d](../phase7d/report.md) — плашки+поиск, generic `FilterChips`/`FilterBar` (переисп. в 7c), бэк-поля `nonEmpty`/`instrumentIds`/`exchanges` |
@@ -40,16 +40,16 @@
 | 7f | Тайм-лайн-фильтр оси (дни + окно дня) + единый стандарт времени | 1, 2 | MVP DONE | [7f](../phase7f/report.md) |
 | 7g | Слой сделок: присутствие торгов по бакетам (лесенка), app-кэш, `/coverage/activity` | 2 | DONE | [7g](../phase7g/plan.md) |
 | **7h** | **Честная подложка: recovery, живость захвата, автомат связи, красная разметка разрывов** | **2** | **DONE** | [7h](../phase7h/report.md) |
-| 7i | «Управление записью»: полуавтомат Auto + Supervisor (MOEX) | 3 | IN PROGRESS | [7i](../phase7i/apply.md) |
-| **7j** | **Расписание + инциденты v2 + abandon; остаток 7j.15/16 + J11b** | **3** | **инциденты ГОТОВЫ** | [7j report](../phase7j/report.md) · [todo](../phase7j/todo.md) |
+| 7i | «Управление записью»: полуавтомат Auto + Supervisor (MOEX) | 3 | **MVP DONE** | [7i](../phase7i/report.md) · хвосты [abandoned](../stage1/abandoned.md) |
+| **7j** | **Расписание + инциденты v2 + abandon** | **3** | **MVP DONE** | [7j report](../phase7j/report.md) · хвосты [abandoned](../stage1/abandoned.md) |
 
 ## Текущий фокус (цель 2 → цель 3)
 
 **Разрывы (7h) — DONE.** Гант честно показывает обрыв связи (красным) vs тихий рынок.
 
-**7j инциденты — КОД ГОТОВ** (J11b хвост). Активный handoff разработки — **phase 11 Thread NC**
-([phase11/plan.md](../phase11/plan.md), [`promt.md` §8](../../promt.md)). В 7j остались
-7j.15/16 (профиль/`date`). Запись (**7i**) — проекция живой связи. Gate перед WebGL — 11→12.
+**Stage 1 семейства 7 — закрыт (2026-08-04).** Журнал OHS — **phase 8**.
+Хвосты MVP → [../stage1/abandoned.md](../stage1/abandoned.md).
+NC + split — Stage 2 / phase 11. Gate перед WebGL — Stage 2 (10+11).
 
 Справка: модель трёх слоёв (реализована в 7h):
 

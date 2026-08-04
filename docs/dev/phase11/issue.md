@@ -5,8 +5,8 @@
 Обновлено: 2026-08-02.
 
 Связано: [plan.md](plan.md), [to-threads.md](to-threads.md), [persistence.md](persistence.md),
-журнал инцидентов — [incident-journal.md](incident-journal.md),
-soft-delete — [incident-soft-delete.md](incident-soft-delete.md),
+журнал инцидентов — [../phase8/incident-journal.md](../phase8/incident-journal.md),
+soft-delete — [../phase8/incident-soft-delete.md](../phase8/incident-soft-delete.md),
 инциденты связи/crash — [../phase7j/incident.md](../phase7j/incident.md),
 [../phase7j/nc-availability.md](../phase7j/nc-availability.md).
 Смежный **I12** (orphan FATAL / pool) — клиент DONE в 7j.22, не issue phase 11 —

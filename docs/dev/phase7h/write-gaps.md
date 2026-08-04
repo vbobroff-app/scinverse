@@ -10,8 +10,8 @@
 
 **Зависимости:** геометрия 7h ([`incident.md`](incident.md) — намерение ∩ живость) ·
 слой сделок 7g · journal `incident` (11.13 DONE) ·
-[`schedule-projection.md`](../phase11/schedule-projection.md) / ScheduleCutter (P1.2) ·
-Recording binary as-is — [`incident-journal.md`](../phase11/incident-journal.md) §3.0b
+[`schedule-projection.md`](../phase8/schedule-projection.md) / ScheduleCutter (P1.2) ·
+Recording binary as-is — [`incident-journal.md`](../phase8/incident-journal.md) §3.0b
 (**заменяется** этой моделью для красного на дорожке инструмента).
 
 **Не трогать в этой спеке:** Connection-ribbon (break/crash/owner), NC Thread, soft-delete.
@@ -105,7 +105,7 @@ WriteGap = ScheduleCutter(WriteHole, desired_windows(connection))
 - Open hole: `to = now ∩ desired` (Cutter отрежет будущее вне окна).
 - Cutter **не** пишет в `incident` и **не** меняет NC.
 
-P1.2 ScheduleCutter (phase 11 schedule-projection) — **блокер** серверного расчёта WriteGap;
+P1.2 ScheduleCutter (phase 8 schedule-projection) — **DONE**; wire в WriteGapService.
 UI-прототип может временно клиповать desired на клиенте тем же резолвером, что маска
 (с пометкой tech-debt).
 
@@ -167,7 +167,7 @@ segments + incidents + trades + sessions — выбрать в apply по наг
 | [`wiki-readme/write-gaps.md`](../../wiki-readme/write-gaps.md) | продукт |
 | [`incident.md`](incident.md) | намерение ∩ живость (7h) |
 | [`plan.md`](plan.md) · [`report.md`](report.md) | фаза 7h (подлежат обновлению) |
-| [`schedule-projection.md`](../phase11/schedule-projection.md) §6 | Cutter |
-| [`plan-schedule-projection.md`](../phase11/plan-schedule-projection.md) P1.2 | wire cutter |
-| [`incident-journal.md`](../phase11/incident-journal.md) §3.0b | as-is Recording-red |
+| [`schedule-projection.md`](../phase8/schedule-projection.md) §6 | Cutter |
+| [`plan-schedule-projection.md`](../phase8/plan-schedule-projection.md) P1.2 | wire cutter |
+| [`incident-journal.md`](../phase8/incident-journal.md) §3.0b | as-is Recording-red |
 | [`wiki-readme/layers.md`](../../wiki-readme/layers.md) §5 | слой W |

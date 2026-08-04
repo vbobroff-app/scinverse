@@ -1,164 +1,73 @@
-# Phase 11. Центр уведомлений (сквозная лента событий, MFE)
+# Phase 11. Notification Center + разделение сервисов
 
-Единый **центр уведомлений** — нижний док-панель со сквозной лентой всех логов и событий системы.
-Встраивается во все модули фронта единообразно как **MFE-компонент** поверх общего потока сообщений.
-Сквозная фаза (как phase 10): контракт событий общий для всех модулей и обоих контуров (.NET горячий,
-Python холодный). Дизайн Stage 1 — в [../apply.md](../apply.md); детали реализации — в
-[apply.md](apply.md); статус — в [report.md](report.md).
+**NC как продукт** и **split** монолита: отдельные сервисы **OHS**, **Admin Front**, **Notification Center**.
 
-**Статус:** `IN PROGRESS`. **Stage:** 1 (сквозная). **Зависимости:** control-plane WS `/ws` (phase 6b) —
-транспорт системных/внешних событий; необязательно — `user_settings` (phase 10) для персистенции
-состояния панели/фильтров. Влияет на все модули фронта и на серверное логирование.
+База пакета (`@scinverse/notification-center`), Thread UI, dock, V025 atoms — уже реализованы в
+монолите; эта фаза Stage 2 доводит NC до отдельного деплоя и связки MFE, без смешения с журналом
+OHS (журнал — **[phase 8](../phase8/plan.md)** / Stage 1).
 
-**Фокус сейчас:** переход **schedule-as-projection** (факты ⊥ mask/Cutter) —
-[schedule-projection.md](schedule-projection.md) · план [plan-schedule-projection.md](plan-schedule-projection.md) ·
-handoff [`promt.md`](../../promt.md) §8. Параллельно gate **11→12** (later).
+**Статус:** `PLANNED` (база NC DONE в монолите; вынос — впереди).
+**Stage:** 2. **Зависимости:** phase 8 (журнал OHS стабилен); phase 10 (Keycloak) — в gate выноса.
+Дизайн Stage 1 — [../apply.md](../apply.md); C4 — [`../../architecture/c4/arch.md`](../../architecture/c4/arch.md).
+Детали реализации пакета — [apply.md](apply.md); статус базы — [report.md](report.md).
 
-**11.13a–g DONE** (incl. soft-delete V030); crash D1–D8 **DONE** (as-is classification).
-Таблица `incident` в **OHS**; поток `notification` / пакет → NC MFE. Thread 11.8–11.12 — **DONE**.
-Канон journal as-is — [incident-journal.md](incident-journal.md);
-soft-delete — [incident-soft-delete.md](incident-soft-delete.md); продукт to-be — wiki
-[`incident.md`](../../wiki-readme/incident.md). **I12** клиент **DONE**, pool defer —
-[../phase7j/plan.md](../phase7j/plan.md) §7j.22.
-Handoff — [`docs/promt.md`](../../promt.md) §8.
+## Что осталось здесь (NC)
 
-**Ядро UI/шины:** пакет [`packages/notification-center`](../../../packages/notification-center)
-(`@scinverse/notification-center`) — без привязки к OHS.
+| Документ | Содержание |
+| -------- | ---------- |
+| [to-threads.md](to-threads.md) | Модель Thread / Incident / Group |
+| [persistence.md](persistence.md) | V025 atoms `notification` |
+| [dock-settings.md](dock-settings.md) | Опции дока |
+| [nc-marks.md](nc-marks.md) | Маркеры ★/⊘ |
+| [issue.md](issue.md) | Issues NC (+ I2 fan-out с журналом) |
+| [apply.md](apply.md) · [report.md](report.md) | Реализация / отчёт базы NC |
 
-**Upgrade объектной модели (Thread):** проблема — [issue.md](issue.md); проектирование —
-[to-threads.md](to-threads.md); персист атомов — [persistence.md](persistence.md) (V025 DONE).
-Опции дока (группировать / схлоп тиков) — [dock-settings.md](dock-settings.md);
-маркеры ★/⊘ и фильтр «Выбор» — [nc-marks.md](nc-marks.md).
-Журнал инцидентов — [incident-journal.md](incident-journal.md);
-**soft-delete** — [incident-soft-delete.md](incident-soft-delete.md);
-**to-be schedule projection** — [schedule-projection.md](schedule-projection.md);
-**crash dispatch** (as-is DONE; `:h` отклонён) — [crash-dispatch.md](crash-dispatch.md);
-продуктовое определение — [`docs/wiki-readme/incident.md`](../../wiki-readme/incident.md).
+**Перенесено в phase 8:** journal, soft-delete, crash-dispatch, schedule-projection
+(stubs в этой папке → `../phase8/…`).
 
 ## Мотивация
 
-Сейчас события живут разрозненно: WS-события (`recordingStarted`/`coverageExtended`/
-`connectionStatusChanged`) обновляют точечный UI, ошибки API уходят в `console.error`, серверные
-логи и логи коннектора не видны оператору. Нужна **единая наблюдаемая лента** для оператора:
-что сделал пользователь, что произошло в системе и что пришло извне (коннектор/биржа) — с уровнями
-важности, фильтрами и историей.
+События должны жить в **единой сквозной ленте** оператора (уровни, фильтры, Thread-контейнеры).
+В монолите пакет уже встроен; to-be — отдельный сервис NC + MFE remote во все фронты, atoms SoT
+в контуре NC, OHS только продюсер фактов (в т.ч. journal phase 8).
 
 ## Таксономия события (зафиксировано)
 
-- **Уровень (severity):** `info` · `warning` · `critical` · `error`.
-  - `info` — штатное событие (запись стартовала, покрытие расширено).
-  - `warning` — деградация/повтор/восстановимое (реконнект, пустой ответ).
-  - `error` — операция не удалась (ошибка API, разрыв коннектора).
-  - `critical` — системная авария/потеря данных, требует немедленного внимания.
+- **Уровень:** `info` · `warning` · `critical` · `error`.
 - **Тип (sourceType):** `user` · `system` · `external`.
-  - `user` (User Actions) — действия оператора: старт/стоп записи, connect/disconnect, создание
-    подключения, применение фильтров.
-  - `system` — внутренние события приложения и OHS Host: жизненный цикл записи/покрытия, статусы
-    подключений, ошибки/предупреждения серверного лога (`ILogger` уровня Warning+).
-  - `external` — то, что пришло извне: коннектор TRANSAQ (server_status, ошибки DLL, дисконнекты),
-    поставщик данных, MOEX ISS (новости/статусы), сетевые сбои прокси.
 
-## Область (in scope)
+## Область Stage 2 (in scope)
 
-- **11.1 Контракт события.** Единая модель `NotificationEvent` (id, ts, severity, sourceType,
-  module, code, message, data?, correlationId?) — общий TS-тип (фронт) и C#-DTO (бэк), стабильные
-  `code` для машинной фильтрации.
-- **11.2 Backend: шина + история.** In-memory ring-buffer (последние N), broadcast в `/ws`
-  (новый тип события `notification`), REST `GET /api/notifications` (бэклог при загрузке, фильтры
-  `severity`/`sourceType`/`since`). Источники: обёртки над recording/connection/coverage +
-  `ILogger`-провайдер (Warning+ → system), события коннектора → external.
-- **11.3 MFE-ядро (framework-agnostic).** Пакет/модуль `notification-center`: синглтон-шина
-  (RxJS `BehaviorSubject` ленты) с API `publish(event)`/`stream$`, буфер, дедуп, ограничение
-  размера; агрегатор WS→шина и API-ошибок→шина. Шина — общий singleton (shared) для всех MFE.
-- **11.4 UI: нижний док.** Сворачиваемая панель снизу (консоль-drawer), лайв-tail с авто-скроллом
-  и паузой при ручном скролле, строка = время · иконка уровня · тег типа · тег модуля · сообщение;
-  раскрытие строки → детали/JSON контекста.
-- **11.5 Фильтры и бейджи.** Плашки-фильтры по уровню (Info/Warning/Critical/Error) и по типу
-  (User/System/External), текстовый поиск, фильтр по модулю; бейдж непрочитанных (счётчик ошибок/
-  критичных) на кнопке дока в статус-строке.
-- **11.6 Встраивание.** Единообразное подключение во все модули: хост-модуль монтирует
-  `<NotificationDock />` и публикует свои `user`-события через шину; чёткий publisher-API и хелперы
-  (`notify.info/warn/error/critical`). Персистенция состояния панели (открыта/высота/фильтры) —
-  локально, при наличии phase 10 — в `user_settings`.
-- **11.7 Тесты.** Ядро: publish/stream, буфер/лимит, дедуп, hydrate DTO→шина (vitest). UI: рендер
-  ленты, фильтрация, tail/пауза, бейдж. Backend: Hub + ring/`GET /api/notifications` (limit),
-  CloseBreak abandon/recovered, Adopt/Forget. Фильтры severity/sourceType — на клиенте (не на GET).
-  `ILogger`-sink → notification — вместе с фичей (пока out of scope).
-- **11.8 Объектная модель Thread (контракт TS).** Типы `NotificationItem = Single | Thread`,
-  `Entry`, специализации `Incident` / `Group`; поля `threadKind`, `threadStatus`, `closeOutcome`;
-  инварианты T1/T2. Спека — [to-threads.md](to-threads.md); мотивация — [issue.md](issue.md).
-- **11.9 Проекция в шине.** `events → items`: группировка по `correlationId`, вывод
-  `threadStatus` / `threadKind`, orphan-политика, `items$` для UI при сохранении плоского
-  `events$` (совместимость, I2-upsert атомов). Тесты проекции (vitest): recovered, abandon,
-  orphan recovering, Single без corr.
-- **11.10 UI NC: контейнеры.** Лента = Single + Thread header на одном уровне; header без
-  severity-иконки, custom summary; expand/collapse стека Entry; subtle `[!]`/`[G]` сдвигает
-  контент Entry. Фильтры: статус нити (active / recovering / resolved) + «Выбор»
-  (★ Избранные / ⊘ Спам / Удалённые — include, default hide; см. [nc-marks.md](nc-marks.md)).
-  Бейдж непрочитанных — по контейнерам (см. to-threads §4).
-- **11.11 Backend hints + политика kind.** На Open писать `data.threadKindHint`
-  (`incident`|`group` по горизонту расписания); на close — `data.closeOutcome`
-  (`recovered`|`abandoned_schedule`|`abandoned_manual`). **Таблицы v1 не меняем:** колонка `data`
-  покрывает UI/проекцию. Задел под журнал: тот же enum `incident|group` (не `single`) станет
-  индексируемой колонкой `thread_kind` в производной `notification_thread` — см.
-  [to-threads.md](to-threads.md) §6.3. Wire WS/REST атомов без ломки.
-- **11.12 Регрессия + приёмка Thread.** Пакет + OHS web + backend: сценарии break/crash из
-  phase 7j отображаются как Incident/Group; Group не продолжает Incident; плоский audit V025
-  и hydrate не ломаются; tsc/vitest/`dotnet` зелёные.
-- **11.13 Журнал инцидентов.** Таблица `incident` в **OHS Timescale**; **JournalRegistrator**
-  (не TradeWriter) + API + UI; Connection-ribbon + Recording (**бинарная проекция**).
-  Soft-delete / restore (ось видимости, V030) — [incident-soft-delete.md](incident-soft-delete.md).
-  Atoms — as-is V025 / to-be NC ([gate 11→12](../plan.md)). Канон —
-  [incident-journal.md](incident-journal.md) §3.
-- **Crash dispatch (после 11.13) — DONE.** Host crash: транспортный Group (admin↔OHS) + fan-out
-  Incident/Group per `connectionId`. D1–D8 —
-  [crash-dispatch.md](crash-dispatch.md) §11–§14; отчёт — [report.md](report.md).
+### A. База NC в монолите (DONE — не переделывать)
 
-## Вне области (out of scope)
+- **11.1–11.7** Контракт, Hub/WS/REST, пакет, dock, фильтры, встраивание, тесты.
+- **11.8–11.12** Thread model, проекция `items$`, UI контейнеры, hints, регрессия.
+- Persistence V025 — [persistence.md](persistence.md).
 
-- Менять схему OHS `notification` ради UI Thread — не нужно. Журнал — новая таблица `incident` в OHS
-  (не ALTER V025). Перенос atoms в NC — gate 11→12.
-- Пуш-уведомления (email/telegram/desktop) и правила-алерты — позже.
-- Тонкая маршрутизация по ролям (кто какие события видит) — грубо; тонко — вместе с phase 10.
-- Полноценный рантайм Module Federation с раздельными деплоями — задел в контракте / gate 11→12;
-  журнал можно проектировать до полного выноса MFE.
-- Серверное хранение меток ★/⊘ — v1 только клиент / `user_settings`.
-- `ILogger`-sink → notification — отдельная фича.
+### B. Вынос и split (TODO — фокус фазы)
 
-> Персист плоского аудита (`notification`, V025, retention 90d) — **сделан** ([persistence.md](persistence.md));
-> прежний out-of-scope «только ring-buffer» устарел.
+- **11.S1** Границы сервисов: OHS (data/control + journal), Admin Front (shell), NC (лента + atoms).
+- **11.S2** Отдельные репо/пакеты/деплои; контракты REST/WS стабильны для JWT (phase 10).
+- **11.S3** NC как MFE remote; Admin Front — host; общая шина/контракт без копипасты.
+- **11.S4** Перенос SoT atoms (`notification`) в контур NC (или dual-read → cutover) — gate с phase 8 journal остаётся в OHS.
+- **11.S5** Приёмка: три сервиса поднимаются раздельно; Keycloak на API/UI; нет секретов в ленте.
 
-## Критерии приёмки
+## Вне области
 
-1. Действия оператора (старт/стоп, connect/disconnect, создание подключения) появляются в ленте как
-   `user`-события в реальном времени.
-2. Серверные и внешние события (recording/coverage/connection + логи коннектора/Host уровня Warning+)
-   приходят в ленту как `system`/`external` через `/ws`; при загрузке подтягивается бэклог из
-   `GET /api/notifications`.
-3. Фильтры по уровню и типу работают совместно (И), есть текстовый поиск и фильтр по модулю; бейдж
-   непрочитанных отражает число ошибок/критичных.
-4. Панель встраивается в любой модуль единообразно (один компонент + общая шина-singleton); лента
-   сквозная (события из разных модулей в одном потоке).
-5. `dotnet build`/тесты и `tsc`/`vitest` зелёные; секреты/креды в ленту и логи не попадают.
-6. **Thread:** лента показывает контейнеры Single/Thread; Incident vs Group по политике горизонта;
-   фильтры статуса нити и «Выбор»; стек Entry раскрывается без смены wire-аудита.
+- Журнал `incident` / soft-delete / crash OHS / schedule-projection канон — **phase 8**.
+- WebGL Ганта — **phase 12** (после этого gate).
+- CI/CD на стенд — **phase 14**.
+- Пуш email/telegram, тонкая RBAC-маршрутизация событий — later (грубо — с phase 10).
+
+## Критерии приёмки (Stage 2)
+
+1. NC деплоится отдельно; Admin Front подключает MFE/пакет без монолитного Host как UI-shell.
+2. OHS остаётся источником journal + control; публикует события в NC по контракту.
+3. Keycloak (phase 10) валидирует API/WS/UI на всех трёх контурах.
+4. База Thread/dock не регрессирует (`tsc` / vitest / `dotnet`).
 
 ## Порядок
 
-**База (DONE):** 11.1 → 11.3 → 11.4 → 11.5 → 11.2 → 11.6 → 11.7 + persistence V025.
-
-**Upgrade модели:** 11.8 → 11.9 → 11.10 → 11.11 → 11.12 — **DONE** (2026-07-27).
-
-**11.13 журнал — DONE (a–g, soft-delete).** **I2 RESOLVED** — fan-out OHS→`incident`+NC
-([issue.md](issue.md) I2, [incident-journal.md](incident-journal.md) §7).
-**Crash dispatch D1–D8 — DONE** ([crash-dispatch.md](crash-dispatch.md)).
-Далее: gate 11→12 / 7j.15–16 / hard-delete retention (later).
-Write Gaps (Gantt записи) — follow-up **phase 7h**:
-[../phase7h/write-gaps.md](../phase7h/write-gaps.md) (не scope NC).
-
-**Продюсер break (не UI):** sync Host (`_incidentSince` ↔ Hub) — **I10/I11 ПРИНЯТО**
-([../phase7j/issue.md](../phase7j/issue.md)). **I12** клиент (ribbon pipeline + close-all orphan
-health-ok) — **DONE**; Host `Max Pool Size` — defer. Хвосты UI 7j.15–16 — не блокер 11.
-
-Детали — в [apply.md](apply.md), Thread — [to-threads.md](to-threads.md), журнал —
-[incident-journal.md](incident-journal.md), статус — в [report.md](report.md).
+1. Стабилизировать контракты при Keycloak (phase 10 ∥ или сразу перед split).
+2. Вынести Admin Front → NC remote → atoms cutover.
+3. Gate → Stage 3 / phase 12.

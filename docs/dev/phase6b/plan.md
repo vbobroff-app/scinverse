@@ -66,7 +66,7 @@ HTTP/WebSocket API: хост → ASP.NET Core, REST (инструменты, и�
 ## Вне объёма фазы (→ дальше)
 
 - React-фронт (phase 7): Гант, старт/стоп, экран подключений.
-- CI/CD (phase 8), импорт QScalp `.qsh` (phase 9).
+- CI/CD (phase 14), импорт QScalp `.qsh` (Future Features).
 - Аутентификация/авторизация админки (Keycloak) — отдельный трек ODS/публичной части.
 - Реальная многоконнекторная отписка TRANSAQ — проверяется при живой интеграции; для fake/synthetic
   тривиально.

@@ -421,7 +421,7 @@ abandoned:   |red [ yellow: TRANSAQ ][ red: supervisor ]      |  ← без gree
 Идея: клик (или double-click) по красному/зелёному 1px-маркеру на Connection-ленте открывает
 журнал OHS / фильтр NC по `correlationId` — стек
 `lost → recovering/reconnecting → recovered|abandoned` без ручного поиска.
-Спека журнала: [../phase11/incident-journal.md](../phase11/incident-journal.md).
+Спека журнала: [../phase8/incident-journal.md](../phase8/incident-journal.md).
 
 Задел:
 
@@ -438,7 +438,7 @@ abandoned:   |red [ yellow: TRANSAQ ][ red: supervisor ]      |  ← без gree
 ### Recording-лента оператора (полнота данных: есть/нет)
 
 Ей **не важно**, из-за чего и чья ответственность — важно только «данные шли или нет».
-**To-be источник:** бинарная **проекция** журнала [`incident`](../phase11/incident-journal.md)
+**To-be источник:** бинарная **проекция** журнала [`incident`](../phase8/incident-journal.md)
 (не gaps `link_liveness` / не type break\|crash). Сплошной красный, **без маркеров**, без
 owner/escalatedAt; перекрывающиеся эпизоды (в т.ч. crash внутри break) — **merge** в один red.
 Детали дыры и восстановление данных — по строкам журнала.
@@ -449,7 +449,7 @@ owner/escalatedAt; перекрывающиеся эпизоды (в т.ч. cras
 ```
 
 As-is файлы: `web/src/ui/components/CoverageTrack.tsx` + `coverageGeometry.ts` (7h).
-Канон проекции — [phase11/incident-journal.md](../phase11/incident-journal.md) §3.0b.
+Канон проекции — [phase8/incident-journal.md](../phase8/incident-journal.md) §3.0b.
 
 ---
 
@@ -523,7 +523,7 @@ As-is файлы: `web/src/ui/components/CoverageTrack.tsx` + `coverageGeometry.
   `OnDegradedAsync` / гейт probe — не продлеваем `capture_liveness` в Degraded.
 - [x] **H2. Recording-лента = бинарная проекция `incident`.** Сплошной red без маркеров /
   break\|crash / owner; merge overlap (`[blue][red][blue]`). Не путать с Connection-лентой (J7).
-  Спека — [../phase11/incident-journal.md](../phase11/incident-journal.md) §3.0b.
+  Спека — [../phase8/incident-journal.md](../phase8/incident-journal.md) §3.0b.
 - [x] **H3. Startup-latency справочника — DONE** (2026-08-03). Не входит в модель инцидентов;
   спека/приёмка — [../phase7h/startup-latency.md](../phase7h/startup-latency.md)
   (cache-first, ~10–16 с до первых данных вместо ~3 мин).

@@ -1,9 +1,10 @@
 # Phase 7j — report: расписание соединения
 
-**Статус:** инцидентный контур **7j.17–7j.21 + I10/I11 ПРИНЯТО** (Adopt crash-inside-break 2026-07-31).
-**I12 / 7j.22** — клиент **DONE** (шаги 1–2); Host pool **DEFER** @100. Очередь UI: **7j.15 / 7j.16**.
+**Статус:** `MVP DONE` (Stage 1, 2026-08-04). Инцидентный контур **7j.17–7j.21 + I10/I11 ПРИНЯТО**.
+**I12** клиент DONE; Host pool DEFER. UI 7j.15/16 и прочие хвосты —
+[../stage1/abandoned.md](../stage1/abandoned.md).
 Итог модели — [../incident-model-wrapup.md](../incident-model-wrapup.md). Список — [todo.md](todo.md).
-**Обновлено:** 2026-07-31.
+**Обновлено:** 2026-08-04.
 
 Актуальный статус фазы. Обновляется по мере выполнения задач из [plan.md](plan.md) /
 [apply.md](apply.md). Якорная модель + слоистые исключения — [v2-exceptions.md](v2-exceptions.md).

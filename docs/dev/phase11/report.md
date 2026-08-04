@@ -2,13 +2,11 @@
 
 Актуальный статус фазы 11. Обновляется по мере выполнения задач из [plan.md](plan.md).
 
-**Текущий статус:** Thread **DONE**; **11.13a–g DONE** (incl. soft-delete); **I2 RESOLVED**;
-**crash-dispatch D1–D8 DONE**.
-[issue.md](issue.md) I2 · [incident-journal.md](incident-journal.md) §7 ·
-[incident-soft-delete.md](incident-soft-delete.md) · [crash-dispatch.md](crash-dispatch.md).
-Смежный хвост 7j **I12** (pool / orphan FATAL): клиент **шаги 1–2 DONE**, шаг 3 (pool size)
-**отложен** — [../phase7j/plan.md](../phase7j/plan.md) §7j.22.
-**Обновлено:** 2026-08-02.
+**Текущий статус:** база NC (11.1–11.12) **DONE** в монолите; **вынос / split — PLANNED** (Stage 2).
+Журнал OHS / soft-delete / crash — **перенесены в [phase 8](../phase8/report.md)** (2026-08-04).
+[issue.md](issue.md) I2 · journal → [../phase8/incident-journal.md](../phase8/incident-journal.md).
+Смежный хвост 7j **I12** — [../phase7j/plan.md](../phase7j/plan.md) §7j.22.
+**Обновлено:** 2026-08-04.
 
 ## Статус задач
 
@@ -27,9 +25,8 @@
 | 11.10 | UI NC: контейнеры, expand Thread, фильтры статуса нити + Выбор | DONE | `ThreadBlock`, `filterItems`; ★/⊘ per-Entry + [nc-marks.md](nc-marks.md) |
 | 11.11 | Backend `threadKindHint` / `closeOutcome` в колонке `data` | DONE | Hub enrich + ConnectionManager + client crash; таблицы не меняли |
 | 11.12 | Регрессия Thread (7j break/crash + hydrate V025) | DONE | `threadRegression.test.ts` + web `notifications.thread.test.ts` |
-| 11.13 | Журнал инцидентов (`incident` в **OHS**) | **DONE** (a–g) | [incident-journal.md](incident-journal.md) §12 |
-| 11.13g | Soft-delete / restore (ось видимости) | **DONE** | [incident-soft-delete.md](incident-soft-delete.md); V030; `738b384`…`cc634c2` |
-| Crash | Host outage: T Group + C fan-out (D1–D8) | **DONE** | [crash-dispatch.md](crash-dispatch.md); `47fb58e`…`62453e0` + D6+LS `ef6805b` |
+| 11.13* | Журнал / soft-delete / crash (OHS) | → **phase 8** | [../phase8/report.md](../phase8/report.md) (исторически DONE здесь) |
+| 11.S1–S5 | Split OHS / Admin Front / NC + MFE | PLANNED | [plan.md](plan.md) §B |
 
 ## Решение
 
@@ -78,9 +75,7 @@
 
 ## Итог
 
-Лента NC v1 — **готова**. Журнал OHS **11.13a–g DONE** (incl. soft-delete). **I2 fan-out — RESOLVED**.
-**Crash dispatch (Host outage T+C) — DONE.** Вынос atoms/пакета в NC — **gate 11→12**.
-Итог мультиклиент / journal / link / NC — [../incident-model-wrapup.md](../incident-model-wrapup.md)
-(2026-07-31). Смежный 7j **I12**: клиент mitigation **DONE** (шаги 1–2); Host pool — later
-([../phase7j/plan.md](../phase7j/plan.md) §7j.22).
-Handoff следующего чата — [`docs/promt.md`](../../promt.md) §8.
+Лента NC v1 в монолите — **готова** (11.1–11.12). Журнал OHS / crash / soft-delete — **phase 8**
+(Stage 1). Фокус phase 11 дальше — **split + MFE** (Stage 2), gate перед phase 12.
+Wrap-up — [../incident-model-wrapup.md](../incident-model-wrapup.md). Handoff —
+[`docs/promt.md`](../../promt.md) §8 (обновить отдельно).

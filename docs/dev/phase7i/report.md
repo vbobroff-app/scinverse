@@ -1,6 +1,8 @@
 # Phase 7i — report: полуавтомат записи (Auto)
 
-**Статус:** IN PROGRESS (код готов к проверке на живом Finam; миграция V012).
+**Статус:** `MVP DONE` (закрытие Stage 1, 2026-08-04).
+Хвосты (sessions←SCD-2 history, daily-sync/pre-flight, бэкфилл Finam и пр.) —
+**[../stage1/abandoned.md](../stage1/abandoned.md)** §7i (production, не MVP).
 
 ## Сделано
 
@@ -26,7 +28,8 @@
 - Reader `market_schedule` → UI: `IMarketScheduleStore` (базовый профиль рынка на дату: market-уровень,
   под-scope NULL, max(effective_from)≤D; фазы из JSONB в каноническом порядке) + `GET /api/exchanges/{market}/schedule?on=`. Вкладка
   «Расписание» в `ExchangeStructure` (Будни/Выходные, пропорциональная лента фаз, подпись
-  достоверности/источника). `/api/sessions` из БД + daily-sync + бэкфилл Finam — следующий инкремент.
+  достоверности/источника). `/api/sessions`←SCD-2 history + daily-sync + бэкфилл Finam —
+  вынесены в [../stage1/abandoned.md](../stage1/abandoned.md) (не MVP).
 
 - **Интеграции (внешние сервисы), MVP** — `V015__external_service.sql` (adapter/transport/secret/
   exp/enabled, секрет в БД — single-user, до Keycloak). Домен `ExternalService` +
@@ -37,7 +40,12 @@
   «Интеграции» в рейле (`NavSectionId=integrations`) — `IntegrationsPanel` (список + `[+]` форма) +
   `IntegrationForm` (сервис/транспорт/секрет/exp, auth-check после создания) + `IntegrationWorkspace`
   (проверка связи + пробный запрос расписания, время МСК). Пока подтверждатель — ручной пробник;
-  pre-flight-хук в auto + `market_schedule_exception` — следующий инкремент (см. schedule.md).
+  pre-flight / daily-sync — [../stage1/abandoned.md](../stage1/abandoned.md) **7i.S2**.
+
+## Итог MVP
+
+Auto + Supervisor + `market_schedule` UI + Integrations/Scinverse confirmer — **достаточно для
+Stage 1**. Полный plan (диалог политик, US-tz, warmup) и production-долг расписания — abandoned.
 
 ## Проверка
 

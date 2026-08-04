@@ -3,8 +3,9 @@
 > Сводка 2026-07-31. Не заменяет фазовые plan/report — якорь «где мы» после восстановления
 > логики break/crash в новой модели.
 >
-> Канон: [`phase7j/incident.md`](phase7j/incident.md) · [`phase11/incident-journal.md`](phase11/incident-journal.md) ·
+> Канон: [`phase7j/incident.md`](phase7j/incident.md) · [`phase8/incident-journal.md`](phase8/incident-journal.md) ·
 > [`wiki-readme/layers.md`](../wiki-readme/layers.md) · [`architecture/ohs-connectors-deploy.md`](../architecture/ohs-connectors-deploy.md).
+> Stage 1 закрыт; хвосты — [`stage1/abandoned.md`](stage1/abandoned.md).
 
 ---
 
@@ -52,9 +53,9 @@ Wrap-up закоммичен: `6c7c36c` · race/markers `255cc93`. Handoff но�
 | **openedAt = lastData** | уточнение левой границы break | to-be (согласовано, не код) |
 | **finam-ws** | второй `IMarketConnector`, Linux, быстрый линк-детект | FUTURE ([ohs-connectors-deploy.md](../architecture/ohs-connectors-deploy.md)) |
 | **Windows-агент DLL** | split prod Linux + агент | FUTURE (тот же док) |
-| **gate 11→12** | вынос Admin Front + NC MFE + Keycloak | FUTURE |
-| **7i** | расписание автозаписи | IN PROGRESS (ортогонально) |
-| **phase 8** | CI/CD | TODO |
+| **Stage 2 (10+11)** | Keycloak + NC split / MFE | PLANNED |
+| **7i хвосты** | sessions←SCD-2, pre-flight, … | [abandoned](stage1/abandoned.md) |
+| **phase 14** | CI/CD на стенд | TODO |
 
 Сознательно **не делаем** на эре TRANSAQ: QuickPath / NetworkChange / вторая DLL / фронтовый `offline`.
 
