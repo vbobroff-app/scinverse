@@ -39,9 +39,22 @@ public sealed class InstrumentRegistry(
     public void Observe(SecurityInfo security)
     {
         var enriched = Enrich(security);
+        var listed = InstrumentLifecycle.IsListedOnline(enriched.Expiration, TodayMoscow());
 
         if (_cache.TryGetValue(enriched.Key, out var existing))
         {
+            if (!listed)
+            {
+                // Dump принёс просроченный — убрать из online-кэша; в БД уйдёт active=false.
+                _cache.TryRemove(enriched.Key, out _);
+                if (!IsFresh)
+                {
+                    EnqueuePersist(enriched);
+                }
+
+                return;
+            }
+
             if (IsFresh)
             {
                 return;
@@ -51,13 +64,15 @@ public sealed class InstrumentRegistry(
             {
                 MinStep = enriched.MinStep,
                 Decimals = enriched.Decimals,
-                LotSize = enriched.LotSize
+                LotSize = enriched.LotSize,
+                Active = true
             };
             _cache[enriched.Key] = updated;
             EnqueuePersist(enriched);
             return;
         }
 
+        // Miss: копим и для архива (чтобы upsert выставил active=false), в кэш попадёт только Active.
         lock (_missGate)
         {
             _missBuffer.Add(enriched);
@@ -94,7 +109,13 @@ public sealed class InstrumentRegistry(
 
         // На всякий случай (очередь DropOldest / гонка): прямой upsert.
         instrument = await store.UpsertAsync(Enrich(security), cancellationToken).ConfigureAwait(false);
-        _cache[instrument.Key] = instrument;
+        ApplyPersisted([instrument]);
+        if (_cache.TryGetValue(instrument.Key, out var cached))
+        {
+            return cached;
+        }
+
+        // Архив: в online-кэш не кладём, но caller (maintenance) может получить сущность.
         return instrument;
     }
 
@@ -177,9 +198,38 @@ public sealed class InstrumentRegistry(
 
         var list = dedup.Values.ToList();
         var saved = await store.UpsertBatchAsync(list, cancellationToken).ConfigureAwait(false);
-        foreach (var instrument in saved)
+        ApplyPersisted(saved);
+    }
+
+    public void Evict(IEnumerable<long> instrumentIds)
+    {
+        var set = instrumentIds as ISet<long> ?? instrumentIds.ToHashSet();
+        if (set.Count == 0)
         {
-            _cache[instrument.Key] = instrument;
+            return;
+        }
+
+        foreach (var pair in _cache)
+        {
+            if (set.Contains(pair.Value.InstrumentId))
+            {
+                _cache.TryRemove(pair.Key, out _);
+            }
+        }
+    }
+
+    public void ApplyPersisted(IEnumerable<Instrument> instruments)
+    {
+        foreach (var instrument in instruments)
+        {
+            if (instrument.Active)
+            {
+                _cache[instrument.Key] = instrument;
+            }
+            else
+            {
+                _cache.TryRemove(instrument.Key, out _);
+            }
         }
     }
 

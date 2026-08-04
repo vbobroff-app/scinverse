@@ -29,6 +29,17 @@ public interface IInstrumentStore
     /// (ASSETCODE деривативa, напр. Si). null, если инструмента нет. Используется резолвером scopeOf.
     /// </summary>
     Task<InstrumentScopeInfo?> GetScopeInfoAsync(long instrumentId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Online-lifecycle: <c>active=TRUE</c> и не просрочен. false, если нет строки или архив.
+    /// </summary>
+    Task<bool> IsListedOnlineAsync(long instrumentId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Пометить FUT/OPT с <c>derivative.expiration &lt; today</c> как <c>active=FALSE</c>.
+    /// Возвращает id только что заархивированных.
+    /// </summary>
+    Task<IReadOnlyList<long>> ArchiveExpiredAsync(DateOnly todayMsk, CancellationToken cancellationToken);
 }
 
 /// <summary>Scope-атрибуты инструмента (для маппинга SECID → market/sec_type/category расписания).</summary>

@@ -6,6 +6,7 @@ namespace Scinverse.Ohs.UnitTests;
 internal sealed class FakeInstrumentStore : IInstrumentStore
 {
     private readonly List<Instrument> _instruments;
+    private readonly Dictionary<long, DateOnly?> _expirations = new();
     private long _nextId;
 
     public FakeInstrumentStore(params Instrument[] instruments)
@@ -15,11 +16,12 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
     }
 
     public Task<IReadOnlyList<Instrument>> LoadAllAsync(CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<Instrument>>(_instruments);
+        Task.FromResult<IReadOnlyList<Instrument>>(_instruments.Where(i => i.Active).ToList());
 
     public Task<InstrumentCatalogPage> QueryAsync(InstrumentQuery query, CancellationToken cancellationToken)
     {
         var items = _instruments
+            .Where(i => i.Active)
             .Select(i => new InstrumentCatalogItem
             {
                 InstrumentId = i.InstrumentId,
@@ -27,7 +29,7 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
                 Board = i.Key.Board,
                 MinStep = i.MinStep,
                 Decimals = i.Decimals,
-                Active = true
+                Active = i.Active
             })
             .ToList();
 
@@ -60,6 +62,7 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
 
     private Instrument UpsertCore(SecurityInfo security)
     {
+        var today = InstrumentLifecycle.TodayMoscow(TimeProvider.System);
         var existing = _instruments.FirstOrDefault(i => i.Key == security.Key);
         var instrument = new Instrument
         {
@@ -67,11 +70,13 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
             Key = security.Key,
             MinStep = security.MinStep,
             Decimals = security.Decimals,
-            LotSize = security.LotSize
+            LotSize = security.LotSize,
+            Active = InstrumentLifecycle.IsListedOnline(security.Expiration, today)
         };
 
         _instruments.RemoveAll(i => i.Key == security.Key);
         _instruments.Add(instrument);
+        _expirations[instrument.InstrumentId] = security.Expiration;
         return instrument;
     }
 
@@ -81,4 +86,47 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
         return Task.FromResult<InstrumentScopeInfo?>(
             instrument is null ? null : new InstrumentScopeInfo(instrument.Key.Board, null, null));
     }
+
+    public Task<bool> IsListedOnlineAsync(long instrumentId, CancellationToken cancellationToken)
+    {
+        var instrument = _instruments.FirstOrDefault(i => i.InstrumentId == instrumentId);
+        if (instrument is null || !instrument.Active)
+        {
+            return Task.FromResult(false);
+        }
+
+        var today = InstrumentLifecycle.TodayMoscow(TimeProvider.System);
+        _expirations.TryGetValue(instrumentId, out var exp);
+        return Task.FromResult(InstrumentLifecycle.IsListedOnline(exp, today));
+    }
+
+    public Task<IReadOnlyList<long>> ArchiveExpiredAsync(DateOnly todayMsk, CancellationToken cancellationToken)
+    {
+        var archived = new List<long>();
+        for (var i = 0; i < _instruments.Count; i++)
+        {
+            var instrument = _instruments[i];
+            if (!instrument.Active)
+            {
+                continue;
+            }
+
+            if (!_expirations.TryGetValue(instrument.InstrumentId, out var exp) || exp is null)
+            {
+                continue;
+            }
+
+            if (exp.Value < todayMsk)
+            {
+                _instruments[i] = instrument with { Active = false };
+                archived.Add(instrument.InstrumentId);
+            }
+        }
+
+        return Task.FromResult<IReadOnlyList<long>>(archived);
+    }
+
+    /// <summary>Тестовый хелпер: задать expiration для уже засеянного инструмента.</summary>
+    public void SetExpiration(long instrumentId, DateOnly? expiration) =>
+        _expirations[instrumentId] = expiration;
 }

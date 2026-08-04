@@ -5,13 +5,13 @@ using Scinverse.Ohs.Domain;
 namespace Scinverse.Ohs.Storage.Timescale;
 
 /// <summary>Хранилище справочника инструментов в PostgreSQL/TimescaleDB.</summary>
-public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentStore
+public sealed class InstrumentStore(NpgsqlDataSource dataSource, TimeProvider time) : IInstrumentStore
 {
     static InstrumentStore() => DateOnlyTypeHandler.Register();
 
     private const string SelectColumns =
         "instrument_id AS InstrumentId, ticker AS Ticker, board_id AS BoardId, " +
-        "min_step AS MinStep, decimals AS Decimals, lot_size AS LotSize";
+        "min_step AS MinStep, decimals AS Decimals, lot_size AS LotSize, active AS Active";
 
     public async Task<IReadOnlyList<Instrument>> LoadAllAsync(CancellationToken cancellationToken)
     {
@@ -55,7 +55,8 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
         const string whereClause = """
             FROM instrument i
             LEFT JOIN derivative d ON d.instrument_id = i.instrument_id
-            WHERE (@search  IS NULL OR i.ticker ILIKE @search OR i.short_name ILIKE @search OR i.name ILIKE @search)
+            WHERE i.active = TRUE
+              AND (@search  IS NULL OR i.ticker ILIKE @search OR i.short_name ILIKE @search OR i.name ILIKE @search)
               AND (@board   IS NULL OR i.board_id = @board)
               AND (@secType IS NULL OR i.sec_type = @secType)
               AND (NOT @hasCategory OR i.sec_type = ANY(@secTypes))
@@ -161,6 +162,8 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
     {
         // Единственный уровень дерева: серии опционов под конкретным фьючерсом (underlying_id).
         // Тикер (краткий код) любого опциона серии несёт признак недельности (поле «W»).
+        // Online: только active + непросроченные серии (expiration ≥ сегодня МСК).
+        var today = InstrumentLifecycle.TodayMoscow(time);
         const string sql = """
             SELECT to_char(d.expiration, 'YYYY-MM-DD') AS Key,
                    MAX(d.underlying_code) AS UnderlyingCode,
@@ -169,13 +172,16 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
             FROM derivative d
             JOIN instrument i ON i.instrument_id = d.instrument_id
             WHERE d.underlying_id = @underlyingId AND d.option_type IS NOT NULL
+              AND i.active = TRUE
+              AND d.expiration >= @today
             GROUP BY d.expiration
             ORDER BY d.expiration;
             """;
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<InstrumentGroupRow>(
-            new CommandDefinition(sql, new { underlyingId = query.UnderlyingId }, cancellationToken: cancellationToken));
+            new CommandDefinition(
+                sql, new { underlyingId = query.UnderlyingId, today }, cancellationToken: cancellationToken));
 
         return rows.Select(r =>
         {
@@ -250,13 +256,16 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
             new { board = security.Key.Board, market = security.MarketId },
             transaction, cancellationToken: cancellationToken));
 
+        var today = InstrumentLifecycle.TodayMoscow(time);
+        var active = InstrumentLifecycle.IsListedOnline(security.Expiration, today);
+
         const string upsert = $"""
             INSERT INTO instrument
                 (ticker, board_id, transaq_secid, short_name, name, sec_type,
-                 decimals, min_step, lot_size, point_cost, currency, last_seen_at)
+                 decimals, min_step, lot_size, point_cost, currency, active, last_seen_at)
             VALUES
                 (@ticker, @board, @secid, @shortName, @name, @secType,
-                 @decimals, @minStep, @lotSize, @pointCost, @currency, now())
+                 @decimals, @minStep, @lotSize, @pointCost, @currency, @active, now())
             ON CONFLICT (ticker, board_id) DO UPDATE SET
                 transaq_secid = EXCLUDED.transaq_secid,
                 short_name    = EXCLUDED.short_name,
@@ -267,7 +276,7 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
                 lot_size      = EXCLUDED.lot_size,
                 point_cost    = EXCLUDED.point_cost,
                 currency      = EXCLUDED.currency,
-                active        = TRUE,
+                active        = EXCLUDED.active,
                 last_seen_at  = now()
             RETURNING {SelectColumns};
             """;
@@ -286,7 +295,8 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
                 minStep = security.MinStep,
                 lotSize = security.LotSize,
                 pointCost = security.PointCost,
-                currency = security.Currency
+                currency = security.Currency,
+                active
             },
             transaction,
             cancellationToken: cancellationToken));
@@ -356,18 +366,21 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
             transaction,
             cancellationToken: cancellationToken));
 
+        var today = InstrumentLifecycle.TodayMoscow(time);
+        var actives = items.Select(s => InstrumentLifecycle.IsListedOnline(s.Expiration, today)).ToArray();
+
         const string upsert = $"""
             INSERT INTO instrument
                 (ticker, board_id, transaq_secid, short_name, name, sec_type,
-                 decimals, min_step, lot_size, point_cost, currency, last_seen_at)
+                 decimals, min_step, lot_size, point_cost, currency, active, last_seen_at)
             SELECT ticker, board_id, transaq_secid, short_name, name, sec_type,
-                   decimals, min_step, lot_size, point_cost, currency, now()
+                   decimals, min_step, lot_size, point_cost, currency, active, now()
             FROM unnest(
                 @tickers::text[], @boards::text[], @secids::int[], @shortNames::text[], @names::text[],
                 @secTypes::text[], @decimals::smallint[], @minSteps::numeric[], @lotSizes::int[],
-                @pointCosts::numeric[], @currencies::text[])
+                @pointCosts::numeric[], @currencies::text[], @actives::bool[])
             AS t(ticker, board_id, transaq_secid, short_name, name, sec_type,
-                 decimals, min_step, lot_size, point_cost, currency)
+                 decimals, min_step, lot_size, point_cost, currency, active)
             ON CONFLICT (ticker, board_id) DO UPDATE SET
                 transaq_secid = EXCLUDED.transaq_secid,
                 short_name    = EXCLUDED.short_name,
@@ -378,7 +391,7 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
                 lot_size      = EXCLUDED.lot_size,
                 point_cost    = EXCLUDED.point_cost,
                 currency      = EXCLUDED.currency,
-                active        = TRUE,
+                active        = EXCLUDED.active,
                 last_seen_at  = now()
             RETURNING {SelectColumns};
             """;
@@ -397,7 +410,8 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
                 minSteps = items.Select(s => s.MinStep).ToArray(),
                 lotSizes = items.Select(s => s.LotSize).ToArray(),
                 pointCosts = items.Select(s => s.PointCost).ToArray(),
-                currencies = items.Select(s => s.Currency).ToArray()
+                currencies = items.Select(s => s.Currency).ToArray(),
+                actives
             },
             transaction,
             cancellationToken: cancellationToken))).ToList();
@@ -466,12 +480,48 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource) : IInstrumentSt
             cancellationToken: cancellationToken));
     }
 
+    public async Task<bool> IsListedOnlineAsync(long instrumentId, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM instrument i
+                LEFT JOIN derivative d ON d.instrument_id = i.instrument_id
+                WHERE i.instrument_id = @instrumentId
+                  AND i.active = TRUE
+                  AND (d.expiration IS NULL OR d.expiration >= @today)
+            );
+            """,
+            new { instrumentId, today = InstrumentLifecycle.TodayMoscow(time) },
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<IReadOnlyList<long>> ArchiveExpiredAsync(DateOnly todayMsk, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var ids = await connection.QueryAsync<long>(new CommandDefinition(
+            """
+            UPDATE instrument i
+            SET active = FALSE
+            FROM derivative d
+            WHERE d.instrument_id = i.instrument_id
+              AND d.expiration < @today
+              AND i.active = TRUE
+            RETURNING i.instrument_id;
+            """,
+            new { today = todayMsk },
+            cancellationToken: cancellationToken));
+        return ids.ToList();
+    }
+
     private static Instrument Map(InstrumentRow row) => new()
     {
         InstrumentId = row.InstrumentId,
         Key = new InstrumentKey(row.Ticker, row.BoardId),
         MinStep = row.MinStep,
         Decimals = row.Decimals ?? 0,
-        LotSize = row.LotSize
+        LotSize = row.LotSize,
+        Active = row.Active
     };
 }

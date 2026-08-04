@@ -167,5 +167,12 @@ public sealed class InstrumentRegistryTests
         public Task<InstrumentScopeInfo?> GetScopeInfoAsync(
             long instrumentId, CancellationToken cancellationToken) =>
             _inner.GetScopeInfoAsync(instrumentId, cancellationToken);
+
+        public Task<bool> IsListedOnlineAsync(long instrumentId, CancellationToken cancellationToken) =>
+            _inner.IsListedOnlineAsync(instrumentId, cancellationToken);
+
+        public Task<IReadOnlyList<long>> ArchiveExpiredAsync(
+            DateOnly todayMsk, CancellationToken cancellationToken) =>
+            _inner.ArchiveExpiredAsync(todayMsk, cancellationToken);
     }
 }

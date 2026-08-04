@@ -9,6 +9,9 @@ public sealed record Instrument
     public short Decimals { get; init; }
     public int? LotSize { get; init; }
 
+    /// <summary>Online-каталог (<c>TRUE</c>) vs архив по lifecycle/exp (<c>FALSE</c>).</summary>
+    public bool Active { get; init; } = true;
+
     /// <summary>Цена → ticks по шагу этого инструмента.</summary>
     public long ToTicks(decimal price) => TickMath.ToTicks(price, MinStep);
 

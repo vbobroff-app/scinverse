@@ -32,6 +32,7 @@ public sealed class ConnectionManager(
     WebSocketBroadcaster broadcaster,
     Lazy<ILivenessWriter> liveness,
     Lazy<RecordingManager> recordings,
+    InstrumentLifecycleService lifecycle,
     ILinkLivenessStore linkLiveness,
     IIncidentStore incidentStore,
     INotificationPublisher notifications,
@@ -433,6 +434,9 @@ public sealed class ConnectionManager(
             _sourceIds[connectionId] = sourceId;
             connector = null;
             await session.StartAsync(cancellationToken).ConfigureAwait(false);
+
+            // Lifecycle Online-каталога: раз в день МСК на первом успешном connect.
+            await lifecycle.TrySweepAsync(force: false, cancellationToken).ConfigureAwait(false);
 
             // Подключено, но данных ещё нет → «ожидание» (перейдёт в «active» при первой сделке).
             SetStatus(connectionId, "waiting");

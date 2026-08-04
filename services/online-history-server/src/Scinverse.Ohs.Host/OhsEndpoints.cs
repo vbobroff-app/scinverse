@@ -74,12 +74,15 @@ public static class OhsEndpoints
             return Results.Ok(new { processed = candidates.Count });
         });
 
-        // Инвалидация in-memory каталога (force): следующий dump securities с коннектора
-        // уйдёт в фоновый persist. Полный словарь TRANSAQ обычно приходит на connect/reconnect.
-        api.MapPost("/instruments/catalog/refresh", (
-            IInstrumentRegistry registry, INotificationPublisher notifications) =>
+        // Force: dump-кэш stale + lifecycle sweep (архив по exp). OPT-window reset — в 7h.OPT.
+        api.MapPost("/instruments/catalog/refresh", async (
+            IInstrumentRegistry registry,
+            InstrumentLifecycleService lifecycle,
+            INotificationPublisher notifications,
+            CancellationToken ct) =>
         {
             var invalidated = registry.Invalidate(force: true);
+            var sweep = await lifecycle.TrySweepAsync(force: true, ct).ConfigureAwait(false);
             notifications.Publish(
                 "instruments.catalog.refresh",
                 invalidated
@@ -87,6 +90,17 @@ public static class OhsEndpoints
                     : "Справочник инструментов: уже помечен к обновлению",
                 severity: "info",
                 sourceType: "user");
+            if (sweep.Ran)
+            {
+                notifications.Publish(
+                    "instruments.catalog.lifecycle",
+                    sweep.ArchivedInstrumentIds.Count > 0
+                        ? $"Актуальность каталога: архивировано {sweep.ArchivedInstrumentIds.Count} инструмент(ов)"
+                        : "Актуальность каталога: просроченных не найдено",
+                    severity: "info",
+                    sourceType: "system");
+            }
+
             return Results.Ok(new InstrumentCatalogRefreshResultDto(invalidated, registry.IsFresh));
         });
 
@@ -224,18 +238,31 @@ public static class OhsEndpoints
         api.MapPut("/recording/schedule", async (
             UpsertRecordingScheduleRequest request,
             IRecordingScheduleStore schedule,
+            IInstrumentStore instruments,
             RecordingSupervisor supervisor,
             SchedulePreflight preflight,
             CancellationToken ct) =>
         {
-            var entries = (request.Items ?? [])
-                .Select(i => new RecordingScheduleEntry
+            var entries = new List<RecordingScheduleEntry>();
+            foreach (var i in request.Items ?? [])
+            {
+                if (i.AutoEnabled
+                    && !await instruments.IsListedOnlineAsync(i.InstrumentId, ct).ConfigureAwait(false))
+                {
+                    return Results.BadRequest(new
+                    {
+                        error = $"Инструмент {i.InstrumentId} в архиве (просрочен) — Auto недоступен"
+                    });
+                }
+
+                entries.Add(new RecordingScheduleEntry
                 {
                     InstrumentId = i.InstrumentId,
                     ConnectionId = i.ConnectionId,
                     AutoEnabled = i.AutoEnabled,
-                })
-                .ToList();
+                });
+            }
+
             var rows = await schedule.UpsertAsync(entries, ct);
             supervisor.Nudge();
             await supervisor.BroadcastScheduleAsync(ct);
@@ -247,7 +274,8 @@ public static class OhsEndpoints
                 await preflight.RequestAsync(entry.InstrumentId, ct);
             }
 
-            return rows.Select(e => new RecordingScheduleDto(e.InstrumentId, e.ConnectionId, e.AutoEnabled)).ToList();
+            return Results.Ok(
+                rows.Select(e => new RecordingScheduleDto(e.InstrumentId, e.ConnectionId, e.AutoEnabled)).ToList());
         });
 
         api.MapGet("/connections/{id:long}/schedule", async (

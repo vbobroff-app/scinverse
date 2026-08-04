@@ -9,6 +9,7 @@ internal sealed class InstrumentRow
     public decimal MinStep { get; init; }
     public short? Decimals { get; init; }
     public int? LotSize { get; init; }
+    public bool Active { get; init; } = true;
 }
 
 /// <summary>Строка каталога инструментов (read-model для админки).</summary>

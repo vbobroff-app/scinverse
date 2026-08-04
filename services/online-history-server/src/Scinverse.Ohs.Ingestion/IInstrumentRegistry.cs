@@ -42,4 +42,12 @@ public interface IInstrumentRegistry
 
     /// <summary>Обратный поиск по стабильному id (для команд управления записью).</summary>
     bool TryResolveById(long instrumentId, [MaybeNullWhen(false)] out Instrument instrument);
+
+    /// <summary>Убрать инструменты из online-кэша (после lifecycle archive).</summary>
+    void Evict(IEnumerable<long> instrumentIds);
+
+    /// <summary>
+    /// После фонового upsert: в кэш только <c>Active</c>; архив вытесняется.
+    /// </summary>
+    void ApplyPersisted(IEnumerable<Instrument> instruments);
 }

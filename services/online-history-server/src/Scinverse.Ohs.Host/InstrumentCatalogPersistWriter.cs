@@ -68,6 +68,7 @@ public sealed class InstrumentCatalogPersistWriter(
                     var saved = await store
                         .UpsertBatchAsync(dedup.Values.ToList(), stoppingToken)
                         .ConfigureAwait(false);
+                    registry.ApplyPersisted(saved);
                     logger.LogDebug(
                         "Справочник: фоновый upsert {Count} инструментов (очередь ≈{Queued})",
                         saved.Count, queue.ApproxCount);

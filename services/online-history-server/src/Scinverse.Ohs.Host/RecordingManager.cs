@@ -13,6 +13,7 @@ public sealed class RecordingManager(
     ConnectionManager connections,
     CoverageTracker coverage,
     IInstrumentRegistry registry,
+    IInstrumentStore store,
     ISourceStore sourceStore,
     WebSocketBroadcaster broadcaster,
     Lazy<ILivenessWriter> liveness,
@@ -28,6 +29,12 @@ public sealed class RecordingManager(
         if (_recordings.ContainsKey(instrumentId))
         {
             throw new InvalidOperationException($"Запись инструмента {instrumentId} уже идёт");
+        }
+
+        if (!await store.IsListedOnlineAsync(instrumentId, cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException(
+                $"Инструмент {instrumentId} в архиве (просрочен) — online-запись недоступна");
         }
 
         if (!registry.TryResolveById(instrumentId, out var instrument))

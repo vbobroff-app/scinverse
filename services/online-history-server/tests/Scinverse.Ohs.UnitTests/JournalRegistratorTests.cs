@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Scinverse.Ohs.Domain;
 using Scinverse.Ohs.Host;
+using Scinverse.Ohs.Ingestion;
 
 namespace Scinverse.Ohs.UnitTests;
 
@@ -111,6 +112,15 @@ public sealed class JournalRegistratorTests
             broadcaster: new WebSocketBroadcaster(),
             liveness: new Lazy<ILivenessWriter>(() => throw new InvalidOperationException("unused")),
             recordings: new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
+            lifecycle: new InstrumentLifecycleService(
+                new FakeInstrumentStore(),
+                new InstrumentRegistry(
+                    new FakeInstrumentStore(), new MoexFortsSpecParser(),
+                    new InstrumentCatalogPersistQueue(), TimeProvider.System),
+                new NoopRecordingScheduleStore(),
+                new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
+                TimeProvider.System,
+                NullLogger<InstrumentLifecycleService>.Instance),
             linkLiveness: link,
             incidentStore: store,
             notifications: hub,
@@ -399,5 +409,24 @@ public sealed class JournalRegistratorTests
 
         public Task<int> RecoverOpenIntervalsAsync(CancellationToken cancellationToken) =>
             Task.FromResult(0);
+    }
+
+    private sealed class NoopRecordingScheduleStore : IRecordingScheduleStore
+    {
+        public Task<IReadOnlyList<RecordingScheduleEntry>> ListAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<RecordingScheduleEntry>>([]);
+
+        public Task<IReadOnlyList<RecordingScheduleEntry>> ListEnabledAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<RecordingScheduleEntry>>([]);
+
+        public Task<IReadOnlyList<RecordingScheduleEntry>> UpsertAsync(
+            IReadOnlyList<RecordingScheduleEntry> entries, CancellationToken cancellationToken) =>
+            Task.FromResult(entries);
+
+        public Task DisableAutoAsync(long instrumentId, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task DisableAutoManyAsync(IReadOnlyList<long> instrumentIds, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
     }
 }

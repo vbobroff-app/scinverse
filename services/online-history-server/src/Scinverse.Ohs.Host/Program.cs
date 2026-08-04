@@ -55,6 +55,7 @@ builder.Services.AddSingleton<ITradeWriter, TimescaleTradeWriter>();
 builder.Services.AddSingleton<IDerivativeSpecParser, MoexFortsSpecParser>();
 builder.Services.AddSingleton<InstrumentCatalogPersistQueue>();
 builder.Services.AddSingleton<IInstrumentRegistry, InstrumentRegistry>();
+builder.Services.AddSingleton<InstrumentLifecycleService>();
 builder.Services.AddHostedService<InstrumentCatalogPersistWriter>();
 builder.Services.AddSingleton<TradeNormalizer>();
 builder.Services.AddSingleton<TradeBatcher>();
@@ -172,6 +173,10 @@ app.MapGroup("/api").MapHostOutageRecovery();
 
 // Прогреваем реестр инструментов до старта приёма запросов (команды записи резолвят инструмент).
 await app.Services.GetRequiredService<IInstrumentRegistry>().InitializeAsync(CancellationToken.None);
+
+// Lifecycle Online-каталога: архивация просроченных при старте Host (если ещё не бежали сегодня).
+await app.Services.GetRequiredService<InstrumentLifecycleService>()
+    .TrySweepAsync(force: false, CancellationToken.None);
 
 // Recovery (phase 7h): аккуратно закрываем «осиротевшие» открытые сегменты покрытия и интервалы
 // живости прошлого процесса (аварийный рестарт), иначе подложка ложно «склеится» до now.
