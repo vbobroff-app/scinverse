@@ -122,7 +122,7 @@ startup-latency. Красный на инструменте = WriteGap (не as-
 | **WG.1** | Backfill WriteGap из истории коннектора (TRANSAQ history → `md_trade`) | write-gaps | production later |
 | 7h.8d | Lifecycle: coverage-сегмент «живёт через обрыв» (reconnect → тот же segment) | report TODO 2-й заход | later / опц.; визуал закрыт Write Gaps |
 | 7h.POL | Тонкая политика реконнекта / backoff | plan out of scope | later |
-| 7h.OPT | Каталог/подписка опционов FORTS | [phase7i/issue](../phase7i/issue.md) | **OPEN** |
+| 7h.OPT | Каталог/подписка опционов FORTS (ATM ±N Online) | [phase7i/issue](../phase7i/issue.md) | **DONE** (2026-08-04) |
 | 7h.DER | Старый «журнал для backfill» в 7h incident.md | superseded → phase 8 | снят |
 
 ---
@@ -142,7 +142,7 @@ Scinverse confirmer (Finam/ISS приоритет). **Не MVP:**
 | 7i.L3 | «Рыночный пульс» тумблера связи без записи | осознанно отложено | later |
 | 7i.L4 | User-scope политик записи | phase 10 | Stage 2 |
 | 7i.MAP | `system_source(capability, market, service_id)` вместо хардкод-дефолтов confirmer | schedule.md | later |
-| 7i.OPT | Подписка на опционы TRANSAQ (цепочка команд) | [issue.md](../phase7i/issue.md) OPEN | = **7h.OPT** |
+| 7i.OPT | Подписка на опционы TRANSAQ (цепочка команд) | [issue.md](../phase7i/issue.md) | **DONE** (= 7h.OPT, 2026-08-04) |
 
 Канон: [../phase7i/schedule.md](../phase7i/schedule.md).
 
@@ -189,10 +189,9 @@ P3–P5 crash/journal — DONE. Follow-up:
 1. **7i.S2** — daily-sync + pre-flight  
 2. **7i.S1** — sessions/Гант ← SCD-2 `market_schedule` (после WebGL для оси — ок)  
 3. **7i.S3** — бэкфилл эмпирики Finam  
-4. **7h.OPT / 7i.OPT** — опционы TRANSAQ (если нужны страйки)  
-5. **7j.15 / 7j.16** — market profile + пагинация календаря  
-6. **WG.1** — backfill WriteGaps (история коннектора → `md_trade`)  
-7. **I9** — prod checklist  
+4. **7j.15 / 7j.16** — market profile + пагинация календаря  
+5. **WG.1** — backfill WriteGaps (история коннектора → `md_trade`)  
+6. **I9** — prod checklist  
 
 ---
 

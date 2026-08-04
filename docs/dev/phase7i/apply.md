@@ -91,7 +91,31 @@ idle-монитор возвращает `active → waiting` после 5 c т�
 понадобится «рыночный пульс» без записи — отдельный follow-up (варианты: фоновая alltrades-подписка
 видимых инструментов без персиста; либо эвристика «связь жива + идёт сессия FORTS»).
 
+## 7i.OPT / 7h.OPT — Online load ATM ±N (DONE)
+
+Connect-dump не даёт полный OPT. Путь Finam (см. [issue.md](issue.md),
+[../../tickers-options.md](../../tickers-options.md)):
+
+```
+expand серии / Auto
+  → EnsureOptionsAsync (freshness сутки МСК)
+  → subscribe FUT → ATM (live trade | last md_trade)
+  → get_option_families → get_family_strikes → ATM ±N → get_options
+  → upsert securities → каталог
+```
+
+| API / UX | Назначение |
+|----------|------------|
+| `GET /connections/{id}/option-families` | серии, когда в БД ещё нет OPT |
+| `POST /connections/{id}/load-options` | ensure ATM-окна |
+| `POST /instruments/catalog/refresh` | force: dump stale + lifecycle sweep + сброс OPT-окон |
+| ProviderCard `[Refresh]` | confirm → refresh; NC: два corr (кэш / актуальность) |
+
+Lifecycle Online: `instrument.active` = не архив по `derivative.expiration` (МСК). Не путать с
+intraday «торгуется» (7b.2 / 7c.9 — abandoned). Wiki: [../../wiki-readme/catalog.md](../../wiki-readme/catalog.md).
+
 ## Вне этого apply
 
 Warmup, US-tz, кастомные окна, user-scope, диалог «Управление записью» — follow-up / полный plan.
 - **«Рыночный пульс» подключения без записи** — см. раздел выше (осознанно отложено).
+- History / полный OPT / WG.1 — вне Online MVP.

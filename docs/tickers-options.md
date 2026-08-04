@@ -203,20 +203,20 @@ connect
 Критерий готовности к записи по опциону: он есть в каталоге **после** успешного
 `get_options` (и при желании подтверждён `get_securities_info` / probe).
 
-### Техническое (TBD в коде)
+### Техническое — **DONE** (Online, 2026-08-04)
 
-В репозитории на момент фиксации issue:
+В OHS реализовано:
 
-- команд `get_option_families` / `get_family_strikes` / `get_options` в
-  `Scinverse.Ohs.Connectors.Transaq` **нет**;
-- ingest каталога опирается на входящие `<securities>` (в т.ч. connect-dump);
-- диагностический `probe-security` полезен **после** шага `get_options`, не вместо него.
+- `IOptionCatalogLoader` / `TransaqConnector`: `get_option_families` → `get_family_strikes` →
+  `get_options`;
+- `OptionCatalogService` (ATM ±N, freshness суток МСК, upsert через pump);
+- UI: expand FUT / серии → ensure; кнопка Refresh каталога;
+- lifecycle Online: `instrument.active` по `expiration`.
 
-Рекомендуемый следующий шаг реализации: сервис/метод на живой TRANSAQ-сессии
-(например `LoadOptionsAsync(connectionId, underlyingBoard, underlyingSeccode, matDate, …)`)
-+ опционально HTTP endpoint для ручной проверки; затем UI/Auto завязать на наличие OPT в каталоге.
+Чеклист и статус — [`dev/phase7i/issue.md`](dev/phase7i/issue.md) (**DONE**).  
+Канон для пользователя — [`wiki-readme/catalog.md`](wiki-readme/catalog.md).
 
-Рабочий чеклист порядка — в [`dev/phase7i/issue.md`](dev/phase7i/issue.md).
+**Вне MVP:** History / полный OPT / `gethistorydata` / WG.1; intraday `sec_status`.
 
 ---
 
@@ -224,7 +224,10 @@ connect
 
 | Артефакт | Назначение |
 |----------|------------|
-| [`dev/phase7i/issue.md`](dev/phase7i/issue.md) | Короткий issue: порядок 1–7 для реализации |
-| [`dev/phase7h/issue.md`](dev/phase7h/issue.md) | Reconnect / тумблер; смежно упомянут неполный OPT dump |
+| [`dev/phase7i/issue.md`](dev/phase7i/issue.md) | Issue 7i.OPT / 7h.OPT — **DONE** |
+| [`wiki-readme/catalog.md`](wiki-readme/catalog.md) | Online-каталог / ATM / Refresh (wiki) |
+| [`architecture/db-design.md`](architecture/db-design.md) | `instrument.active` + OPT ATM |
+| [`dev/phase7h/issue.md`](dev/phase7h/issue.md) | Reconnect / тумблер; факт OPT=0 в connect-dump |
+| `POST /api/connections/{id}/load-options` | Ensure ATM-окна (diag / expand) |
 | `POST /api/connections/{id}/probe-security` | Диагностика `get_securities_info` после load |
 | TXmlConnector PDF §§ 3.35–3.37, 4.38–4.40 | Официальная спецификация команд опционов |

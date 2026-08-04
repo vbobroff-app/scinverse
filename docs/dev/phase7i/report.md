@@ -4,6 +4,9 @@
 Хвосты (sessions←SCD-2 history, daily-sync/pre-flight, бэкфилл Finam и пр.) —
 **[../stage1/abandoned.md](../stage1/abandoned.md)** §7i (production, не MVP).
 
+**7i.OPT / 7h.OPT — DONE (2026-08-04):** Online ATM ±N опционов + lifecycle `instrument.active`
++ Refresh UX/NC. Канон: [issue.md](issue.md), [../../wiki-readme/catalog.md](../../wiki-readme/catalog.md).
+
 ## Сделано
 
 - `V012__recording_schedule.sql` — `instrument_id`, `connection_id`, `auto_enabled`
@@ -42,10 +45,20 @@
   (проверка связи + пробный запрос расписания, время МСК). Пока подтверждатель — ручной пробник;
   pre-flight / daily-sync — [../stage1/abandoned.md](../stage1/abandoned.md) **7i.S2**.
 
+### 7i.OPT / 7h.OPT (Online каталог опционов) — DONE 2026-08-04
+
+- `IOptionCatalogLoader` + XML: `get_option_families` / `get_family_strikes` / `get_options`
+- `OptionCatalogService` + `OptionWindowFreshness` + `Ohs:OptionAtmDepth` (default 15)
+- Lifecycle: `InstrumentLifecycleService` / `instrument.active` по `expiration`; Start/Auto reject архива
+- Web: expand FUT без `hasOptions`; ensure перед strikes; кнопка Refresh + confirm
+- NC: `CatalogRefreshNc` — отдельные corr «кэш» / «актуальность»
+- Коммиты: `df64a12` … `803fa8d` (lifecycle → OPT load → web expand → Refresh → NC)
+
 ## Итог MVP
 
-Auto + Supervisor + `market_schedule` UI + Integrations/Scinverse confirmer — **достаточно для
-Stage 1**. Полный plan (диалог политик, US-tz, warmup) и production-долг расписания — abandoned.
+Auto + Supervisor + `market_schedule` UI + Integrations/Scinverse confirmer + **OPT ATM Online** —
+**достаточно для Stage 1**. Полный plan (диалог политик, US-tz, warmup) и production-долг
+расписания — abandoned.
 
 ## Проверка
 

@@ -187,6 +187,40 @@ ORDER BY d.strike;
 - лист цепочки — обычный `QueryAsync` с фильтрами `underlyingCode` + `expiration` (плоская модель
   данных, иерархия собирается на чтении). Флаг `secType` отделяет фьючерсы от опционов.
 
+### Online lifecycle: `instrument.active` (архив по экспирации)
+
+Колонка `instrument.active` (V001) — **ось lifecycle Online-каталога**, не intraday «торгуется ли
+сейчас» и не soft-delete инцидентов.
+
+| Значение | Смысл |
+|----------|--------|
+| `TRUE` | контракт в Online-каталоге (можно писать / Auto / expand) |
+| `FALSE` | архив: `derivative.expiration` &lt; сегодня (МСК); строка **не** удаляется |
+
+Правила:
+
+1. **Sweep** (раз в день МСК на первом connect / старте Host, либо force Refresh):  
+   `UPDATE instrument SET active=FALSE` для FUT/OPT с `expiration < today`; снять Auto; stop
+   открытой записи; выкинуть из in-memory online-view registry.
+2. **Upsert** (connect-dump / `get_options`): `active` выставляется от `expiration` — dump **не**
+   воскрешает уже архивный контракт.
+3. Online list (`QueryAsync` / `groups`): по умолчанию только `active=TRUE` (+ серии с
+   `expiration >= today`). History / `includeArchived` — later.
+4. **Не путать** с intraday (`sec_status`, сессия, halt) — см. долг 7b.2 / 7c.9 в abandoned.
+
+Пользовательская сводка: [wiki-readme/catalog.md](../wiki-readme/catalog.md).
+
+### Опционы FORTS: ATM ±N (7h.OPT / 7i.OPT) — **DONE**
+
+Connect-dump `<securities>` **не** обязан содержать полный OPT. Online-путь:
+
+`subscribe FUT → get_option_families → get_family_strikes → ATM ±N → get_options → upsert`
+(тот же pump/registry). Глубина — `Ohs:OptionAtmDepth` (default 15). Свежесть OPT-окна —
+in-memory per `(connectionId, futuresId, expiration)` на календарный день МСК (ортогонально
+dump-`InstrumentRegistry.Invalidate`). Триггеры: раскрытие серии в UI; Auto/запись серии.
+Diag: `POST /api/connections/{id}/load-options`. Канон протокола — [tickers-options.md](../tickers-options.md);
+issue — [phase7i/issue.md](../dev/phase7i/issue.md) (**DONE**).
+
 > Если ГО прилетает интрадей и часто — `instrument_risk` можно сделать hypertable, а «текущее»
 > значение брать `ORDER BY valid_from DESC LIMIT 1` или через continuous aggregate.
 

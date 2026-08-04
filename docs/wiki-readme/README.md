@@ -8,5 +8,6 @@
 | [incident.md](incident.md) | Что такое инцидент, жизненный цикл, расписание |
 | [layers.md](layers.md) | Слои: транспорт / соединения / запись |
 | [write-gaps.md](write-gaps.md) | Красные разрывы на ганте записи |
+| [catalog.md](catalog.md) | Online-каталог: архив по exp, опционы ATM, Refresh |
 
 Технические спеки и фазы разработки — отдельно в `docs/dev/` (не часть этой wiki).
