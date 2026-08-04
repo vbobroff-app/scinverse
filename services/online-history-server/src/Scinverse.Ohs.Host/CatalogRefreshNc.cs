@@ -66,7 +66,7 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
         Publish(
             corr,
             "instruments.catalog.cache.fresh",
-            "Кэш справочника: dump принят, каталог снова свежий",
+            "Кэш справочника: dump принят, каталог обновлён",
             severity: "ok",
             sourceType: "system",
             status: "resolved");
