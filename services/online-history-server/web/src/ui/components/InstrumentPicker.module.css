@@ -244,7 +244,7 @@
   border: 1px solid transparent;
 }
 
-/* Квартальные — акцентный (синий), месячные — нейтральный, недельные — приглушённый. */
+/* Q — акцентный (синий); M — голубой; W — светлый (как бывший M). */
 .badgeQuarterly {
   color: var(--color-accent);
   background: color-mix(in srgb, var(--color-accent) 16%, transparent);
@@ -252,15 +252,15 @@
 }
 
 .badgeMonthly {
-  color: var(--color-text-secondary);
-  background: var(--color-bg-input);
-  border-color: color-mix(in srgb, var(--color-text-secondary) 45%, transparent);
+  color: var(--color-accent);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 
 .badgeWeekly {
-  color: var(--color-text-muted);
-  background: transparent;
-  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-input);
+  border-color: color-mix(in srgb, var(--color-text-secondary) 45%, transparent);
 }
 
 .seriesExp {
