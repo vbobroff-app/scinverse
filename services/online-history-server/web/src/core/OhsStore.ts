@@ -638,7 +638,8 @@ export class OhsStore {
     this.refreshRecordingSchedule();
     this.refreshNotifications();
     this.applyTimeframe(this.timeframe$.value);
-    // Reload после неудачного POST recover — дослать закрытый pending из localStorage.
+    // Pending outage: закрытые — сразу; open (to=null) — на первом WS open (onBackendReachable
+    // closeOpen:true). Раньше flush только closed + reconnect-only open → дырка без POST.
     this.flushPendingOutageReport({ closeOpen: false });
     const stream =
       this.live ??
