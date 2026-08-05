@@ -2,7 +2,7 @@ import { StatusSwitch, type SwitchPhase } from './StatusSwitch';
 
 interface Props {
   status: string;
-  /** Crash-outage open: жёлтый «OHS недоступен», клик disabled. */
+  /** Crash-outage open: красный off + × (error); клик disabled. Auto — по-прежнему жёлтый. */
   ohsUnavailable?: boolean;
   onConnect: () => void;
   onDisconnect: () => void;
@@ -45,12 +45,12 @@ export function ConnectionToggle({
   onDisconnect,
   onCancelConnect,
 }: Props) {
-  const phase: SwitchPhase = ohsUnavailable ? 'unreachable' : toPhase(status);
+  const phase: SwitchPhase = ohsUnavailable ? 'error' : toPhase(status);
   const connected = phase === 'active' || phase === 'waiting' || phase === 'degraded';
   const busy = phase === 'connecting';
 
   const toggle = () => {
-    if (phase === 'unreachable') {
+    if (ohsUnavailable || phase === 'unreachable') {
       return;
     }
     if (busy) {
@@ -67,7 +67,7 @@ export function ConnectionToggle({
   return (
     <StatusSwitch
       phase={phase}
-      label={LABEL[phase]}
+      label={ohsUnavailable ? 'OHS недоступен' : LABEL[phase]}
       title={
         ohsUnavailable
           ? 'Нет связи с OHS Host — статус соединения неизвестен'
