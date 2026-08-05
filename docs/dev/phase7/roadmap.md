@@ -39,8 +39,8 @@
 | 7e | Управление подключениями (форма Transaq, ввод кред, realtime-connect) | 1 | MVP DONE | [7e](../phase7e/report.md) — `ConnectionForm` (create/edit transaq+synthetic, префилл+PUT, кредшы), список + connect |
 | 7f | Тайм-лайн-фильтр оси (дни + окно дня) + единый стандарт времени | 1, 2 | MVP DONE | [7f](../phase7f/report.md) |
 | 7g | Слой сделок: присутствие торгов по бакетам (лесенка), app-кэш, `/coverage/activity` | 2 | DONE | [7g](../phase7g/plan.md) |
-| **7h** | **Честная подложка: recovery, живость захвата, автомат связи, красная разметка разрывов** | **2** | **DONE** | [7h](../phase7h/report.md) |
-| 7i | «Управление записью»: полуавтомат Auto + Supervisor (MOEX) | 3 | **MVP DONE** | [7i](../phase7i/report.md) · хвосты [abandoned](../stage1/abandoned.md) |
+| **7h** | **Честная подложка: recovery, живость, Write Gaps** (+ OPT ATM Online = 7h.OPT) | **2** | **DONE** | [7h](../phase7h/report.md) · OPT → [7i/issue](../phase7i/issue.md) |
+| 7i | Auto + Supervisor + **OPT/Refresh/lifecycle** (`7i.OPT` DONE) | 3 | **MVP DONE** | [7i](../phase7i/report.md) · хвосты расписания [abandoned](../stage1/abandoned.md) |
 | **7j** | **Расписание + инциденты v2 + abandon** | **3** | **MVP DONE** | [7j report](../phase7j/report.md) · хвосты [abandoned](../stage1/abandoned.md) |
 
 ## Текущий фокус (цель 2 → цель 3)

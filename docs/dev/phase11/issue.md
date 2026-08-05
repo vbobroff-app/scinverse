@@ -115,10 +115,11 @@ recovered / `incident_closed`; crash: unavailable → progress → recovering �
 1. **Появились групповые структуры** — не опция UI, а факт домена: один `corr` = одна нить из
    нескольких `Entry` (фазы open / progress / close).
 2. **Нужны разные политики обработки** одной и той же формы стека:
-   - **Incident** — Group, открытая **в рабочее время** (горизонт `desired` / расписание); обязательный
-     terminal: `recovered` или принудительный `abandoned_schedule` / позже `abandoned_manual`.
-   - **Group** — тот же Thread **вне** горизонта; может оставаться open при входе в сессию; новый сбой
-     в окне → **новый** Incident (другой corr), не продолжение Group.
+   - **Incident** — Thread с duty close (`recovered` / `abandoned_*`); подтипы **Crash|Break**
+     (`incidentKind` / wire `data.kind`).
+   - **Group** — Thread без журнала инцидентов; подтипы **Lifecycle|Action|Checkup**
+     (`groupKind`; default `action`). Исторически «вне горизонта»; на практике — progress-стеки
+     non-incident (Refresh, auto/connect, …).
    - **Single** — атом без нити.
 3. Плоский audit в БД (`notification`, V025) остаётся источником истины по **событиям**; нехватка —
    в **UI/доменной проекции** и (опционально позже) first-class Thread на сервере.
@@ -133,23 +134,26 @@ recovered / `incident_closed`; crash: unavailable → progress → recovering �
 
 ```text
 NotificationItem = Single | Thread
-Thread (base) → Incident | Group
+Thread → Incident | Group
+Incident → Crash | Break          // incidentKind; wire data.kind
+Group    → Lifecycle | Action | Checkup   // groupKind; default action
 Entry extends Single { corr_uid }
 ```
 
-**Почему не меняем таблицы в DB (v1):** колонка `data` (JSONB) покрывает изменения объектной модели
-(`threadKindHint`, `closeOutcome` на open/close). Thread собирается проекцией.
+**Почему не меняем таблицы в DB (v1):** колонка `data` (JSONB) покрывает
+`threadKindHint` / `kind` / `groupKind` / `closeOutcome`. Thread собирается проекцией.
 
 **Задел журнала инцидентов:** производная `notification_thread` + индекс `thread_kind`
 (`incident|group`; Single не пишется) — **когда реально заводим серверный журнал** (экран/API),
 не вместе с UI Thread. Критерий — [to-threads.md](to-threads.md) §6.5.
 
-Внедрение — пункты **11.8–11.12** в [plan.md](plan.md).
+Внедрение — пункты **11.8–11.12** в [plan.md](plan.md); подтипы — 2026-08-05.
 
 ### Статус
 
-Реализовано: типы → проекция → UI контейнеры → hints в `data` → регрессия 7j/hydrate.
-См. [report.md](report.md) 11.8–11.12.
+Реализовано: типы → проекция → UI контейнеры → hints в `data` → регрессия 7j/hydrate →
+подтипы Incident/Group (`incidentKind` / `groupKind`, UI-ярлыки Action/Lifecycle/Checkup).
+См. [report.md](report.md) 11.8–11.12 + лог 2026-08-05.
 
 ### Связанный дефект домена (не phase 11)
 

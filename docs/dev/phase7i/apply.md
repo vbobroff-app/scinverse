@@ -112,7 +112,7 @@ expand серии / Auto
 | ProviderCard `[Refresh]` | confirm → refresh; NC: два corr (кэш / актуальность) |
 
 Lifecycle Online: `instrument.active` = не архив по `derivative.expiration` (МСК). Не путать с
-intraday «торгуется» (7b.2 / 7c.9 — abandoned). Wiki: [../../wiki-readme/catalog.md](../../wiki-readme/catalog.md).
+intraday «торгуется» (7c.9 / 7c.SEC — abandoned). Wiki: [../../wiki-readme/catalog.md](../../wiki-readme/catalog.md).
 
 ## Вне этого apply
 

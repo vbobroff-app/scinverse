@@ -11,7 +11,7 @@
 [../../architecture/db-design.md](../../architecture/db-design.md) (§ Online lifecycle + OPT).
 
 **Вне этого issue:** History / полный каталог / `gethistorydata` / WG.1; intraday `sec_status`
-(7b.2 / 7c.9); UI-глубина ATM (только `Ohs:OptionAtmDepth`).
+(7c.9 / 7c.SEC); UI-глубина ATM (только `Ohs:OptionAtmDepth`).
 
 ---
 
@@ -51,7 +51,7 @@
 | ATM | live trade FUT → fallback last `md_trade`; глубина `Ohs:OptionAtmDepth` (default 15) |
 | API | `GET …/option-families`, `POST …/load-options`; force `POST /instruments/catalog/refresh` |
 | Web | expand FUT без `hasOptions`; ensure перед strikes; кнопка Refresh + confirm |
-| NC | два corr: кэш справочника / актуальность (lifecycle) |
+| NC | два Group-corr: кэш → `groupKind: action`; актуальность → `lifecycle` |
 | Lifecycle | `instrument.active` = Online vs архив по `expiration` (sweep + upsert) |
 
 ---

@@ -194,7 +194,8 @@ abandoned:     |red [yellow|red body]      |   ← обрыв без green («н
 
 **Рестарт / crash Host внутри того же окна `desired`** — другой случай: open break мог остаться
 в audit без terminal (память Hub сброшена), а супервизор после оживления чеканит новый `auto:`-corr.
-В Thread это выглядит как `break OPEN` + `crash` + отдельный **Group** восстановления — см. **I10**
+В Thread это выглядит как `break OPEN` + `crash` + отдельный **Group** восстановления
+(`groupKind: action`, UI-ярлык **Action**) — см. **I10**
 ([issue.md](issue.md)#i10-после-crashрестарта-host-open-break-остаётся-active-восстановление-уходит-в-новый-group-auto).
 
 Правило после оживления (после ingest crash-пачки):

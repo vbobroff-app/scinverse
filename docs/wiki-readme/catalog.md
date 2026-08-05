@@ -1,9 +1,14 @@
 # Справочник инструментов (Online)
 
+**Статус Online MVP:** DONE (2026-08-04) — ATM ±N, Refresh, архив по exp (`instrument.active`).
+Не долг Stage 2. Оставшееся: intraday (7c.9 борд / 7c.SEC `sec_status`); draft working-set —
+[baskets-observed.md](../dev/baskets-observed.md).
+
 Как устроен каталог в админке записи: что видно в Online, когда опционы
 подгружаются, чем «архив» отличается от «не торгуется сейчас».
 
-Смежное: [layers.md](layers.md) · [write-gaps.md](write-gaps.md).
+Смежное: [layers.md](layers.md) · [write-gaps.md](write-gaps.md) ·
+[phase7i/issue.md](../dev/phase7i/issue.md).
 
 ---
 
@@ -56,7 +61,10 @@
    **reconnect** (текущая сессия dump не повторит); иначе dump придёт на следующем connect.
 2. **Актуальность** — архивировать просроченные по дате экспирации.
 
-В центре уведомлений это **два независимых процесса** со своими шагами (кэш и актуальность).
+В центре уведомлений это **два независимых** Group-процесса (NC): corr «кэш» —
+`groupKind: action`; corr «актуальность» — `groupKind: lifecycle`. В UI ярлыки
+**Action** / **Lifecycle** (не слово «Group»). Канон нитей —
+[dev/phase11/to-threads.md](../dev/phase11/to-threads.md) §2.
 
 Автоматическая проверка актуальности также выполняется раз в календарный день (МСК) при
-старте сервера / первом успешном connect за день.
+старте сервера / первом успешном connect за день (без NC Group, пока не заведён checkup).

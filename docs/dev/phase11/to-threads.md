@@ -1,10 +1,10 @@
 # Phase 11 — Проектирование: Thread / Incident / Group
 
-Статус: **IMPLEMENTED** (11.8–11.12). Обновлено: 2026-07-29.
+Статус: **IMPLEMENTED** (11.8–11.12 + подтипы 2026-08-05). Обновлено: 2026-08-05.
 
 Проблема: [issue.md](issue.md). Персист атомов: [persistence.md](persistence.md) (V025).
 Домен инцидентов связи: [../phase7j/incident.md](../phase7j/incident.md).
-**Журнал инцидентов (11.13):** канон — [incident-journal.md](incident-journal.md)
+**Журнал инцидентов (11.13):** канон — [../phase8/incident-journal.md](../phase8/incident-journal.md)
 (таблица `incident` в **OHS**; atoms/`notification` → NC на gate 11→12). §6.3 — черновик полей.
 Soft-delete (видимость ⊥ ThreadStatus) — [incident-soft-delete.md](incident-soft-delete.md);
 фильтр Выбор «Удалённые» — [nc-marks.md](nc-marks.md).
@@ -17,8 +17,8 @@ Soft-delete (видимость ⊥ ThreadStatus) — [incident-soft-delete.md](
 
 - оператор видит **Single** и **заголовок Thread** на одном вертикальном уровне;
 - внутри Thread — стек `Entry` (раскрытие);
-- **Incident** и **Group** — специализации Thread с разной политикой (обязательное закрытие /
-  «просто группа»).
+- **Incident** и **Group** — специализации Thread с разной **политикой** (duty close / нет);
+- подтипы **Crash|Break** и **Lifecycle|Action|Checkup** — **тематика** (не новая политика).
 
 Плоский audit в Timescale **не отменяем**: каждое событие по-прежнему строка `notification`.
 Thread — **проекция** (v1 клиент / шина), later — опциональная серверная сущность.
@@ -132,6 +132,10 @@ Terminal outcomes:
 если нить = жизненный цикл сущностей каталога → lifecycle
 ```
 
+**UI (реализовано 2026-08-05):** в заголовке Thread для Group показывается ярлык подтипа
+(`Action` / `Lifecycle` / `Checkup`), не слово «Group». Incident по-прежнему бейдж
+`Incident` + иконка Crash/Break по `incidentKind`.
+
 Классификация Incident vs Group (политика):
 
 ```text
@@ -180,8 +184,8 @@ Terminal outcomes:
 ```
 
 - Collapse Thread = скрыть весь стек Entry.
-- Заголовок Thread: summary (subject, kind badge Incident/Group, threadStatus, время
-  open→last / close), ★ / ⊘ (bulk; см. [nc-marks.md](nc-marks.md)).
+- Заголовок Thread: summary (subject; kind badge **Incident** или **Action/Lifecycle/Checkup**;
+  threadStatus; время open→last / close), ★ / ⊘ (bulk; см. [nc-marks.md](nc-marks.md)).
 - Entry: строка + свои ★ / ⊘ (severity icon, message, expand JSON).
 
 ### 4.2 Фильтры (дополнение к существующим)
@@ -247,10 +251,12 @@ interface NotificationBus {
 1. Разбить по наличию `correlationId`.
 2. Группы с corr → Thread; упорядочить Entry по ts.
 3. `threadKind` = hint из data / эвристика (если нет hint: коды `connection.lost` /
-   `backend.unavailable` + наличие schedule в data → incident; иначе group; whitelist).
-4. `threadStatus` по §3.
-5. События без corr → Single.
-6. Merge Single + Thread в один список по `sortKey` (lastActivity).
+   `backend.unavailable` → incident; иначе group).
+4. `incidentKind` (если incident) = `data.kind` / эвристика `backend.*`→crash, link→break.
+5. `groupKind` (если group) = `data.groupKind`; иначе default **`action`**.
+6. `threadStatus` по §3.
+7. События без corr → Single.
+8. Merge Single + Thread в один список по `sortKey` (lastActivity).
 
 **Переходный период:** UI может читать `items$`; старые тесты — `events$` / `statusOf`.
 
@@ -274,14 +280,18 @@ interface NotificationBus {
 **Обязательно для корректной политики Incident/Group:**
 
 - при `Open` инцидента связи/crash писать в `data`:
-  - `threadKindHint: incident|group` (по горизонту на момент Open),
+  - `threadKindHint: incident|group`,
+  - `kind: crash|break` (wire для `incidentKind`),
   - для close — `closeOutcome`.
+- при Open **Group** (Refresh каталога, auto/connect success, schedule batch):
+  - `threadKindHint: group`,
+  - `groupKind: lifecycle|action|checkup` (если не указан — Hub/`WithHints` → default `action`).
 - Не менять форму WS/REST: по-прежнему поток атомов (+ hydrate из БД).
 
 **Не обязательно в v1:** таблица `notification_thread` (см. §6).
 
-Файлы-ориентир: `NotificationHub.cs` (Open/Progress/Resolve), продюсеры
-`ConnectionManager` / `ConnectionSupervisor`, ingest crash.
+Файлы-ориентир: `NotificationHub.cs`, `NotificationThreadData.WithHints`, продюсеры
+`ConnectionManager` / `ConnectionSupervisor` / `CatalogRefreshNc`, ingest crash.
 
 ### 5.5 Маппинг кодов → роль в нити (черновик)
 
@@ -307,11 +317,13 @@ interface NotificationBus {
 **Таблицы / колонки не добавляем.** Колонка `data` (JSONB) в `notification` покрывает наши
 изменения в объектной модели:
 
-- `data.threadKindHint` — Incident vs Group на open-событии;
-- `data.closeOutcome` — чем закрылся стек на close-событии.
+- `data.threadKindHint` — Incident vs Group (политика) на open;
+- `data.kind` — wire `incidentKind` (`crash`|`break`);
+- `data.groupKind` — подтип Group (`lifecycle`|`action`|`checkup`);
+- `data.closeOutcome` — чем закрылся стек на close.
 
-Thread / Incident / Group — проекция над атомами (`correlation_id` + эти поля в `data`), а не
-отдельная сущность схемы. Новая таблица или ALTER нужны только если позже понадобится
+Thread / Incident / Group (+ подтипы) — проекция над атомами (`correlation_id` + поля в `data`),
+не отдельная сущность схемы. Новая таблица или ALTER — только если позже понадобится
 first-class журнал нитей (вариант B).
 
 ### 6.1 Как сейчас (остаётся)

@@ -5,7 +5,19 @@
 следующие Stages).
 
 Корневой план: [../plan.md](../plan.md).  
-После реализации — вычеркнуть здесь и коротко отметить в report исходной фазы.
+После реализации — пометить **DONE** (или вычеркнуть) и коротко отметить в report исходной фазы.
+
+### Каталог Online — что закрыто / что ещё долг
+
+| Тема | Статус | Где |
+| ---- | ------ | --- |
+| Опционы FORTS ATM ±N + подписка (`7h.OPT` = `7i.OPT`) | **DONE** 2026-08-04 | [phase7i/issue](../phase7i/issue.md) |
+| Refresh справочника (dump stale + сброс OPT-окон) + NC Action/Lifecycle | **DONE** | [wiki catalog](../../wiki-readme/catalog.md) |
+| Архив по exp (`instrument.active`) — «актуальные vs исторические» Online | **DONE** | [db-design](../../architecture/db-design.md) § Online lifecycle |
+| Intraday «торгуется / спит / suspended» | **OPEN** | **7c.9** (борд) + **7c.SEC** (`sec_status`) ниже |
+| Baskets / Observed (working set поверх Available) | DRAFT, не код | [baskets-observed](../baskets-observed.md) |
+
+**Не путать:** lifecycle-архив ≠ intraday-статус. OPT/Refresh/**не** Stage 2.
 
 ---
 
@@ -50,10 +62,15 @@
 
 ## Phase 7b — таймфреймы
 
+В report фазы **7b.1–7b.9 = DONE** (`MoexSchedule`, `QueryTradingDaysAsync`, …). Ниже — только
+follow-up с **другими** id (не переиспользовать номера задач фазы).
+
 | # | Что | Источник | Горизонт |
 | - | --- | -------- | -------- |
-| 7b.1 | Portal-тултип для колбасок (вместо native `title`; `overflow:hidden`) | [report Follow-up](../phase7b/report.md) | UX polish |
-| 7b.2 | Реальный `sec_status` «торгуется/спит» | [plan out of scope](../phase7b/plan.md) | later (см. также 7c.9) |
+| 7b.TIP | Portal-тултип для колбасок (вместо native `title`; `overflow:hidden`) | [report Follow-up](../phase7b/report.md) | UX polish |
+
+Out-of-scope 7b «`sec_status` торгуется/спит» → учтён как **7c.SEC** (не путать с DONE **7b.2**
+`QueryTradingDaysAsync`).
 
 ---
 
@@ -65,7 +82,7 @@
 | **7c.9** | Статус инструмента в карточке: слой A (расписание борда) + слой B (активность записи) | report DEFERRED | ближе к живости / UX |
 | 7c.CACHE | Персистентный кэш календаря ISS (сейчас `IMemoryCache`) | plan → Phase 13 | Stage 4 / phase 13 |
 | 7c.CURATE | Ручное курирование `futures_asset_class` (`confirmed`) поверх авто | apply §3f | later |
-| 7c.SEC | Биржевой флаг приостановки бумаги (`sec_status` / suspended) | plan out of scope | later |
+| 7c.SEC | Флаг бумаги `sec_status` / suspended / «торгуется·спит» (TRANSAQ; был out-of-scope 7b) | 7c plan + 7b plan | later |
 | 7c.CLR | Использование settlement/clearing сессий в UI (сейчас читаем, не рисуем) | plan out of scope | later |
 
 ---
@@ -122,7 +139,7 @@ startup-latency. Красный на инструменте = WriteGap (не as-
 | **WG.1** | Backfill WriteGap из истории коннектора (TRANSAQ history → `md_trade`) | write-gaps | production later |
 | 7h.8d | Lifecycle: coverage-сегмент «живёт через обрыв» (reconnect → тот же segment) | report TODO 2-й заход | later / опц.; визуал закрыт Write Gaps |
 | 7h.POL | Тонкая политика реконнекта / backoff | plan out of scope | later |
-| 7h.OPT | Каталог/подписка опционов FORTS (ATM ±N Online) | [phase7i/issue](../phase7i/issue.md) | **DONE** (2026-08-04) |
+| ~~7h.OPT~~ | ~~Каталог/подписка опционов FORTS~~ | [phase7i/issue](../phase7i/issue.md) | **DONE** 2026-08-04 · не production-долг |
 | 7h.DER | Старый «журнал для backfill» в 7h incident.md | superseded → phase 8 | снят |
 
 ---
@@ -142,7 +159,7 @@ Scinverse confirmer (Finam/ISS приоритет). **Не MVP:**
 | 7i.L3 | «Рыночный пульс» тумблера связи без записи | осознанно отложено | later |
 | 7i.L4 | User-scope политик записи | phase 10 | Stage 2 |
 | 7i.MAP | `system_source(capability, market, service_id)` вместо хардкод-дефолтов confirmer | schedule.md | later |
-| 7i.OPT | Подписка на опционы TRANSAQ (цепочка команд) | [issue.md](../phase7i/issue.md) | **DONE** (= 7h.OPT, 2026-08-04) |
+| ~~7i.OPT~~ | ~~Подписка на опционы TRANSAQ~~ | [issue.md](../phase7i/issue.md) | **DONE** (= 7h.OPT) · не production-долг |
 
 Канон: [../phase7i/schedule.md](../phase7i/schedule.md).
 
@@ -192,6 +209,9 @@ P3–P5 crash/journal — DONE. Follow-up:
 4. **7j.15 / 7j.16** — market profile + пагинация календаря  
 5. **WG.1** — backfill WriteGaps (история коннектора → `md_trade`)  
 6. **I9** — prod checklist  
+
+Снято с долга (было №4 в ранних сводках): **7h.OPT / 7i.OPT** — Online ATM + Refresh +
+`instrument.active`. Intraday «торгуется» — **не** в приоритетном топе (**7c.9** / **7c.SEC**).
 
 ---
 

@@ -108,6 +108,12 @@ in-memory cache-first, суточная инвалидация (Auto-on) + Refre
 Код: `WriteGapService` + `POST /api/coverage/write-gaps` + `showWriteGaps$`; as-is incident red
 с инструмента снят. Connection void mask — phase 8 / P2 (**DONE**).
 
+## Follow-up: 7h.OPT / каталог опционов — **DONE** 2026-08-04
+
+Connect-dump без OPT остаётся фактом шлюза; Online-путь ATM ±N + Refresh + lifecycle —
+[../phase7i/issue.md](../phase7i/issue.md) / [../phase7i/report.md](../phase7i/report.md).
+Снято с [abandoned](../stage1/abandoned.md) (не Stage 2).
+
 ## Вне области (осталось на follow-up)
 
 - Backfill непокрытых участков (phase 7c ISS / 9 qsh)

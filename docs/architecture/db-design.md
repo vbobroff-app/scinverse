@@ -206,7 +206,7 @@ ORDER BY d.strike;
    воскрешает уже архивный контракт.
 3. Online list (`QueryAsync` / `groups`): по умолчанию только `active=TRUE` (+ серии с
    `expiration >= today`). History / `includeArchived` — later.
-4. **Не путать** с intraday (`sec_status`, сессия, halt) — см. долг 7b.2 / 7c.9 в abandoned.
+4. **Не путать** с intraday (`sec_status`, сессия, halt) — см. долг **7c.9** / **7c.SEC** в abandoned.
 
 Пользовательская сводка: [wiki-readme/catalog.md](../wiki-readme/catalog.md).
 

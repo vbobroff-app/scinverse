@@ -75,6 +75,12 @@ Stage 1 — в **[apply.md](apply.md)**. Семейство фаз 7 (`7`, `7b`�
 Хвосты для дальнейшей (production) реализации вынесены за пределы MVP —
 **[stage1/abandoned.md](stage1/abandoned.md)**.
 
+**Каталог Online (после close Stage 1, не Stage 2):** `7h.OPT` / `7i.OPT` — **DONE**
+(ATM ±N FORTS, Refresh UX + NC Action/Lifecycle, `instrument.active` = архив по exp).
+Канон — [wiki-readme/catalog.md](../wiki-readme/catalog.md) · [phase7i/issue.md](phase7i/issue.md).
+Остаток по спискам — intraday «торгуется» (**7c.9** / **7c.SEC** в abandoned) и
+черновик baskets/Observed ([baskets-observed.md](baskets-observed.md)); это **не** gate Stage 2.
+
 | Фаза | Содержание | Статус | Детали |
 | ---- | ---------- | ------ | ------ |
 | 4 | Локальный E2E OHS (запись): смоук (fake) + реальный TRANSAQ | DONE | [phase4](phase4/report.md) |
@@ -89,12 +95,13 @@ Stage 1 — в **[apply.md](apply.md)**. Семейство фаз 7 (`7`, `7b`�
 | 7e | Управление подключениями (Transaq UI) | MVP DONE | [phase7e](phase7e/report.md) |
 | 7f | Тайм-лайн-фильтр оси Ганта + стандарт времени | MVP DONE | [phase7f](phase7f/report.md) |
 | 7g | Слой сделок на Ганте (`/coverage/activity`) | DONE | [phase7g](phase7g/plan.md) |
-| 7h | Честная подложка + liveness + **Write Gaps** | DONE | [phase7h](phase7h/report.md) |
-| 7i | Auto / Supervisor + база `market_schedule` + Integrations | MVP DONE | [phase7i](phase7i/report.md) |
+| 7h | Честная подложка + liveness + **Write Gaps** (+ OPT ATM Online) | DONE | [phase7h](phase7h/report.md) · OPT → [7i/issue](phase7i/issue.md) |
+| 7i | Auto / Supervisor + `market_schedule` + Integrations + **OPT/Refresh/lifecycle** | MVP DONE | [phase7i](phase7i/report.md) |
 | 7j | Расписание соединения + инциденты v2 + abandon | MVP DONE | [phase7j](phase7j/report.md) |
 | **8** | **Журнал `incident`, soft-delete, ribbon, crash fan-out** | DONE | [phase8](phase8/plan.md) |
 
 NC-пакет / Thread / вынос MFE — **Stage 2 / phase 11**, не Stage 1.
+Online-каталог опционов / Refresh / архив по exp — **уже в Stage 1** (не долг Stage 2).
 
 ---
 
@@ -164,7 +171,8 @@ data/control-plane. Product Front / ODS — следующий горизонт 
 ## Связанные документы
 
 - [apply.md](apply.md) — дизайн Stage 1 (OHS: управление записью + панель покрытия).
-- [stage1/abandoned.md](stage1/abandoned.md) — хвосты Stage 1 вне MVP.
+- [stage1/abandoned.md](stage1/abandoned.md) — хвосты Stage 1 вне MVP (OPT/Refresh **сняты**).
+- [`../wiki-readme/catalog.md`](../wiki-readme/catalog.md) — Online-каталог / ATM / Refresh / архив.
 - [`../architecture/db-design.md`](../architecture/db-design.md) — решения по модели данных (Р1–Р5).
 - [`../ohs.md`](../ohs.md) — обзор OHS.
 - [`../solution/code.md`](../solution/code.md) — обзор кода vertical slice.

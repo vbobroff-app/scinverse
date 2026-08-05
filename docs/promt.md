@@ -27,12 +27,14 @@ REST/WebSocket наружу + админ-фронт для управления 
 scinverse/
 ├─ README.md                     # обзор монорепо (+ mermaid)
 ├─ docs/promt.md                 # вход нового чата / handoff (этот файл, §8)
-├─ docs/wiki-readme/             # пользовательская wiki (черновик; без ссылок на docs/dev)
+├─ docs/wiki-readme/             # пользовательская wiki (catalog / layers / write-gaps / …)
 ├─ docs/dev/plan.md              # Stages 0–4 + Future Features
-├─ docs/dev/stage1/abandoned.md  # хвосты Stage 1 вне MVP
+├─ docs/dev/stage1/abandoned.md  # хвосты Stage 1 вне MVP (OPT сняты)
+├─ docs/dev/baskets-observed.md  # DRAFT: Available / Observed / baskets (не код)
 ├─ docs/dev/phase8/              # OHS journal + schedule-projection + crash (Stage 1)
 ├─ docs/dev/phase7h/write-gaps.md # Writers Gantt WriteHole/WriteGap (DONE)
-├─ docs/dev/phase11/             # NC + split (Stage 2); journal stubs → phase8
+├─ docs/dev/phase7i/issue.md     # 7i.OPT FORTS ATM — DONE
+├─ docs/dev/phase11/             # NC + split (Stage 2); to-threads = канон Thread subtypes
 ├─ docs/architecture/c4/         # C4 PlantUML to-be (NC, dual front, Keycloak)
 ├─ docs/architecture/ohs-connectors-deploy.md  # TRANSAQ Windows-агент / finam-ws to-be
 ├─ tools/plantuml/               # Local plantuml.jar (gitignore) + README
@@ -65,8 +67,13 @@ scinverse/
   Keycloak, OHS control-plane). Превью PlantUML: Local jar `tools/plantuml` (см. README там).
 - [`docs/architecture/ohs-connectors-deploy.md`](./architecture/ohs-connectors-deploy.md) — TRANSAQ DLL =
   Windows-агент; Linux control-plane; следующий коннектор **finam-ws**; `request_timeout=10`.
-- [`docs/architecture/db-design.md`](./architecture/db-design.md) — модель данных (Р1–Р5).
+- [`docs/architecture/db-design.md`](./architecture/db-design.md) — модель данных (Р1–Р5) + Online lifecycle / OPT.
 - [`docs/architecture/ui-charting.md`](./architecture/ui-charting.md) — product-чартинг (не админка).
+
+**Wiki (оператор / продукт)**
+- [`docs/wiki-readme/catalog.md`](./wiki-readme/catalog.md) — Online-каталог, ATM, Refresh, архив vs intraday.
+- [`docs/wiki-readme/layers.md`](./wiki-readme/layers.md) · [`write-gaps.md`](./wiki-readme/write-gaps.md) ·
+  [`incident.md`](./wiki-readme/incident.md).
 
 **Код (обзор реализованного)**
 - [`docs/solution/code.md`](./solution/code.md) — что реализовано по проектам (backend + frontend),
@@ -75,9 +82,11 @@ scinverse/
 **План разработки (Stages → фазы)**
 - [`docs/dev/plan.md`](./dev/plan.md) — дорожная карта: **Stage 0–4** + Future Features (QScalp/Plaza2).
 - [`docs/dev/stage1/abandoned.md`](./dev/stage1/abandoned.md) — хвосты Stage 1 **вне MVP** (production backlog).
+- [`docs/dev/baskets-observed.md`](./dev/baskets-observed.md) — **DRAFT** baskets / Observed (следующий горизонт каталога).
 - [`docs/dev/apply.md`](./dev/apply.md) — дизайн Stage 1 (управление записью + панель покрытия).
 - [`docs/dev/phase7/roadmap.md`](./dev/phase7/roadmap.md) — карта семейства фаз 7 (MVP админки).
 - [`docs/dev/phase7/mvp-to-release.md`](./dev/phase7/mvp-to-release.md) — швы MVP→release.
+- [`docs/tickers-options.md`](./tickers-options.md) — протокол OPT Finam / TRANSAQ.
 - Каждая фаза — `docs/dev/phaseN/{plan,apply,report}.md`.
 
 **Stages (кратко)**
@@ -100,12 +109,13 @@ scinverse/
 | 6a–6c | Coverage + control-plane + derivative | DONE | [6a](./dev/phase6a/report.md) · [6b](./dev/phase6b/report.md) · [6c](./dev/phase6c/report.md) |
 | 7 | Админ-фронт (ур.3 MVP; ур.1 WONT; общий Гант → после WebGL) | DONE | [phase7](./dev/phase7/report.md) |
 | 7b–7g | Таймфреймы, ISS, фильтры, connect UI, ось, слой сделок | DONE / MVP DONE | roadmap |
-| **7h** | Liveness + Connection-ribbon + **Write Gaps** | **DONE** | [report](./dev/phase7h/report.md) · [write-gaps](./dev/phase7h/write-gaps.md) |
-| 7i | Auto / Supervisor + `market_schedule` + Integrations | MVP DONE | [report](./dev/phase7i/report.md) |
+| **7h** | Liveness + Connection-ribbon + **Write Gaps** (+ OPT ATM) | **DONE** | [report](./dev/phase7h/report.md) · [write-gaps](./dev/phase7h/write-gaps.md) |
+| 7i | Auto / Supervisor + Integrations + **OPT/Refresh/lifecycle** | MVP DONE | [report](./dev/phase7i/report.md) · [7i.OPT](./dev/phase7i/issue.md) |
 | 7j | Расписание соединения + инциденты v2 | MVP DONE | [report](./dev/phase7j/report.md) · [wrap-up](./dev/incident-model-wrapup.md) |
 | **8** | **OHS journal, soft-delete, crash, void mask, schedule-projection** | **DONE** | [phase8/plan](./dev/phase8/plan.md) · [journal](./dev/phase8/incident-journal.md) |
 
-Хвосты 7i/7j/… — [`stage1/abandoned.md`](./dev/stage1/abandoned.md).
+Хвосты 7i/7j/… — [`stage1/abandoned.md`](./dev/stage1/abandoned.md)
+(`7h.OPT`/`7i.OPT` **сняты**; intraday — **7c.9**/**7c.SEC**, не путать с DONE **7b.2**).
 
 **Дальше (не Stage 1)**
 
@@ -124,6 +134,14 @@ scinverse/
   (одна бумага может иметь сделки из разных провайдеров — цвет колбаски = источник).
 - **Деривативы** — таблица `derivative` (FUT/OPT); навигация — **фильтры 7d** (дерево descoped),
   `groups` питает значения. Парсинг MOEX FORTS — `MoexFortsSpecParser`, серии — `MoexSeries`.
+- **Online-каталог (DONE)** — две оси: **lifecycle** `instrument.active` (архив по `expiration`, МСК)
+  ≠ **intraday** «торгуется сейчас» (долг **7c.9** борд / **7c.SEC** `sec_status`). Connect-dump
+  часто без OPT → ATM ±N через `get_option_families` → `get_family_strikes` → `get_options`.
+  Refresh: dump stale + lifecycle sweep + сброс OPT-окон; NC два Group (`action` / `lifecycle`).
+  Wiki — [catalog](./wiki-readme/catalog.md); issue — [7i.OPT](./dev/phase7i/issue.md).
+- **NC Thread subtypes (DONE в монолите)** — `Incident`→Crash|Break (`data.kind`→`incidentKind`);
+  `Group`→Lifecycle|Action|Checkup (`data.groupKind`, default `action`). UI Group = ярлык подтипа.
+  Канон — [phase11/to-threads.md](./dev/phase11/to-threads.md).
 - **Расписание сессий** — `/api/sessions` через `IMarketCalendar` (ISS `timetable`/`dailytable`,
   fallback `MoexSchedule`). Курируемая история в `market_schedule` (7i); ось Ганта пока ещё на
   «текущем» ISS — хвост **7i.S1** в [abandoned](./dev/stage1/abandoned.md). Integrations:
@@ -201,9 +219,9 @@ scinverse/
 - Пользователь сам финализирует часть фронтового UI и сам решает, когда пушить.
 
 
-## 7. Текущий момент
+## 7. Текущий момент (2026-08-05)
 
-**Stage 1 = DONE** (2026-08-04): монолит Host + admin web + журнал OHS + Write Gaps + void mask.
+**Stage 1 = DONE** (2026-08-04). После close дожали Online-каталог и NC subtypes (см. §8.1).
 Пакет NC в монолите готов; **вынос NC / Keycloak / WebGL — Stage 2–3**.
 
 Хвосты вне MVP — [`dev/stage1/abandoned.md`](./dev/stage1/abandoned.md).  
@@ -212,36 +230,46 @@ scinverse/
 | Контур | Статус |
 |--------|--------|
 | Stage 1 phase 4–8 | **DONE** |
-| `incident` journal ⊥ NC (fan-out) · soft-delete V030 | DONE · docs home **phase 8** |
+| `incident` journal ⊥ NC · soft-delete V030 | DONE · docs **phase 8** |
 | Connection-ribbon + schedule void mask | DONE |
 | Writers Write Gaps (`ScheduleCutter`) | DONE |
-| NC Thread UI (монолит) | DONE · Stage 2 = split/MFE |
+| Online-каталог: OPT ATM ±N + Refresh + `instrument.active` | **DONE** · не Stage 2 |
+| NC Thread subtypes Crash/Break + Lifecycle/Action/Checkup | **DONE** (монолит) · Stage 2 = split |
+| Crash: flush LS pending на **первом** WS open | **DONE** (`60d3e11`) |
+| Connection toggle при OHS outage | красный **error** + × (`92778c8`); Auto — yellow unreachable |
 | Adopt / I10 / I12 клиент | ПРИНЯТО / DONE; pool defer @100 |
 | Schedule-as-projection P1–P5 + P2 mask | **DONE** |
+| Baskets / Observed | **DRAFT** спека · [baskets-observed](./dev/baskets-observed.md) |
 
-Host при `dotnet test` — остановить (lock DLL).  
-**Handoff:** §8. **Next Stage:** 2 (phase 10 Keycloak → phase 11 NC split).
+Host при `dotnet test` / rebuild — **остановить** (lock DLL на Windows).  
+**Handoff:** §8. Типичный next — уточнить у пользователя (baskets vs Stage 2 vs production backlog).
 
 ---
 
-## 8. ➡️ НОВЫЙ ЧАТ — Stage 1 закрыт (2026-08-04)
+## 8. ➡️ НОВЫЙ ЧАТ — handoff (обновлено 2026-08-05)
 
 Единственный handoff-файл — **этот** (`docs/promt.md`).
 
 **Отвечать по-русски**, если пользователь пишет по-русски.  
-Коммит — **только по явной просьбе**.
+Коммит — **только по явной просьбе**. PowerShell: `;` не `&&`; commit-msg → файл + `git commit -F`.
 
 ### 8.1. Baseline
 
-| Тема | Статус | Docs |
-|------|--------|------|
+| Тема | Статус | Docs / коммиты |
+|------|--------|----------------|
 | Stage 1 (phase 4–8) | **DONE** | [plan.md](./dev/plan.md) · [abandoned](./dev/stage1/abandoned.md) |
-| Journal OHS + soft-delete + crash | DONE | [phase8/](./dev/phase8/plan.md) |
-| Write Gaps + ScheduleCutter | DONE | [write-gaps](./dev/phase7h/write-gaps.md) |
-| Void mask Connection | DONE | [schedule-projection](./dev/phase8/schedule-projection.md) |
-| NC Thread в монолите | DONE | [phase11](./dev/phase11/plan.md) (Stage 2 = split) |
+| Journal + soft-delete + crash T/C | DONE | [phase8/](./dev/phase8/plan.md) |
+| Write Gaps + void mask | DONE | [write-gaps](./dev/phase7h/write-gaps.md) · [schedule-projection](./dev/phase8/schedule-projection.md) |
+| **7h.OPT / 7i.OPT** + lifecycle + Refresh UX/NC | **DONE** | [catalog](./wiki-readme/catalog.md) · [7i.OPT](./dev/phase7i/issue.md) · `df64a12`…`803fa8d` |
+| NC Group/Incident subtypes | **DONE** | [to-threads](./dev/phase11/to-threads.md) · `eb8f2cc` |
+| Crash pending flush + Connection red mask | **DONE** | `60d3e11` · `92778c8` |
+| Baskets / Observed | DRAFT only | [baskets-observed](./dev/baskets-observed.md) (**??** untracked) |
 | Gate Stage 2 → WebGL | later | phase 10 + 11 |
-| Production хвосты (pre-flight, sessions←SCD-2, …) | backlog | [abandoned](./dev/stage1/abandoned.md) |
+| Production backlog | open | [abandoned](./dev/stage1/abandoned.md) — **без** OPT |
+
+**Git (на момент handoff):** ветка `main` сильно ahead origin; **docs** (plan/abandoned/promt/catalog/
+phase11 to-threads/…) часто **ещё не закоммичены** — сверить `git status`. Код OPT/NC/crash —
+уже в истории выше.
 
 ### Soft-delete — суть (кратко)
 
@@ -252,18 +280,19 @@ Ribbon всегда без deleted; journal — `includeDeleted`; NC — Выб�
 ### 8.2. Прочитай первым
 
 1. Этот файл (§1–§7 + этот §8).
-2. Дорожная карта: [`dev/plan.md`](./dev/plan.md).
-3. Хвосты Stage 1: [`dev/stage1/abandoned.md`](./dev/stage1/abandoned.md).
-4. Journal / soft-delete / crash / mask: [`phase8/`](./dev/phase8/plan.md)
+2. Дорожная карта: [`dev/plan.md`](./dev/plan.md) (§ Stage 1 — абзац про каталог DONE).
+3. Хвосты: [`stage1/abandoned.md`](./dev/stage1/abandoned.md) (таблица каталог + ids **7c.9/7c.SEC**, **7b.TIP**).
+4. Каталог Online: [`wiki-readme/catalog.md`](./wiki-readme/catalog.md) · [`tickers-options.md`](./tickers-options.md) ·
+   [`phase7i/issue.md`](./dev/phase7i/issue.md).
+5. NC Threads: [`phase11/to-threads.md`](./dev/phase11/to-threads.md) · [plan](./dev/phase11/plan.md).
+6. Journal / crash / mask: [`phase8/`](./dev/phase8/plan.md)
    ([journal](./dev/phase8/incident-journal.md) · [soft-delete](./dev/phase8/incident-soft-delete.md) ·
    [schedule-projection](./dev/phase8/schedule-projection.md) · [crash](./dev/phase8/crash-dispatch.md)).
-5. Write Gaps: [`phase7h/write-gaps.md`](./dev/phase7h/write-gaps.md).
-6. NC (Stage 2 продукт): [`phase11/plan.md`](./dev/phase11/plan.md) · [nc-marks](./dev/phase11/nc-marks.md).
-7. Wrap-up модели: [`incident-model-wrapup.md`](./dev/incident-model-wrapup.md).
-8. Wiki: [`wiki-readme/incident.md`](./wiki-readme/incident.md) · [`layers.md`](./wiki-readme/layers.md) ·
-   [`write-gaps.md`](./wiki-readme/write-gaps.md).
+7. Write Gaps: [`phase7h/write-gaps.md`](./dev/phase7h/write-gaps.md).
+8. Wrap-up инцидентов: [`incident-model-wrapup.md`](./dev/incident-model-wrapup.md).
+9. Если следующий шаг = working set: [`baskets-observed.md`](./dev/baskets-observed.md) (draft).
 
-> Старые пути `phase11/incident-*.md` — **stubs** → `phase8/`. Канон только в phase8.
+> Старые пути `phase11/incident-*.md` — **stubs** → `phase8/`. Канон journal только в phase8.
 
 ### 8.3. Миграции (DbUp)
 
@@ -313,7 +342,7 @@ localStorage: `ohs:incidentsJournal:showDeleted` · `ohs:notificationDock` (choi
 
 ### 8.5. Инварианты (не ломать)
 
-- Soft-delete = видимость; lifecycle `active|recovering|resolved`.
+- Soft-delete = видимость; lifecycle инцидента `active|recovering|resolved`.
 - Journal SoT эпизодов; NC — уведомления (атомы можно не удалять).
 - Ribbon / by-connection incidents — без soft-deleted.
 - Delete open ≡ manual close, затем tombstone; resolve soft-deleted → 409.
@@ -322,6 +351,27 @@ localStorage: `ohs:incidentsJournal:showDeleted` · `ohs:notificationDock` (choi
 - **I10:** stale-close open break **только** при `Live`.
 - TRANSAQ `request_timeout=10`; Host `Max Pool Size=100` — не поднимать без боли.
 - Не воскрешать `:h` clip.
+- **`instrument.active`** = архив по exp Online; ≠ intraday `sec_status` / борд.
+- NC: `threadKind` = политика; `incidentKind`/`groupKind` = тематика; mid-flight reclass запрещён.
+- Crash outage: `createLiveStream` — `onReconnect`/flush pending на **каждом** успешном open
+  (не только со 2-го); `onDrop` — после первого успешного соединения.
+- Catalog Refresh: кэш corr → `groupKind: action`; актуальность → `lifecycle`.
+
+### 8.5b. Каталог — якоря API / код
+
+```text
+POST /api/instruments/catalog/refresh
+GET  /api/connections/{id}/option-families
+POST /api/connections/{id}/load-options
+```
+
+| Слой | Путь |
+|------|------|
+| OPT load | `OptionCatalogService`, `IOptionCatalogLoader` / Transaq |
+| Lifecycle | `InstrumentLifecycleService`, `InstrumentStore` (`active`) |
+| Refresh NC | `CatalogRefreshNc` |
+| Web | expand FUT/series, `ProviderCard` Refresh + confirm |
+| Depth | `Ohs:OptionAtmDepth` (default 15) |
 
 ### 8.6. Запуск / проверки
 
@@ -333,26 +383,24 @@ cd services/online-history-server/web; pnpm exec tsc --noEmit; pnpm exec vitest 
 ```
 
 PowerShell: `;` не `&&`. Commit-msg → UTF-8 без BOM + `git commit -F`.  
-Стиль: `feat(ohs-8): …` / `feat(ohs-7h): …` / `feat(ohs-web): …` / `feat(nc): …` / `docs: …`.
+Стиль: `feat(ohs-7i): …` / `feat(ohs-web): …` / `feat(nc): …` / `docs: …`.
 
 ### 8.7. Возможные следующие задачи
 
 Уточнять scope у пользователя. Не стартовать gate/WebGL «заодно».
 
-**Stage 2 (типичный next):**
-- Phase 10 — Keycloak + `user_settings`.
-- Phase 11 — split OHS / Admin Front / NC (MFE); база NC в монолите уже DONE.
+**Кандидаты (спросить приоритет):**
+1. **Baskets / Observed** — реализовать по draft [`baskets-observed.md`](./dev/baskets-observed.md)
+   (Available ∪ baskets → hot cache; static/dynamic OPT sticky expand).
+2. **Docs commit** — закоммитить накопившийся docs-diff + untracked baskets (если попросят).
+3. **Stage 2** — phase 10 Keycloak → phase 11 NC split/MFE.
+4. **Production backlog** — [`abandoned`](./dev/stage1/abandoned.md): 7i.S2 pre-flight, 7i.S1 sessions←SCD-2,
+   7j.15/16, WG.1, I9; intraday **7c.9/7c.SEC** — не топ.
 
-**Production backlog (не MVP)** — полный список:
-[`stage1/abandoned.md`](./dev/stage1/abandoned.md), в т.ч.:
-- 7i.S2 daily-sync + pre-flight;
-- 7i.S1 `/api/sessions` ← SCD-2 `market_schedule`;
-- 7j.15/16 market profile / пагинация календаря;
-- WG.1 backfill WriteGaps из истории коннектора;
-- hard-delete / retention purge.
-
-**Уже DONE (не брать в работу как «хвост»):**
-- Write Gaps + ScheduleCutter; void mask Connection; soft-delete; crash T/C; startup-latency.
+**Уже DONE (не брать как «хвост Stage 2»):**
+- Write Gaps, void mask, soft-delete, crash T/C, startup-latency;
+- **7h.OPT / 7i.OPT**, Refresh NC Action/Lifecycle, `instrument.active`;
+- NC subtypes; crash pending flush; Connection crash → red error.
 
 ### 8.8. Архив: schedule-as-projection (DONE)
 
@@ -362,13 +410,12 @@ P1 Cutter + P2 void mask + P3–P5 crash/journal — **DONE**; `:h` отклон
 
 ---
 
-
-
 ## 9. Справка: провайдеры (phase 7e, DONE)
 
 Управление подключениями из админки — [phase7e/report.md](./dev/phase7e/report.md).
 
-- `ConnectionForm`, `ConnectionToggle` (5 фаз + error), `ProviderCard`
+- `ConnectionForm`, `ConnectionToggle` (фазы + **error** при OHS outage; Auto — yellow unreachable),
+  `ProviderCard` (+ Refresh справочника)
 - Backend: `ConnectionManager`, `POST /connections/validate`, synthetic + Transaq
 - Эмуляция обрыва: `POST /api/connections/{id}/debug/drop` (Dev, synthetic)
 

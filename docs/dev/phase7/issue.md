@@ -53,9 +53,11 @@ Si                     базовый актив (underlying)
    `sectype=SHARE`, поэтому дерево не на чем демонстрировать без TRANSAQ → нужен небольшой
    синтетический FORTS-набор (фьючерс + опционная серия) для проверки UX.
 
-6. **«Торгуется сейчас» — временно проксируется `active`.** Реальный статус торговой сессии
-   инструмента (в TRANSAQ — `sec_status`/`quotestype`) не ингестится. Для точного индикатора
-   «disabled Старт» это отдельный write-path-инкремент (вне scope дерева, отмечено на будущее).
+6. **`instrument.active` — ось lifecycle Online (архив по exp), не «торгуется сейчас».**
+   Исторически здесь писали «временно проксируется `active`»; после 7h.OPT / lifecycle
+   (2026-08-04) `active=false` = просрочен по `derivative.expiration` (Online-список / Start/Auto).
+   Intraday «в сессии / спит / suspended» — долг **7c.9** (борд) / **7c.SEC** (`sec_status`)
+   ([abandoned](../stage1/abandoned.md)); канон осей — [wiki catalog](../../wiki-readme/catalog.md).
 
 ## Что делаем (в phase6c)
 

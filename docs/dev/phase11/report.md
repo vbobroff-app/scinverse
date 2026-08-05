@@ -6,7 +6,7 @@
 Журнал OHS / soft-delete / crash — **перенесены в [phase 8](../phase8/report.md)** (2026-08-04).
 [issue.md](issue.md) I2 · journal → [../phase8/incident-journal.md](../phase8/incident-journal.md).
 Смежный хвост 7j **I12** — [../phase7j/plan.md](../phase7j/plan.md) §7j.22.
-**Обновлено:** 2026-08-04.
+**Обновлено:** 2026-08-05.
 
 ## Статус задач
 
@@ -20,10 +20,10 @@
 | 11.5 | Фильтры (уровень/тип/модуль/поиск) + бейдж непрочитанных | DONE | в доке пакета |
 | 11.6 | Встраивание в OHS web + персистенция состояния | DONE | док + колокольчик; WS `notification`→шина; бэклог `GET /api/notifications` на старте; демо-seed только в dev |
 | 11.7 | Тесты | DONE | пакет (bus/Thread/filters/marks/tail); web hydrate; Hub+CloseBreak/Adopt unit; ApiTests connect/drop/abandoned_manual; GET — `limit` (фильтры на клиенте); `ILogger`-sink — с фичей |
-| 11.8 | Объектная модель Thread (TS): Single / Entry / Thread / Incident / Group | DONE | `types.ts` + guards / `readThreadKindHint` |
-| 11.9 | Проекция `events → items` в шине + тесты | DONE | `projectThreads` + `items$` / `events$` |
-| 11.10 | UI NC: контейнеры, expand Thread, фильтры статуса нити + Выбор | DONE | `ThreadBlock`, `filterItems`; ★/⊘ per-Entry + [nc-marks.md](nc-marks.md) |
-| 11.11 | Backend `threadKindHint` / `closeOutcome` в колонке `data` | DONE | Hub enrich + ConnectionManager + client crash; таблицы не меняли |
+| 11.8 | Объектная модель Thread (TS): Single / Entry / Thread / Incident / Group | DONE | + `IncidentKind` / `GroupKind` (2026-08-05) |
+| 11.9 | Проекция `events → items` в шине + тесты | DONE | `projectThreads` + `incidentKind`/`groupKind` (default action) |
+| 11.10 | UI NC: контейнеры, expand Thread, фильтры статуса нити + Выбор | DONE | Group-ярлык = Action/Lifecycle/Checkup; Incident + Crash/Break icons |
+| 11.11 | Backend `threadKindHint` / `closeOutcome` / `groupKind` в `data` | DONE | `WithHints` + CatalogRefresh / auto·connect stamp; таблицы не меняли |
 | 11.12 | Регрессия Thread (7j break/crash + hydrate V025) | DONE | `threadRegression.test.ts` + web `notifications.thread.test.ts` |
 | 11.13* | Журнал / soft-delete / crash (OHS) | → **phase 8** | [../phase8/report.md](../phase8/report.md) (исторически DONE здесь) |
 | 11.S1–S5 | Split OHS / Admin Front / NC + MFE | PLANNED | [plan.md](plan.md) §B |
@@ -72,6 +72,7 @@
 | 2026-07-31 | **I12 (7j.22) клиент:** serialize ribbon refresh (`OhsStore` debounce+switchMap+concat); health-ok закрывает все недавние orphan `ohs.unhandled`. `Max Pool Size=100` не трогали | `6871a57` · `327c8fe` · [../phase7j/issue.md](../phase7j/issue.md) I12 |
 | 2026-08-02 | **Soft-delete journal (11.13g):** V030 `deleted_at`/`deleted_by`; POST delete/restore; WS `incidentVisibilityChanged`; NC `softDeletedCorrs$` + Выбор «Удалённые»; journal UI + checkbox persist; badge deleted; NC backlog default 200 | [incident-soft-delete.md](incident-soft-delete.md) · `738b384`…`cc634c2` |
 | 2026-08-02 | Docs: спека soft-delete + актуализация phase11 + handoff [`promt.md`](../../promt.md) §8 | docs |
+| 2026-08-05 | Подтипы Thread: Incident→Crash\|Break (`data.kind`→`incidentKind`); Group→Lifecycle\|Action\|Checkup (`groupKind`, default action); UI Group=ярлык подтипа; канон [to-threads.md](to-threads.md) | `eb8f2cc` · NC vitest + Host unit |
 
 ## Итог
 

@@ -51,7 +51,7 @@
 - `OptionCatalogService` + `OptionWindowFreshness` + `Ohs:OptionAtmDepth` (default 15)
 - Lifecycle: `InstrumentLifecycleService` / `instrument.active` по `expiration`; Start/Auto reject архива
 - Web: expand FUT без `hasOptions`; ensure перед strikes; кнопка Refresh + confirm
-- NC: `CatalogRefreshNc` — отдельные corr «кэш» / «актуальность»
+- NC: `CatalogRefreshNc` — corr «кэш» (`groupKind: action`) / «актуальность» (`lifecycle`)
 - Коммиты: `df64a12` … `803fa8d` (lifecycle → OPT load → web expand → Refresh → NC)
 
 ## Итог MVP
