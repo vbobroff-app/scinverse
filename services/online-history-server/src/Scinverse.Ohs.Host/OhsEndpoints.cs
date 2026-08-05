@@ -1209,7 +1209,12 @@ public static class OhsEndpoints
                     "connection.connecting",
                     $"{systemLabel}: устанавливаю связь…",
                     severity: "warning", sourceType: "system", status: "underway", correlationId: attempt,
-                    data: new { connectionId = id, threadKindHint = NotificationThreadData.KindGroup },
+                    data: new
+                    {
+                        connectionId = id,
+                        threadKindHint = NotificationThreadData.KindGroup,
+                        groupKind = NotificationThreadData.GroupKindAction,
+                    },
                     ts: readyAt);
                 notifications.Publish(
                     "connection.connected",
@@ -1217,7 +1222,8 @@ public static class OhsEndpoints
                     severity: "ok", sourceType: "system", status: "resolved", correlationId: attempt,
                     data: NotificationThreadData.WithHints(
                         ConnectionManager.FormatConnectedNotificationData(id, previous, sender: "backend"),
-                        threadKindHint: NotificationThreadData.KindGroup),
+                        threadKindHint: NotificationThreadData.KindGroup,
+                        groupKind: NotificationThreadData.GroupKindAction),
                     ts: readyAt);
                 recordingSupervisor.Nudge();
                 return Results.Ok(ToDto(connection, connect.Status));
@@ -1922,7 +1928,8 @@ public static class OhsEndpoints
             status: "active",
             data: NotificationThreadData.WithHints(
                 new { connectionId = id, batchId, kind, items, lines },
-                threadKindHint: NotificationThreadData.KindGroup),
+                threadKindHint: NotificationThreadData.KindGroup,
+                groupKind: NotificationThreadData.GroupKindAction),
             correlationId: batchId);
 
         // System — техаудит: только id (имя опускаем, оно для user-ленты).
@@ -1939,7 +1946,8 @@ public static class OhsEndpoints
             status: "resolved",
             data: NotificationThreadData.WithHints(
                 new { connectionId = id, batchId, kind, items },
-                threadKindHint: NotificationThreadData.KindGroup),
+                threadKindHint: NotificationThreadData.KindGroup,
+                groupKind: NotificationThreadData.GroupKindAction),
             correlationId: batchId);
     }
 

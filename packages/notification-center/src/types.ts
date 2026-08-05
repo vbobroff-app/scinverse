@@ -132,8 +132,23 @@ export function resolveStatus(event: NotificationEvent): NotificationStatus {
 // ─── Object model: Single | Thread (phase 11.8) ─────────────────────────────
 // Spec: docs/dev/phase11/to-threads.md
 
-/** Политика нити: Incident (в горизонте расписания) vs Group (вне). */
+/** Политика нити: Incident (журнал + duty close) vs Group (остальное). */
 export type ThreadKind = 'incident' | 'group';
+
+/**
+ * Подтип Incident: что сломалось.
+ * Wire: `data.kind` (`crash` \| `break`) — не переименовываем.
+ */
+export type IncidentKind = 'crash' | 'break';
+
+/**
+ * Подтип Group: зачем нить (не политика close).
+ * — lifecycle: смена состояния домена каталога;
+ * — action: операционный ход («сделать»);
+ * — checkup: мониторинг / health-probe («проверить»).
+ * Не путать с lifecycle-атома (`NotificationStatus`) и `InstrumentLifecycle`.
+ */
+export type GroupKind = 'lifecycle' | 'action' | 'checkup';
 
 /**
  * Статус **нити** (не severity и не lifecycle-атома `NotificationStatus`).
@@ -145,6 +160,27 @@ export type ThreadStatus = 'active' | 'recovering' | 'resolved';
 export type CloseOutcome = 'recovered' | 'abandoned_schedule' | 'abandoned_manual';
 
 export const THREAD_KINDS: readonly ThreadKind[] = ['incident', 'group'] as const;
+
+export const INCIDENT_KINDS: readonly IncidentKind[] = ['crash', 'break'] as const;
+
+export const GROUP_KINDS: readonly GroupKind[] = [
+  'lifecycle',
+  'action',
+  'checkup',
+] as const;
+
+/** UI-ярлык подтипа Group (не слово «Group»). Default / unknown → Action. */
+export function groupKindLabel(groupKind: GroupKind | undefined): string {
+  switch (groupKind) {
+    case 'lifecycle':
+      return 'Lifecycle';
+    case 'checkup':
+      return 'Checkup';
+    case 'action':
+    default:
+      return 'Action';
+  }
+}
 
 export const THREAD_STATUSES: readonly ThreadStatus[] = [
   'active',
@@ -171,8 +207,15 @@ export interface NcMarks {
  * Таблицы DB не меняем — хватает jsonb `data` (to-threads §6.0).
  */
 export interface NotificationThreadDataFields {
-  /** Hint с бэка на Open: incident | group по горизонту. */
+  /** Hint с бэка на Open: incident | group (политика). */
   threadKindHint?: ThreadKind;
+  /**
+   * Подтип Incident на wire (историческое имя).
+   * Проекция → `ThreadItem.incidentKind`.
+   */
+  kind?: IncidentKind;
+  /** Подтип Group на Open. */
+  groupKind?: GroupKind;
   /** Outcome на close-событии. */
   closeOutcome?: CloseOutcome;
 }
@@ -214,6 +257,10 @@ export type ThreadItem = NcMarks & {
   uid: string;
   notifications: EntryItem[];
   threadKind: ThreadKind;
+  /** Подтип Incident (из `data.kind` / эвристика); только при threadKind=incident. */
+  incidentKind?: IncidentKind;
+  /** Подтип Group; default `action`, если stamp нет. */
+  groupKind?: GroupKind;
   threadStatus: ThreadStatus;
   openedAt: string;
   closedAt?: string;
@@ -225,10 +272,10 @@ export type ThreadItem = NcMarks & {
   header: ThreadHeader;
 };
 
-/** Incident ⊂ Thread — открыт в горизонте; обязан закрыться (recovered | abandoned_*). */
+/** Incident ⊂ Thread — обязан закрыться (recovered | abandoned_*). */
 export type IncidentItem = ThreadItem & { threadKind: 'incident' };
 
-/** Group ⊂ Thread — вне горизонта; не «журнал инцидентов». */
+/** Group ⊂ Thread — не «журнал инцидентов»; подтипы lifecycle | action | checkup. */
 export type GroupItem = ThreadItem & { threadKind: 'group' };
 
 /** Элемент ленты контейнеров. */
@@ -254,6 +301,14 @@ function isThreadKind(value: unknown): value is ThreadKind {
   return value === 'incident' || value === 'group';
 }
 
+function isIncidentKind(value: unknown): value is IncidentKind {
+  return value === 'crash' || value === 'break';
+}
+
+function isGroupKind(value: unknown): value is GroupKind {
+  return value === 'lifecycle' || value === 'action' || value === 'checkup';
+}
+
 function isCloseOutcome(value: unknown): value is CloseOutcome {
   return (
     value === 'recovered' ||
@@ -269,6 +324,22 @@ export function readThreadKindHint(
   if (!data) return undefined;
   const hint = data.threadKindHint;
   return isThreadKind(hint) ? hint : undefined;
+}
+
+/** Прочитать `data.kind` (wire для incidentKind). */
+export function readIncidentKind(
+  data?: Record<string, unknown> | null,
+): IncidentKind | undefined {
+  if (!data) return undefined;
+  return isIncidentKind(data.kind) ? data.kind : undefined;
+}
+
+/** Прочитать `data.groupKind` с open Group. */
+export function readGroupKind(
+  data?: Record<string, unknown> | null,
+): GroupKind | undefined {
+  if (!data) return undefined;
+  return isGroupKind(data.groupKind) ? data.groupKind : undefined;
 }
 
 /** Прочитать `data.closeOutcome` с close-события. */

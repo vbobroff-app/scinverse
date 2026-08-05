@@ -242,7 +242,69 @@ describe('projectThreads', () => {
     ]);
     const t = threadOf(items, corr);
     expect(t.threadKind).toBe('incident');
+    expect(t.incidentKind).toBe('crash');
     expect(t.threadStatus).toBe('active');
+  });
+
+  it('data.kind crash/break → incidentKind; groupKind on Group', () => {
+    const breakCorr = 'connection:b1:link';
+    const cacheCorr = 'instruments.catalog.cache:run1';
+    const items = projectThreads([
+      evt({
+        id: 'break-open',
+        correlationId: breakCorr,
+        code: 'connection.lost',
+        status: 'active',
+        severity: 'error',
+        data: { threadKindHint: 'incident', kind: 'break' },
+      }),
+      evt({
+        id: 'cache-open',
+        correlationId: cacheCorr,
+        code: 'instruments.catalog.cache.start',
+        status: 'active',
+        severity: 'info',
+        data: { threadKindHint: 'group', groupKind: 'action' },
+      }),
+    ]);
+    expect(threadOf(items, breakCorr).incidentKind).toBe('break');
+    expect(threadOf(items, breakCorr).groupKind).toBeUndefined();
+    expect(threadOf(items, cacheCorr).threadKind).toBe('group');
+    expect(threadOf(items, cacheCorr).groupKind).toBe('action');
+    expect(threadOf(items, cacheCorr).incidentKind).toBeUndefined();
+  });
+
+  it('legacy Group without groupKind → action (default)', () => {
+    const corr = 'connection:legacy:auto:abc';
+    const items = projectThreads([
+      evt({
+        id: 'g',
+        correlationId: corr,
+        code: 'connection.connected',
+        status: 'resolved',
+        severity: 'ok',
+        data: { threadKindHint: 'group' },
+      }),
+    ]);
+    const t = threadOf(items, corr);
+    expect(t.threadKind).toBe('group');
+    expect(t.groupKind).toBe('action');
+    expect(t.header.summary).toMatch(/^Action ·/);
+  });
+
+  it('Group lifecycle header summary uses Lifecycle label', () => {
+    const corr = 'instruments.catalog.lifecycle:run1';
+    const items = projectThreads([
+      evt({
+        id: 'life',
+        correlationId: corr,
+        code: 'instruments.catalog.lifecycle.start',
+        status: 'active',
+        severity: 'info',
+        data: { threadKindHint: 'group', groupKind: 'lifecycle' },
+      }),
+    ]);
+    expect(threadOf(items, corr).header.summary).toMatch(/^Lifecycle ·/);
   });
 
   it('merges Single + Thread by lastActivityAt (newest first)', () => {

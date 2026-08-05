@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using Scinverse.Ohs.Domain;
 using Scinverse.Ohs.Host;
@@ -10,6 +11,18 @@ public sealed class CatalogRefreshNcTests
     {
         var hub = new NotificationHub(new WebSocketBroadcaster());
         return (new CatalogRefreshNc(hub), hub);
+    }
+
+    private static string? DataString(NotificationDto evt, string key)
+    {
+        if (evt.Data is not { } data || data.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return data.TryGetProperty(key, out var p) && p.ValueKind == JsonValueKind.String
+            ? p.GetString()
+            : null;
     }
 
     [Fact]
@@ -34,6 +47,11 @@ public sealed class CatalogRefreshNcTests
 
         list.Last(e => e.CorrelationId == lifeCorr).Status.Should().Be("resolved");
         list.Last(e => e.CorrelationId == lifeCorr).Message.Should().Contain("архивировано 2");
+
+        DataString(list.First(e => e.CorrelationId == cacheCorr), "groupKind")
+            .Should().Be(NotificationThreadData.GroupKindAction);
+        DataString(list.First(e => e.CorrelationId == lifeCorr), "groupKind")
+            .Should().Be(NotificationThreadData.GroupKindLifecycle);
     }
 
     [Fact]

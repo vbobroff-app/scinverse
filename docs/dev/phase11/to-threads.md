@@ -31,11 +31,21 @@ Thread — **проекция** (v1 клиент / шина), later — опци
 NotificationItem
 ├── Single          — атом без corr (или corr игнорируется для UI-контейнера)
 └── Thread          — контейнер по corr_uid
-    ├── Incident    — Thread, открытый в горизонте расписания; обязан закрыться
-    └── Group       — Thread вне горизонта; не «журнал инцидентов»
+    ├── Incident                 // threadKind: 'incident' — журнал + duty close
+    │   ├── Crash                // incidentKind: 'crash'  (wire: data.kind)
+    │   └── Break                // incidentKind: 'break'
+    └── Group                    // threadKind: 'group' — не журнал инцидентов
+        ├── Lifecycle            // groupKind: 'lifecycle' — смена состояния домена
+        ├── Action               // groupKind: 'action' — операционный ход («сделать»)
+        └── Checkup              // groupKind: 'checkup' — мониторинг / health-probe
 
 Entry extends Single { corr_uid }   — атом внутри Thread
 ```
+
+Оси ортогональны: `threadKind` = **политика** нити; `incidentKind` / `groupKind` = **тематика**.
+Incident-подтип = *что сломалось* (Host vs link). Group-подтип = *зачем нить*
+(мутация домена / ход / осмотр). Подтип Group `lifecycle` ≠ lifecycle-атома
+(`NotificationStatus`) и ≠ доменный `InstrumentLifecycle`.
 
 ### 2.1 Single
 
@@ -67,6 +77,8 @@ Entry extends Single { corr_uid }   — атом внутри Thread
 | `uid` | string | = `corr_uid` |
 | `notifications` | `Entry[]` | упорядочены по `ts` (и стабильный tie-break по id) |
 | `threadKind` | `'incident' \| 'group'` | политика |
+| `incidentKind?` | `'crash' \| 'break'` | только Incident; из `data.kind` / эвристика кодов |
+| `groupKind?` | `'lifecycle' \| 'action' \| 'checkup'` | только Group; из `data.groupKind`; **default `action`** |
 | `threadStatus` | см. §3 | статус **нити**, не копия severity |
 | `openedAt` | ISO | `ts` первого Entry (обычно open) |
 | `closedAt?` | ISO | terminal close |
@@ -84,7 +96,9 @@ Entry extends Single { corr_uid }   — атом внутри Thread
 Условия открытия (согласовано с phase 7j):
 
 - стек заведён, когда связь **должна** быть (`desired` / расписание / connector running);
-- break / crash с обязательным terminal.
+- подтипы **Crash** (Host outage) и **Break** (link) — `incidentKind`; wire остаётся
+  `data.kind` (`crash` \| `break`), на Thread проецируется как `incidentKind`;
+- обязательный terminal.
 
 Terminal outcomes:
 
@@ -98,22 +112,32 @@ Terminal outcomes:
 
 ### 2.5 Group ⊂ Thread
 
-- Та же форма стека (`Entry[]` + `threadStatus`), но **вне** горизонта.
-- Не входит в «журнал инцидентов» (отдельный фильтр / отчёт).
-- Может оставаться `open` при входе в сессию; новый сбой **в окне** → **новый** Incident
-  (новый corr), не продолжение Group.
-- Close outcomes те же коды допустимы, но **не обязательны** для корректности журнала.
+- Та же форма стека (`Entry[]` + `threadStatus`); **не** журнал инцидентов.
+- Исторически «вне горизонта» (зеркало Incident); на практике — progress-стеки
+  non-incident работы. Подтип задаёт `groupKind` на Open.
+- Close outcomes допустимы, но **не обязательны**.
+- Переклассификация mid-flight (`threadKind` / `groupKind` / `incidentKind`) **запрещена**.
 
-Классификация Incident vs Group:
+| `groupKind` | Смысл | Критерий | Примеры |
+|-------------|--------|----------|---------|
+| `lifecycle` | Смена состояния домена | Мутация каталога (архив по exp) | Refresh corr «актуальность» |
+| `action` | Операционный ход | «Сделать»: connect, refresh dump, batch schedule | `auto:` / `connect:` success; Refresh «кэш» |
+| `checkup` | Мониторинг / health-probe | «Проверить»; часто регулярно; без обязательной мутации | задел (суточный осмотр каталога и т.п.) |
+
+**Default:** Group без `data.groupKind` → `action` (проекция и `WithHints` при `threadKindHint=group`).
 
 ```text
-на Open (первый Entry стека):
-  if inScheduleHorizon(subject, ts) → threadKind = incident
-  else → threadKind = group
+если нить = сделать что-то → action   (также default)
+если нить = осмотр/зонд здоровья → checkup
+если нить = жизненный цикл сущностей каталога → lifecycle
 ```
 
-Горизонт — тот же, что для связи (желаемое окно), не «конец сессии MOEX» сам по себе.
-Переклассификация mid-flight (Group → Incident) **запрещена**; только новый corr.
+Классификация Incident vs Group (политика):
+
+```text
+на Open: threadKindHint от продюсера / Hub;
+  fallback — whitelist open-кодов link/crash → incident, иначе group
+```
 
 ---
 
@@ -193,9 +217,10 @@ Terminal outcomes:
 
 | Поле | Зачем |
 |------|--------|
-| `data.threadKindHint?` | `'incident'\|'group'` с бэка (Open уже знает горизонт) |
+| `data.threadKindHint?` | `'incident'\|'group'` — политика нити |
+| `data.kind?` | wire для `incidentKind`: `'crash'\|'break'` (не переименовывать) |
+| `data.groupKind?` | `'lifecycle'\|'action'\|'checkup'` — подтип Group |
 | `data.closeOutcome?` | `recovered` \| `abandoned_schedule` \| `abandoned_manual` |
-| `data.kind?` | уже есть для crash (`kind:crash`) |
 
 `correlationId` обязателен для Entry/Thread; без него — Single.
 

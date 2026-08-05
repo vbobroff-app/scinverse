@@ -1,26 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { formatThreadTimeLabel, formatThreadTs, type FormatTs } from '../format/formatTs';
-import type { NcMarks, NotificationEvent, ThreadItem } from '../types';
+import { groupKindLabel, type NcMarks, type NotificationEvent, type ThreadItem } from '../types';
 import { BreakIncidentIcon } from './BreakIncidentIcon';
 import { GroupStackIcon } from './GroupStackIcon';
 import { IncidentFlameIcon } from './IncidentFlameIcon';
 import { NotificationRow } from './NotificationRow';
 import { Tip } from './Tooltip';
 import styles from './ThreadBlock.module.css';
-
-/** crash (Host outage) vs break (link) — по data.kind / кодам Entry. */
-function isCrashThread(thread: ThreadItem): boolean {
-  return thread.notifications.some((e) => {
-    if (e.data?.kind === 'crash') {
-      return true;
-    }
-    return (
-      e.code === 'backend.unavailable' ||
-      e.code === 'backend.recovering' ||
-      e.code === 'backend.recovered'
-    );
-  });
-}
 
 interface Props {
   thread: ThreadItem;
@@ -86,7 +72,10 @@ export function ThreadBlock({
   // Title = subject (короткий); message = last Entry — как у Group.
   const messageDistinct = lastMessage !== thread.header.title;
   const kindBadge = thread.threadKind === 'incident' ? 'incident' : 'group';
-  const kindLabel = thread.threadKind === 'incident' ? 'Incident' : 'Group';
+  const kindLabel =
+    thread.threadKind === 'incident'
+      ? 'Incident'
+      : groupKindLabel(thread.groupKind);
 
   useEffect(() => {
     if (expanded) {
@@ -123,7 +112,7 @@ export function ThreadBlock({
         </button>
 
         {kindBadge === 'incident' ? (
-          isCrashThread(thread) ? (
+          thread.incidentKind === 'crash' ? (
             <IncidentFlameIcon
               title="Incident (crash)"
               className={
@@ -139,7 +128,7 @@ export function ThreadBlock({
             />
           )
         ) : (
-          <GroupStackIcon title="Group" severity={newest?.severity} />
+          <GroupStackIcon title={kindLabel} severity={newest?.severity} />
         )}
 
         <span className={styles.kindName}>{kindLabel}</span>

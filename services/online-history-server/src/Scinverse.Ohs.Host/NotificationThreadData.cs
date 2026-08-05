@@ -10,6 +10,14 @@ public static class NotificationThreadData
 {
     public const string KindIncident = "incident";
     public const string KindGroup = "group";
+
+    /// <summary>Подтип Group: смена состояния домена каталога.</summary>
+    public const string GroupKindLifecycle = "lifecycle";
+    /// <summary>Подтип Group: операционный ход («сделать»).</summary>
+    public const string GroupKindAction = "action";
+    /// <summary>Подтип Group: мониторинг / health-probe («проверить»).</summary>
+    public const string GroupKindCheckup = "checkup";
+
     public const string OutcomeRecovered = "recovered";
     /// <summary>Успешный подъём тумблером on (оператор); зелёный маркер как у <see cref="OutcomeRecovered"/>.</summary>
     public const string OutcomeRecoveredManual = "recovered_manual";
@@ -56,13 +64,14 @@ public static class NotificationThreadData
             ts: at);
     }
 
-    /// <summary>Дописать hint/outcome, не затирая уже заданные ключи.</summary>
+    /// <summary>Дописать hint/outcome/groupKind, не затирая уже заданные ключи.</summary>
     public static object? WithHints(
         object? data,
         string? threadKindHint = null,
-        string? closeOutcome = null)
+        string? closeOutcome = null,
+        string? groupKind = null)
     {
-        if (threadKindHint is null && closeOutcome is null)
+        if (threadKindHint is null && closeOutcome is null && groupKind is null)
         {
             return data;
         }
@@ -76,6 +85,26 @@ public static class NotificationThreadData
         if (closeOutcome is not null && !map.ContainsKey("closeOutcome"))
         {
             map["closeOutcome"] = closeOutcome;
+        }
+
+        // Group без явного subtype → action (канон: default Group = Action).
+        if (!map.ContainsKey("groupKind"))
+        {
+            if (groupKind is not null)
+            {
+                map["groupKind"] = groupKind;
+            }
+            else
+            {
+                var hintInMap = map.TryGetValue("threadKindHint", out var existingHint)
+                    ? existingHint?.ToString()
+                    : null;
+                if (string.Equals(threadKindHint, KindGroup, StringComparison.Ordinal)
+                    || string.Equals(hintInMap, KindGroup, StringComparison.Ordinal))
+                {
+                    map["groupKind"] = GroupKindAction;
+                }
+            }
         }
 
         return map;

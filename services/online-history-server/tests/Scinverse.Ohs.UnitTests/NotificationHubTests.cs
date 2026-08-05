@@ -209,6 +209,7 @@ public sealed class NotificationHubTests
 
         var open = hub.List().Should().ContainSingle().Subject;
         DataString(open, "threadKindHint").Should().Be(NotificationThreadData.KindGroup);
+        DataString(open, "groupKind").Should().Be(NotificationThreadData.GroupKindAction);
         DataString(open, "sender").Should().Be("test");
     }
 

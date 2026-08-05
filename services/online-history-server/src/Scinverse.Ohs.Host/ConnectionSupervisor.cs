@@ -448,6 +448,7 @@ public sealed class ConnectionSupervisor(
                         connectionId,
                         sender = "supervisor",
                         threadKindHint = NotificationThreadData.KindGroup,
+                        groupKind = NotificationThreadData.GroupKindAction,
                     },
                     ts: readyAt);
                 notifications.Publish(
@@ -457,7 +458,9 @@ public sealed class ConnectionSupervisor(
                     status: "resolved",
                     correlationId: corr,
                     data: NotificationThreadData.WithHints(
-                        connectedData, threadKindHint: NotificationThreadData.KindGroup),
+                        connectedData,
+                        threadKindHint: NotificationThreadData.KindGroup,
+                        groupKind: NotificationThreadData.GroupKindAction),
                     ts: readyAt);
                 // Следом за Group — как «плановое отключение…» при schedule disconnect.
                 notifications.Publish(

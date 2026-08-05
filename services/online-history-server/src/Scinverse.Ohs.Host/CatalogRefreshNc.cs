@@ -37,7 +37,8 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
                     "Кэш справочника: заменено новым обновлением",
                     severity: "warning",
                     sourceType: "system",
-                    status: "resolved");
+                    status: "resolved",
+                    groupKind: NotificationThreadData.GroupKindAction);
             }
 
             _pendingCacheCorr = cacheCorr;
@@ -69,7 +70,8 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             "Кэш справочника: dump принят, каталог обновлён",
             severity: "ok",
             sourceType: "system",
-            status: "resolved");
+            status: "resolved",
+            groupKind: NotificationThreadData.GroupKindAction);
     }
 
     private void PublishCacheSteps(string corr, bool invalidated, bool sessionLive)
@@ -80,7 +82,8 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             "Кэш справочника: обновление запущено",
             severity: "info",
             sourceType: "user",
-            status: "active");
+            status: "active",
+            groupKind: NotificationThreadData.GroupKindAction);
 
         Publish(
             corr,
@@ -90,7 +93,8 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
                 : "Кэш справочника: уже был помечен к обновлению",
             severity: "info",
             sourceType: "system",
-            status: "underway");
+            status: "underway",
+            groupKind: NotificationThreadData.GroupKindAction);
 
         Publish(
             corr,
@@ -98,7 +102,8 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             "Кэш справочника: окна опционов (ATM) сброшены",
             severity: "info",
             sourceType: "system",
-            status: "underway");
+            status: "underway",
+            groupKind: NotificationThreadData.GroupKindAction);
 
         // Живая сессия dump не повторяет — иначе оператор видит «ожидание» при зелёном тумблере.
         var waitMsg = sessionLive
@@ -110,7 +115,8 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             waitMsg,
             severity: sessionLive ? "warning" : "info",
             sourceType: "system",
-            status: "underway");
+            status: "underway",
+            groupKind: NotificationThreadData.GroupKindAction);
     }
 
     private void PublishLifecycleSteps(string corr, InstrumentLifecycleSweepResult sweep)
@@ -121,7 +127,8 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             "Актуальность каталога: проверка по экспирации",
             severity: "info",
             sourceType: "user",
-            status: "active");
+            status: "active",
+            groupKind: NotificationThreadData.GroupKindLifecycle);
 
         if (!sweep.Ran)
         {
@@ -131,7 +138,8 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
                 "Актуальность каталога: sweep пропущен (уже выполнен сегодня)",
                 severity: "info",
                 sourceType: "system",
-                status: "resolved");
+                status: "resolved",
+                groupKind: NotificationThreadData.GroupKindLifecycle);
             return;
         }
 
@@ -145,6 +153,7 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             severity: n > 0 ? "warning" : "ok",
             sourceType: "system",
             status: "resolved",
+            groupKind: NotificationThreadData.GroupKindLifecycle,
             data: new { archivedCount = n, archivedInstrumentIds = sweep.ArchivedInstrumentIds });
     }
 
@@ -155,6 +164,7 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
         string severity,
         string sourceType,
         string status,
+        string groupKind,
         object? data = null)
     {
         notifications.Publish(
@@ -165,7 +175,8 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             module: Module,
             data: NotificationThreadData.WithHints(
                 data ?? new { },
-                threadKindHint: NotificationThreadData.KindGroup),
+                threadKindHint: NotificationThreadData.KindGroup,
+                groupKind: groupKind),
             status: status,
             correlationId: correlationId);
     }

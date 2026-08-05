@@ -1,11 +1,16 @@
 import {
+  groupKindLabel,
   readCloseOutcome,
+  readGroupKind,
+  readIncidentKind,
   readThreadKindHint,
   resolveStatus,
 } from '../types';
 import type {
   CloseOutcome,
   EntryItem,
+  GroupKind,
+  IncidentKind,
   NotificationEvent,
   NotificationItem,
   SingleItem,
@@ -89,6 +94,9 @@ function buildThread(corrUid: string, group: readonly NotificationEvent[]): Thre
   const closeOutcome =
     threadStatus === 'resolved' ? deriveCloseOutcome(terminal, ordered) : undefined;
   const threadKind = deriveThreadKind(ordered);
+  const incidentKind =
+    threadKind === 'incident' ? deriveIncidentKind(ordered) : undefined;
+  const groupKind = threadKind === 'group' ? deriveGroupKind(ordered) : undefined;
   const subject = deriveSubject(corrUid);
   const closedAt = terminal?.ts;
   // Как у Group: короткий subject в title; полный message — в колонке .message (flex),
@@ -100,13 +108,15 @@ function buildThread(corrUid: string, group: readonly NotificationEvent[]): Thre
     uid: corrUid,
     notifications,
     threadKind,
+    incidentKind,
+    groupKind,
     threadStatus,
     openedAt,
     closedAt,
     lastActivityAt,
     subject,
     closeOutcome,
-    header: buildHeader(headerTitle, threadKind, threadStatus, closeOutcome),
+    header: buildHeader(headerTitle, threadKind, threadStatus, closeOutcome, groupKind),
   };
   return thread;
 }
@@ -217,6 +227,57 @@ function deriveThreadKind(oldestFirst: readonly NotificationEvent[]): ThreadKind
   return 'group';
 }
 
+/**
+ * incidentKind: `data.kind` с любого Entry → иначе эвристика кодов (как ThreadBlock).
+ * Mid-flight смена запрещена: берём первое валидное значение.
+ */
+function deriveIncidentKind(
+  oldestFirst: readonly NotificationEvent[],
+): IncidentKind | undefined {
+  for (const e of oldestFirst) {
+    const fromData = readIncidentKind(e.data);
+    if (fromData) {
+      return fromData;
+    }
+  }
+  for (const e of oldestFirst) {
+    if (
+      e.code === 'backend.unavailable' ||
+      e.code === 'backend.recovering' ||
+      e.code === 'backend.recovered'
+    ) {
+      return 'crash';
+    }
+  }
+  for (const e of oldestFirst) {
+    if (
+      e.code === 'connection.lost' ||
+      e.code === 'connection.recovering' ||
+      e.code === 'connection.reconnecting' ||
+      e.code === 'connection.recovered' ||
+      e.code === 'connection.incident_closed' ||
+      e.code === 'connection.auto_error'
+    ) {
+      return 'break';
+    }
+  }
+  return undefined;
+}
+
+/**
+ * groupKind: первое `data.groupKind` в нити (обычно Open).
+ * Default для Group без stamp — `action`.
+ */
+function deriveGroupKind(oldestFirst: readonly NotificationEvent[]): GroupKind {
+  for (const e of oldestFirst) {
+    const kind = readGroupKind(e.data);
+    if (kind) {
+      return kind;
+    }
+  }
+  return 'action';
+}
+
 /** Префикс corr для заголовка: `connection:{id}:link` → `connection:{id}`. */
 export function deriveSubject(corrUid: string): string | undefined {
   const conn = /^connection:([^:]+):/.exec(corrUid);
@@ -245,8 +306,10 @@ function buildHeader(
   threadKind: ThreadKind,
   threadStatus: ThreadStatus,
   closeOutcome: CloseOutcome | undefined,
+  groupKind: GroupKind | undefined,
 ): ThreadHeader {
-  const kindLabel = threadKind === 'incident' ? 'Incident' : 'Group';
+  const kindLabel =
+    threadKind === 'incident' ? 'Incident' : groupKindLabel(groupKind);
   const outcome = closeOutcome ? ` · ${closeOutcome}` : '';
   return {
     title,
