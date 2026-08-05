@@ -1,9 +1,12 @@
-# Baskets · Observed (Наблюдаемые) · Available · Archive
+# Feature: catalog-basket-instruments
 
-Статус: **DRAFT канон** (2026-08-05). Не реализовано — продуктовая спека перед кодом.
+**Area:** catalog · **Outcome:** baskets / Observed working set поверх Available.
 
-Смежное: [`wiki-readme/catalog.md`](../wiki-readme/catalog.md) (lifecycle `active`, OPT ATM,
-Refresh) · dump / `InstrumentRegistry` · Auto / recording (пишут только из Observed).
+Статус: **DRAFT** (2026-08-05). Не реализовано — продуктовая спека перед кодом.
+
+Смежное: [`wiki-readme/catalog.md`](../../wiki-readme/catalog.md) (lifecycle `active`, OPT ATM,
+Refresh) · dump / `InstrumentRegistry` · Auto / recording (пишут только из Observed) ·
+долги Stage 1 — [`abandoned`](../../stage1/abandoned.md).
 
 ---
 
@@ -63,7 +66,7 @@ Refresh) · dump / `InstrumentRegistry` · Auto / recording (пишут толь
 1. Страйки уже есть в Available/БД (dump / `get_option_families` → strikes → `get_options`).
 2. Следим за **ценой базового актива** (FUT, обычно из static Observed).
 3. В кэш **подкидываем** страйки, попавшие в ATM ±N (из БД).
-4. Уже попавшие в кэш **не выкидываем** до суточного Lifecycle / Refresh (**sticky expand**).
+4. Уже попавшие в кэш **не выкидываем** до суточного Lifecycle / Refresh (**sticky expand**) - нужно уточнить, может вестись запись по тем инструментам, которые собираемся выкинуть.
 
 Так Observed/кэш не «пляшет» на каждом тике last, но окно расширяется при движении цены.
 
@@ -80,9 +83,11 @@ Refresh) · dump / `InstrumentRegistry` · Auto / recording (пишут толь
    новые контракты месяца появляются здесь; просроченные → Archive.
 2. **Static baskets** — eval правил по Available → обновить членство в БД.
 3. **Dynamic baskets** — seed окна ATM (и при Refresh — политика сброса sticky: сбросить и
-   набрать заново, либо только расширить; **default Refresh: сброс OPT-окон**, как сейчас
+   набрать заново, либо только расширить*; **default Refresh: сброс OPT-окон**, как сейчас
    catalog refresh).
 4. **Кэш** — загрузить Observed (union baskets) в memory.
+
+*возможно только расширить - может вестись запись.
 
 Контракты обычно листятся заранее; mid-day сюрприз → оператор жмёт **Refresh**.
 

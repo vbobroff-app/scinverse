@@ -2,7 +2,7 @@
 
 Статус: **J1–J8 + J11a/b/c + I10 + I11 ПРИНЯТО** (Adopt crash-inside-break 2026-07-31) ·
 **H1/H2 DONE** · **I12 / 7j.22** клиент DONE (pool defer). Итог —
-[../incident-model-wrapup.md](../incident-model-wrapup.md).
+[../../stage1/incident-model-wrapup.md](../../stage1/incident-model-wrapup.md).
 Данные/запись — 7h ([../phase7h/incident.md](../phase7h/incident.md)).
 Обновлено: 2026-07-31.
 

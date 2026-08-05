@@ -2,7 +2,7 @@
 
 **Статус:** `MVP DONE`. Урезанный MVP относительно [plan.md](plan.md): без диалога политик,
 без weekdays/warmup/US-tz. Политика = switcher **Auto** рядом со Старт/Стоп.
-Хвосты — [../stage1/abandoned.md](../stage1/abandoned.md).
+Хвосты — [abandoned](../../stage1/abandoned.md).
 
 ## UX (зафиксировано)
 

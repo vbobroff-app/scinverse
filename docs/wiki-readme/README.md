@@ -10,4 +10,5 @@
 | [write-gaps.md](write-gaps.md) | Красные разрывы на ганте записи |
 | [catalog.md](catalog.md) | Online-каталог: архив по exp, опционы ATM, Refresh |
 
-Технические спеки и фазы разработки — отдельно в `docs/dev/` (не часть этой wiki).
+Технические спеки: фазы — `docs/dev/` (archive); Stages/Features — `docs/plan.md`,
+`docs/features/` (не часть этой wiki).

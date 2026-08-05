@@ -1,8 +1,8 @@
 # Phase 7i — «Управление записью»: расписание автозаписи (Scheduler/Supervisor)
 
 **Статус:** `MVP DONE` (Stage 1 закрыт 2026-08-04). Зависимости: **7h DONE**, **7c**.
-Хвосты production — [../stage1/abandoned.md](../stage1/abandoned.md).
-Контекст — [../promt.md](../promt.md) §8.
+Хвосты production — [abandoned](../../stage1/abandoned.md).
+Контекст — [`../../promt.md`](../../promt.md).
 
 > **MVP-срез (apply):** полуавтомат `[Auto][Старт/Стоп]` вместо полного диалога политик.
 > Детали UX и реализации — [apply.md](apply.md).

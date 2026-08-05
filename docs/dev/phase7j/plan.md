@@ -13,7 +13,7 @@
 (Adopt crash-inside-break 2026-07-31). **I12 / 7j.22** — клиент **DONE** (шаги 1–2); Host pool
 size **отложен** (остаётся 100). Очередь фазы (не инциденты): **7j.15** / **7j.16**. UI NC Thread →
 **phase 11** ([../phase11/plan.md](../phase11/plan.md)). Итог модели —
-[../incident-model-wrapup.md](../incident-model-wrapup.md). Зависимости: **7h / 7h.8**, **7c**, **7e**.
+[../../stage1/incident-model-wrapup.md](../../stage1/incident-model-wrapup.md). Зависимости: **7h / 7h.8**, **7c**, **7e**.
 Соседняя **7i** — Auto записи. Gate Admin Front + NC — **11→12**. Детали — [apply.md](apply.md);
 статус — [report.md](report.md); остаток — [todo.md](todo.md). **Обновлено:** 2026-07-31.
 

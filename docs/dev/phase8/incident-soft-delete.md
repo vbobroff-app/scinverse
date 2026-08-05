@@ -44,7 +44,7 @@ CREATE INDEX ix_incident_open ON incident (module, status)
   WHERE status IN ('active', 'recovering') AND deleted_at IS NULL;
 ```
 
-Накат: `dotnet run --project db/Scinverse.Db.Migrator` (см. [`docs/promt.md`](../../promt.md) §8.3).
+Накат: `dotnet run --project db/Scinverse.Db.Migrator` (см. [`docs/promt.md`](../../promt.md)).
 
 ---
 

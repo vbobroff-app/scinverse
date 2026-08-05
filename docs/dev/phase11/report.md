@@ -78,5 +78,5 @@
 
 Лента NC v1 в монолите — **готова** (11.1–11.12). Журнал OHS / crash / soft-delete — **phase 8**
 (Stage 1). Фокус phase 11 дальше — **split + MFE** (Stage 2), gate перед phase 12.
-Wrap-up — [../incident-model-wrapup.md](../incident-model-wrapup.md). Handoff —
-[`docs/promt.md`](../../promt.md) §8 (обновить отдельно).
+Wrap-up — [../../stage1/incident-model-wrapup.md](../../stage1/incident-model-wrapup.md). Handoff —
+[`docs/promt.md`](../../promt.md).

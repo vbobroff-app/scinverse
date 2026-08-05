@@ -1,11 +1,11 @@
 # Phase 7j — TODO (что осталось)
 
 **Обновлено:** 2026-08-04. Stage 1 **MVP DONE** — остаток вынесен в
-**[../stage1/abandoned.md](../stage1/abandoned.md)** §7j.
+**[abandoned](../../stage1/abandoned.md)** §7j.
 
 Ядро фазы (**7j.17–7j.20** + **J11a/b/c** + **I10/I11**) — **код + живая приёмка** (Adopt 2026-07-31).
 **I12 / 7j.22** — клиент **DONE**; Host pool **DEFER**. Журнал OHS — [../phase8/incident-journal.md](../phase8/incident-journal.md).
-Итог модели — [../incident-model-wrapup.md](../incident-model-wrapup.md).
+Итог модели — [../../stage1/incident-model-wrapup.md](../../stage1/incident-model-wrapup.md).
 
 ---
 

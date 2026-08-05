@@ -745,7 +745,7 @@ I8 обещал: «одиночный 500 → health-probe … **висящих 
 
 Остаток 7j: 7j.15/7j.16 ([todo.md](todo.md)); I10/I11/I12-клиент — принято/сделано.
 NC Thread / UI — [../phase11/plan.md](../phase11/plan.md).
-Gate Admin Front + NC — 11→12 ([../plan.md](../plan.md)).
+Gate Admin Front + NC — 11→12 ([../../plan.md](../../plan.md)).
 
 **Вне scope 7j (уровень данных) — H3 DONE (2026-08-03).**  
 Задержка ~3 мин до «первых данных» после connect: блокирующий per-row `RegisterAsync` на dump

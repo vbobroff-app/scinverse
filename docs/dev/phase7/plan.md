@@ -1,6 +1,6 @@
 # Phase 7. Админ-фронт (React + Vite + TS) — план
 
-Детальный план фазы 7. Дизайн Stage 1 — в [../apply.md](../apply.md); особенности реализации фазы —
+Детальный план фазы 7. Дизайн Stage 1 — в [stage1/apply.md](../../stage1/apply.md); особенности реализации фазы —
 в [apply.md](apply.md); статус — в [report.md](report.md).
 
 ## Цель

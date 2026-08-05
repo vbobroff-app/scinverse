@@ -2,7 +2,7 @@
 
 **Статус:** `MVP DONE` (закрытие Stage 1, 2026-08-04).
 Хвосты (sessions←SCD-2 history, daily-sync/pre-flight, бэкфилл Finam и пр.) —
-**[../stage1/abandoned.md](../stage1/abandoned.md)** §7i (production, не MVP).
+**[abandoned](../../stage1/abandoned.md)** §7i (production, не MVP).
 
 **7i.OPT / 7h.OPT — DONE (2026-08-04):** Online ATM ±N опционов + lifecycle `instrument.active`
 + Refresh UX/NC. Канон: [issue.md](issue.md), [../../wiki-readme/catalog.md](../../wiki-readme/catalog.md).
@@ -32,7 +32,7 @@
   под-scope NULL, max(effective_from)≤D; фазы из JSONB в каноническом порядке) + `GET /api/exchanges/{market}/schedule?on=`. Вкладка
   «Расписание» в `ExchangeStructure` (Будни/Выходные, пропорциональная лента фаз, подпись
   достоверности/источника). `/api/sessions`←SCD-2 history + daily-sync + бэкфилл Finam —
-  вынесены в [../stage1/abandoned.md](../stage1/abandoned.md) (не MVP).
+  вынесены в [abandoned](../../stage1/abandoned.md) (не MVP).
 
 - **Интеграции (внешние сервисы), MVP** — `V015__external_service.sql` (adapter/transport/secret/
   exp/enabled, секрет в БД — single-user, до Keycloak). Домен `ExternalService` +
@@ -43,7 +43,7 @@
   «Интеграции» в рейле (`NavSectionId=integrations`) — `IntegrationsPanel` (список + `[+]` форма) +
   `IntegrationForm` (сервис/транспорт/секрет/exp, auth-check после создания) + `IntegrationWorkspace`
   (проверка связи + пробный запрос расписания, время МСК). Пока подтверждатель — ручной пробник;
-  pre-flight / daily-sync — [../stage1/abandoned.md](../stage1/abandoned.md) **7i.S2**.
+  pre-flight / daily-sync — [abandoned](../../stage1/abandoned.md) **7i.S2**.
 
 ### 7i.OPT / 7h.OPT (Online каталог опционов) — DONE 2026-08-04
 

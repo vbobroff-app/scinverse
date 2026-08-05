@@ -7,7 +7,7 @@ crash fan-out, to-be schedule-as-projection (design). Код выполнен р
 **NC как продукт** (пакет, Thread UI, dock, V025 atoms, MFE) — **phase 11 / Stage 2**, не эта фаза.
 
 **Статус:** `DONE` (код) · docs home. **Stage:** 1. **Зависимости:** phase 7j (продюсер break),
-phase 7h (liveness / Write Gaps). Дизайн Stage 1 — [../apply.md](../apply.md).
+phase 7h (liveness / Write Gaps). Дизайн Stage 1 — [stage1/apply.md](../../stage1/apply.md).
 
 ## Канон (документы фазы)
 

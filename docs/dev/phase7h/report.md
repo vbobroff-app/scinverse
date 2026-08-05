@@ -112,7 +112,7 @@ in-memory cache-first, суточная инвалидация (Auto-on) + Refre
 
 Connect-dump без OPT остаётся фактом шлюза; Online-путь ATM ±N + Refresh + lifecycle —
 [../phase7i/issue.md](../phase7i/issue.md) / [../phase7i/report.md](../phase7i/report.md).
-Снято с [abandoned](../stage1/abandoned.md) (не Stage 2).
+Снято с [abandoned](../../stage1/abandoned.md) (не Stage 2).
 
 ## Вне области (осталось на follow-up)
 
@@ -138,7 +138,7 @@ Phase 7h **завершена**. Гант показывает три слоя (
 
 **Статус:** лента Connection **DONE**; красный на Writers — **Write Gaps DONE** (не проекция
 `intent ∩ linkDown`). Остаток 7h.8d (тот же coverage-сегмент через обрыв) — опц. later,
-см. [../stage1/abandoned.md](../stage1/abandoned.md).
+см. [abandoned](../../stage1/abandoned.md).
 
 **Разделение (по решению пользователя):** сначала — сущность «Соединение» end-to-end (лента Connection);
 проекция «слушаю ∩ связь лежит» на инструмент + смена лайфцикла сегмента — **отдельным вторым заходом**.

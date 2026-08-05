@@ -57,7 +57,7 @@ Si                     базовый актив (underlying)
    Исторически здесь писали «временно проксируется `active`»; после 7h.OPT / lifecycle
    (2026-08-04) `active=false` = просрочен по `derivative.expiration` (Online-список / Start/Auto).
    Intraday «в сессии / спит / suspended» — долг **7c.9** (борд) / **7c.SEC** (`sec_status`)
-   ([abandoned](../stage1/abandoned.md)); канон осей — [wiki catalog](../../wiki-readme/catalog.md).
+   ([abandoned](../../stage1/abandoned.md)); канон осей — [wiki catalog](../../wiki-readme/catalog.md).
 
 ## Что делаем (в phase6c)
 

@@ -4,7 +4,7 @@
 
 ## 1. Размещение и стек
 
-- Каталог: `services/online-history-server/web` (SPA рядом с OHS, см. корневой `../apply.md`).
+- Каталог: `services/online-history-server/web` (SPA рядом с OHS, см. `docs/stage1/apply.md`).
 - Менеджер пакетов **pnpm**; сборка/дев — **Vite**; тесты — **Vitest**; React 19 + TS 5.x.
 - Линт/формат: ESLint 9 (flat config) + typescript-eslint, Prettier. Иконки — `@iconify/react`.
 - Зависимости рантайма: `react`, `react-dom`, `rxjs`, `@iconify/react`. Без UI-библиотек (plain + CSS).

@@ -10,7 +10,7 @@
 
 **Входной gate (обязателен до старта кода phase 12):** вынос **Admin Front** и **NC** по to-be
 архитектуре ([`docs/architecture/c4/arch.md`](../../architecture/c4/arch.md), Stage 2 в
-[`docs/dev/plan.md`](../plan.md)). WebGL — в отдельном Admin Front shell; NC — отдельный сервис
+[`docs/plan.md`](../../plan.md)). WebGL — в отдельном Admin Front shell; NC — отдельный сервис
 (MFE); **Keycloak** на control API и UI. Журнал OHS к этому моменту уже в Stage 1 / phase 8.
 
 | Контур | Состояние к gate |

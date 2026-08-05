@@ -11,11 +11,11 @@
 
 | Тема | Статус | Где |
 | ---- | ------ | --- |
-| Опционы FORTS ATM ±N + подписка (`7h.OPT` = `7i.OPT`) | **DONE** 2026-08-04 | [phase7i/issue](../phase7i/issue.md) |
-| Refresh справочника (dump stale + сброс OPT-окон) + NC Action/Lifecycle | **DONE** | [wiki catalog](../../wiki-readme/catalog.md) |
-| Архив по exp (`instrument.active`) — «актуальные vs исторические» Online | **DONE** | [db-design](../../architecture/db-design.md) § Online lifecycle |
+| Опционы FORTS ATM ±N + подписка (`7h.OPT` = `7i.OPT`) | **DONE** 2026-08-04 | [phase7i/issue](../dev/phase7i/issue.md) |
+| Refresh справочника (dump stale + сброс OPT-окон) + NC Action/Lifecycle | **DONE** | [wiki catalog](../wiki-readme/catalog.md) |
+| Архив по exp (`instrument.active`) — «актуальные vs исторические» Online | **DONE** | [db-design](../architecture/db-design.md) § Online lifecycle |
 | Intraday «торгуется / спит / suspended» | **OPEN** | **7c.9** (борд) + **7c.SEC** (`sec_status`) ниже |
-| Baskets / Observed (working set поверх Available) | DRAFT, не код | [baskets-observed](../baskets-observed.md) |
+| Baskets / Observed (working set поверх Available) | DRAFT, не код | [catalog-basket-instruments](../features/catalog-basket-instruments/spec.md) |
 
 **Не путать:** lifecycle-архив ≠ intraday-статус. OPT/Refresh/**не** Stage 2.
 
@@ -31,7 +31,7 @@
 
 | # | Что | Источник | Горизонт |
 | - | --- | -------- | -------- |
-| 5.1 | `instrument_alias` (обобщение `transaq_secid` при втором источнике на тот же инструмент) | [phase5/plan](../phase5/plan.md) «Не входит» | future / второй источник |
+| 5.1 | `instrument_alias` (обобщение `transaq_secid` при втором источнике на тот же инструмент) | [phase5/plan](../dev/phase5/plan.md) «Не входит» | future / второй источник |
 | 5.2 | `source_id` в `md_orderlog` / `md_book_snapshot` | тот же | Future Features / Plaza2 |
 | 5.3 | `data_source.priority` (выбор источника на чтении) | тот же | ODS |
 
@@ -56,7 +56,7 @@
 | 7.TREE | Дерево деривативов в каталоге | WONT | фильтры 7d |
 | 7.KEYSET | Keyset-пагинация каталога | отложено (offset+total ок) | later |
 
-Канон: [../phase7/report.md](../phase7/report.md) §Закрытие.
+Канон: [../dev/phase7/report.md](../dev/phase7/report.md) §Закрытие.
 
 ---
 
@@ -67,7 +67,7 @@ follow-up с **другими** id (не переиспользовать ном
 
 | # | Что | Источник | Горизонт |
 | - | --- | -------- | -------- |
-| 7b.TIP | Portal-тултип для колбасок (вместо native `title`; `overflow:hidden`) | [report Follow-up](../phase7b/report.md) | UX polish |
+| 7b.TIP | Portal-тултип для колбасок (вместо native `title`; `overflow:hidden`) | [report Follow-up](../dev/phase7b/report.md) | UX polish |
 
 Out-of-scope 7b «`sec_status` торгуется/спит» → учтён как **7c.SEC** (не путать с DONE **7b.2**
 `QueryTradingDaysAsync`).
@@ -139,7 +139,7 @@ startup-latency. Красный на инструменте = WriteGap (не as-
 | **WG.1** | Backfill WriteGap из истории коннектора (TRANSAQ history → `md_trade`) | write-gaps | production later |
 | 7h.8d | Lifecycle: coverage-сегмент «живёт через обрыв» (reconnect → тот же segment) | report TODO 2-й заход | later / опц.; визуал закрыт Write Gaps |
 | 7h.POL | Тонкая политика реконнекта / backoff | plan out of scope | later |
-| ~~7h.OPT~~ | ~~Каталог/подписка опционов FORTS~~ | [phase7i/issue](../phase7i/issue.md) | **DONE** 2026-08-04 · не production-долг |
+| ~~7h.OPT~~ | ~~Каталог/подписка опционов FORTS~~ | [phase7i/issue](../dev/phase7i/issue.md) | **DONE** 2026-08-04 · не production-долг |
 | 7h.DER | Старый «журнал для backfill» в 7h incident.md | superseded → phase 8 | снят |
 
 ---
@@ -159,9 +159,9 @@ Scinverse confirmer (Finam/ISS приоритет). **Не MVP:**
 | 7i.L3 | «Рыночный пульс» тумблера связи без записи | осознанно отложено | later |
 | 7i.L4 | User-scope политик записи | phase 10 | Stage 2 |
 | 7i.MAP | `system_source(capability, market, service_id)` вместо хардкод-дефолтов confirmer | schedule.md | later |
-| ~~7i.OPT~~ | ~~Подписка на опционы TRANSAQ~~ | [issue.md](../phase7i/issue.md) | **DONE** (= 7h.OPT) · не production-долг |
+| ~~7i.OPT~~ | ~~Подписка на опционы TRANSAQ~~ | [issue.md](../dev/phase7i/issue.md) | **DONE** (= 7h.OPT) · не production-долг |
 
-Канон: [../phase7i/schedule.md](../phase7i/schedule.md).
+Канон: [../dev/phase7i/schedule.md](../dev/phase7i/schedule.md).
 
 ---
 
@@ -171,7 +171,7 @@ Scinverse confirmer (Finam/ISS приоритет). **Не MVP:**
 
 | # | Что | Статус / горизонт |
 | - | --- | ----------------- |
-| **7j.15** | Market/calendar profile (UI без хардкода MOEX) | очередь · [market-profile](../phase7j/market-profile.md) |
+| **7j.15** | Market/calendar profile (UI без хардкода MOEX) | очередь · [market-profile](../dev/phase7j/market-profile.md) |
 | **7j.16** | `date`-авторинг + пагинация календаря по месяцам | очередь · UX |
 | **7j.22** | Host `Max Pool Size` (клиент I12 DONE; pool defer @100) | только если снова exhausted |
 | **I9** | Prod checklist: bind / health / proxy family после Vite | OPEN ops |
@@ -179,7 +179,7 @@ Scinverse confirmer (Finam/ISS приоритет). **Не MVP:**
 | 7j.NC.UX | Мелочи NC из todo 7j («Найдено: N», layout, поиск↔corr) | Stage 2 / phase 11 |
 | 7j.WEBGL | Клик по 1px-маркеру ribbon → фильтр NC по corr | после WebGL |
 
-Канон: [../phase7j/todo.md](../phase7j/todo.md).
+Канон: [../dev/phase7j/todo.md](../dev/phase7j/todo.md).
 
 ---
 
@@ -196,8 +196,8 @@ P3–P5 crash/journal — DONE. Follow-up:
 | 8.NC | Вынос atoms V025 / NC-сервис | не phase 8 | Stage 2 / phase 11 |
 | 8.ILOG | `ILogger` → notification sink | out of scope (бывш. phase 11) | later |
 
-Канон: [../phase8/plan-schedule-projection.md](../phase8/plan-schedule-projection.md) ·
-[../phase7h/write-gaps.md](../phase7h/write-gaps.md).
+Канон: [../dev/phase8/plan-schedule-projection.md](../dev/phase8/plan-schedule-projection.md) ·
+[../dev/phase7h/write-gaps.md](../dev/phase7h/write-gaps.md).
 
 ---
 
@@ -227,6 +227,7 @@ P3–P5 crash/journal — DONE. Follow-up:
 
 ## Правила
 
-1. Новые «не в MVP» хвосты фаз 4–8 — **только в этот файл**, статусы фаз не возвращать в IN PROGRESS.  
-2. Ссылки из phase7*/phase8* — сюда.  
-3. Имя файла: **`abandoned.md`** (единственный).
+1. Новые «не в MVP» хвосты фаз 4–8 — сюда или в [`../features/`](../features/main.md) (если заведена фича).  
+2. Статусы фаз не возвращать в IN PROGRESS.  
+3. Ссылки из `docs/dev/phase*` — сюда напрямую (`../../stage1/abandoned.md`).  
+4. Имя файла: **`abandoned.md`** (единственный реестр долгов Stage 1).

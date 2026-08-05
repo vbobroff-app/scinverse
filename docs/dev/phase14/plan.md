@@ -26,6 +26,6 @@ GitHub Actions и compose-обвязка для **публикации серв�
 
 ## Связанные
 
-- Корневой план — [../plan.md](../plan.md) Stage 4.
+- Корневой план — [../../plan.md](../../plan.md) Stage 4.
 - Split сервисов — [../phase11/plan.md](../phase11/plan.md).
 - Кэш (ортогонально) — [../phase13/plan.md](../phase13/plan.md).

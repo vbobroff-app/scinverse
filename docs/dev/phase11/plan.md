@@ -8,7 +8,7 @@ OHS (журнал — **[phase 8](../phase8/plan.md)** / Stage 1).
 
 **Статус:** `PLANNED` (база NC DONE в монолите; вынос — впереди).
 **Stage:** 2. **Зависимости:** phase 8 (журнал OHS стабилен); phase 10 (Keycloak) — в gate выноса.
-Дизайн Stage 1 — [../apply.md](../apply.md); C4 — [`../../architecture/c4/arch.md`](../../architecture/c4/arch.md).
+Дизайн Stage 1 — [stage1/apply.md](../../stage1/apply.md); C4 — [`../../architecture/c4/arch.md`](../../architecture/c4/arch.md).
 Детали реализации пакета — [apply.md](apply.md); статус базы — [report.md](report.md).
 
 ## Что осталось здесь (NC)

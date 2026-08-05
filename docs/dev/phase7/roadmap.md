@@ -40,15 +40,15 @@
 | 7f | Тайм-лайн-фильтр оси (дни + окно дня) + единый стандарт времени | 1, 2 | MVP DONE | [7f](../phase7f/report.md) |
 | 7g | Слой сделок: присутствие торгов по бакетам (лесенка), app-кэш, `/coverage/activity` | 2 | DONE | [7g](../phase7g/plan.md) |
 | **7h** | **Честная подложка: recovery, живость, Write Gaps** (+ OPT ATM Online = 7h.OPT) | **2** | **DONE** | [7h](../phase7h/report.md) · OPT → [7i/issue](../phase7i/issue.md) |
-| 7i | Auto + Supervisor + **OPT/Refresh/lifecycle** (`7i.OPT` DONE) | 3 | **MVP DONE** | [7i](../phase7i/report.md) · хвосты расписания [abandoned](../stage1/abandoned.md) |
-| **7j** | **Расписание + инциденты v2 + abandon** | **3** | **MVP DONE** | [7j report](../phase7j/report.md) · хвосты [abandoned](../stage1/abandoned.md) |
+| 7i | Auto + Supervisor + **OPT/Refresh/lifecycle** (`7i.OPT` DONE) | 3 | **MVP DONE** | [7i](../phase7i/report.md) · хвосты расписания [abandoned](../../stage1/abandoned.md) |
+| **7j** | **Расписание + инциденты v2 + abandon** | **3** | **MVP DONE** | [7j report](../phase7j/report.md) · хвосты [abandoned](../../stage1/abandoned.md) |
 
 ## Текущий фокус (цель 2 → цель 3)
 
 **Разрывы (7h) — DONE.** Гант честно показывает обрыв связи (красным) vs тихий рынок.
 
 **Stage 1 семейства 7 — закрыт (2026-08-04).** Журнал OHS — **phase 8**.
-Хвосты MVP → [../stage1/abandoned.md](../stage1/abandoned.md).
+Хвосты MVP → [abandoned](../../stage1/abandoned.md).
 NC + split — Stage 2 / phase 11. Gate перед WebGL — Stage 2 (10+11).
 
 Справка: модель трёх слоёв (реализована в 7h):
@@ -79,5 +79,5 @@ NC + split — Stage 2 / phase 11. Gate перед WebGL — Stage 2 (10+11).
 
 - [`mvp-to-release.md`](mvp-to-release.md) — швы MVP→release, известные сложности/проблемы перехода.
 - [`../../gant.md`](../../gant.md) + [phase 12](../phase12/plan.md) — концепт и фаза release-движка Ганта.
-- [`../plan.md`](../plan.md) — мастер-план (Stages/фазы верхнего уровня).
+- [`../../plan.md`](../../plan.md) — мастер-план (Stages/фазы верхнего уровня).
 - [`issue.md`](issue.md) — исторический issue по иерархии инструментов (→ вынесено в 6c).

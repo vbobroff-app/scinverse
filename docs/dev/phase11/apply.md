@@ -4,7 +4,7 @@
 
 Журнал OHS / soft-delete / crash / schedule-projection — **[../phase8/](../phase8/plan.md)**
 (кратко soft-delete было здесь → [../phase8/apply.md](../phase8/apply.md)).
-Handoff — [`docs/promt.md`](../../promt.md) §8 (обновить отдельно).
+Handoff — [`docs/promt.md`](../../promt.md).
 
 ## Пакет `@scinverse/notification-center`
 

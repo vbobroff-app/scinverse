@@ -2,7 +2,7 @@
 
 **Статус:** `READY` · старт в новом чате  
 **Канон модели:** [`schedule-projection.md`](schedule-projection.md)  
-**Handoff:** [`docs/promt.md`](../../promt.md) §8
+**Handoff:** [`docs/promt.md`](../../promt.md)
 
 Цель — деликатно заменить классификацию «Incident vs Group по расписанию» на
 **факты + проекция**, не ломая Live Adopt (I10), ribbon pipeline (I12) и приемку crash D1–D8
@@ -28,7 +28,7 @@
 - [x] Wiki [`incident.md`](../../wiki-readme/incident.md) — новое определение
 - [x] Wiki [`layers.md`](../../wiki-readme/layers.md) — факты ⊥ schedule; as-is помечен
 - [x] Спека [`schedule-projection.md`](schedule-projection.md)
-- [x] Этот план + [`promt.md`](../../promt.md) §8
+- [x] Этот план + [`promt.md`](../../promt.md)
 - [x] Пометки obsolete в [`crash-dispatch.md`](crash-dispatch.md) / [`incident-journal.md`](incident-journal.md) §2
 - [ ] В новом чате: коротко подтвердить acceptance §9 спеки с пользователем, если что-то спорно
 
@@ -182,7 +182,7 @@ SessionFilter moex.
 
 ## Чеклист старта нового чата
 
-1. Прочитать `promt.md` §8 и `schedule-projection.md`.
+1. Прочитать `promt.md` и `schedule-projection.md`.
 2. Убедиться `git status` clean на базе после docs-коммита.
 3. Начать с **P1** (Cutter), не с переписывания emitter.
 4. Не воскрешать `:h` bake в journal.

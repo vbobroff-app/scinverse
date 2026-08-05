@@ -2,7 +2,7 @@
 
 **Статус Online MVP:** DONE (2026-08-04) — ATM ±N, Refresh, архив по exp (`instrument.active`).
 Не долг Stage 2. Оставшееся: intraday (7c.9 борд / 7c.SEC `sec_status`); draft working-set —
-[baskets-observed.md](../dev/baskets-observed.md).
+[catalog-basket-instruments](../features/catalog-basket-instruments/spec.md).
 
 Как устроен каталог в админке записи: что видно в Online, когда опционы
 подгружаются, чем «архив» отличается от «не торгуется сейчас».

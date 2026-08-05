@@ -79,17 +79,22 @@ Apache Kafka используется в **холодном (асинхронн�
 
 ```
 scinverse/                      # монорепо (единый origin)
-├── docs/                       # версионируемая документация
-│   ├── concept.md              # концептуальные решения (клиент, визуализация)
-│   ├── ohs.md                  # модель данных и хранилище OHS
-│   ├── promt.md                # исходные требования и выбор стека
-│   └── architecture/c4/        # диаграммы (.puml) + arch.md
-└── services/                   # сервисы (по мере разработки)
-    └── online-history-server/  # OHS — следующий шаг
+├── docs/
+│   ├── promt.md                # вход / handoff
+│   ├── plan.md                 # Stages 0–4
+│   ├── features/               # параллельный backlog после Stage 1
+│   ├── stage0/ … stage4/       # индексы Stage
+│   ├── dev/                    # archive фаз (phase*)
+│   ├── architecture/c4/        # диаграммы (.puml) + arch.md
+│   ├── concept.md · ohs.md
+│   └── wiki-readme/            # операторский канон
+└── services/
+    └── online-history-server/  # OHS
 ```
 
 Ключевые документы:
 
-- [`docs/architecture/c4/arch.md`](docs/architecture/c4/arch.md) — диаграммы (DDD Context Map + C4) и концепт-решения.
-- [`docs/concept.md`](docs/concept.md) — концептуальные решения.
-- [`docs/ohs.md`](docs/ohs.md) — модель данных и хранилище OHS.
+- [`docs/promt.md`](docs/promt.md) — вход нового чата / handoff.
+- [`docs/plan.md`](docs/plan.md) — Stages; [`docs/features/main.md`](docs/features/main.md) — фичи.
+- [`docs/architecture/c4/arch.md`](docs/architecture/c4/arch.md) — C4 / Context Map.
+- [`docs/concept.md`](docs/concept.md) · [`docs/ohs.md`](docs/ohs.md).

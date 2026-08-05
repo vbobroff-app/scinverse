@@ -10,7 +10,7 @@
 [../phase11/persistence.md](../phase11/persistence.md) ·
 **soft-delete** [`incident-soft-delete.md`](incident-soft-delete.md) ·
 wiki [`incident.md`](../../wiki-readme/incident.md) ·
-продюсер [../phase7j/incident.md](../phase7j/incident.md) · handoff [`docs/promt.md`](../../promt.md) §8 ·
+продюсер [../phase7j/incident.md](../phase7j/incident.md) · handoff [`docs/promt.md`](../../promt.md) ·
 **to-be идеология** [`schedule-projection.md`](schedule-projection.md).
 
 **Не путать с phase 7h:** [`../phase7h/incident.md`](../phase7h/incident.md) — SUPERSEDED

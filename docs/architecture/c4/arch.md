@@ -142,7 +142,7 @@ TRANSAQ/Timescale PRIMARY. Product и Admin подключают NC через *
 
 ### 3.11. Переход с MVP (вне C4)
 
-Дорожная карта в [`docs/dev/plan.md`](../../dev/plan.md): **gate 11→12** перед WebGL (phase 12).
+Дорожная карта в [`docs/plan.md`](../../plan.md): **gate 11→12** перед WebGL (phase 12).
 
 1. Допилить MVP OHS в **этом** репозитории (dev) — к gate OHS должен быть **полностью готов**.
 2. **Gate перед phase 12 (WebGL Ганта):** вынести **Admin Front** + **NC** (отдельные деплои/репо),

@@ -1,7 +1,7 @@
 # Phase 7b. Таймфреймы и сессионное окно (admin frontend)
 
 Расширение phase 7 (админ-фронт): управление видимым окном Ганта через панель таймфреймов с
-**сессионной** моделью MOEX. Дизайн Stage 1 — в [../apply.md](../apply.md); особенности реализации —
+**сессионной** моделью MOEX. Дизайн Stage 1 — в [stage1/apply.md](../../stage1/apply.md); особенности реализации —
 в [apply.md](apply.md); статус — в [report.md](report.md).
 
 **Статус:** `PLANNED`. **Stage:** 1. **Зависимости:** phase 7 (Гант, `OhsStore`, `CoverageTrack`).
@@ -60,7 +60,7 @@
   данных; при отсутствии данных за день он просто не считается сессией.
 - Пан/зум мышью по Ганту, drag-выделение диапазона — отдельный инкремент.
 - Статус «торгуется/спит» (реальный `sec_status`) — out of scope 7b; учтён как **7c.SEC** в
-  [abandoned](../stage1/abandoned.md) (не путать с DONE-задачей фазы **7b.2** `QueryTradingDaysAsync`).
+  [abandoned](../../stage1/abandoned.md) (не путать с DONE-задачей фазы **7b.2** `QueryTradingDaysAsync`).
 
 ## Критерии приёмки
 

@@ -1,6 +1,6 @@
 # Phase 6b. Особенности реализации и спецификации
 
-Конкретные решения control-plane OHS. Верхнеуровневый дизайн Stage 1 — в [../apply.md](../apply.md).
+Конкретные решения control-plane OHS. Верхнеуровневый дизайн Stage 1 — в [stage1/apply.md](../../stage1/apply.md).
 
 ## 1. Хост → ASP.NET Core (Minimal API)
 
