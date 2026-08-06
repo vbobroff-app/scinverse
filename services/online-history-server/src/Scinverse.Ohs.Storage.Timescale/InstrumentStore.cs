@@ -24,6 +24,28 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource, TimeProvider ti
         return rows.Select(Map).ToList();
     }
 
+    public async Task<IReadOnlyList<Instrument>> LoadByIdsAsync(
+        IReadOnlyList<long> instrumentIds, CancellationToken cancellationToken)
+    {
+        if (instrumentIds.Count == 0)
+        {
+            return [];
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<InstrumentRow>(new CommandDefinition(
+            $"""
+            SELECT {SelectColumns}
+            FROM instrument
+            WHERE instrument_id = ANY(@ids)
+              AND active = TRUE;
+            """,
+            new { ids = instrumentIds.Distinct().ToArray() },
+            cancellationToken: cancellationToken));
+
+        return rows.Select(Map).ToList();
+    }
+
     public async Task<IReadOnlyList<AvailableInstrument>> ListAvailableAsync(CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);

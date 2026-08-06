@@ -6,8 +6,14 @@ namespace Scinverse.Ohs.Ingestion;
 /// <summary>Кэш-реестр инструментов: (ticker, board) → instrument_id и параметры цены.</summary>
 public interface IInstrumentRegistry
 {
-    /// <summary>Загружает справочник из хранилища в кэш; помечает каталог свежим.</summary>
+    /// <summary>
+    /// Загружает в кэш Observed (или весь active, если Observed не режет).
+    /// Помечает каталог свежим.
+    /// </summary>
     Task InitializeAsync(CancellationToken cancellationToken);
+
+    /// <summary>Пересобрать кэш из текущего Observed snapshot (после re-eval / Start-Stop).</summary>
+    Task ReloadObservedAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// Наблюдение справочника из pump (неблокирующее для hit). Cache-hit при свежем каталоге —
@@ -47,7 +53,7 @@ public interface IInstrumentRegistry
     void Evict(IEnumerable<long> instrumentIds);
 
     /// <summary>
-    /// После фонового upsert: в кэш только <c>Active</c>; архив вытесняется.
+    /// После фонового upsert: в кэш только <c>Active</c> ∩ Observed; архив вытесняется.
     /// </summary>
     void ApplyPersisted(IEnumerable<Instrument> instruments);
 }

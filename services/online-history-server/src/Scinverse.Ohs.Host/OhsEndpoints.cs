@@ -19,8 +19,42 @@ public static class OhsEndpoints
             string? q, string? board, string? secType, string? category, bool? onlyRecording,
             bool? nonEmpty, string? instrumentIds, string? exchanges, bool? includeOptionAncestors,
             long? underlyingId, DateOnly? expiration, int? limit, int? offset,
-            IInstrumentStore store, CancellationToken ct) =>
+            long? connectionId,
+            IInstrumentStore store,
+            IObservedInstrumentSet observed,
+            CancellationToken ct) =>
         {
+            // Observed working set: явный connectionId или union всех connections (back-compat до C3 UI).
+            IReadOnlyList<long> observedIds;
+            if (connectionId is long cid)
+            {
+                observedIds = await observed.ListForConnectionAsync(cid, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                await observed.RebuildAsync(ct).ConfigureAwait(false);
+                observedIds = observed.SnapshotIds();
+            }
+
+            if (observedIds.Count == 0)
+            {
+                var emptyLimit = limit ?? 100;
+                var emptyOffset = offset ?? 0;
+                return new InstrumentPageDto([], 0, emptyLimit, emptyOffset);
+            }
+
+            var requested = ParseLongs(instrumentIds);
+            var allowList = requested is { Count: > 0 }
+                ? observedIds.Intersect(requested).ToList()
+                : observedIds.ToList();
+
+            if (allowList.Count == 0)
+            {
+                var emptyLimit = limit ?? 100;
+                var emptyOffset = offset ?? 0;
+                return new InstrumentPageDto([], 0, emptyLimit, emptyOffset);
+            }
+
             var page = await store.QueryAsync(new InstrumentQuery
             {
                 Search = q,
@@ -29,7 +63,7 @@ public static class OhsEndpoints
                 Category = category,
                 OnlyRecording = onlyRecording ?? false,
                 NonEmpty = nonEmpty ?? false,
-                InstrumentIds = ParseLongs(instrumentIds),
+                InstrumentIds = allowList,
                 IncludeOptionAncestors = includeOptionAncestors ?? true,
                 Exchanges = ParseCsv(exchanges),
                 UnderlyingId = underlyingId,

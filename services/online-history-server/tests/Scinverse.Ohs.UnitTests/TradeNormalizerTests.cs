@@ -14,6 +14,7 @@ public sealed class TradeNormalizerTests
             new FakeInstrumentStore(instruments),
             new MoexFortsSpecParser(),
             new InstrumentCatalogPersistQueue(),
+            UnrestrictedObservedSet.Instance,
             TimeProvider.System);
         await registry.InitializeAsync(CancellationToken.None);
         return new TradeNormalizer(registry);

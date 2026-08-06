@@ -55,7 +55,9 @@ builder.Services.AddSingleton<IIncidentFanOut, IncidentFanOut>();
 builder.Services.AddSingleton<ITradeWriter, TimescaleTradeWriter>();
 builder.Services.AddSingleton<IDerivativeSpecParser, MoexFortsSpecParser>();
 builder.Services.AddSingleton<InstrumentCatalogPersistQueue>();
+builder.Services.AddSingleton<IObservedInstrumentSet, ObservedInstrumentSet>();
 builder.Services.AddSingleton<IInstrumentRegistry, InstrumentRegistry>();
+builder.Services.AddSingleton<ObservedCatalogCoordinator>();
 builder.Services.AddSingleton<BasketEvalService>();
 builder.Services.AddSingleton<InstrumentLifecycleService>();
 builder.Services.AddSingleton<OptionWindowFreshness>();
@@ -109,6 +111,8 @@ builder.Services.AddSingleton<LivenessProbe>();
 builder.Services.AddSingleton<ILivenessWriter>(sp => sp.GetRequiredService<LivenessProbe>());
 builder.Services.AddSingleton(sp => new Lazy<ILivenessWriter>(() => sp.GetRequiredService<ILivenessWriter>()));
 builder.Services.AddSingleton(sp => new Lazy<RecordingManager>(() => sp.GetRequiredService<RecordingManager>()));
+builder.Services.AddSingleton(sp => new Lazy<ObservedCatalogCoordinator>(
+    () => sp.GetRequiredService<ObservedCatalogCoordinator>()));
 builder.Services.AddSingleton<ConnectionManager>();
 builder.Services.AddSingleton<RecordingManager>();
 builder.Services.AddSingleton<RecordingSupervisor>();
@@ -176,10 +180,11 @@ app.Map("/ws", async (HttpContext context, WebSocketBroadcaster broadcaster) =>
 app.MapOhsApi();
 app.MapGroup("/api").MapHostOutageRecovery();
 
-// Прогреваем реестр инструментов до старта приёма запросов (команды записи резолвят инструмент).
-await app.Services.GetRequiredService<IInstrumentRegistry>().InitializeAsync(CancellationToken.None);
+// Observed working set → узкий registry (не весь active).
+await app.Services.GetRequiredService<ObservedCatalogCoordinator>()
+    .RebuildCacheAsync(CancellationToken.None);
 
-// Lifecycle Online-каталога: архивация просроченных при старте Host (если ещё не бежали сегодня).
+// Lifecycle Online-каталога: archive + re-eval static + rebuild Observed.
 await app.Services.GetRequiredService<InstrumentLifecycleService>()
     .TrySweepAsync(force: false, CancellationToken.None);
 

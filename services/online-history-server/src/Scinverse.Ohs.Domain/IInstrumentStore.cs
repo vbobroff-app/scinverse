@@ -5,6 +5,10 @@ public interface IInstrumentStore
 {
     Task<IReadOnlyList<Instrument>> LoadAllAsync(CancellationToken cancellationToken);
 
+    /// <summary>Загрузка инструментов по id (Observed-кэш); порядок не гарантирован.</summary>
+    Task<IReadOnlyList<Instrument>> LoadByIdsAsync(
+        IReadOnlyList<long> instrumentIds, CancellationToken cancellationToken);
+
     /// <summary>Available Online (<c>active=TRUE</c>) для eval/preview baskets — id/ticker/board/sec_type.</summary>
     Task<IReadOnlyList<AvailableInstrument>> ListAvailableAsync(CancellationToken cancellationToken);
 

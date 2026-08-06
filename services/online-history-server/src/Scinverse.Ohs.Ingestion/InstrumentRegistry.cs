@@ -9,6 +9,7 @@ public sealed class InstrumentRegistry(
     IInstrumentStore store,
     IDerivativeSpecParser derivativeParser,
     InstrumentCatalogPersistQueue persistQueue,
+    IObservedInstrumentSet observed,
     TimeProvider time) : IInstrumentRegistry
 {
     public const int MissBatchSize = 500;
@@ -25,12 +26,31 @@ public sealed class InstrumentRegistry(
         get { lock (_freshGate) return !_stale; }
     }
 
-    public async Task InitializeAsync(CancellationToken cancellationToken)
+    public Task InitializeAsync(CancellationToken cancellationToken) =>
+        ReloadObservedAsync(cancellationToken);
+
+    public async Task ReloadObservedAsync(CancellationToken cancellationToken)
     {
-        var instruments = await store.LoadAllAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<Instrument> instruments;
+        if (!observed.RestrictsCache)
+        {
+            instruments = await store.LoadAllAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            var ids = observed.SnapshotIds();
+            instruments = ids.Count == 0
+                ? []
+                : await store.LoadByIdsAsync(ids, cancellationToken).ConfigureAwait(false);
+        }
+
+        _cache.Clear();
         foreach (var instrument in instruments)
         {
-            _cache[instrument.Key] = instrument;
+            if (instrument.Active)
+            {
+                _cache[instrument.Key] = instrument;
+            }
         }
 
         MarkFresh();
@@ -72,7 +92,7 @@ public sealed class InstrumentRegistry(
             return;
         }
 
-        // Miss: копим и для архива (чтобы upsert выставил active=false), в кэш попадёт только Active.
+        // Miss: копим для Available upsert (в т.ч. архив); в кэш — только Active ∩ Observed.
         lock (_missGate)
         {
             _missBuffer.Add(enriched);
@@ -115,7 +135,7 @@ public sealed class InstrumentRegistry(
             return cached;
         }
 
-        // Архив: в online-кэш не кладём, но caller (maintenance) может получить сущность.
+        // Вне Observed / архив: в online-кэш не кладём, но caller может получить сущность.
         return instrument;
     }
 
@@ -161,10 +181,6 @@ public sealed class InstrumentRegistry(
         return false;
     }
 
-    /// <summary>
-    /// Внутренний flush miss-буфера по порогу (из pump через Observe→FlushPending на trade
-    /// или явный вызов). Публичный Observe копит; порог сбрасывает <see cref="TryFlushMissThresholdAsync"/>.
-    /// </summary>
     public async Task TryFlushMissThresholdAsync(CancellationToken cancellationToken)
     {
         List<SecurityInfo>? batch = null;
@@ -189,7 +205,6 @@ public sealed class InstrumentRegistry(
             return;
         }
 
-        // Дедуп по ключу (последний выигрывает) — TRANSAQ может повторять secid.
         var dedup = new Dictionary<InstrumentKey, SecurityInfo>();
         foreach (var item in batch)
         {
@@ -222,7 +237,7 @@ public sealed class InstrumentRegistry(
     {
         foreach (var instrument in instruments)
         {
-            if (instrument.Active)
+            if (instrument.Active && (!observed.RestrictsCache || observed.IsObserved(instrument.InstrumentId)))
             {
                 _cache[instrument.Key] = instrument;
             }
@@ -242,7 +257,6 @@ public sealed class InstrumentRegistry(
         return DateOnly.FromDateTime(msk.DateTime);
     }
 
-    /// <summary>Дополняет справку атрибутами дериватива, выведенными из кода (FORTS).</summary>
     private SecurityInfo Enrich(SecurityInfo security)
     {
         if (security.UnderlyingCode is not null

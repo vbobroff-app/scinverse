@@ -1,12 +1,16 @@
+using Dapper;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Scinverse.Db.Migrator;
+using Scinverse.Ohs.Connectors.Transaq;
 using Scinverse.Ohs.Domain;
+using Scinverse.Ohs.Host;
 using Scinverse.Ohs.Storage.Timescale;
 using Testcontainers.PostgreSql;
 
@@ -82,6 +86,32 @@ public sealed class OhsApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             }
 
             await instrumentStore.UpsertAsync(security, CancellationToken.None);
+        }
+
+        // C2: список /instruments = Observed. Сид static-basket на synthetic-local, иначе API пустой.
+        await using (var conn = await dataSource.OpenConnectionAsync())
+        {
+            var connectionId = await conn.ExecuteScalarAsync<long?>(
+                """
+                SELECT connection_id FROM connector_connection
+                WHERE name = 'synthetic-local' LIMIT 1;
+                """);
+            if (connectionId is long cid)
+            {
+                var baskets = new BasketStore(dataSource);
+                var eval = new BasketEvalService(
+                    instrumentStore,
+                    baskets,
+                    new ConnectionStore(dataSource),
+                    NullLogger<BasketEvalService>.Instance);
+                var basket = await baskets.CreateStaticAsync(
+                    cid,
+                    "api-seed",
+                    new BasketRule { Patterns = ["SBER", "GZU6*"] },
+                    enabled: true,
+                    CancellationToken.None);
+                await eval.MaterializeAsync(basket.BasketId, CancellationToken.None);
+            }
         }
     }
 

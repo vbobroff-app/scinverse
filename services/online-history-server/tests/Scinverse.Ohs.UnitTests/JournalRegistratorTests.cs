@@ -112,20 +112,7 @@ public sealed class JournalRegistratorTests
             broadcaster: new WebSocketBroadcaster(),
             liveness: new Lazy<ILivenessWriter>(() => throw new InvalidOperationException("unused")),
             recordings: new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
-            lifecycle: new InstrumentLifecycleService(
-                new FakeInstrumentStore(),
-                new InstrumentRegistry(
-                    new FakeInstrumentStore(), new MoexFortsSpecParser(),
-                    new InstrumentCatalogPersistQueue(), TimeProvider.System),
-                new NoopRecordingScheduleStore(),
-                new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
-                new BasketEvalService(
-                    new FakeInstrumentStore(),
-                    new EmptyBasketStore(),
-                    new EmptyConnectionStoreForLifecycle(),
-                    NullLogger<BasketEvalService>.Instance),
-                TimeProvider.System,
-                NullLogger<InstrumentLifecycleService>.Instance),
+            lifecycle: StubObservedCatalog.CreateLifecycle(new NoopRecordingScheduleStore()),
             linkLiveness: link,
             incidentStore: store,
             notifications: hub,

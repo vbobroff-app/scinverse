@@ -15,6 +15,7 @@ public sealed class InstrumentRegistryTests
             new FakeInstrumentStore(seed),
             new MoexFortsSpecParser(),
             new InstrumentCatalogPersistQueue(),
+            UnrestrictedObservedSet.Instance,
             TimeProvider.System);
     }
 
@@ -38,7 +39,8 @@ public sealed class InstrumentRegistryTests
             Decimals = 2
         });
         var registry = new InstrumentRegistry(
-            store, new MoexFortsSpecParser(), new InstrumentCatalogPersistQueue(), TimeProvider.System);
+            store, new MoexFortsSpecParser(), new InstrumentCatalogPersistQueue(),
+            UnrestrictedObservedSet.Instance, TimeProvider.System);
         await registry.InitializeAsync(CancellationToken.None);
 
         registry.Observe(Sec(Sber, minStep: 0.05m));
@@ -62,7 +64,7 @@ public sealed class InstrumentRegistryTests
             MinStep = 0.01m
         });
         var registry = new InstrumentRegistry(
-            store, new MoexFortsSpecParser(), queue, TimeProvider.System);
+            store, new MoexFortsSpecParser(), queue, UnrestrictedObservedSet.Instance, TimeProvider.System);
         await registry.InitializeAsync(CancellationToken.None);
 
         registry.Invalidate(force: true).Should().BeTrue();
@@ -83,7 +85,8 @@ public sealed class InstrumentRegistryTests
     {
         var store = new CountingInstrumentStore();
         var registry = new InstrumentRegistry(
-            store, new MoexFortsSpecParser(), new InstrumentCatalogPersistQueue(), TimeProvider.System);
+            store, new MoexFortsSpecParser(), new InstrumentCatalogPersistQueue(),
+            UnrestrictedObservedSet.Instance, TimeProvider.System);
         await registry.InitializeAsync(CancellationToken.None);
 
         registry.Observe(Sec(Sber));
@@ -118,7 +121,7 @@ public sealed class InstrumentRegistryTests
             MinStep = 0.01m
         });
         var registry = new InstrumentRegistry(
-            store, new MoexFortsSpecParser(), queue, TimeProvider.System);
+            store, new MoexFortsSpecParser(), queue, UnrestrictedObservedSet.Instance, TimeProvider.System);
         await registry.InitializeAsync(CancellationToken.None);
 
         registry.Invalidate(force: true);
@@ -140,6 +143,10 @@ public sealed class InstrumentRegistryTests
 
         public Task<IReadOnlyList<Instrument>> LoadAllAsync(CancellationToken cancellationToken) =>
             _inner.LoadAllAsync(cancellationToken);
+
+        public Task<IReadOnlyList<Instrument>> LoadByIdsAsync(
+            IReadOnlyList<long> instrumentIds, CancellationToken cancellationToken) =>
+            _inner.LoadByIdsAsync(instrumentIds, cancellationToken);
 
         public Task<IReadOnlyList<AvailableInstrument>> ListAvailableAsync(CancellationToken cancellationToken) =>
             _inner.ListAvailableAsync(cancellationToken);

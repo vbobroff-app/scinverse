@@ -51,7 +51,8 @@ public sealed class InstrumentLifecycleTests
     {
         var store = new FakeInstrumentStore();
         var registry = new Ingestion.InstrumentRegistry(
-            store, new MoexFortsSpecParser(), new Ingestion.InstrumentCatalogPersistQueue(), TimeProvider.System);
+            store, new MoexFortsSpecParser(), new Ingestion.InstrumentCatalogPersistQueue(),
+            UnrestrictedObservedSet.Instance, TimeProvider.System);
         await registry.InitializeAsync(CancellationToken.None);
 
         var past = InstrumentLifecycle.TodayMoscow(TimeProvider.System).AddDays(-10);

@@ -12,6 +12,7 @@ public sealed class InstrumentLifecycleService(
     IRecordingScheduleStore schedule,
     Lazy<RecordingManager> recordings,
     BasketEvalService basketEval,
+    ObservedCatalogCoordinator observedCatalog,
     TimeProvider time,
     ILogger<InstrumentLifecycleService> logger)
 {
@@ -68,6 +69,7 @@ public sealed class InstrumentLifecycleService(
 
         // Static baskets: снять expired из members, дописать новых матчей из Available.
         await basketEval.ReEvalAllConnectionsAsync(cancellationToken).ConfigureAwait(false);
+        await observedCatalog.RebuildCacheAsync(cancellationToken).ConfigureAwait(false);
 
         return new InstrumentLifecycleSweepResult(true, archived);
     }

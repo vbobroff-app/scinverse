@@ -144,20 +144,7 @@ public sealed class ConnectionManagerIncidentTests
             broadcaster: new WebSocketBroadcaster(),
             liveness: new Lazy<ILivenessWriter>(() => throw new InvalidOperationException("unused")),
             recordings: new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
-            lifecycle: new InstrumentLifecycleService(
-                new FakeInstrumentStore(),
-                new InstrumentRegistry(
-                    new FakeInstrumentStore(), new MoexFortsSpecParser(),
-                    new InstrumentCatalogPersistQueue(), TimeProvider.System),
-                new StubRecordingScheduleStore(),
-                new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
-                new BasketEvalService(
-                    new FakeInstrumentStore(),
-                    new EmptyBasketStore(),
-                    new EmptyConnectionStoreForLifecycle(),
-                    NullLogger<BasketEvalService>.Instance),
-                TimeProvider.System,
-                NullLogger<InstrumentLifecycleService>.Instance),
+            lifecycle: StubObservedCatalog.CreateLifecycle(new StubRecordingScheduleStore()),
             linkLiveness: link,
             incidentStore: new EmptyIncidentStore(),
             notifications: hub,

@@ -17,6 +17,7 @@ public sealed class RecordingManager(
     ISourceStore sourceStore,
     WebSocketBroadcaster broadcaster,
     Lazy<ILivenessWriter> liveness,
+    Lazy<ObservedCatalogCoordinator> observedCatalog,
     ILogger<RecordingManager> logger)
 {
     private sealed record Recording(
@@ -51,6 +52,7 @@ public sealed class RecordingManager(
 
         var recording = new Recording(instrument.Key, instrumentId, sourceId, connectionId, segmentId, startedAt);
         _recordings[instrumentId] = recording;
+        await observedCatalog.Value.RebuildCacheAsync(cancellationToken).ConfigureAwait(false);
         broadcaster.Broadcast(new RecordingStartedEvent(instrumentId, sourceId, connectionId, segmentId));
         await liveness.Value.OnDataAsync(connectionId, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Старт записи {Instrument} через подключение {ConnectionId}", instrument.Key, connectionId);
@@ -82,6 +84,7 @@ public sealed class RecordingManager(
         }
 
         await coverage.CloseAsync(recording.Key, "stopped", cancellationToken).ConfigureAwait(false);
+        await observedCatalog.Value.RebuildCacheAsync(cancellationToken).ConfigureAwait(false);
         broadcaster.Broadcast(new RecordingStoppedEvent(instrumentId));
         await liveness.Value.OnRecordingStoppedAsync(recording.ConnectionId, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Стоп записи {Instrument}", recording.Key);

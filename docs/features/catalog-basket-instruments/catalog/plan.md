@@ -1,6 +1,6 @@
 # catalog-basket-instruments / catalog — plan (v1)
 
-**Статус:** PLAN (2026-08-06) · **C0–C1 DONE**. Спека — [spec.md](spec.md) · as-is — [apply.md](apply.md) ·
+**Статус:** PLAN (2026-08-06) · **C0–C2 DONE**. Спека — [spec.md](spec.md) · as-is — [apply.md](apply.md) ·
 индекс фичи — [`../main.md`](../main.md).
 
 Цель v1: **ограничить Observed-кэш и основной список** — static baskets + system `recording`;
@@ -136,12 +136,13 @@ v1 **закладываем явный `connectionId`** на instruments / baske
 
 **Done:** re-eval снимает expired и добавляет новых матчей из Available.
 
-### C2 — Observed-кэш cutover
+### C2 — Observed-кэш cutover — **DONE**
 
-- Registry init / rebuild из Observed union (☑ static members ∪ recording live)
-- `Observe`/ApplyPersisted: в online-кэш только если instrument ∈ Observed (или станет после eval)
-- `GET /instruments` ← Observed (пагинация/chips как сейчас, источник уже узкий)
-- connect: без full static re-eval; crash → load members + recording
+- `IObservedInstrumentSet` / `ObservedInstrumentSet` / `ObservedCatalogCoordinator`
+- Registry: `ReloadObservedAsync`, ApplyPersisted только Active ∩ Observed; dump miss → Available БД
+- `GET /instruments?connectionId=` (без id — union всех; empty Observed → пустая страница)
+- Rebuild после Lifecycle/Refresh, Start/Stop recording; startup через coordinator
+- `LoadByIdsAsync`; тесты `ObservedCacheTests`
 
 **Done:** при пустых static + Auto на N инструментах список = эти N; полный active не в registry.
 
