@@ -53,6 +53,8 @@ export interface InstrumentQueryParams {
   includeOptionAncestors?: boolean;
   /** Биржи (коды: MOEX, …) — задел под мультибиржу; пусто/undefined — без фильтра. */
   exchanges?: string[];
+  /** Observed scope: connectionId (catalog-basket-instruments). */
+  connectionId?: number;
   underlyingId?: number;
   expiration?: string;
   limit: number;
@@ -60,7 +62,54 @@ export interface InstrumentQueryParams {
 }
 
 /** Ключ динамической плашки-фильтра каталога (порядок = порядок добавления). */
-export type FilterKey = 'instruments' | 'selection' | 'exchanges';
+export type FilterKey = 'instruments' | 'selection' | 'exchanges' | 'baskets';
+
+/** Набор Observed (static / system / dynamic). */
+export interface BasketDto {
+  basketId: number;
+  connectionId: number;
+  kind: 'static' | 'dynamic' | 'system' | string;
+  name: string;
+  systemId: string | null;
+  enabled: boolean;
+  patterns: string[] | null;
+  secType: string | null;
+  boardId: string | null;
+  memberCount: number;
+}
+
+export interface UpsertBasketRequest {
+  name: string;
+  patterns: string[];
+  secType?: string | null;
+  boardId?: string | null;
+  enabled?: boolean;
+}
+
+export interface BasketPreviewRequest {
+  patterns: string[];
+  secType?: string | null;
+  boardId?: string | null;
+}
+
+/** Строка Available / preview в модалке набора. */
+export interface AvailableInstrumentDto {
+  instrumentId: number;
+  ticker: string;
+  board: string;
+  secType: string | null;
+  shortName?: string | null;
+  name?: string | null;
+  expiration?: string | null;
+  lotSize?: number | null;
+}
+
+export interface AvailableInstrumentPage {
+  items: AvailableInstrumentDto[];
+  total: number;
+  limit: number;
+  offset: number;
+}
 
 /** Условие плашки «Выбор» (комбинируются по И). */
 export type SelectionCondition = 'recording' | 'nonEmpty' | 'selected';

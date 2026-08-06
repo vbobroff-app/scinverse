@@ -55,6 +55,11 @@ export function FilterChips({ available, active, specs, onAdd, onRemove, onClear
    * дефолте — убирает плашку. Тот же опыт, что в доке уведомлений.
    */
   const handleChipClose = (spec: FilterSpec) => {
+    if (spec.removeOnly) {
+      onRemove(spec.key);
+      setOpen(null);
+      return;
+    }
     if (!isSpecAtDefault(spec)) {
       resetSpec(spec);
       return;
@@ -133,6 +138,23 @@ export function FilterChips({ available, active, specs, onAdd, onRemove, onClear
                   ? <SingleOptions spec={spec} onPick={() => setOpen(null)} />
                   : <MultiOptions spec={spec} />}
                 {spec.applyScope && <ApplyScopeSection group={spec.applyScope} />}
+                {spec.footerActions && spec.footerActions.length > 0 && (
+                  <div className={styles.popoverFooter}>
+                    {spec.footerActions.map((a) => (
+                      <button
+                        key={a.label}
+                        type="button"
+                        className={styles.popoverOk}
+                        onClick={() => {
+                          setOpen(null);
+                          a.onClick();
+                        }}
+                      >
+                        {a.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -240,30 +262,48 @@ function MultiOptions({ spec }: { spec: FilterSpec }) {
           <div className={styles.checkDivider} aria-hidden="true" />
         </>
       ) : null}
-      {spec.options.map((o) => (
-        <label
-          key={o.id}
-          className={[styles.check, o.disabled ? styles.checkDisabled : ''].filter(Boolean).join(' ')}
-          title={o.title}
-        >
-          <input
-            type="checkbox"
-            checked={selected.has(o.id)}
-            disabled={o.disabled}
-            onChange={(e) => {
-              const next = new Set(selected);
-              if (e.target.checked) {
-                next.add(o.id);
-              } else {
-                next.delete(o.id);
-              }
-              spec.onChange([...next]);
-            }}
-          />
-          {o.label}
-          {o.count !== undefined && <span className={styles.hint}>{o.count}</span>}
-        </label>
-      ))}
+      {spec.options.map((o) => {
+        const action = spec.optionActions?.[o.id];
+        return (
+          <label
+            key={o.id}
+            className={[styles.check, o.disabled ? styles.checkDisabled : ''].filter(Boolean).join(' ')}
+            title={o.title}
+          >
+            <input
+              type="checkbox"
+              checked={selected.has(o.id)}
+              disabled={o.disabled}
+              onChange={(e) => {
+                const next = new Set(selected);
+                if (e.target.checked) {
+                  next.add(o.id);
+                } else {
+                  next.delete(o.id);
+                }
+                spec.onChange([...next]);
+              }}
+            />
+            <span className={styles.checkLabel}>{o.label}</span>
+            {o.count !== undefined && <span className={styles.hint}>{o.count}</span>}
+            {action && (
+              <button
+                type="button"
+                className={styles.optionAction}
+                title={action.title ?? action.label}
+                aria-label={action.label}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  action.onClick();
+                }}
+              >
+                ✎
+              </button>
+            )}
+          </label>
+        );
+      })}
     </>
   );
 }

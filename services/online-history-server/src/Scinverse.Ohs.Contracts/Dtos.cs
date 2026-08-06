@@ -554,3 +554,53 @@ public sealed record BackfillRecentIncidentsResultDto(
     int Failed,
     DateTimeOffset From,
     DateTimeOffset To);
+
+// --- catalog-basket-instruments (C3) ---
+
+/// <summary>Набор Observed (static / system / dynamic).</summary>
+public sealed record BasketDto(
+    long BasketId,
+    long ConnectionId,
+    string Kind,
+    string Name,
+    string? SystemId,
+    bool Enabled,
+    IReadOnlyList<string>? Patterns,
+    string? SecType,
+    string? BoardId,
+    int MemberCount);
+
+/// <summary>Создание / правка static-набора.</summary>
+public sealed record UpsertBasketRequest(
+    string Name,
+    IReadOnlyList<string> Patterns,
+    string? SecType = null,
+    string? BoardId = null,
+    bool Enabled = true);
+
+/// <summary>Галка набора в union Observed.</summary>
+public sealed record PatchBasketEnabledRequest(bool Enabled);
+
+/// <summary>Превью матча правил без persist.</summary>
+public sealed record BasketPreviewRequest(
+    IReadOnlyList<string> Patterns,
+    string? SecType = null,
+    string? BoardId = null);
+
+/// <summary>Строка Available / preview в модалке набора.</summary>
+public sealed record AvailableInstrumentDto(
+    long InstrumentId,
+    string Ticker,
+    string Board,
+    string? SecType,
+    string? ShortName = null,
+    string? Name = null,
+    DateOnly? Expiration = null,
+    int? LotSize = null);
+
+/// <summary>Страница Available для модалки наборов.</summary>
+public sealed record AvailableInstrumentPageDto(
+    IReadOnlyList<AvailableInstrumentDto> Items,
+    int Total,
+    int Limit,
+    int Offset);

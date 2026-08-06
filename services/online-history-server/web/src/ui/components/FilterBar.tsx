@@ -5,12 +5,17 @@ import { FilterChips } from './FilterChips';
 import { CrosshairIcon, DayBoxIcon } from './icons';
 import styles from './FilterBar.module.css';
 
+interface FilterBarProps {
+  /** Открыть модалку набора: null = создать, id = правка static. */
+  onManageBasket?: (basketId: number | null) => void;
+}
+
 /**
- * Панель фильтров каталога инструментов (панель провайдеров): плашки Инструмент/Выбор/Биржи +
+ * Панель фильтров каталога инструментов (панель провайдеров): плашки Инструмент/Выбор/Биржи/Наборы +
  * счётчик «Найдено», тумблеры отображения Ганта и поиск. Тонкий адаптер над generic-панелью
  * поверх {@link useOhsStore}.
  */
-export function FilterBar() {
+export function FilterBar({ onManageBasket }: FilterBarProps) {
   const store = useOhsStore();
   const total = useBehavior(store.instrumentsTotal$);
   const highlightDays = useBehavior(store.highlightDays$);
@@ -50,7 +55,7 @@ export function FilterBar() {
         onSearch: (q) => store.setInstrumentFilter({ q: q || undefined }),
       }}
     >
-      <FilterChips />
+      <FilterChips onManageBasket={onManageBasket} />
     </GenericFilterBar>
   );
 }

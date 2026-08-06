@@ -33,11 +33,16 @@ import type {
   IntegrationProbeResultDto,
   ResolveIncidentRequest,
   SoftDeleteIncidentRequest,
+  AvailableInstrumentDto,
+  AvailableInstrumentPage,
+  BasketDto,
+  BasketPreviewRequest,
   InstrumentCatalogRefreshResultDto,
   InstrumentGroupDto,
   InstrumentPage,
   InstrumentQueryParams,
   LivenessQueryRequest,
+  UpsertBasketRequest,
   IssSecurityDto,
   LoadOptionsRequest,
   LoadOptionsResultDto,
@@ -77,6 +82,7 @@ function buildInstrumentsQuery(params: InstrumentQueryParams): string {
   if (params.instrumentIds?.length) search.set('instrumentIds', params.instrumentIds.join(','));
   if (params.includeOptionAncestors === false) search.set('includeOptionAncestors', 'false');
   if (params.exchanges?.length) search.set('exchanges', params.exchanges.join(','));
+  if (params.connectionId != null) search.set('connectionId', String(params.connectionId));
   if (params.underlyingId != null) search.set('underlyingId', String(params.underlyingId));
   if (params.expiration) search.set('expiration', params.expiration);
   search.set('limit', String(params.limit));
@@ -96,6 +102,12 @@ function put<T>(path: string, body?: unknown): Observable<T> {
   );
 }
 
+function patch<T>(path: string, body?: unknown): Observable<T> {
+  return ajax<T>({ url: `${BASE}${path}`, method: 'PATCH', headers: JSON_HEADERS, body }).pipe(
+    map((r) => r.response),
+  );
+}
+
 /**
  * Тонкий типизированный клиент OHS REST API (RxJS). Все методы возвращают Observable;
  * base-префикс `/api` проксируется Vite на живой хост (см. vite.config.ts).
@@ -103,6 +115,44 @@ function put<T>(path: string, body?: unknown): Observable<T> {
 export const OhsApi = {
   getInstruments: (params: InstrumentQueryParams) =>
     getJSON<InstrumentPage>(`/instruments${buildInstrumentsQuery(params)}`),
+
+  /** Available (active) для модалки наборов — не Observed. */
+  getAvailableInstruments: (params: {
+    q?: string;
+    board?: string;
+    secType?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const search = new URLSearchParams();
+    if (params.q) search.set('q', params.q);
+    if (params.board) search.set('board', params.board);
+    if (params.secType) search.set('secType', params.secType);
+    search.set('limit', String(params.limit ?? 100));
+    search.set('offset', String(params.offset ?? 0));
+    return getJSON<AvailableInstrumentPage>(`/instruments/available?${search.toString()}`);
+  },
+
+  getBaskets: (connectionId: number) =>
+    getJSON<BasketDto[]>(`/connections/${connectionId}/baskets`),
+
+  createBasket: (connectionId: number, body: UpsertBasketRequest) =>
+    post<BasketDto>(`/connections/${connectionId}/baskets`, body),
+
+  updateBasket: (connectionId: number, basketId: number, body: UpsertBasketRequest) =>
+    put<BasketDto>(`/connections/${connectionId}/baskets/${basketId}`, body),
+
+  patchBasketEnabled: (connectionId: number, basketId: number, enabled: boolean) =>
+    patch<BasketDto>(`/connections/${connectionId}/baskets/${basketId}`, { enabled }),
+
+  deleteBasket: (connectionId: number, basketId: number): Observable<void> =>
+    ajax({
+      url: `${BASE}/connections/${connectionId}/baskets/${basketId}`,
+      method: 'DELETE',
+    }).pipe(map(() => undefined)),
+
+  previewBasket: (connectionId: number, body: BasketPreviewRequest) =>
+    post<AvailableInstrumentDto[]>(`/connections/${connectionId}/baskets/preview`, body),
 
   getInstrumentSeries: (underlyingId: number) =>
     getJSON<InstrumentGroupDto[]>(`/instruments/groups?level=series&underlyingId=${underlyingId}`),

@@ -34,6 +34,15 @@ export interface FilterSpec {
   masterAll?: boolean;
   /** Нижняя секция с radio после разделителя (напр. «Применить» у фильтра «Выбор»). */
   applyScope?: FilterRadioGroup;
+  /**
+   * Крестик сразу убирает плашку, без сброса значений
+   * (напр. «Наборы»: галки живут на сервере).
+   */
+  removeOnly?: boolean;
+  /** Кнопки внизу поповера (напр. «Создать набор…»). */
+  footerActions?: { label: string; onClick: () => void }[];
+  /** Действие справа от опции (напр. ✎ правка static-набора). */
+  optionActions?: Record<string, { label: string; title?: string; onClick: () => void }>;
 }
 
 /** Группа radio в нижней секции поповера фильтра. */

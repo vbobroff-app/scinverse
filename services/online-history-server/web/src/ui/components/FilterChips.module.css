@@ -213,6 +213,33 @@
   background: var(--color-border);
 }
 
+.checkLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.optionAction {
+  flex: none;
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.optionAction:hover {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
 .hint {
   margin-left: auto;
   padding-left: 10px;

@@ -1,6 +1,6 @@
 # catalog-basket-instruments / catalog — plan (v1)
 
-**Статус:** PLAN (2026-08-06) · **C0–C2 DONE**. Спека — [spec.md](spec.md) · as-is — [apply.md](apply.md) ·
+**Статус:** PLAN (2026-08-06) · **C0–C3 DONE**. Спека — [spec.md](spec.md) · as-is — [apply.md](apply.md) ·
 индекс фичи — [`../main.md`](../main.md).
 
 Цель v1: **ограничить Observed-кэш и основной список** — static baskets + system `recording`;
@@ -146,12 +146,12 @@ v1 **закладываем явный `connectionId`** на instruments / baske
 
 **Done:** при пустых static + Auto на N инструментах список = эти N; полный active не в registry.
 
-### C3 — UI фильтр «Наборы» + модалка
+### C3 — UI фильтр «Наборы» + модалка — **DONE**
 
-- Чекбоксы наборов (persist `enabled`); system Recording всегда в списке
-- Модалка: Available (ленивый query active) \| Match preview \| спека по клику
-- Без Start/Auto в модалке; chips 7d остаются на основном списке
-- Создание/правка/удаление static
+- API: `GET/POST/PUT/PATCH/DELETE …/baskets`, `POST …/preview`, `GET /instruments/available`
+- Web: плашка «Наборы» (галки → PATCH enabled); HasData disabled «скоро»
+- Модалка: Available \| Match preview \| спека; create/edit/delete static; без Start/Auto
+- `instrumentQuery.connectionId` + refetch Observed при смене connection / галок
 
 **Done:** оператор собирает glob-набор → ☑ → инструменты в списке записи; Start только там.
 

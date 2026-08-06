@@ -4,6 +4,7 @@ import { useBehavior } from '../hooks/useObservable';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ConnectionLane } from '../components/ConnectionLane';
 import { ConnectionToggle } from '../components/ConnectionToggle';
+import { BasketEditorModal } from '../components/BasketEditorModal';
 import { FilterBar } from '../components/FilterBar';
 import { InstrumentPicker } from '../components/InstrumentPicker';
 import type { ConnectionDto } from '../../core/types';
@@ -47,6 +48,10 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
   const ohsUnavailable = useBehavior(store.backendOutage$);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
+  const [basketEditor, setBasketEditor] = useState<{ open: boolean; basketId: number | null }>({
+    open: false,
+    basketId: null,
+  });
   const settingsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -226,7 +231,11 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
       </header>
 
       <ConnectionLane connection={connection} />
-      {showFilters && <FilterBar />}
+      {showFilters && (
+        <FilterBar
+          onManageBasket={(basketId) => setBasketEditor({ open: true, basketId })}
+        />
+      )}
       <InstrumentPicker connection={connection} />
 
       {refreshConfirmOpen && (
@@ -243,6 +252,13 @@ export function ProviderCard({ connection }: { connection: ConnectionDto }) {
           onCancel={() => setRefreshConfirmOpen(false)}
         />
       )}
+
+      <BasketEditorModal
+        connectionId={connection.connectionId}
+        basketId={basketEditor.basketId}
+        open={basketEditor.open}
+        onClose={() => setBasketEditor({ open: false, basketId: null })}
+      />
     </section>
   );
 }

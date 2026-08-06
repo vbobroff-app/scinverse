@@ -61,10 +61,12 @@ import type {
   ConnectionDto,
   CoverageSegmentDto,
   DisplayTz,
+  BasketDto,
   FilterKey,
   InstrumentDto,
   InstrumentGroupDto,
   InstrumentQueryParams,
+  UpsertBasketRequest,
   IncidentDto,
   LivenessIntervalDto,
   LiveEvent,
@@ -305,6 +307,10 @@ export class OhsStore {
   /** Активные плашки-фильтры каталога (порядок = порядок добавления). */
   readonly activeFilters$ = new BehaviorSubject<FilterKey[]>([]);
 
+  /** Наборы Observed текущего connection (галка enabled на сервере). */
+  readonly baskets$ = new BehaviorSubject<BasketDto[]>([]);
+  readonly basketsLoading$ = new BehaviorSubject<boolean>(false);
+
   // --- Ленивое дерево деривативов: фьючерс → серии (экспирации) → страйки (опционы). ---
   readonly expandedFutures$ = new BehaviorSubject<ReadonlySet<number>>(new Set());
   readonly expandedSeries$ = new BehaviorSubject<ReadonlySet<string>>(new Set());
@@ -490,6 +496,7 @@ export class OhsStore {
     this.activeFilters$.next(v.activeFilters);
     this.instrumentQuery$.next({
       ...this.instrumentQuery$.value,
+      connectionId: v.activeConnectionId ?? undefined,
       category: v.category,
       onlyRecording: v.onlyRecording,
       nonEmpty: v.nonEmpty,
@@ -606,6 +613,8 @@ export class OhsStore {
       this.persistView();
       // 11.13e: журнал инцидентов привязан к connectionId, не только к sourceId.
       this.refreshLiveness();
+      this.setInstrumentFilter({ connectionId: connectionId ?? undefined });
+      this.refreshBaskets();
     }
   }
 
@@ -631,6 +640,7 @@ export class OhsStore {
   /** Загружает справочники, применяет таймфрейм и подписывается на live-поток. */
   start(): void {
     this.fetchInstruments(false);
+    this.refreshBaskets();
     this.hydrateExpanded();
     this.refreshSources();
     this.refreshConnections();
@@ -1526,7 +1536,12 @@ export class OhsStore {
   /** Убирает плашку и очищает относящиеся к ней поля запроса. */
   removeFilter(key: FilterKey): void {
     this.activeFilters$.next(this.activeFilters$.value.filter((k) => k !== key));
-    this.setInstrumentFilter(this.clearedFieldsFor(key));
+    // «Наборы»: снятие плашки не трогает enabled на сервере.
+    if (key !== 'baskets') {
+      this.setInstrumentFilter(this.clearedFieldsFor(key));
+    } else {
+      this.persistView();
+    }
   }
 
   /** Сбрасывает все плашки и фильтр-поля запроса (поиск не трогаем). */
@@ -1541,6 +1556,94 @@ export class OhsStore {
       includeOptionAncestors: undefined,
       exchanges: undefined,
     });
+  }
+
+  /** Список наборов текущего connection (ensure system на сервере). */
+  refreshBaskets(): void {
+    const connectionId = this.activeConnectionId$.value ?? this.instrumentQuery$.value.connectionId;
+    if (connectionId == null) {
+      this.baskets$.next([]);
+      return;
+    }
+    this.basketsLoading$.next(true);
+    this.api.getBaskets(connectionId).subscribe({
+      next: (rows) => {
+        this.baskets$.next(rows);
+        this.basketsLoading$.next(false);
+      },
+      error: (err) => {
+        console.error('getBaskets', err);
+        this.basketsLoading$.next(false);
+      },
+    });
+  }
+
+  /**
+   * Синхронизирует галки наборов с сервером: diff selected ids → PATCH enabled,
+   * затем перезагрузка Observed-списка.
+   */
+  setBasketEnabledSelection(selectedIds: string[]): void {
+    const connectionId = this.activeConnectionId$.value ?? this.instrumentQuery$.value.connectionId;
+    if (connectionId == null) {
+      return;
+    }
+    const wanted = new Set(selectedIds);
+    const patches = this.baskets$.value
+      .filter((b) => !b.systemId || b.systemId !== 'has_data')
+      .filter((b) => b.enabled !== wanted.has(String(b.basketId)))
+      .map((b) =>
+        this.api.patchBasketEnabled(connectionId, b.basketId, wanted.has(String(b.basketId))),
+      );
+    if (patches.length === 0) {
+      return;
+    }
+    concat(...patches)
+      .pipe(toArray())
+      .subscribe({
+        next: () => {
+          this.refreshBaskets();
+          this.fetchInstruments(false);
+        },
+        error: (err) => console.error('patchBasketEnabled', err),
+      });
+  }
+
+  createBasket(body: UpsertBasketRequest): Observable<BasketDto> {
+    const connectionId = this.requireBasketConnectionId();
+    return this.api.createBasket(connectionId, body).pipe(
+      tap(() => {
+        this.refreshBaskets();
+        this.fetchInstruments(false);
+      }),
+    );
+  }
+
+  updateBasket(basketId: number, body: UpsertBasketRequest): Observable<BasketDto> {
+    const connectionId = this.requireBasketConnectionId();
+    return this.api.updateBasket(connectionId, basketId, body).pipe(
+      tap(() => {
+        this.refreshBaskets();
+        this.fetchInstruments(false);
+      }),
+    );
+  }
+
+  deleteBasket(basketId: number): Observable<void> {
+    const connectionId = this.requireBasketConnectionId();
+    return this.api.deleteBasket(connectionId, basketId).pipe(
+      tap(() => {
+        this.refreshBaskets();
+        this.fetchInstruments(false);
+      }),
+    );
+  }
+
+  private requireBasketConnectionId(): number {
+    const connectionId = this.activeConnectionId$.value ?? this.instrumentQuery$.value.connectionId;
+    if (connectionId == null) {
+      throw new Error('connectionId обязателен для baskets');
+    }
+    return connectionId;
   }
 
   /** Категория плашки «Инструменты» (пусто → все). */
@@ -1596,6 +1699,8 @@ export class OhsStore {
         };
       case 'exchanges':
         return { exchanges: undefined };
+      case 'baskets':
+        return {};
     }
   }
 

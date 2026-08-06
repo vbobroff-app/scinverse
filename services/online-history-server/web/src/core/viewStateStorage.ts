@@ -87,7 +87,7 @@ const EMPTY: PersistedViewState = {
   expandedSeries: [],
 };
 
-const VALID_FILTERS: readonly FilterKey[] = ['instruments', 'selection', 'exchanges'];
+const VALID_FILTERS: readonly FilterKey[] = ['instruments', 'selection', 'exchanges', 'baskets'];
 
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];

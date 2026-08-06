@@ -73,6 +73,7 @@ function fakeApi(overrides: Partial<OhsApiClient> = {}): OhsApiClient {
       }),
     getSources: () => of([]),
     getConnections: () => of([connection()]),
+    getBaskets: () => of([]),
     getRecordings: () => of<RecordingDto[]>([]),
     getCoverage: () => of([segment()]),
     getSessions: () => of<SessionDto[]>([]),

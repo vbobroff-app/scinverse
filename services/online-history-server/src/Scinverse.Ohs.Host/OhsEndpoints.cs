@@ -127,6 +127,189 @@ public static class OhsEndpoints
             return Results.Ok(new InstrumentCatalogRefreshResultDto(invalidated, registry.IsFresh));
         });
 
+        // Available Online (active) для модалки наборов — не Observed.
+        api.MapGet("/instruments/available", async (
+            string? q, string? board, string? secType, int? limit, int? offset,
+            IInstrumentStore store, CancellationToken ct) =>
+        {
+            var page = await store.QueryAsync(new InstrumentQuery
+            {
+                Search = q,
+                Board = board,
+                SecType = secType,
+                Limit = limit ?? 100,
+                Offset = offset ?? 0,
+            }, ct);
+
+            var items = page.Items
+                .Select(i => new AvailableInstrumentDto(
+                    i.InstrumentId, i.Ticker, i.Board, i.SecType, i.ShortName, i.Name, i.Expiration))
+                .ToList();
+            return new AvailableInstrumentPageDto(items, page.Total, page.Limit, page.Offset);
+        });
+
+        api.MapGet("/connections/{id:long}/baskets", async (
+            long id, IBasketStore baskets, CancellationToken ct) =>
+        {
+            var list = await baskets.ListAsync(id, ct).ConfigureAwait(false);
+            var result = new List<BasketDto>(list.Count);
+            foreach (var b in list)
+            {
+                var members = b.Kind == BasketKind.Static
+                    ? await baskets.ListMemberIdsAsync(b.BasketId, ct).ConfigureAwait(false)
+                    : Array.Empty<long>();
+                result.Add(ToBasketDto(b, members.Count));
+            }
+
+            return result;
+        });
+
+        api.MapPost("/connections/{id:long}/baskets", async (
+            long id,
+            UpsertBasketRequest body,
+            IBasketStore baskets,
+            BasketEvalService eval,
+            ObservedCatalogCoordinator observed,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Name) || body.Patterns is null || body.Patterns.Count == 0)
+            {
+                return Results.BadRequest(new { error = "name и patterns обязательны" });
+            }
+
+            var created = await baskets.CreateStaticAsync(
+                id,
+                body.Name.Trim(),
+                new BasketRule
+                {
+                    Patterns = body.Patterns,
+                    SecType = body.SecType,
+                    BoardId = body.BoardId,
+                },
+                body.Enabled,
+                ct).ConfigureAwait(false);
+            var count = await eval.MaterializeAsync(created.BasketId, ct).ConfigureAwait(false);
+            await observed.RebuildCacheAsync(ct).ConfigureAwait(false);
+            return Results.Ok(ToBasketDto(created, count));
+        });
+
+        api.MapPut("/connections/{id:long}/baskets/{basketId:long}", async (
+            long id,
+            long basketId,
+            UpsertBasketRequest body,
+            IBasketStore baskets,
+            BasketEvalService eval,
+            ObservedCatalogCoordinator observed,
+            CancellationToken ct) =>
+        {
+            var existing = await baskets.GetAsync(basketId, ct).ConfigureAwait(false);
+            if (existing is null || existing.ConnectionId != id)
+            {
+                return Results.NotFound();
+            }
+
+            if (existing.Kind != BasketKind.Static)
+            {
+                return Results.BadRequest(new { error = "править можно только static" });
+            }
+
+            if (string.IsNullOrWhiteSpace(body.Name) || body.Patterns is null || body.Patterns.Count == 0)
+            {
+                return Results.BadRequest(new { error = "name и patterns обязательны" });
+            }
+
+            var updated = await baskets.UpdateStaticAsync(
+                basketId,
+                body.Name.Trim(),
+                new BasketRule
+                {
+                    Patterns = body.Patterns,
+                    SecType = body.SecType,
+                    BoardId = body.BoardId,
+                },
+                ct).ConfigureAwait(false);
+            if (body.Enabled != updated.Enabled)
+            {
+                updated = await baskets.SetEnabledAsync(basketId, body.Enabled, ct).ConfigureAwait(false);
+            }
+
+            var count = await eval.MaterializeAsync(basketId, ct).ConfigureAwait(false);
+            await observed.RebuildCacheAsync(ct).ConfigureAwait(false);
+            return Results.Ok(ToBasketDto(updated, count));
+        });
+
+        api.MapPatch("/connections/{id:long}/baskets/{basketId:long}", async (
+            long id,
+            long basketId,
+            PatchBasketEnabledRequest body,
+            IBasketStore baskets,
+            ObservedCatalogCoordinator observed,
+            CancellationToken ct) =>
+        {
+            var existing = await baskets.GetAsync(basketId, ct).ConfigureAwait(false);
+            if (existing is null || existing.ConnectionId != id)
+            {
+                return Results.NotFound();
+            }
+
+            var updated = await baskets.SetEnabledAsync(basketId, body.Enabled, ct).ConfigureAwait(false);
+            await observed.RebuildCacheAsync(ct).ConfigureAwait(false);
+            var members = updated.Kind == BasketKind.Static
+                ? await baskets.ListMemberIdsAsync(basketId, ct).ConfigureAwait(false)
+                : Array.Empty<long>();
+            return Results.Ok(ToBasketDto(updated, members.Count));
+        });
+
+        api.MapDelete("/connections/{id:long}/baskets/{basketId:long}", async (
+            long id,
+            long basketId,
+            IBasketStore baskets,
+            ObservedCatalogCoordinator observed,
+            CancellationToken ct) =>
+        {
+            var existing = await baskets.GetAsync(basketId, ct).ConfigureAwait(false);
+            if (existing is null || existing.ConnectionId != id)
+            {
+                return Results.NotFound();
+            }
+
+            try
+            {
+                await baskets.DeleteAsync(basketId, ct).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+
+            await observed.RebuildCacheAsync(ct).ConfigureAwait(false);
+            return Results.NoContent();
+        });
+
+        api.MapPost("/connections/{id:long}/baskets/preview", async (
+            long id,
+            BasketPreviewRequest body,
+            BasketEvalService eval,
+            CancellationToken ct) =>
+        {
+            _ = id; // connection scope для будущего Available-per-connection
+            if (body.Patterns is null || body.Patterns.Count == 0)
+            {
+                return Array.Empty<AvailableInstrumentDto>();
+            }
+
+            var matched = await eval.PreviewAsync(
+                new BasketRule
+                {
+                    Patterns = body.Patterns,
+                    SecType = body.SecType,
+                    BoardId = body.BoardId,
+                },
+                ct).ConfigureAwait(false);
+            return matched
+                .Select(a => new AvailableInstrumentDto(a.InstrumentId, a.Ticker, a.Board, a.SecType))
+                .ToList();
+        });
         api.MapGet("/sources", async (ISourceStore store, CancellationToken ct) =>
         {
             var sources = await store.ListAsync(ct);
@@ -2236,10 +2419,29 @@ public static class OhsEndpoints
         }
     }
 
+    private static BasketDto ToBasketDto(InstrumentBasket basket, int memberCount) => new(
+        basket.BasketId,
+        basket.ConnectionId,
+        BasketKindToDto(basket.Kind),
+        basket.Name,
+        basket.SystemId,
+        basket.Enabled,
+        basket.Rule?.Patterns,
+        basket.Rule?.SecType,
+        basket.Rule?.BoardId,
+        memberCount);
+
+    private static string BasketKindToDto(BasketKind kind) => kind switch
+    {
+        BasketKind.Static => "static",
+        BasketKind.Dynamic => "dynamic",
+        BasketKind.System => "system",
+        _ => kind.ToString().ToLowerInvariant(),
+    };
+
     private static ExternalServiceDto ToDto(ExternalService service) => new(
         service.ServiceId, service.Name, service.Adapter, service.Transport,
         service.HasSecret, service.SecretExpiresOn, service.Enabled, service.UseForSchedule);
-
     private static string ToLivenessReasonDto(CaptureCloseReason reason) => reason switch
     {
         CaptureCloseReason.Stopped => "stopped",
