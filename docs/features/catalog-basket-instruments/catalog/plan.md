@@ -1,6 +1,6 @@
 # catalog-basket-instruments / catalog — plan (v1)
 
-**Статус:** PLAN (2026-08-06). Спека — [spec.md](spec.md) · as-is — [apply.md](apply.md) ·
+**Статус:** PLAN (2026-08-06) · **C0 DONE**. Спека — [spec.md](spec.md) · as-is — [apply.md](apply.md) ·
 индекс фичи — [`../main.md`](../main.md).
 
 Цель v1: **ограничить Observed-кэш и основной список** — static baskets + system `recording`;
@@ -117,11 +117,12 @@ v1 **закладываем явный `connectionId`** на instruments / baske
 
 ## 5. Инкременты реализации
 
-### C0 — Миграция + store
+### C0 — Миграция + store — **DONE**
 
-- V032 (или следующий свободный): таблицы §2
-- ensure system `recording` per connection
-- unit/integration: CRUD + enabled persist
+- `V032__instrument_basket.sql`: `instrument_basket` / `basket_rule` / `basket_member`
+- `IBasketStore` + `BasketStore`: ensure system (`recording` on, `has_data` off), CRUD static,
+  enabled, replace/list members, enabled-static union
+- DI в Host; интеграция `BasketStoreTests` (4)
 
 **Done:** миграция применяется; store читает/пишет baskets.
 
