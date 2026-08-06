@@ -141,6 +141,9 @@ public sealed class InstrumentRegistryTests
         public Task<IReadOnlyList<Instrument>> LoadAllAsync(CancellationToken cancellationToken) =>
             _inner.LoadAllAsync(cancellationToken);
 
+        public Task<IReadOnlyList<AvailableInstrument>> ListAvailableAsync(CancellationToken cancellationToken) =>
+            _inner.ListAvailableAsync(cancellationToken);
+
         public Task<InstrumentCatalogPage> QueryAsync(InstrumentQuery query, CancellationToken cancellationToken) =>
             _inner.QueryAsync(query, cancellationToken);
 

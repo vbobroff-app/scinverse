@@ -23,8 +23,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Scinverse.Ohs.Domain\Scinverse.Ohs.Domain.csproj" />
     <ProjectReference Include="..\..\src\Scinverse.Ohs.Storage.Timescale\Scinverse.Ohs.Storage.Timescale.csproj" />
+    <ProjectReference Include="..\..\src\Scinverse.Ohs.Host\Scinverse.Ohs.Host.csproj" />
     <ProjectReference Include="..\..\..\..\db\Scinverse.Db.Migrator\Scinverse.Db.Migrator.csproj" />
   </ItemGroup>
 

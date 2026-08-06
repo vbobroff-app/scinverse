@@ -119,6 +119,11 @@ public sealed class JournalRegistratorTests
                     new InstrumentCatalogPersistQueue(), TimeProvider.System),
                 new NoopRecordingScheduleStore(),
                 new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
+                new BasketEvalService(
+                    new FakeInstrumentStore(),
+                    new EmptyBasketStore(),
+                    new EmptyConnectionStoreForLifecycle(),
+                    NullLogger<BasketEvalService>.Instance),
                 TimeProvider.System,
                 NullLogger<InstrumentLifecycleService>.Instance),
             linkLiveness: link,

@@ -1,6 +1,6 @@
 # catalog-basket-instruments / catalog — plan (v1)
 
-**Статус:** PLAN (2026-08-06) · **C0 DONE**. Спека — [spec.md](spec.md) · as-is — [apply.md](apply.md) ·
+**Статус:** PLAN (2026-08-06) · **C0–C1 DONE**. Спека — [spec.md](spec.md) · as-is — [apply.md](apply.md) ·
 индекс фичи — [`../main.md`](../main.md).
 
 Цель v1: **ограничить Observed-кэш и основной список** — static baskets + system `recording`;
@@ -126,11 +126,13 @@ v1 **закладываем явный `connectionId`** на instruments / baske
 
 **Done:** миграция применяется; store читает/пишет baskets.
 
-### C1 — Glob + eval
+### C1 — Glob + eval — **DONE**
 
-- Glob matcher + тесты
-- `BasketEvalService`: preview + materialize `basket_member`
-- хук: OK модалки / Refresh / суточный Lifecycle (после archive)
+- `TickerGlob` (`*` `?` `[0-9]`, ignore-case, OR) + unit-тесты
+- `IInstrumentStore.ListAvailableAsync` / `AvailableInstrument`
+- `BasketEvalService`: Match / Preview / Materialize / ReEvalConnection / ReEvalAll
+- хук: `InstrumentLifecycleService.TrySweepAsync` → re-eval all (Refresh тоже, т.к. force sweep)
+- Materialize для OK модалки — готов к вызову из API (C3)
 
 **Done:** re-eval снимает expired и добавляет новых матчей из Available.
 

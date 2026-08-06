@@ -5,6 +5,9 @@ public interface IInstrumentStore
 {
     Task<IReadOnlyList<Instrument>> LoadAllAsync(CancellationToken cancellationToken);
 
+    /// <summary>Available Online (<c>active=TRUE</c>) для eval/preview baskets — id/ticker/board/sec_type.</summary>
+    Task<IReadOnlyList<AvailableInstrument>> ListAvailableAsync(CancellationToken cancellationToken);
+
     /// <summary>Каталог инструментов с фильтрами и пагинацией (для админки).</summary>
     Task<InstrumentCatalogPage> QueryAsync(InstrumentQuery query, CancellationToken cancellationToken);
 

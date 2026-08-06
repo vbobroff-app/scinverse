@@ -56,6 +56,7 @@ builder.Services.AddSingleton<ITradeWriter, TimescaleTradeWriter>();
 builder.Services.AddSingleton<IDerivativeSpecParser, MoexFortsSpecParser>();
 builder.Services.AddSingleton<InstrumentCatalogPersistQueue>();
 builder.Services.AddSingleton<IInstrumentRegistry, InstrumentRegistry>();
+builder.Services.AddSingleton<BasketEvalService>();
 builder.Services.AddSingleton<InstrumentLifecycleService>();
 builder.Services.AddSingleton<OptionWindowFreshness>();
 builder.Services.AddSingleton<OptionCatalogService>();

@@ -7,6 +7,7 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
 {
     private readonly List<Instrument> _instruments;
     private readonly Dictionary<long, DateOnly?> _expirations = new();
+    private readonly Dictionary<long, string?> _secTypes = new();
     private long _nextId;
 
     public FakeInstrumentStore(params Instrument[] instruments)
@@ -17,6 +18,19 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
 
     public Task<IReadOnlyList<Instrument>> LoadAllAsync(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<Instrument>>(_instruments.Where(i => i.Active).ToList());
+
+    public Task<IReadOnlyList<AvailableInstrument>> ListAvailableAsync(CancellationToken cancellationToken)
+    {
+        var list = _instruments
+            .Where(i => i.Active)
+            .Select(i => new AvailableInstrument(
+                i.InstrumentId,
+                i.Key.Ticker,
+                i.Key.Board,
+                _secTypes.GetValueOrDefault(i.InstrumentId)))
+            .ToList();
+        return Task.FromResult<IReadOnlyList<AvailableInstrument>>(list);
+    }
 
     public Task<InstrumentCatalogPage> QueryAsync(InstrumentQuery query, CancellationToken cancellationToken)
     {
@@ -77,8 +91,13 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
         _instruments.RemoveAll(i => i.Key == security.Key);
         _instruments.Add(instrument);
         _expirations[instrument.InstrumentId] = security.Expiration;
+        _secTypes[instrument.InstrumentId] = security.SecType;
         return instrument;
     }
+
+    /// <summary>Тестовый хелпер: sec_type для уже засеянного инструмента.</summary>
+    public void SetSecType(long instrumentId, string? secType) =>
+        _secTypes[instrumentId] = secType;
 
     public Task<InstrumentScopeInfo?> GetScopeInfoAsync(long instrumentId, CancellationToken cancellationToken)
     {

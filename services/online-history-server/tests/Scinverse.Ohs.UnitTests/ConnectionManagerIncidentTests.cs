@@ -151,6 +151,11 @@ public sealed class ConnectionManagerIncidentTests
                     new InstrumentCatalogPersistQueue(), TimeProvider.System),
                 new StubRecordingScheduleStore(),
                 new Lazy<RecordingManager>(() => throw new InvalidOperationException("unused")),
+                new BasketEvalService(
+                    new FakeInstrumentStore(),
+                    new EmptyBasketStore(),
+                    new EmptyConnectionStoreForLifecycle(),
+                    NullLogger<BasketEvalService>.Instance),
                 TimeProvider.System,
                 NullLogger<InstrumentLifecycleService>.Instance),
             linkLiveness: link,

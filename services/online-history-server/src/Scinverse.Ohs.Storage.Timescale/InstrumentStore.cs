@@ -24,6 +24,20 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource, TimeProvider ti
         return rows.Select(Map).ToList();
     }
 
+    public async Task<IReadOnlyList<AvailableInstrument>> ListAvailableAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<AvailableInstrument>(new CommandDefinition(
+            """
+            SELECT instrument_id AS InstrumentId, ticker AS Ticker, board_id AS Board, sec_type AS SecType
+            FROM instrument
+            WHERE active = TRUE
+            ORDER BY ticker, board_id;
+            """,
+            cancellationToken: cancellationToken));
+        return rows.ToList();
+    }
+
     public async Task<InstrumentCatalogPage> QueryAsync(InstrumentQuery query, CancellationToken cancellationToken)
     {
         var limit = Math.Clamp(query.Limit, 1, 500);

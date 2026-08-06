@@ -11,6 +11,7 @@ public sealed class InstrumentLifecycleService(
     IInstrumentRegistry registry,
     IRecordingScheduleStore schedule,
     Lazy<RecordingManager> recordings,
+    BasketEvalService basketEval,
     TimeProvider time,
     ILogger<InstrumentLifecycleService> logger)
 {
@@ -19,7 +20,7 @@ public sealed class InstrumentLifecycleService(
 
     /// <summary>
     /// Раз в день МСК (или <paramref name="force"/>): archive expired → evict cache →
-    /// disable Auto → stop open recordings.
+    /// disable Auto → stop open recordings → re-eval static baskets.
     /// </summary>
     public async Task<InstrumentLifecycleSweepResult> TrySweepAsync(
         bool force, CancellationToken cancellationToken)
@@ -39,30 +40,35 @@ public sealed class InstrumentLifecycleService(
             _lastSweepDay = today;
         }
 
-        if (archived.Count == 0)
+        if (archived.Count > 0)
+        {
+            registry.Evict(archived);
+            await schedule.DisableAutoManyAsync(archived, cancellationToken).ConfigureAwait(false);
+
+            foreach (var instrumentId in archived)
+            {
+                try
+                {
+                    await recordings.Value.StopAsync(instrumentId, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex, "Lifecycle sweep: не удалось остановить запись {InstrumentId}", instrumentId);
+                }
+            }
+
+            logger.LogInformation(
+                "Lifecycle sweep: архивировано {Count} инструмент(ов) с expiration < {Today}",
+                archived.Count, today);
+        }
+        else
         {
             logger.LogDebug("Lifecycle sweep: нет просроченных к архивации (today={Today})", today);
-            return new InstrumentLifecycleSweepResult(true, []);
         }
 
-        registry.Evict(archived);
-        await schedule.DisableAutoManyAsync(archived, cancellationToken).ConfigureAwait(false);
+        // Static baskets: снять expired из members, дописать новых матчей из Available.
+        await basketEval.ReEvalAllConnectionsAsync(cancellationToken).ConfigureAwait(false);
 
-        foreach (var instrumentId in archived)
-        {
-            try
-            {
-                await recordings.Value.StopAsync(instrumentId, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogWarning(ex, "Lifecycle sweep: не удалось остановить запись {InstrumentId}", instrumentId);
-            }
-        }
-
-        logger.LogInformation(
-            "Lifecycle sweep: архивировано {Count} инструмент(ов) с expiration < {Today}",
-            archived.Count, today);
         return new InstrumentLifecycleSweepResult(true, archived);
     }
 }
