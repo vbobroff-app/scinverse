@@ -37,7 +37,7 @@
 
 - **Stage 1 DONE** (phase 4–8). OPT/Refresh/каталог — DONE, не Stage 2.
 - Рабочий контур после MVP — **Features**, не новые phase-папки.
-- Пилот: [`features/catalog-basket-instruments/spec.md`](features/catalog-basket-instruments/spec.md) (DRAFT).
+- Пилот: [`features/catalog-basket-instruments/`](features/catalog-basket-instruments/main.md) (DRAFT) · часть catalog — [`spec`](features/catalog-basket-instruments/catalog/spec.md).
 - Stage 2–4 — gate'ы (Keycloak → NC split → WebGL); не стартовать «заодно».
 
 **Next — спросить у пользователя:** features / Stage 2 / abandoned / docs commit.

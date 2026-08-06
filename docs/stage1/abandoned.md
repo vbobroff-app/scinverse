@@ -15,7 +15,7 @@
 | Refresh справочника (dump stale + сброс OPT-окон) + NC Action/Lifecycle | **DONE** | [wiki catalog](../wiki-readme/catalog.md) |
 | Архив по exp (`instrument.active`) — «актуальные vs исторические» Online | **DONE** | [db-design](../architecture/db-design.md) § Online lifecycle |
 | Intraday «торгуется / спит / suspended» | **OPEN** | **7c.9** (борд) + **7c.SEC** (`sec_status`) ниже |
-| Baskets / Observed (working set поверх Available) | DRAFT, не код | [catalog-basket-instruments](../features/catalog-basket-instruments/spec.md) |
+| Baskets / Observed (working set поверх Available) | DRAFT, не код | [catalog-basket-instruments](../features/catalog-basket-instruments/main.md) · [catalog/spec](../features/catalog-basket-instruments/catalog/spec.md) |
 
 **Не путать:** lifecycle-архив ≠ intraday-статус. OPT/Refresh/**не** Stage 2.
 
