@@ -11,7 +11,7 @@ Available ⊥ Observed ⊥ Archive — в части **catalog**.
 
 | Часть | Статус | Содержание |
 |-------|--------|------------|
-| [`catalog/`](catalog/spec.md) | DRAFT to-be · as-is DONE | Формирование Observed: наборы static/dynamic/system, модалка Available\|Match\|спека, кэш = Observed. [spec](catalog/spec.md) · [apply](catalog/apply.md) |
+| [`catalog/`](catalog/spec.md) | DRAFT to-be · as-is DONE · **PLAN v1** | Формирование Observed: наборы static/dynamic/system, модалка Available\|Match\|спека, кэш = Observed. [spec](catalog/spec.md) · [apply](catalog/apply.md) · [plan](catalog/plan.md) |
 | `nc-integration/` | planned | NC вокруг baskets / Refresh eval — когда появится содержание |
 | `schedule/` | planned | Расписание записи поверх Observed — когда появится содержание |
 

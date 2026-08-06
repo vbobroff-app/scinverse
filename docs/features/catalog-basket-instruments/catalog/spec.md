@@ -6,7 +6,8 @@
 
 Статус: **DRAFT** (2026-08-06). Не реализовано — продуктовая спека перед кодом.
 
-**As-is Online-каталог (уже в коде):** [apply.md](apply.md).
+**As-is Online-каталог (уже в коде):** [apply.md](apply.md).  
+**План v1:** [plan.md](plan.md).
 
 Смежное: [`wiki-readme/catalog.md`](../../../wiki-readme/catalog.md) (lifecycle `active`, OPT ATM,
 Refresh) · dump / `InstrumentRegistry` · Auto / recording ·
@@ -131,6 +132,9 @@ system baskets → задаёт продукт, без модалки «созд
 В списке видны те, у кого запись/Auto (сейчас типично несколько инструментов на Auto).
 
 **Scope baskets:** **per-connection** (у разных провайдеров разный dump/Available).  
+Какой connection запускаем — тот у себя собирает dump; Observed-список и кэш — **не**
+глобальный «весь active Host», а scope этой connection (сейчас часто один Finam, но
+закладываем много коннекторов).  
 **Галки наборов:** persist на **сервере** (не localStorage).
 
 ---
