@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { NotificationSeverity } from '@scinverse/notification-center';
 import { SeverityIcon } from '@scinverse/notification-center';
 import { Button } from './Button';
@@ -11,6 +12,8 @@ interface Props {
   message: string;
   /** Иконка в header. По умолчанию info; `danger` без severity → error. */
   severity?: MessageBoxSeverity;
+  /** Кастомная иконка вместо SeverityIcon. */
+  icon?: ReactNode;
   confirmLabel?: string;
   /** `null` / без `onCancel` — режим alert (только ОК). */
   cancelLabel?: string | null;
@@ -25,6 +28,7 @@ export function ConfirmDialog({
   title,
   message,
   severity,
+  icon,
   confirmLabel = 'ОК',
   cancelLabel = 'Отмена',
   danger = false,
@@ -52,10 +56,21 @@ export function ConfirmDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <header className={styles.head}>
-          <SeverityIcon severity={tone} />
+          {icon ?? <SeverityIcon severity={tone} />}
           <h4 id="msgbox-title" className={styles.title}>
             {title}
           </h4>
+          {showCancel && (
+            <button
+              type="button"
+              className={styles.closeBtn}
+              onClick={onCancel}
+              aria-label="Закрыть"
+              title="Закрыть"
+            >
+              ×
+            </button>
+          )}
         </header>
         <p className={styles.message}>{message}</p>
         {checkbox && (

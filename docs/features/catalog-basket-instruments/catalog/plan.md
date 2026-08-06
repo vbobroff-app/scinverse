@@ -12,7 +12,7 @@
 
 | В v1 | Не в v1 |
 |------|---------|
-| `kind=static` + glob (`ticker`, `*` `?` `[0-9]`, OR-массив) | `dynamic` ATM |
+| `kind=static` + glob (`short_name` / MOEX `XXXX-M.YY`, `*` `?` `[0-9]`, OR) | `dynamic` ATM |
 | system `recording` (запись on ∨ Auto), default ☑ | system `has_data` — в UI **disabled «скоро»**, предикат не реализуем |
 | per-connection baskets + галки на сервере | seed Si/RTS/SBRF |
 | материализация `basket_member`, re-eval на Lifecycle/Refresh / OK модалки | mid-day auto re-eval без Refresh |
@@ -40,7 +40,7 @@ instrument_basket
 
 basket_rule          -- только static (v1); dynamic later
   basket_id        FK
-  patterns         text[]  -- OR glob'ов по ticker
+  patterns         text[]  -- OR glob'ов по short_name (обозначение MOEX)
   sec_type         text NULL
   board_id         text NULL
   -- underlying later if needed

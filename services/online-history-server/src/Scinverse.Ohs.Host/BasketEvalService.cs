@@ -26,18 +26,24 @@ public sealed class BasketEvalService(
 
         var secType = string.IsNullOrWhiteSpace(rule.SecType) ? null : rule.SecType.Trim();
         var board = string.IsNullOrWhiteSpace(rule.BoardId) ? null : rule.BoardId.Trim();
+        // Glob по short_name (обозначение MOEX Si-9.26); ticker/seccode — только fallback.
+        var globMatch = TickerGlob.Compile(rule.Patterns);
 
         return available
             .Where(a =>
-                TickerGlob.IsMatch(a.Ticker, rule.Patterns)
+                globMatch(MatchText(a))
                 && (secType is null
                     || string.Equals(a.SecType, secType, StringComparison.OrdinalIgnoreCase))
                 && (board is null
                     || string.Equals(a.Board, board, StringComparison.OrdinalIgnoreCase)))
-            .OrderBy(a => a.Ticker, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(a => a.ShortName ?? a.Ticker, StringComparer.OrdinalIgnoreCase)
             .ThenBy(a => a.Board, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    /// <summary>Primary: short_name; если пуст — ticker (акции без обозначения FORTS).</summary>
+    private static string MatchText(AvailableInstrument a) =>
+        string.IsNullOrWhiteSpace(a.ShortName) ? a.Ticker : a.ShortName;
 
     public async Task<IReadOnlyList<AvailableInstrument>> PreviewAsync(
         BasketRule rule, CancellationToken cancellationToken)

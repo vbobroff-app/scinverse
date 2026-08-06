@@ -47,11 +47,12 @@ public sealed class BasketEvalServiceTests : IClassFixture<TimescaleFixture>, IA
             _connections,
             NullLogger<BasketEvalService>.Instance);
 
-        // Available: Si FUT + SHARE (SBER уже в fixture) + RTS
+        // Реалистичный dump: ticker=seccode, short_name=обозначение MOEX.
         await _instruments.UpsertAsync(
             new SecurityInfo
             {
-                Key = new InstrumentKey("Si-9.26", "FUT"),
+                Key = new InstrumentKey("SiU6", "FUT"),
+                ShortName = "Si-9.26",
                 MinStep = 1m,
                 SecType = "FUT",
                 Expiration = new DateOnly(2026, 9, 17),
@@ -60,7 +61,8 @@ public sealed class BasketEvalServiceTests : IClassFixture<TimescaleFixture>, IA
         await _instruments.UpsertAsync(
             new SecurityInfo
             {
-                Key = new InstrumentKey("RTS-3.27", "FUT"),
+                Key = new InstrumentKey("RIH7", "FUT"),
+                ShortName = "RTS-3.27",
                 MinStep = 1m,
                 SecType = "FUT",
                 Expiration = new DateOnly(2027, 3, 1),
@@ -91,15 +93,16 @@ public sealed class BasketEvalServiceTests : IClassFixture<TimescaleFixture>, IA
             await connection.ExecuteAsync(
                 """
                 UPDATE instrument SET active = FALSE
-                WHERE ticker = 'Si-9.26' AND board_id = 'FUT';
+                WHERE ticker = 'SiU6' AND board_id = 'FUT';
                 """);
         }
 
-        // Новый матч
+        // Новый матч по short_name
         await _instruments.UpsertAsync(
             new SecurityInfo
             {
-                Key = new InstrumentKey("Si-12.26", "FUT"),
+                Key = new InstrumentKey("SiZ6", "FUT"),
+                ShortName = "Si-12.26",
                 MinStep = 1m,
                 SecType = "FUT",
                 Expiration = new DateOnly(2026, 12, 17),
@@ -110,13 +113,29 @@ public sealed class BasketEvalServiceTests : IClassFixture<TimescaleFixture>, IA
 
         var after = await _baskets.ListMemberIdsAsync(basket.BasketId, CancellationToken.None);
         var available = await _instruments.ListAvailableAsync(CancellationToken.None);
-        var tickers = available
+        var names = available
             .Where(a => after.Contains(a.InstrumentId))
-            .Select(a => a.Ticker)
+            .Select(a => a.ShortName ?? a.Ticker)
             .OrderBy(t => t)
             .ToList();
 
-        tickers.Should().Equal("RTS-3.27", "Si-12.26");
-        tickers.Should().NotContain("Si-9.26");
+        names.Should().Equal("RTS-3.27", "Si-12.26");
+        names.Should().NotContain("Si-9.26");
+    }
+
+    [Fact]
+    public async Task Preview_matches_short_name_not_seccode()
+    {
+        var matched = await _eval.PreviewAsync(
+            new BasketRule { Patterns = ["Si-*.*"], SecType = "FUT" },
+            CancellationToken.None);
+
+        matched.Should().ContainSingle(a => a.ShortName == "Si-9.26" && a.Ticker == "SiU6");
+
+        // Паттерн по seccode не должен ловить обозначение (матч — short_name).
+        var bySeccode = await _eval.PreviewAsync(
+            new BasketRule { Patterns = ["SiU6"], SecType = "FUT" },
+            CancellationToken.None);
+        bySeccode.Should().BeEmpty();
     }
 }

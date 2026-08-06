@@ -295,7 +295,7 @@ public static class OhsEndpoints
             _ = id; // connection scope для будущего Available-per-connection
             if (body.Patterns is null || body.Patterns.Count == 0)
             {
-                return Array.Empty<AvailableInstrumentDto>();
+                return Results.Ok(Array.Empty<AvailableInstrumentDto>());
             }
 
             var matched = await eval.PreviewAsync(
@@ -306,9 +306,10 @@ public static class OhsEndpoints
                     BoardId = body.BoardId,
                 },
                 ct).ConfigureAwait(false);
-            return matched
-                .Select(a => new AvailableInstrumentDto(a.InstrumentId, a.Ticker, a.Board, a.SecType))
-                .ToList();
+            return Results.Ok(matched
+                .Select(a => new AvailableInstrumentDto(
+                    a.InstrumentId, a.Ticker, a.Board, a.SecType, a.ShortName))
+                .ToList());
         });
         api.MapGet("/sources", async (ISourceStore store, CancellationToken ct) =>
         {

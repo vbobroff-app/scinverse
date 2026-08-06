@@ -51,7 +51,8 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource, TimeProvider ti
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<AvailableInstrument>(new CommandDefinition(
             """
-            SELECT instrument_id AS InstrumentId, ticker AS Ticker, board_id AS Board, sec_type AS SecType
+            SELECT instrument_id AS InstrumentId, ticker AS Ticker, board_id AS Board,
+                   sec_type AS SecType, short_name AS ShortName
             FROM instrument
             WHERE active = TRUE
             ORDER BY ticker, board_id;

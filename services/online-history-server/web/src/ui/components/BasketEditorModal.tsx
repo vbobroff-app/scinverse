@@ -3,6 +3,7 @@ import { OhsApi } from '../../core/api';
 import type { AvailableInstrumentDto, BasketDto } from '../../core/types';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
+import { ConfirmDialog } from './ConfirmDialog';
 import styles from './BasketEditorModal.module.css';
 
 interface Props {
@@ -62,9 +63,11 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
   const [availableLoading, setAvailableLoading] = useState(false);
   const [match, setMatch] = useState<AvailableInstrumentDto[]>([]);
   const [matchLoading, setMatchLoading] = useState(false);
+  const [matchError, setMatchError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AvailableInstrumentDto | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const availableOffset = useRef(0);
   const closingRef = useRef(false);
 
@@ -80,6 +83,7 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
     setBoardId(src?.boardId ?? '');
     setSelected(null);
     setError(null);
+    setConfirmDelete(false);
     setAvailableQ('');
     availableOffset.current = 0;
   }, [open, editing]);
@@ -141,10 +145,12 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
     if (patterns.length === 0) {
       setMatch([]);
       setMatchLoading(false);
+      setMatchError(null);
       return;
     }
     let cancelled = false;
     setMatchLoading(true);
+    setMatchError(null);
     const handle = window.setTimeout(() => {
       OhsApi.previewBasket(connectionId, {
         patterns,
@@ -159,6 +165,8 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
         error: (err) => {
           if (cancelled) return;
           console.error('previewBasket', err);
+          setMatch([]);
+          setMatchError('Превью не удалось — проверьте Host / сеть');
           setMatchLoading(false);
         },
       });
@@ -231,13 +239,18 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
     });
   };
 
-  const remove = () => {
+  const requestDelete = () => {
     if (editing == null || saving) {
       return;
     }
-    if (!window.confirm(`Удалить набор «${editing.name}»?`)) {
+    setConfirmDelete(true);
+  };
+
+  const doDelete = () => {
+    if (editing == null) {
       return;
     }
+    setConfirmDelete(false);
     setSaving(true);
     store.deleteBasket(editing.basketId).subscribe({
       next: () => {
@@ -317,12 +330,14 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
           </label>
           <div />
           <label className={`${styles.field} ${styles.formWide}`}>
-            <span className={styles.fieldLabel}>Glob-паттерны (OR, по одному в строке)</span>
+            <span className={styles.fieldLabel}>
+              Glob по short_name / обозначению MOEX (OR, по одному в строке)
+            </span>
             <textarea
               className={styles.textarea}
               value={patternsText}
               onChange={(e) => setPatternsText(e.target.value)}
-              placeholder={'Si-*.*\nRTS-*.2[0-9]'}
+              placeholder={'Si-*.*\nRTS-*.2[0-9]\nSBRF-*.*'}
             />
           </label>
         </div>
@@ -377,8 +392,16 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
               {patterns.length === 0 && (
                 <div className={styles.empty}>Задайте glob-паттерны</div>
               )}
-              {patterns.length > 0 && match.length === 0 && !matchLoading && (
-                <div className={styles.empty}>Нет совпадений</div>
+              {matchLoading && <div className={styles.empty}>Считаем Match…</div>}
+              {matchError && !matchLoading && (
+                <div className={styles.empty}>{matchError}</div>
+              )}
+              {patterns.length > 0 && match.length === 0 && !matchLoading && !matchError && (
+                <div className={styles.empty}>
+                  Нет совпадений по short_name.
+                  <br />
+                  Обозначение MOEX: Si-*.* (не seccode SiU6).
+                </div>
               )}
               {match.map((row) => (
                 <InstrumentRow
@@ -404,6 +427,10 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
                   </div>
                   <div className={styles.specCode}>{selected.ticker}</div>
                   <div className={styles.specGrid}>
+                    <span className={styles.specKey}>Обозначение</span>
+                    <span>{selected.shortName ?? '—'}</span>
+                    <span className={styles.specKey}>Seccode</span>
+                    <span>{selected.ticker}</span>
                     <span className={styles.specKey}>Тип</span>
                     <span>{selected.secType ?? '—'}</span>
                     <span className={styles.specKey}>Board</span>
@@ -426,7 +453,7 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
                 type="button"
                 className={`${styles.btn} ${styles.btnDanger}`}
                 disabled={saving}
-                onClick={remove}
+                onClick={requestDelete}
               >
                 Удалить
               </button>
@@ -448,7 +475,46 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
           </div>
         </footer>
       </div>
+
+      {confirmDelete && editing && (
+        <ConfirmDialog
+          title="Удалить набор"
+          message={
+            `Удалить набор «${editing.name}»?\n` +
+            `Действие необратимо — инструменты выйдут из основного списка, ` +
+            `записи ON/AUTO будут доступны в наборе Recording.`
+          }
+          icon={<DeleteBasketIcon />}
+          confirmLabel="Удалить"
+          onConfirm={doDelete}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
     </div>
+  );
+}
+
+/** Message-box icon: красный. */
+function DeleteBasketIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="1.35em"
+      height="1.35em"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      style={{ color: 'var(--color-error)', flexShrink: 0 }}
+    >
+      <path d="M0 0h24v24H0z" fill="none" />
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+        d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2zm-10-2h.01M12 7v4"
+      />
+    </svg>
   );
 }
 
@@ -467,9 +533,11 @@ function InstrumentRow({
       className={[styles.row, active ? styles.rowActive : ''].filter(Boolean).join(' ')}
       onClick={onSelect}
     >
-      <span className={styles.rowTicker}>{row.ticker}</span>
+      <span className={styles.rowTicker}>{row.shortName || row.ticker}</span>
       <span className={styles.rowMeta}>
-        {[row.secType, row.board, row.expiration].filter(Boolean).join(' · ')}
+        {[row.shortName ? row.ticker : null, row.secType, row.board, row.expiration]
+          .filter(Boolean)
+          .join(' · ')}
       </span>
     </button>
   );

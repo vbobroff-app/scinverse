@@ -31,4 +31,21 @@ public sealed class TickerGlobTests
     [Fact]
     public void IsMatch_empty_patterns_is_false() =>
         TickerGlob.IsMatch("Si-9.26", Array.Empty<string>()).Should().BeFalse();
+
+    [Fact]
+    public void Compile_matches_short_codes_and_is_fast_on_large_set()
+    {
+        var match = TickerGlob.Compile(["Si*", "RTS*"]);
+        match("SiU6").Should().BeTrue();
+        match("Si-9.26").Should().BeTrue();
+        match("RIU6").Should().BeFalse();
+
+        // Регрессия зависания preview: Compiled regex один раз, не на каждый тикер.
+        var tickers = Enumerable.Range(0, 40_000).Select(i => $"XX{i}").Append("SiU6").ToArray();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var hits = tickers.Count(match);
+        sw.Stop();
+        hits.Should().Be(1);
+        sw.ElapsedMilliseconds.Should().BeLessThan(500);
+    }
 }

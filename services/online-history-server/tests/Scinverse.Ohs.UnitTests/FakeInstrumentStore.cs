@@ -8,6 +8,7 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
     private readonly List<Instrument> _instruments;
     private readonly Dictionary<long, DateOnly?> _expirations = new();
     private readonly Dictionary<long, string?> _secTypes = new();
+    private readonly Dictionary<long, string?> _shortNames = new();
     private long _nextId;
 
     public FakeInstrumentStore(params Instrument[] instruments)
@@ -35,7 +36,8 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
                 i.InstrumentId,
                 i.Key.Ticker,
                 i.Key.Board,
-                _secTypes.GetValueOrDefault(i.InstrumentId)))
+                _secTypes.GetValueOrDefault(i.InstrumentId),
+                _shortNames.GetValueOrDefault(i.InstrumentId)))
             .ToList();
         return Task.FromResult<IReadOnlyList<AvailableInstrument>>(list);
     }
@@ -98,8 +100,9 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
 
         _instruments.RemoveAll(i => i.Key == security.Key);
         _instruments.Add(instrument);
-        _expirations[instrument.InstrumentId] = security.Expiration;
+        _shortNames[instrument.InstrumentId] = security.ShortName;
         _secTypes[instrument.InstrumentId] = security.SecType;
+        _expirations[instrument.InstrumentId] = security.Expiration;
         return instrument;
     }
 

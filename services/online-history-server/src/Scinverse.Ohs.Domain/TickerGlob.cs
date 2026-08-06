@@ -4,19 +4,24 @@ using System.Text.RegularExpressions;
 namespace Scinverse.Ohs.Domain;
 
 /// <summary>
-/// Glob по <c>ticker</c>: <c>*</c>, <c>?</c>, классы <c>[0-9]</c> / <c>[2-9]</c>; ignore-case.
-/// Несколько паттернов — OR (вызывающий сторону).
+/// Glob-движок для обозначений инструментов (<c>short_name</c> / MOEX
+/// <c>XXXX-&lt;месяц&gt;.&lt;год&gt;</c>): <c>*</c>, <c>?</c>, классы <c>[0-9]</c>; ignore-case.
+/// Несколько паттернов — OR (вызывающий сторону). Имя класса историческое.
 /// </summary>
 public static class TickerGlob
 {
-    /// <summary>True, если <paramref name="ticker"/> матчит хотя бы один паттерн.</summary>
-    public static bool IsMatch(string ticker, IReadOnlyList<string> patterns)
+    /// <summary>
+    /// Компилирует паттерны один раз (для eval по тысячам строк).
+    /// Без этого <see cref="RegexOptions.Compiled"/> на каждую строку вешает preview/save.
+    /// </summary>
+    public static Func<string, bool> Compile(IReadOnlyList<string> patterns)
     {
-        if (string.IsNullOrEmpty(ticker) || patterns is null || patterns.Count == 0)
+        if (patterns is null || patterns.Count == 0)
         {
-            return false;
+            return static _ => false;
         }
 
+        var regexes = new List<Regex>();
         foreach (var pattern in patterns)
         {
             if (string.IsNullOrWhiteSpace(pattern))
@@ -24,14 +29,37 @@ public static class TickerGlob
                 continue;
             }
 
-            if (IsMatch(ticker, pattern.Trim()))
-            {
-                return true;
-            }
+            regexes.Add(ToRegex(pattern.Trim()));
         }
 
-        return false;
+        if (regexes.Count == 0)
+        {
+            return static _ => false;
+        }
+
+        var frozen = regexes.ToArray();
+        return ticker =>
+        {
+            if (string.IsNullOrEmpty(ticker))
+            {
+                return false;
+            }
+
+            foreach (var regex in frozen)
+            {
+                if (regex.IsMatch(ticker))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        };
     }
+
+    /// <summary>True, если <paramref name="ticker"/> матчит хотя бы один паттерн.</summary>
+    public static bool IsMatch(string ticker, IReadOnlyList<string> patterns) =>
+        Compile(patterns)(ticker);
 
     public static bool IsMatch(string ticker, string pattern)
     {
@@ -40,8 +68,7 @@ public static class TickerGlob
             return false;
         }
 
-        var regex = ToRegex(pattern.Trim());
-        return regex.IsMatch(ticker);
+        return ToRegex(pattern.Trim()).IsMatch(ticker);
     }
 
     public static Regex ToRegex(string pattern)
@@ -87,6 +114,7 @@ public static class TickerGlob
         }
 
         sb.Append('$');
+        // Compiled — только через Compile(...) один раз на набор паттернов, не на каждый тикер.
         return new Regex(sb.ToString(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     }
 
