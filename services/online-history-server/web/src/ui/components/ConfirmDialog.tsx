@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { NotificationSeverity } from '@scinverse/notification-center';
 import { SeverityIcon } from '@scinverse/notification-center';
 import { Button } from './Button';
+import { ClearButton } from './ClearButton';
 import styles from './ConfirmDialog.module.css';
 
 /** Типы message box: info / warning / error (из NC). */
@@ -61,15 +62,7 @@ export function ConfirmDialog({
             {title}
           </h4>
           {showCancel && (
-            <button
-              type="button"
-              className={styles.closeBtn}
-              onClick={onCancel}
-              aria-label="Закрыть"
-              title="Закрыть"
-            >
-              ×
-            </button>
+            <ClearButton className={styles.closeBtn} label="Закрыть" onClick={onCancel} />
           )}
         </header>
         <p className={styles.message}>{message}</p>

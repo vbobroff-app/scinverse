@@ -1,16 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { ClearButton } from '../ClearButton';
 import styles from '../FilterBar.module.css';
 
 interface FilterSearchProps {
   initial?: string;
   placeholder?: string;
+  /** Растянуть на ширину родителя (колонки модалки наборов и т.п.). */
+  fullWidth?: boolean;
   /** Вызывается с debounce-значением строки поиска (первый рендер пропускается). */
   onSearch: (query: string) => void;
 }
 
 /** Поле поиска с debounce (300 мс). Общий для всех таблиц. */
-export function FilterSearch({ initial, placeholder = 'Поиск…', onSearch }: FilterSearchProps) {
+export function FilterSearch({
+  initial,
+  placeholder = 'Поиск…',
+  fullWidth = false,
+  onSearch,
+}: FilterSearchProps) {
   const [text, setText] = useState(initial ?? '');
   const debounced = useDebouncedValue(text, 300);
 
@@ -38,7 +46,9 @@ export function FilterSearch({ initial, placeholder = 'Поиск…', onSearch 
   };
 
   return (
-    <div className={styles.searchWrap}>
+    <div
+      className={[styles.searchWrap, fullWidth ? styles.searchWrapFill : ''].filter(Boolean).join(' ')}
+    >
       <svg className={styles.searchIcon} viewBox="0 0 16 16" aria-hidden="true">
         <path
           fill="none"
@@ -49,21 +59,24 @@ export function FilterSearch({ initial, placeholder = 'Поиск…', onSearch 
         />
       </svg>
       <input
-        className={[styles.search, text ? styles.searchWithClear : ''].filter(Boolean).join(' ')}
+        className={[
+          styles.search,
+          text ? styles.searchWithClear : '',
+          fullWidth ? styles.searchFill : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         placeholder={placeholder}
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
       {text && (
-        <button
-          type="button"
+        <ClearButton
+          size="sm"
           className={styles.searchClear}
+          label="Очистить поиск"
           onClick={clear}
-          title="Очистить поиск"
-          aria-label="Очистить поиск"
-        >
-          ×
-        </button>
+        />
       )}
     </div>
   );

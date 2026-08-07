@@ -4,6 +4,7 @@ import type { AvailableInstrumentDto, BasketDto } from '../../core/types';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { ConfirmDialog } from './ConfirmDialog';
+import { FilterSearch } from './filters/FilterSearch';
 import styles from './BasketEditorModal.module.css';
 
 interface Props {
@@ -79,11 +80,11 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
   const [secType, setSecType] = useState('');
   const [boardId, setBoardId] = useState('');
   const [availableQ, setAvailableQ] = useState('');
+  const [matchQ, setMatchQ] = useState('');
   const [available, setAvailable] = useState<AvailableInstrumentDto[]>([]);
   const [availableTotal, setAvailableTotal] = useState(0);
   const [availableLoading, setAvailableLoading] = useState(false);
   const [match, setMatch] = useState<AvailableInstrumentDto[]>([]);
-  const [matchQ, setMatchQ] = useState('');
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchError, setMatchError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AvailableInstrumentDto | null>(null);
@@ -128,7 +129,7 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  // Available — ленивый query active.
+  // Available — ленивый query active (q debounce в FilterSearch).
   useEffect(() => {
     if (!open) {
       return;
@@ -136,30 +137,27 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
     let cancelled = false;
     setAvailableLoading(true);
     availableOffset.current = 0;
-    const handle = window.setTimeout(() => {
-      OhsApi.getAvailableInstruments({
-        q: availableQ || undefined,
-        secType: secType || undefined,
-        board: boardId || undefined,
-        limit: PAGE,
-        offset: 0,
-      }).subscribe({
-        next: (page) => {
-          if (cancelled) return;
-          setAvailable(page.items);
-          setAvailableTotal(page.total);
-          setAvailableLoading(false);
-        },
-        error: (err) => {
-          if (cancelled) return;
-          console.error('getAvailableInstruments', err);
-          setAvailableLoading(false);
-        },
-      });
-    }, 200);
+    OhsApi.getAvailableInstruments({
+      q: availableQ || undefined,
+      secType: secType || undefined,
+      board: boardId || undefined,
+      limit: PAGE,
+      offset: 0,
+    }).subscribe({
+      next: (page) => {
+        if (cancelled) return;
+        setAvailable(page.items);
+        setAvailableTotal(page.total);
+        setAvailableLoading(false);
+      },
+      error: (err) => {
+        if (cancelled) return;
+        console.error('getAvailableInstruments', err);
+        setAvailableLoading(false);
+      },
+    });
     return () => {
       cancelled = true;
-      window.clearTimeout(handle);
     };
   }, [open, availableQ, secType, boardId]);
 
@@ -210,7 +208,7 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
       return match;
     }
     return match.filter((row) => {
-      const hay = [row.shortName, row.ticker, row.name, row.board, row.secType]
+      const hay = [row.ticker, row.board, row.shortName, row.name, row.secType]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
@@ -453,12 +451,12 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
                 {availableLoading ? '…' : `${available.length}/${availableTotal}`}
               </span>
             </div>
-            <div style={{ padding: '6px 8px' }}>
-              <input
-                className={styles.input}
-                value={availableQ}
-                onChange={(e) => setAvailableQ(e.target.value)}
+            <div className={styles.colFilter}>
+              <FilterSearch
+                key={`available-${basketId ?? 'new'}-${open}`}
+                fullWidth
                 placeholder="Поиск…"
+                onSearch={setAvailableQ}
               />
             </div>
             <div
@@ -517,12 +515,12 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
                     : String(match.length)}
               </span>
             </div>
-            <div style={{ padding: '6px 8px' }}>
-              <input
-                className={styles.input}
-                value={matchQ}
-                onChange={(e) => setMatchQ(e.target.value)}
+            <div className={styles.colFilter}>
+              <FilterSearch
+                key={`match-${basketId ?? 'new'}-${open}`}
+                fullWidth
                 placeholder="Поиск…"
+                onSearch={setMatchQ}
               />
             </div>
             <div className={styles.colBody}>
@@ -549,12 +547,12 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
                     Обозначение MOEX: Si-*.* (не seccode SiU6).
                   </div>
                 )}
-              {patterns.length > 0 &&
+              {matchQ.trim() &&
                 match.length > 0 &&
                 matchFiltered.length === 0 &&
                 !matchLoading &&
                 !dropActive && (
-                  <div className={styles.empty}>Нет инструментов по поиску</div>
+                  <div className={styles.empty}>Нет совпадений по фильтру</div>
                 )}
               {matchFiltered.map((row) => (
                 <InstrumentRow

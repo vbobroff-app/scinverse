@@ -70,6 +70,11 @@
   align-items: center;
 }
 
+.searchWrapFill {
+  display: flex;
+  width: 100%;
+}
+
 .searchIcon {
   position: absolute;
   left: 8px;
@@ -90,6 +95,13 @@
   font-size: var(--font-size-sm);
 }
 
+.searchFill {
+  width: 100%;
+  max-width: none;
+  flex: 1;
+  min-width: 0;
+}
+
 .searchWithClear {
   padding-right: 26px;
 }
@@ -99,24 +111,8 @@
   border-color: var(--color-border-focus);
 }
 
+/* Позиция ClearButton внутри поля поиска. */
 .searchClear {
   position: absolute;
   right: 4px;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.searchClear:hover {
-  color: var(--color-text);
-  background: var(--color-bg-hover);
 }

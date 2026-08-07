@@ -197,6 +197,15 @@ export function HelpIcon({ className }: IconProps) {
   );
 }
 
+/** Крестик (stroke) — Clear / Close. */
+export function XIcon({ className }: IconProps) {
+  return (
+    <StrokeIcon className={className}>
+      <path d="M18 6 6 18M6 6l12 12" />
+    </StrokeIcon>
+  );
+}
+
 /** Колокольчик — NC / журнал инцидентов. */
 export function BellIcon({ className }: IconProps) {
   return (

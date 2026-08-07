@@ -1,0 +1,42 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  color: var(--color-text);
+  background: transparent;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sm {
+  width: 20px;
+  height: 20px;
+}
+
+.md {
+  width: 24px;
+  height: 24px;
+}
+
+.iconSm {
+  width: 12px;
+  height: 12px;
+}
+
+.iconMd {
+  width: 14px;
+  height: 14px;
+}
