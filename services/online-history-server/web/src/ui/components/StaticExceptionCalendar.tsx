@@ -50,6 +50,13 @@ function fmtRange(from: string, to: string): string {
   return from === to ? a : `${a}–${b}`;
 }
 
+function localTodayIso(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function stackOnDay(
   iso: string,
   exceptions: readonly StaticExcRange[],
@@ -132,9 +139,13 @@ export function StaticExceptionCalendar({
   const [end, setEnd] = useState<string | undefined>(undefined);
   const [paintingNew, setPaintingNew] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+  /** Только рамка «сегодня» — без фокуса/выделения слоя (иначе Tip L1). */
+  const [markToday, setMarkToday] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const startRef = useRef(start);
   startRef.current = start;
+  const markTodayRef = useRef(markToday);
+  markTodayRef.current = markToday;
   const onDismissRef = useRef(onDismiss);
   onDismissRef.current = onDismiss;
 
@@ -148,6 +159,7 @@ export function StaticExceptionCalendar({
     setEnd(undefined);
     setPaintingNew(false);
     setHint(null);
+    setMarkToday(false);
     // Как click-outside: снять :focus-visible с ячейки, иначе остаётся синий outline.
     const ae = document.activeElement;
     if (ae instanceof HTMLElement && rootRef.current?.contains(ae)) ae.blur();
@@ -158,8 +170,8 @@ export function StaticExceptionCalendar({
       if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopPropagation();
-      // Есть выделение — сброс дат; иначе закрыть поповер (как click-outside).
-      if (startRef.current != null) clearSelection();
+      // Есть выделение или рамка «сегодня» — сброс; иначе закрыть поповер.
+      if (startRef.current != null || markTodayRef.current) clearSelection();
       else onDismissRef.current?.();
     };
     document.addEventListener('keydown', onKey, true);
@@ -254,6 +266,14 @@ export function StaticExceptionCalendar({
     if (t.closest(`.${styles.link}`)) return;
     if (t.closest(`.${styles.navBtn}`)) return;
     clearSelection();
+  };
+
+  const todayIso = localTodayIso();
+
+  const jumpToToday = () => {
+    const d = new Date();
+    setView({ year: d.getFullYear(), month: d.getMonth() });
+    setMarkToday(true);
   };
 
   return (
@@ -363,10 +383,15 @@ export function StaticExceptionCalendar({
                   paintingNew && start === value && end == null ? styles.cellPainting : '',
                   topOff ? styles.cellTopOff : '',
                   isNonTrading?.(value) ? styles.cellNonTrading : '',
+                  markToday && value === todayIso ? styles.cellTodayRing : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
-                onClick={(e) => pick(value, e.ctrlKey || e.metaKey)}
+                onClick={(e) => {
+                  pick(value, e.ctrlKey || e.metaKey);
+                  // Гасим системный :focus-visible (в т.ч. Shift+клик).
+                  e.currentTarget.blur();
+                }}
               >
                 <span className={styles.dayNum}>{Number(value.slice(8))}</span>
                 {hasRibbons && (
@@ -399,9 +424,11 @@ export function StaticExceptionCalendar({
         }}
       />
 
-      <p className={styles.legend}>
-        Полоски = слои · клик — верхний · макс. {maxSpanDays} дн.
-      </p>
+      <div className={styles.todayRow}>
+        <button type="button" className={styles.link} onClick={jumpToToday} tabIndex={-1}>
+          Сегодня
+        </button>
+      </div>
 
       <div className={styles.footer}>
         <span className={styles.selection}>

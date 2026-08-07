@@ -106,6 +106,12 @@
   overflow: hidden;
 }
 
+/* Системный :focus-visible (Shift+клик и т.п.) — гасим; «Сегодня» — через .cellTodayRing. */
+.cell:focus,
+.cell:focus-visible {
+  outline: none;
+}
+
 .cell:hover {
   background: color-mix(in srgb, var(--color-text) 6%, transparent);
 }
@@ -188,19 +194,16 @@
   color: #e05555;
 }
 
-.legend {
-  margin: 6px 0 0;
-  font-size: 10px;
-  line-height: 1.35;
-  color: var(--color-text-muted);
+/* Рамка как global :focus-visible — только визуал, без фокуса/выделения слоя. */
+.cellTodayRing {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
 }
 
-.legend kbd {
-  font-size: 10px;
-  padding: 0 3px;
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  font-family: inherit;
+.todayRow {
+  margin: 6px 0 0;
+  display: flex;
+  justify-content: flex-start;
 }
 
 .hint {
