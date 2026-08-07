@@ -4,6 +4,9 @@ import type { AvailableInstrumentDto, BasketDto } from '../../core/types';
 import { useOhsStore } from '../context';
 import { useBehavior } from '../hooks/useObservable';
 import { ConfirmDialog } from './ConfirmDialog';
+import { Dropdown } from './Dropdown';
+import { Input } from './Input';
+import { TextArea } from './TextArea';
 import { FilterSearch } from './filters/FilterSearch';
 import styles from './BasketEditorModal.module.css';
 
@@ -61,7 +64,7 @@ function appendPatternLine(text: string, line: string): string {
     return text;
   }
   const trimmed = text.replace(/\s+$/, '');
-  return trimmed.length === 0 ? needle : `${trimmed}\n${needle}`;
+  return trimmed.length === 0 ? needle : `${trimmed}, ${needle}`;
 }
 
 /**
@@ -105,7 +108,7 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
     closingRef.current = false;
     const src: BasketDto | null = editing;
     setName(src?.name ?? '');
-    setPatternsText((src?.patterns ?? []).join('\n'));
+    setPatternsText((src?.patterns ?? []).join(', '));
     setSecType(src?.secType ?? '');
     setBoardId(src?.boardId ?? '');
     setSelected(null);
@@ -394,8 +397,7 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
         <div className={styles.form}>
           <label className={styles.field}>
             <span className={styles.fieldLabel}>Имя</span>
-            <input
-              className={styles.input}
+            <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Напр. Si futures"
@@ -403,42 +405,32 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
           </label>
           <label className={styles.field}>
             <span className={styles.fieldLabel}>Тип</span>
-            <select
-              className={styles.select}
+            <Dropdown
               value={secType}
-              onChange={(e) => setSecType(e.target.value)}
-            >
-              {SEC_TYPES.map((o) => (
-                <option key={o.id || 'any'} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              options={SEC_TYPES.map((o) => ({ value: o.id, label: o.label }))}
+              onChange={setSecType}
+              aria-label="Тип"
+            />
           </label>
           <label className={styles.field}>
             <span className={styles.fieldLabel}>Board</span>
-            <select
-              className={styles.select}
+            <Dropdown
               value={boardId}
-              onChange={(e) => setBoardId(e.target.value)}
-            >
-              {BOARDS.map((o) => (
-                <option key={o.id || 'any'} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              options={BOARDS.map((o) => ({ value: o.id, label: o.label }))}
+              onChange={setBoardId}
+              aria-label="Board"
+            />
           </label>
           <div />
           <label className={`${styles.field} ${styles.formWide}`}>
             <span className={styles.fieldLabel}>
-              Glob по short_name / обозначению MOEX (OR, по одному в строке)
+              Glob по short_name / обозначению MOEX (OR, через запятую)
             </span>
-            <textarea
-              className={styles.textarea}
+            <TextArea
+              mono
               value={patternsText}
               onChange={(e) => setPatternsText(e.target.value)}
-              placeholder={'Si-*.*\nRTS-*.2[0-9]\nSBRF-*.*'}
+              placeholder="Si-*.*, RTS-*.2[0-9], SBRF-*.*"
             />
           </label>
         </div>

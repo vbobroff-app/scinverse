@@ -88,32 +88,6 @@
   color: var(--color-text-muted);
 }
 
-.input,
-.select,
-.textarea {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-input);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--font-size-sm);
-}
-
-.input,
-.select {
-  height: 32px;
-  padding: 0 8px;
-}
-
-.textarea {
-  min-height: 64px;
-  padding: 6px 8px;
-  resize: vertical;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
 .formWide {
   grid-column: 1 / -1;
 }
