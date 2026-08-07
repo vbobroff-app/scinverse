@@ -1,9 +1,11 @@
 # Справочник инструментов (Online)
 
 **Статус Online MVP:** DONE (2026-08-04) — ATM ±N, Refresh, архив по exp (`instrument.active`).
-Не долг Stage 2. Оставшееся: intraday (7c.9 борд / 7c.SEC `sec_status`); draft working-set —
+Не долг Stage 2. Working set (baskets / Observed): **в коде** —
 [catalog-basket-instruments](../features/catalog-basket-instruments/main.md)
-([catalog/spec](../features/catalog-basket-instruments/catalog/spec.md)).
+([catalog](../features/catalog-basket-instruments/catalog/spec.md) ·
+[life-cycle](../features/catalog-basket-instruments/life-cycle/spec.md)).
+Оставшееся: intraday (7c.9 / 7c.SEC); dynamic ATM / `has_data`.
 
 Как устроен каталог в админке записи: что видно в Online, когда опционы
 подгружаются, чем «архив» отличается от «не торгуется сейчас».
@@ -60,12 +62,19 @@
 1. **Кэш справочника** — разрешить заново принять dump с коннектора; сбросить окна опционов
    (следующее раскрытие серии снова подгрузит ATM). Если сессия уже connected — нужен
    **reconnect** (текущая сессия dump не повторит); иначе dump придёт на следующем connect.
-2. **Актуальность** — архивировать просроченные по дате экспирации.
+2. **Актуальность** — архивировать просроченные по дате экспирации; **пересчитать** static
+   наборы (members) и пересобрать список Observed.
 
 В центре уведомлений это **два независимых** Group-процесса (NC): corr «кэш» —
 `groupKind: action`; corr «актуальность» — `groupKind: lifecycle`. В UI ярлыки
 **Action** / **Lifecycle** (не слово «Group»). Канон нитей —
 [dev/phase11/to-threads.md](../dev/phase11/to-threads.md) §2.
+Подробности конвейера — [life-cycle](../features/catalog-basket-instruments/life-cycle/apply.md).
 
-Автоматическая проверка актуальности также выполняется раз в календарный день (МСК) при
-старте сервера / первом успешном connect за день (без NC Group, пока не заведён checkup).
+Автоматическая проверка актуальности — на **первом успешном connect** к data-серверу
+в checkup-сутки (с **06:00 МСК**, не с полуночи: хвост сессии в 00:30 — ещё «вчера»).
+Не при старте Host. Архив + пересчёт наборов; после dump — сверка members.
+В NC — Group **Checkup**; Refresh — **Action** + **Lifecycle**.
+
+Основной список записи показывает **Observed** (наборы ☑ + пишущиеся), не весь Online-dump.
+Сборка наборов — фильтр «Наборы» / модалка.

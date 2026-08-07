@@ -17,6 +17,20 @@ public sealed class InstrumentLifecycleTests
         InstrumentLifecycle.IsListedOnline(exp, today).Should().Be(expected);
     }
 
+    [Theory]
+    // checkup-сутки с 06:00 МСК: 00:30 → вчера; 05:59 → вчера; 06:00 → сегодня.
+    [InlineData(2026, 8, 8, 0, 30, 2026, 8, 7)]
+    [InlineData(2026, 8, 8, 5, 59, 2026, 8, 7)]
+    [InlineData(2026, 8, 8, 6, 0, 2026, 8, 8)]
+    [InlineData(2026, 8, 8, 12, 0, 2026, 8, 8)]
+    public void CheckupDayMoscow_CutoverAtSix(
+        int y, int m, int d, int hh, int mm,
+        int ey, int em, int ed)
+    {
+        var msk = new DateTime(y, m, d, hh, mm, 0, DateTimeKind.Unspecified);
+        InstrumentLifecycle.CheckupDayMoscow(msk).Should().Be(new DateOnly(ey, em, ed));
+    }
+
     [Fact]
     public async Task FakeStore_ArchiveExpired_SetsInactiveAndReturnsIds()
     {

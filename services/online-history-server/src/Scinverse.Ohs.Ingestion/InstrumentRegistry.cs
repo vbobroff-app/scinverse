@@ -99,14 +99,14 @@ public sealed class InstrumentRegistry(
         }
     }
 
-    public async Task FlushPendingAsync(CancellationToken cancellationToken)
+    public async Task<bool> FlushPendingAsync(CancellationToken cancellationToken)
     {
         List<SecurityInfo> batch;
         lock (_missGate)
         {
             if (_missBuffer.Count == 0)
             {
-                return;
+                return false;
             }
 
             batch = _missBuffer;
@@ -114,6 +114,7 @@ public sealed class InstrumentRegistry(
         }
 
         await PersistMissBatchAsync(batch, cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     public async Task<Instrument> RegisterAsync(SecurityInfo security, CancellationToken cancellationToken)
@@ -181,14 +182,14 @@ public sealed class InstrumentRegistry(
         return false;
     }
 
-    public async Task TryFlushMissThresholdAsync(CancellationToken cancellationToken)
+    public async Task<bool> TryFlushMissThresholdAsync(CancellationToken cancellationToken)
     {
         List<SecurityInfo>? batch = null;
         lock (_missGate)
         {
             if (_missBuffer.Count < MissBatchSize)
             {
-                return;
+                return false;
             }
 
             batch = _missBuffer;
@@ -196,6 +197,7 @@ public sealed class InstrumentRegistry(
         }
 
         await PersistMissBatchAsync(batch, cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     private async Task PersistMissBatchAsync(List<SecurityInfo> batch, CancellationToken cancellationToken)

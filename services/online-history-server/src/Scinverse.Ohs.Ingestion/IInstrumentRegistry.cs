@@ -22,10 +22,14 @@ public interface IInstrumentRegistry
     void Observe(SecurityInfo security);
 
     /// <summary>Сбрасывает накопленные miss в БД (вызывать перед обработкой сделок в pump).</summary>
-    Task FlushPendingAsync(CancellationToken cancellationToken);
+    /// <returns>true — был непустой flush в Available.</returns>
+    Task<bool> FlushPendingAsync(CancellationToken cancellationToken);
 
-    /// <summary>Если miss-буфер ≥ порога — сбросить батч в БД (из pump после Observe).</summary>
-    Task TryFlushMissThresholdAsync(CancellationToken cancellationToken);
+    /// <summary>
+    /// Если miss-буфер ≥ порога — сбросить батч в БД (из pump после Observe).
+    /// </summary>
+    /// <returns>true — батч записан в Available.</returns>
+    Task<bool> TryFlushMissThresholdAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// Полная регистрация (maintenance/reenrich): Observe + FlushPending + возврат из кэша.

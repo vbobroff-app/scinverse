@@ -23,6 +23,7 @@ internal static class StubObservedCatalog
             UnrestrictedObservedSet.Instance,
             TimeProvider.System);
 
+        var hub = new NotificationHub(new WebSocketBroadcaster());
         return new InstrumentLifecycleService(
             new FakeInstrumentStore(),
             registry,
@@ -34,6 +35,7 @@ internal static class StubObservedCatalog
                 new EmptyConnectionStoreForLifecycle(),
                 NullLogger<BasketEvalService>.Instance),
             CreateCoordinator(registry),
+            new CatalogRefreshNc(hub),
             TimeProvider.System,
             NullLogger<InstrumentLifecycleService>.Instance);
     }

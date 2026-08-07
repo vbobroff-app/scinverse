@@ -4,14 +4,13 @@
 
 **Area:** catalog · **Outcome:** baskets / Observed working set поверх Available.
 
-Статус: **DRAFT** (2026-08-06). Не реализовано — продуктовая спека перед кодом.
+Статус: **v1 IN CODE** (2026-08-07) — C0–C3 + Lifecycle re-eval. Dynamic / `has_data` — после v1.
 
-**As-is Online-каталог (уже в коде):** [apply.md](apply.md).  
-**План v1:** [plan.md](plan.md).
+**As-is:** [apply.md](apply.md). **План v1:** [plan.md](plan.md).  
+**Lifecycle / Refresh:** [`../life-cycle/spec.md`](../life-cycle/spec.md).
 
-Смежное: [`wiki-readme/catalog.md`](../../../wiki-readme/catalog.md) (lifecycle `active`, OPT ATM,
-Refresh) · dump / `InstrumentRegistry` · Auto / recording ·
-долги Stage 1 — [`abandoned`](../../../stage1/abandoned.md).
+Смежное: [`wiki-readme/catalog.md`](../../../wiki-readme/catalog.md) · dump / `InstrumentRegistry` ·
+Auto / recording · долги Stage 1 — [`abandoned`](../../../stage1/abandoned.md).
 
 ---
 
@@ -21,8 +20,8 @@ Refresh) · dump / `InstrumentRegistry` · Auto / recording ·
 инструменты: на них обращаем внимание, за ними следим. В основном списке записи
 **никогда** нет полного dump — только тормоза и вечный фильтр, ценности нет.
 
-Сейчас Online-каталог и hot-path смешаны: в in-memory кэш попадает **весь** Online
-слой (`active` — тысячи), а пишем/управляем десятками. Нужно разделить:
+Раньше Online-каталог и hot-path были смешаны: в in-memory кэш попадал **весь** Online
+слой (`active` — тысячи). Разделили:
 
 - **широкий справочник** (Available — dump/Online в БД; виден при **формировании** наборов);
 - **рабочий набор** (Observed — за чем **следим**: показываем и управляем; только он в кэше
@@ -246,19 +245,13 @@ OK сохраняет правила; галка набора на основн�
 
 ---
 
-## 6. Связь с текущим Refresh каталога
+## 6. Связь с Refresh / Lifecycle
 
-Кнопка Refresh (invalidate dump + lifecycle archive) **расширяется**:
+Канон действий вынесен в [`../life-cycle/spec.md`](../life-cycle/spec.md). Кратко:
 
-- обновить Available (dump / invalidate);
-- archive по exp;
-- re-eval static baskets;
-- reset/reseed dynamic OPT окон;
-- пересчитать system-членство;
-- пересобрать Observed-кэш.
-
-NC: по-прежнему отдельные corr (cache vs lifecycle); baskets eval — шаг внутри
-lifecycle/cache, emit TBD.
+- Refresh = invalidate dump + сброс OPT + **force** sweep;
+- sweep = archive → re-eval static → rebuild Observed (dynamic — после v1);
+- NC: отдельные corr Action / Lifecycle; emit шагов baskets — TBD (`nc-integration`).
 
 ---
 
@@ -283,7 +276,7 @@ v1 уже ограничивает кэш: glob → static membership → Observ
 | T4 | Seed Si/RTS/SBRF | **DONE** — нет seed; пустой Observed + ☑ Recording |
 | T4b | Scope / persist галок | **DONE** — per-connection; галки на сервере |
 | T4c | Filter chips 7d | **DONE** — оставляем, источник = Observed-кэш |
-| T5 | Схема БД: basket / rule / member (+ connection_id, system id) | Миграция отдельно |
+| T5 | Схема БД: basket / rule / member (+ connection_id, system id) | **DONE** — V032 |
 | T6 | Следующие system-id сверх `recording` / `has_data` | Открытый список |
 | T7 | Поля спецификации в 3-й колонке (+ live quotes?) | Минимум из БД; эталон — Финам |
 | T8 | `has_data` предикат | **DONE** (внедрение после v1) — ниже |

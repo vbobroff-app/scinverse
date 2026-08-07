@@ -2,7 +2,8 @@
 
 **Area:** catalog · **Outcome:** baskets / Observed working set поверх Available.
 
-Статус фичи: **DRAFT** (2026-08-06). Код baskets ещё не начат.
+Статус фичи: **IN PROGRESS** (2026-08-07).  
+C0–C3 DONE · life-cycle DONE (checkup с 06:00 МСК) · schedule — DRAFT.
 
 Фича режется на части: у каждой свой `spec` / `apply`. Общий канон слоёв
 Available ⊥ Observed ⊥ Archive — в части **catalog**.
@@ -11,18 +12,17 @@ Available ⊥ Observed ⊥ Archive — в части **catalog**.
 
 | Часть | Статус | Содержание |
 |-------|--------|------------|
-| [`catalog/`](catalog/spec.md) | DRAFT to-be · as-is DONE · **PLAN v1** | Формирование Observed: наборы static/dynamic/system, модалка Available\|Match\|спека, кэш = Observed. [spec](catalog/spec.md) · [apply](catalog/apply.md) · [plan](catalog/plan.md) |
-| `nc-integration/` | planned | NC вокруг baskets / Refresh eval — когда появится содержание |
-| `schedule/` | planned | Расписание записи поверх Observed — когда появится содержание |
+| [`catalog/`](catalog/spec.md) | v1 C0–C3 DONE · [spec](catalog/spec.md) · [apply](catalog/apply.md) · [plan](catalog/plan.md) | Observed: static/system baskets, модалка Available\|Match\|спека, кэш = Observed |
+| [`life-cycle/`](life-cycle/spec.md) | DONE · [spec](life-cycle/spec.md) · [apply](life-cycle/apply.md) | Суточный sweep на первом connect checkup-суток (≥06:00 МСК); post-dump; NC |
+| [`schedule/`](schedule/spec.md) | DRAFT · [spec](schedule/spec.md) | Единое расписание: Auto connection = Auto writing; as-is connection + calendar; история — отдельно |
+| `nc-integration/` | planned | NC вокруг baskets / richer emit |
 
 ## Scope поставки (кратко)
 
 | Инкремент | Состав |
 |-----------|--------|
-| **v1** | static + system `recording` + Observed-кэш/список + модалка |
-| **v1.1+** | dynamic ATM, system `has_data`, … |
-
-Подробности — в [`catalog/spec.md`](catalog/spec.md).
+| **v1** | static + system `recording` + Observed + модалка + Lifecycle checkup |
+| **v1.1+** | unified schedule, dynamic ATM, `has_data`, … |
 
 ## Смежное
 

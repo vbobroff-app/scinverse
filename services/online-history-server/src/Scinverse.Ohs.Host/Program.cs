@@ -60,6 +60,8 @@ builder.Services.AddSingleton<IInstrumentRegistry, InstrumentRegistry>();
 builder.Services.AddSingleton<ObservedCatalogCoordinator>();
 builder.Services.AddSingleton<BasketEvalService>();
 builder.Services.AddSingleton<InstrumentLifecycleService>();
+builder.Services.AddSingleton(sp => new Lazy<InstrumentLifecycleService>(
+    () => sp.GetRequiredService<InstrumentLifecycleService>()));
 builder.Services.AddSingleton<OptionWindowFreshness>();
 builder.Services.AddSingleton<OptionCatalogService>();
 builder.Services.AddSingleton<CatalogRefreshNc>();
@@ -181,12 +183,10 @@ app.MapOhsApi();
 app.MapGroup("/api").MapHostOutageRecovery();
 
 // Observed working set → узкий registry (не весь active).
+// Суточный lifecycle/checkup — не здесь: привязан к первому успешному connect за день МСК
+// (связь с data-сервером), см. ConnectionManager + InstrumentLifecycleService.
 await app.Services.GetRequiredService<ObservedCatalogCoordinator>()
     .RebuildCacheAsync(CancellationToken.None);
-
-// Lifecycle Online-каталога: archive + re-eval static + rebuild Observed.
-await app.Services.GetRequiredService<InstrumentLifecycleService>()
-    .TrySweepAsync(force: false, CancellationToken.None);
 
 // Recovery (phase 7h): аккуратно закрываем «осиротевшие» открытые сегменты покрытия и интервалы
 // живости прошлого процесса (аварийный рестарт), иначе подложка ложно «склеится» до now.

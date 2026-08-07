@@ -1,7 +1,8 @@
 # catalog-basket-instruments / catalog — plan (v1)
 
-**Статус:** PLAN (2026-08-06) · **C0–C3 DONE**. Спека — [spec.md](spec.md) · as-is — [apply.md](apply.md) ·
-индекс фичи — [`../main.md`](../main.md).
+**Статус:** PLAN (2026-08-07) · **C0–C3 DONE** · **C4 wiring DONE** (регрессии — хвост).  
+Спека — [spec.md](spec.md) · as-is — [apply.md](apply.md) ·  
+Lifecycle — [`../life-cycle/`](../life-cycle/spec.md) · индекс — [`../main.md`](../main.md).
 
 Цель v1: **ограничить Observed-кэш и основной список** — static baskets + system `recording`;
 модалка конструктора набора; Available остаётся в БД, не в hot-cache списка записи.
@@ -155,14 +156,14 @@ v1 **закладываем явный `connectionId`** на instruments / baske
 
 **Done:** оператор собирает glob-набор → ☑ → инструменты в списке записи; Start только там.
 
-### C4 — Refresh / Lifecycle wiring + регрессии
+### C4 — Refresh / Lifecycle wiring + регрессии — **DONE** (хвост acceptance)
 
-- Расширить catalog refresh: invalidate + archive + **re-eval static** + rebuild Observed
-- Суточный sweep — тот же re-eval шаг
-- Тесты: registry size; recording удерживает вне static; галка off убирает из списка (запись не стопается сама)
-- `tsc` / eslint / `dotnet build` Host
+- Refresh / суточный sweep: archive + re-eval + rebuild — **DONE**
+- Post-dump basket sync (idle после Available) + NC checkup / lifecycle baskets — **DONE**
+  → [`../life-cycle/`](../life-cycle/apply.md)
+- **Хвост (мягкий):** ручной прогон acceptance §6; dynamic / richer NC — later
 
-**Done:** v1 закрыт по acceptance ниже.
+**Done:** конвейер v1 + суточное инспектирование baskets.
 
 ---
 

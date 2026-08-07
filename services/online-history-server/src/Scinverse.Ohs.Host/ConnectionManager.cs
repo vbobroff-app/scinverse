@@ -426,7 +426,8 @@ public sealed class ConnectionManager(
                 connector, parser, registry, sourceStore, normalizer, batcher, coverageTracker,
                 loggerFactory.CreateLogger<ConnectorSession>(),
                 onData: () => ReportActivity(connectionId),
-                onLinkState: change => HandleLinkStateAsync(connectionId, change));
+                onLinkState: change => HandleLinkStateAsync(connectionId, change),
+                onAvailablePersisted: () => lifecycle.OnAvailablePersisted());
             // Сессию в словарь ДО StartAsync: иначе Live из канала (уже залитый в ConnectAsync) обрабатывается
             // HandleLinkStateAsync при пустом _sessions → early-return → OnLinkLiveAsync не зовётся (I6-регресс
             // на ручном/супервизорном Connect: «recovered» + зелёный тумблер, подписок нет, сделок нет).
@@ -435,7 +436,7 @@ public sealed class ConnectionManager(
             connector = null;
             await session.StartAsync(cancellationToken).ConfigureAwait(false);
 
-            // Lifecycle Online-каталога: раз в день МСК на первом успешном connect.
+            // Суточный lifecycle/checkup: раз в день МСК на первом успешном connect к data-серверу.
             await lifecycle.TrySweepAsync(force: false, cancellationToken).ConfigureAwait(false);
 
             // Подключено, но данных ещё нет → «ожидание» (перейдёт в «active» при первой сделке).

@@ -5,13 +5,14 @@ namespace Scinverse.Ohs.Host;
 
 /// <summary>
 /// Фоновая батч-запись справочника после invalidate (startup-latency #2+#3): drain очереди,
-/// UpsertBatch, по idle помечает каталог снова свежим.
+/// UpsertBatch, по idle помечает каталог снова свежим; сигналит lifecycle для basket sync.
 /// </summary>
 public sealed class InstrumentCatalogPersistWriter(
     InstrumentCatalogPersistQueue queue,
     IInstrumentStore store,
     IInstrumentRegistry registry,
     CatalogRefreshNc catalogRefreshNc,
+    Lazy<InstrumentLifecycleService> lifecycle,
     ILogger<InstrumentCatalogPersistWriter> logger) : BackgroundService
 {
     private const int MaxBatch = 500;
@@ -43,7 +44,19 @@ public sealed class InstrumentCatalogPersistWriter(
                     if (hadWork && !registry.IsFresh && queue.ApproxCount == 0)
                     {
                         registry.MarkFresh();
-                        catalogRefreshNc.OnCatalogMarkedFresh();
+                        var refreshPending = catalogRefreshNc.OnCatalogMarkedFresh();
+                        if (refreshPending)
+                        {
+                            // Force: Refresh dump закрыт — baskets ещё раз, даже если sync уже был сегодня.
+                            await lifecycle.Value
+                                .TrySyncBasketsAfterDumpAsync(force: true, stoppingToken)
+                                .ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            lifecycle.Value.OnAvailablePersisted();
+                        }
+
                         logger.LogInformation("Справочник инструментов снова помечен свежим (idle persist)");
                         hadWork = false;
                     }
@@ -71,6 +84,7 @@ public sealed class InstrumentCatalogPersistWriter(
                         .UpsertBatchAsync(dedup.Values.ToList(), stoppingToken)
                         .ConfigureAwait(false);
                     registry.ApplyPersisted(saved);
+                    lifecycle.Value.OnAvailablePersisted();
                     logger.LogDebug(
                         "Справочник: фоновый upsert {Count} инструментов (очередь ≈{Queued})",
                         saved.Count, queue.ApproxCount);

@@ -18,7 +18,8 @@ public sealed class ConnectorSession(
     CoverageTracker coverageTracker,
     ILogger<ConnectorSession> logger,
     Action? onData = null,
-    Func<ConnectorLinkStateChange, Task>? onLinkState = null)
+    Func<ConnectorLinkStateChange, Task>? onLinkState = null,
+    Action? onAvailablePersisted = null)
 {
     private CancellationTokenSource? _cts;
     private Task? _pumpTask;
@@ -128,11 +129,19 @@ public sealed class ConnectorSession(
                             // Cache-hit (свежий каталог) — no-op; stale hit — фоновый persist;
                             // miss — буфер + батч по порогу (не транзакция на каждый SecurityInfo).
                             registry.Observe(security);
-                            await registry.TryFlushMissThresholdAsync(cancellationToken).ConfigureAwait(false);
+                            if (await registry.TryFlushMissThresholdAsync(cancellationToken).ConfigureAwait(false))
+                            {
+                                onAvailablePersisted?.Invoke();
+                            }
+
                             break;
 
                         case TradeEvent trade:
-                            await registry.FlushPendingAsync(cancellationToken).ConfigureAwait(false);
+                            if (await registry.FlushPendingAsync(cancellationToken).ConfigureAwait(false))
+                            {
+                                onAvailablePersisted?.Invoke();
+                            }
+
                             if (normalizer.TryNormalize(trade, sourceId, out var record))
                             {
                                 await batcher.EnqueueAsync(record, cancellationToken).ConfigureAwait(false);
