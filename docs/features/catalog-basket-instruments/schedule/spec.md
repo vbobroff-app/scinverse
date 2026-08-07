@@ -68,7 +68,7 @@
 | Auto connection | как сейчас: desired по окну дня открытия |
 | Auto writing | то же окно: писать инструменты Observed с intent записи (system Recording / Auto on) |
 | Ручной Start | вне/внутри окна — оператор может писать точечно |
-| Checkup day | = день открытия окна (сейчас interim: cutover 06:00 МСК в life-cycle) |
+| Checkup day | = день открытия окна (сейчас interim: cutover 04:00 МСК в life-cycle) |
 | История правил | out of scope этой спеки — отдельный контур (listHistory уже есть у connection; продукт истории later) |
 
 **Формирование и «текущее»** — один механизм (resolver + calendar).  
@@ -80,11 +80,13 @@
 
 Пока единого schedule в коде нет, checkup использует interim:
 
-- граница суток checkup = **≥ 06:00 МСК** (`InstrumentLifecycle.CheckupDayMoscow`);
-- первый успешный connect в checkup-сутки → Checkup NC.
+- граница суток checkup = **≥ 04:00 МСК** (`InstrumentLifecycle.CheckupDayMoscow`);
+- первый успешный connect в checkup-сутки → NC **Lifecycle**;
+- **уже ли сутки обработаны** — durable checkpoint в БД (`ohs_runtime_state`), не память Host
+  (см. [`../life-cycle/spec.md`](../life-cycle/spec.md) §2.1). Рестарт не открывает второй Lifecycle.
 
-После внедрения этой части: cutover / checkup day брать из `OpenTime` единого окна
-(типично тот же 06:00), без второго хардкода.
+После внедрения этой части: cutover / checkup day брать из `OpenTime` единого окна,
+без второго хардкода. Место хранения якоря суток не меняется — только формула дня.
 
 ---
 
@@ -102,6 +104,7 @@
 ## 6. Acceptance (черновик)
 
 1. Одно окно управляет желаемой связью и желаемой Auto-записью Observed.
-2. Хвост после полуночи (00:30) — тот же день открытия, что утренний 06:00; checkup не дублируется.
+2. Хвост после полуночи (00:30) — тот же день открытия, что утренний 06:00; checkup не дублируется
+   (ни по cutover, ни после рестарта Host — якорь суток в БД).
 3. Ручной Start не ломается.
 4. Календарь (неторговый день) по-прежнему гасит `main`, как у connection as-is.

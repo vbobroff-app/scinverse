@@ -6,7 +6,7 @@
 **Дом фазы:** [plan.md](plan.md) (Stage 1). Исторические id задач `11.13*` сохранены в логе.
 
 **Связано:** [plan.md](plan.md) · [../phase11/issue.md](../phase11/issue.md) I2 ·
-[../phase11/to-threads.md](../phase11/to-threads.md) ·
+[`features/nc/threads`](../../features/nc/threads/spec.md) ·
 [../phase11/persistence.md](../phase11/persistence.md) ·
 **soft-delete** [`incident-soft-delete.md`](incident-soft-delete.md) ·
 wiki [`incident.md`](../../wiki-readme/incident.md) ·

@@ -1,6 +1,6 @@
 # NC Dock Settings — опции отображения
 
-Связано: [apply.md](apply.md) (I2), [to-threads.md](to-threads.md),
+Связано: [apply.md](apply.md) (I2), канон [`features/nc/threads`](../../features/nc/threads/spec.md),
 [nc-marks.md](nc-marks.md) (★/⊘ / Удалённые и фильтр «Выбор»),
 [incident-soft-delete.md](incident-soft-delete.md) (ось видимости журнала в ЦУ),
 [layers.md §8](../../wiki-readme/layers.md) (фильтр дока «Слои» TL/CL/WL), пакет

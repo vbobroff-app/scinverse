@@ -118,6 +118,7 @@ recovered / `incident_closed`; crash: unavailable → progress → recovering �
    - **Incident** — Thread с duty close (`recovered` / `abandoned_*`); подтипы **Crash|Break**
      (`incidentKind` / wire `data.kind`).
    - **Group** — Thread без журнала инцидентов; подтипы **Lifecycle|Action|Checkup**
+     (ось: периодичность / ход / разовая health-проверка — канон [`features/nc/threads`](../../features/nc/threads/spec.md))
      (`groupKind`; default `action`). Исторически «вне горизонта»; на практике — progress-стеки
      non-incident (Refresh, auto/connect, …).
    - **Single** — атом без нити.
@@ -128,7 +129,7 @@ recovered / `incident_closed`; crash: unavailable → progress → recovering �
 
 ### Решение (направление)
 
-См. полное проектирование — [to-threads.md](to-threads.md).
+См. канон — [`features/nc/threads`](../../features/nc/threads/spec.md) (архив [to-threads.md](to-threads.md)).
 
 Кратко:
 
@@ -145,7 +146,7 @@ Entry extends Single { corr_uid }
 
 **Задел журнала инцидентов:** производная `notification_thread` + индекс `thread_kind`
 (`incident|group`; Single не пишется) — **когда реально заводим серверный журнал** (экран/API),
-не вместе с UI Thread. Критерий — [to-threads.md](to-threads.md) §6.5.
+не вместе с UI Thread. Критерий — [`features/nc/threads`](../../features/nc/threads/spec.md) §10.
 
 Внедрение — пункты **11.8–11.12** в [plan.md](plan.md); подтипы — 2026-08-05.
 

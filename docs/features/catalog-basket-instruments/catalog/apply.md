@@ -89,6 +89,9 @@ basket_member       (basket_id, instrument_id)              — снимок sta
 
 - Поле матча: **`short_name`** (MOEX `XXXX-M.YY`); пустой → `ticker`.
 - Glob: `*` `?` `[0-9]`…, ignore-case, OR по массиву `patterns`.
+- `sec_type` / `board_id` — опциональные фильтры правила (ключ инструмента `(ticker, board)`).
+- UI picker board: stub `FUT`/`OPTS`/`ROPD`/`TQBR` + «Любой» — не ISS; канон board —
+  [spec §3.2.1](spec.md).
 - `TickerGlob.Compile` один раз на правило (без перекомпиляции на каждый инструмент).
 - Preview: Available ∩ rules, без persist.
 - Materialize: ReplaceMembers для одного basket.
@@ -106,7 +109,8 @@ basket_member       (basket_id, instrument_id)              — снимок sta
 | `GET /instruments?connectionId=` | страница из Observed (без id — union; empty → пусто) |
 | Start/Stop / PATCH enabled / basket OK | `ObservedCatalogCoordinator.RebuildCacheAsync` |
 
-Startup: только RebuildCache Observed. Суточный TrySweep — на первом connect (см. life-cycle).
+Startup: только RebuildCache Observed. Суточный TrySweep — на первом connect; гейт суток
+в `ohs_runtime_state` (V033) — см. [life-cycle](../life-cycle/apply.md) §3.1.
 
 ---
 
@@ -174,7 +178,7 @@ OPT ATM ±N — expand FUT/серии / `load-options`; freshness окон; forc
 | Observed | `ObservedInstrumentSet.cs`, `ObservedCatalogCoordinator.cs`, `InstrumentRegistry` |
 | API | `OhsEndpoints.cs` — baskets, available, instruments |
 | Web | `BasketEditorModal.tsx`, `FilterChips.tsx`, `FilterSearch.tsx`, `ClearButton.tsx`, `OhsStore.ts`, `api.ts` |
-| Migration | `V032__instrument_basket.sql` |
+| Migration | `V032__instrument_basket.sql`; life-cycle gate — `V033__ohs_runtime_state.sql` |
 | Tests | `BasketStoreTests`, `BasketEvalServiceTests`, `ObservedCacheTests`, glob unit |
 
 ---

@@ -66,15 +66,17 @@
    наборы (members) и пересобрать список Observed.
 
 В центре уведомлений это **два независимых** Group-процесса (NC): corr «кэш» —
-`groupKind: action`; corr «актуальность» — `groupKind: lifecycle`. В UI ярлыки
-**Action** / **Lifecycle** (не слово «Group»). Канон нитей —
-[dev/phase11/to-threads.md](../dev/phase11/to-threads.md) §2.
+`groupKind: action`; corr «актуальность» — `groupKind: checkup`.
+В UI ярлыки **Action** / **Checkup** / **Lifecycle** (не слово «Group»).
+Ось: периодичность → Lifecycle; разовая health-проверка → Checkup
+(force, check-health, …) — [nc/threads](../features/nc/threads/spec.md).
 Подробности конвейера — [life-cycle](../features/catalog-basket-instruments/life-cycle/apply.md).
 
-Автоматическая проверка актуальности — на **первом успешном connect** к data-серверу
-в checkup-сутки (с **06:00 МСК**, не с полуночи: хвост сессии в 00:30 — ещё «вчера»).
-Не при старте Host. Архив + пересчёт наборов; после dump — сверка members.
-В NC — Group **Checkup**; Refresh — **Action** + **Lifecycle**.
+Суточная актуализация — на **первом успешном connect** к data-серверу
+в checkup-сутки (с **04:00 МСК**, не с полуночи: хвост сессии в 00:30 — ещё «вчера»).
+Не при старте Host. «Раз в сутки» держит только БД (`ohs_runtime_state`): рестарт Host
+в те же сутки Lifecycle не повторяет. Архив + пересчёт наборов; после dump —
+сверка members. В NC — Group **Lifecycle**; Refresh — **Action** + **Checkup**.
 
 Основной список записи показывает **Observed** (наборы ☑ + пишущиеся), не весь Online-dump.
 Сборка наборов — фильтр «Наборы» / модалка.

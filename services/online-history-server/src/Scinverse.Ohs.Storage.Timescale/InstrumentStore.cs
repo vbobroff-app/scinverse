@@ -51,14 +51,39 @@ public sealed class InstrumentStore(NpgsqlDataSource dataSource, TimeProvider ti
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<AvailableInstrument>(new CommandDefinition(
             """
-            SELECT instrument_id AS InstrumentId, ticker AS Ticker, board_id AS Board,
-                   sec_type AS SecType, short_name AS ShortName
-            FROM instrument
-            WHERE active = TRUE
-            ORDER BY ticker, board_id;
+            SELECT i.instrument_id AS InstrumentId, i.ticker AS Ticker, i.board_id AS Board,
+                   i.sec_type AS SecType, i.short_name AS ShortName, d.expiration AS Expiration
+            FROM instrument i
+            LEFT JOIN derivative d ON d.instrument_id = i.instrument_id
+            WHERE i.active = TRUE
+            ORDER BY i.ticker, i.board_id;
             """,
             cancellationToken: cancellationToken));
         return rows.ToList();
+    }
+
+    public async Task<IReadOnlyDictionary<long, string>> GetDisplayLabelsAsync(
+        IReadOnlyList<long> instrumentIds, CancellationToken cancellationToken)
+    {
+        if (instrumentIds.Count == 0)
+        {
+            return new Dictionary<long, string>();
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<(long InstrumentId, string Ticker, string? ShortName)>(
+            new CommandDefinition(
+                """
+                SELECT instrument_id AS InstrumentId, ticker AS Ticker, short_name AS ShortName
+                FROM instrument
+                WHERE instrument_id = ANY(@ids);
+                """,
+                new { ids = instrumentIds.Distinct().ToArray() },
+                cancellationToken: cancellationToken));
+
+        return rows.ToDictionary(
+            r => r.InstrumentId,
+            r => string.IsNullOrWhiteSpace(r.ShortName) ? r.Ticker : r.ShortName!);
     }
 
     public async Task<InstrumentCatalogPage> QueryAsync(InstrumentQuery query, CancellationToken cancellationToken)

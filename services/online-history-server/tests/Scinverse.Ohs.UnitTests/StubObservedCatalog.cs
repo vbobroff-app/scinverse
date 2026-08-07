@@ -36,6 +36,7 @@ internal static class StubObservedCatalog
                 NullLogger<BasketEvalService>.Instance),
             CreateCoordinator(registry),
             new CatalogRefreshNc(hub),
+            new MemoryRuntimeStateStore(),
             TimeProvider.System,
             NullLogger<InstrumentLifecycleService>.Instance);
     }

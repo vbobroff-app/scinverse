@@ -72,7 +72,8 @@
 | 2026-07-31 | **I12 (7j.22) клиент:** serialize ribbon refresh (`OhsStore` debounce+switchMap+concat); health-ok закрывает все недавние orphan `ohs.unhandled`. `Max Pool Size=100` не трогали | `6871a57` · `327c8fe` · [../phase7j/issue.md](../phase7j/issue.md) I12 |
 | 2026-08-02 | **Soft-delete journal (11.13g):** V030 `deleted_at`/`deleted_by`; POST delete/restore; WS `incidentVisibilityChanged`; NC `softDeletedCorrs$` + Выбор «Удалённые»; journal UI + checkbox persist; badge deleted; NC backlog default 200 | [incident-soft-delete.md](incident-soft-delete.md) · `738b384`…`cc634c2` |
 | 2026-08-02 | Docs: спека soft-delete + актуализация phase11 + handoff [`promt.md`](../../promt.md) §8 | docs |
-| 2026-08-05 | Подтипы Thread: Incident→Crash\|Break (`data.kind`→`incidentKind`); Group→Lifecycle\|Action\|Checkup (`groupKind`, default action); UI Group=ярлык подтипа; канон [to-threads.md](to-threads.md) | `eb8f2cc` · NC vitest + Host unit |
+| 2026-08-05 | Подтипы Thread: Incident→Crash\|Break; Group→Lifecycle\|Action\|Checkup; UI ярлык подтипа | `eb8f2cc` |
+| 2026-08-07 | Ось Group: Lifecycle=период; Checkup=разовая health (force, check-health, …). Канон вынесен в [`features/nc/threads`](../../features/nc/threads/spec.md) | `CatalogRefreshNc` |
 
 ## Итог
 

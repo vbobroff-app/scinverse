@@ -89,8 +89,37 @@ system baskets → задаёт продукт, без модалки «созд
 - **Регистр:** case-insensitive; система нормализует.
 - **Паттерны:** массив на basket, напр. `[RTS-*.2[0-9], SBRF-*.*, Si-*.*]` — в UI список,
   под капотом **OR**.
-- **`sec_type` / board:** отдельный picker рядом с glob (не пихать в паттерн).
+- **`sec_type` / board:** отдельные picker'ы рядом с glob (не пихать в паттерн) — см. §3.2.1.
 - Матч: Available ∩ (glob OR-массив по `short_name`) ∩ picker → превью → OK.
+
+### 3.2.1 Board (режим торгов)
+
+**Board** — не «доска», а **режим торгов** на бирже: набор правил (расписание, способ торгов,
+расчёты). Один тикер может торговаться на нескольких бордах; в модели инструмент
+идентифицируется парой **`(ticker, board)`**.
+
+В правиле static (`basket_rule.board_id`) — опциональный фильтр Available:
+
+- задан → матч только инструменты этого борда;
+- пусто / «Любой board» → без фильтра по борду.
+
+| Код | Обычно значит |
+|-----|----------------|
+| **TQBR** | Фондовый рынок, основной режим T+ акции / ДР |
+| **FUT** | Фьючерсы (срочный рынок / FORTS-контур в брокерских API) |
+| **OPTS** | Опционы |
+| **ROPD** | Отдельный режим (часто РЕПО / смежный контур в справочниках брокера; точное имя — в ISS/ASTS boards) |
+
+**Стыковка с MOEX / ISS**
+
+Иерархия справочника биржи: `engine → market → board → securities`.  
+Полный список бордов рынка можно брать из ISS (`…/engines/{engine}/markets/{market}/boards`);
+в Host уже есть `GetBoardsAsync` / API бордов (exchange catalog).
+
+**As-is UI модалки:** picker board — **короткий stub** (`FUT` / `OPTS` / `ROPD` / `TQBR` +
+«Любой»), не живой список из ISS. Подключение к exchange-catalog API — позже при нужде
+(не блокирует канон фильтра `board_id`).
+
 ### 3.3 Правила (dynamic) — OPT
 
 1. Страйки уже в Available/БД (dump / `get_option_families` → strikes → `get_options`).
@@ -251,7 +280,10 @@ OK сохраняет правила; галка набора на основн�
 
 - Refresh = invalidate dump + сброс OPT + **force** sweep;
 - sweep = archive → re-eval static → rebuild Observed (dynamic — после v1);
-- NC: отдельные corr Action / Lifecycle; emit шагов baskets — TBD (`nc-integration`).
+- гейт «раз в checkup-сутки» — только БД (`ohs_runtime_state`), не память Host
+  ([life-cycle §2.1](../life-cycle/spec.md));
+- NC: сутки → **Lifecycle**; Refresh → **Action** + **Checkup**
+  (ось: периодичность / разовая health-проверка — [`nc/threads`](../../nc/threads/spec.md)).
 
 ---
 

@@ -35,6 +35,7 @@ builder.Services.AddSingleton(_ => new NpgsqlDataSourceBuilder(connectionString)
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IInstrumentStore, InstrumentStore>();
 builder.Services.AddSingleton<IBasketStore, BasketStore>();
+builder.Services.AddSingleton<IRuntimeStateStore, RuntimeStateStore>();
 builder.Services.AddSingleton<ISourceStore, SourceStore>();
 builder.Services.AddSingleton<ICoverageStore, CoverageStore>();
 builder.Services.AddSingleton<ITradeActivityStore, TradeActivityStore>();

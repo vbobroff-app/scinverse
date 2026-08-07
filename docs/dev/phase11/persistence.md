@@ -128,7 +128,7 @@ CREATE INDEX IF NOT EXISTS ix_notification_sev_ts    ON notification (severity, 
 **Почему не меняем таблицы в DB (Thread upgrade v1):** колонка `data` покрывает
 `threadKindHint`, `kind` (incidentKind), `groupKind`, `closeOutcome`. Thread / Incident /
 Group (+ подтипы) — проекция. Производную `notification_thread` добавляем **только когда
-заводим серверный журнал инцидентов** — критерий [to-threads.md](to-threads.md) §6.5.
+заводим серверный журнал инцидентов** — критерий [`features/nc/threads`](../../features/nc/threads/spec.md) §10.
 
 ---
 

@@ -18,12 +18,12 @@ public sealed class InstrumentLifecycleTests
     }
 
     [Theory]
-    // checkup-сутки с 06:00 МСК: 00:30 → вчера; 05:59 → вчера; 06:00 → сегодня.
+    // checkup-сутки с 04:00 МСК: 03:59 → вчера; 04:00 → сегодня.
     [InlineData(2026, 8, 8, 0, 30, 2026, 8, 7)]
-    [InlineData(2026, 8, 8, 5, 59, 2026, 8, 7)]
-    [InlineData(2026, 8, 8, 6, 0, 2026, 8, 8)]
+    [InlineData(2026, 8, 8, 3, 59, 2026, 8, 7)]
+    [InlineData(2026, 8, 8, 4, 0, 2026, 8, 8)]
     [InlineData(2026, 8, 8, 12, 0, 2026, 8, 8)]
-    public void CheckupDayMoscow_CutoverAtSix(
+    public void CheckupDayMoscow_CutoverAtFour(
         int y, int m, int d, int hh, int mm,
         int ey, int em, int ed)
     {

@@ -160,7 +160,8 @@ v1 **закладываем явный `connectionId`** на instruments / baske
 
 - Refresh / суточный sweep: archive + re-eval + rebuild — **DONE**
 - Post-dump basket sync (idle после Available) + NC checkup / lifecycle baskets — **DONE**
-  → [`../life-cycle/`](../life-cycle/apply.md)
+- Durable гейт checkup/post-dump в `ohs_runtime_state` (V033) — **DONE**
+  → [`../life-cycle/`](../life-cycle/apply.md) §3.1 / [spec §2.1](../life-cycle/spec.md)
 - **Хвост (мягкий):** ручной прогон acceptance §6; dynamic / richer NC — later
 
 **Done:** конвейер v1 + суточное инспектирование baskets.

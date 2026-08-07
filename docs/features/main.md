@@ -20,4 +20,5 @@ Stages 2–4 остаются gate'ами в [`../plan.md`](../plan.md).
 
 | Feature | Статус | Спека |
 | ------- | ------ | ----- |
-| catalog-basket-instruments | IN PROGRESS (C0–C3) | [main](catalog-basket-instruments/main.md) · [catalog](catalog-basket-instruments/catalog/spec.md) · [life-cycle](catalog-basket-instruments/life-cycle/spec.md) · [schedule](catalog-basket-instruments/schedule/spec.md) |
+| nc | IN PROGRESS (threads CANON) | [main](nc/main.md) · [threads](nc/threads/spec.md) |
+| catalog-basket-instruments | IN PROGRESS (C0–C3 + life-cycle DONE; schedule DRAFT) | [main](catalog-basket-instruments/main.md) · [catalog](catalog-basket-instruments/catalog/spec.md) · [life-cycle](catalog-basket-instruments/life-cycle/spec.md) · [schedule](catalog-basket-instruments/schedule/spec.md) |

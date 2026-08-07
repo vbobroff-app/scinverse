@@ -17,7 +17,7 @@
 |--------|------|-------------------|
 | **`incident` (OHS journal)** | правда эпизода break/crash для ганта / API | нет |
 | **`link_liveness` / capture** | геометрия дыр на Connection / recording | нет |
-| **NC (атомы V025 + Thread UI)** | операторская лента, тот же fan-out; Thread → Incident (Crash\|Break) / Group (Lifecycle\|Action\|Checkup) | зеркало, не владелец · [phase11/to-threads.md](../dev/phase11/to-threads.md) |
+| **NC (атомы V025 + Thread UI)** | операторская лента, тот же fan-out; Thread → Incident (Crash\|Break) / Group (Lifecycle\|Action\|Checkup) | зеркало, не владелец · [`features/nc/threads`](../features/nc/threads/spec.md) |
 | **мультиклиент** | crash via `/recovery/outage`, hold/recovered | клиент — наблюдатель |
 
 OHS пишет journal + NC **на одном уровне** (IncidentFanOut); NC можно вынести (gate 11→12) без смены канона дыр.

@@ -11,7 +11,8 @@ public sealed class InstrumentLifecycleBasketSyncTests
     private static InstrumentLifecycleService CreateSut(
         out NotificationHub hub,
         out FakeInstrumentStore store,
-        out TrackingBasketStore baskets)
+        out TrackingBasketStore baskets,
+        IRuntimeStateStore? runtime = null)
     {
         hub = new NotificationHub(new WebSocketBroadcaster());
         store = new FakeInstrumentStore();
@@ -36,6 +37,7 @@ public sealed class InstrumentLifecycleBasketSyncTests
             eval,
             StubObservedCatalog.CreateCoordinator(registry),
             new CatalogRefreshNc(hub),
+            runtime ?? new MemoryRuntimeStateStore(),
             TimeProvider.System,
             NullLogger<InstrumentLifecycleService>.Instance);
     }
@@ -47,7 +49,7 @@ public sealed class InstrumentLifecycleBasketSyncTests
 
         (await sut.TrySyncBasketsAfterDumpAsync(force: false, CancellationToken.None)).Should().BeTrue();
         baskets.ReEvalCalls.Should().Be(1);
-        // Без предшествующего sweep — отдельная baskets-нить.
+        // Без предшествующего sweep — отдельная baskets-нить (Checkup: разовая сверка).
         hub.List().Should().Contain(e => e.Code == "instruments.catalog.baskets.sync_done");
 
         (await sut.TrySyncBasketsAfterDumpAsync(force: false, CancellationToken.None)).Should().BeFalse();
@@ -89,6 +91,7 @@ public sealed class InstrumentLifecycleBasketSyncTests
                 NullLogger<BasketEvalService>.Instance),
             StubObservedCatalog.CreateCoordinator(registry),
             new CatalogRefreshNc(hub),
+            new MemoryRuntimeStateStore(),
             TimeProvider.System,
             NullLogger<InstrumentLifecycleService>.Instance);
 
@@ -97,12 +100,27 @@ public sealed class InstrumentLifecycleBasketSyncTests
         result.Ran.Should().BeTrue();
         result.ArchivedInstrumentIds.Should().Equal(1);
         baskets.ReEvalCalls.Should().Be(1);
-        hub.List().Should().Contain(e => e.Code == "instruments.catalog.checkup.wait_dump");
-        hub.List().Should().Contain(e => e.Code == "instruments.catalog.checkup.baskets_expired");
-        hub.List().Should().NotContain(e => e.Code == "instruments.catalog.checkup.done");
+        hub.List().Should().Contain(e => e.Code == "instruments.catalog.lifecycle.wait_dump");
+        hub.List().Should().Contain(e => e.Code == "instruments.catalog.lifecycle.baskets_expired");
+        hub.List().Should().NotContain(e => e.Code == "instruments.catalog.lifecycle.done");
 
         (await sut.TrySyncBasketsAfterDumpAsync(force: true, CancellationToken.None)).Should().BeTrue();
-        hub.List().Should().Contain(e => e.Code == "instruments.catalog.checkup.done");
+        hub.List().Should().Contain(e => e.Code == "instruments.catalog.lifecycle.done");
+    }
+
+    [Fact]
+    public async Task TrySweep_skips_after_restart_when_checkup_day_persisted()
+    {
+        var runtime = new MemoryRuntimeStateStore();
+        var first = CreateSut(out var hub1, out _, out _, runtime);
+
+        (await first.TrySweepAsync(force: false, CancellationToken.None)).Ran.Should().BeTrue();
+        hub1.List().Should().Contain(e => e.Code == "instruments.catalog.lifecycle.wait_dump");
+
+        // Новый экземпляр Host — in-memory гейт пуст, но checkpoint в store уже есть.
+        var second = CreateSut(out var hub2, out _, out _, runtime);
+        (await second.TrySweepAsync(force: false, CancellationToken.None)).Ran.Should().BeFalse();
+        hub2.List().Should().BeEmpty();
     }
 
     internal sealed class TrackingBasketStore : IBasketStore

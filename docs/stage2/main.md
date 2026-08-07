@@ -9,6 +9,6 @@ Gate перед Stage 3 (WebGL): Keycloak + вынос Admin Front / NC.
 | 10 | Keycloak, `user_settings`, роли | [phase10](../dev/phase10/plan.md) |
 | 11 | NC продукт + split OHS / Admin Front / NC | [phase11](../dev/phase11/plan.md) |
 
-Канон Thread subtypes (уже в монолите): [to-threads](../dev/phase11/to-threads.md).  
+Канон Thread subtypes: [`features/nc/threads`](../features/nc/threads/spec.md).  
 C4: [`../architecture/c4/arch.md`](../architecture/c4/arch.md).  
 План: [`../plan.md`](../plan.md).

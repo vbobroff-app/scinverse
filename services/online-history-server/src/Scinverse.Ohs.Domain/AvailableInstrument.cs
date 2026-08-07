@@ -9,4 +9,5 @@ public sealed record AvailableInstrument(
     string Ticker,
     string Board,
     string? SecType,
-    string? ShortName = null);
+    string? ShortName = null,
+    DateOnly? Expiration = null);

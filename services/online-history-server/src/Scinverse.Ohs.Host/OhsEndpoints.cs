@@ -308,7 +308,8 @@ public static class OhsEndpoints
                 ct).ConfigureAwait(false);
             return Results.Ok(matched
                 .Select(a => new AvailableInstrumentDto(
-                    a.InstrumentId, a.Ticker, a.Board, a.SecType, a.ShortName))
+                    a.InstrumentId, a.Ticker, a.Board, a.SecType, a.ShortName,
+                    Name: null, Expiration: a.Expiration))
                 .ToList());
         });
         api.MapGet("/sources", async (ISourceStore store, CancellationToken ct) =>

@@ -7,10 +7,10 @@ namespace Scinverse.Ohs.Domain;
 public static class InstrumentLifecycle
 {
     /// <summary>
-    /// Interim-граница checkup-суток (МСК): окно связи типично 06:00→01:00 через полночь.
+    /// Interim-граница checkup-суток (МСК): ≥04:00 — «утро» (3 ночи ещё вчера, 4 — уже новый день).
     /// До появления единого schedule — хардкод; потом = OpenTime окна.
     /// </summary>
-    public static readonly TimeOnly CheckupDayCutoverMoscow = new(6, 0);
+    public static readonly TimeOnly CheckupDayCutoverMoscow = new(4, 0);
 
     /// <summary>
     /// Контракт в Online-каталоге: нет expiration (акции и т.п.) или expiration ≥ сегодня (МСК).
@@ -44,4 +44,11 @@ public static class InstrumentLifecycle
 /// <summary>Итог суточного/force lifecycle sweep.</summary>
 /// <param name="Ran">true — sweep выполнен; false — пропущен (уже был сегодня).</param>
 /// <param name="ArchivedInstrumentIds">Инструменты, только что переведённые в архив.</param>
-public sealed record InstrumentLifecycleSweepResult(bool Ran, IReadOnlyList<long> ArchivedInstrumentIds);
+/// <param name="RemovedFromBaskets">Убраны из static members при re-eval сразу после archive.</param>
+public sealed record InstrumentLifecycleSweepResult(
+    bool Ran,
+    IReadOnlyList<long> ArchivedInstrumentIds,
+    IReadOnlyList<BasketMemberChange>? RemovedFromBaskets = null)
+{
+    public IReadOnlyList<BasketMemberChange> Removals => RemovedFromBaskets ?? [];
+}

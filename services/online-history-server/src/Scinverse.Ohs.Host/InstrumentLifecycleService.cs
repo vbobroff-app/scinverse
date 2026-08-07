@@ -6,6 +6,7 @@ namespace Scinverse.Ohs.Host;
 /// <summary>
 /// Lifecycle Online-каталога: суточный archive + re-eval static baskets;
 /// post-dump sync members после idle persist Available.
+/// Гейт checkup-суток durable в <see cref="IRuntimeStateStore"/> — переживает рестарт Host.
 /// </summary>
 public sealed class InstrumentLifecycleService(
     IInstrumentStore store,
@@ -15,9 +16,13 @@ public sealed class InstrumentLifecycleService(
     BasketEvalService basketEval,
     ObservedCatalogCoordinator observedCatalog,
     CatalogRefreshNc catalogRefreshNc,
+    IRuntimeStateStore runtimeState,
     TimeProvider time,
     ILogger<InstrumentLifecycleService> logger)
 {
+    public const string StateKeyCheckupDay = "catalog.checkup.last_day";
+    public const string StateKeyPostDumpDay = "catalog.baskets.post_dump.last_day";
+
     private static readonly TimeSpan AvailableIdle = TimeSpan.FromSeconds(3);
 
     private readonly object _gate = new();
@@ -30,7 +35,7 @@ public sealed class InstrumentLifecycleService(
     /// Раз в checkup-сутки на первом успешном connect (или <paramref name="force"/> Refresh):
     /// archive expired → evict → Auto off / Stop → re-eval static → rebuild Observed;
     /// помечает dump к обновлению и ждёт post-dump sync после idle Available.
-    /// Checkup-сутки: с 06:00 МСК (не календарная полночь) — см. <see cref="InstrumentLifecycle.CheckupDayMoscow"/>.
+    /// Checkup-сутки: с 04:00 МСК — см. <see cref="InstrumentLifecycle.CheckupDayMoscow"/>.
     /// Старт Host sweep не вызывает; якорь = связь с data-сервером.
     /// </summary>
     public async Task<InstrumentLifecycleSweepResult> TrySweepAsync(
@@ -38,22 +43,42 @@ public sealed class InstrumentLifecycleService(
     {
         var checkupDay = InstrumentLifecycle.CheckupDayMoscow(time);
         var calendarToday = InstrumentLifecycle.TodayMoscow(time);
-        lock (_gate)
+
+        if (!force)
         {
-            if (!force && _lastSweepDay == checkupDay)
+            await EnsureDayLoadedAsync(
+                () => _lastSweepDay,
+                v => _lastSweepDay = v,
+                StateKeyCheckupDay,
+                cancellationToken).ConfigureAwait(false);
+
+            lock (_gate)
             {
-                return new InstrumentLifecycleSweepResult(false, []);
+                if (_lastSweepDay == checkupDay)
+                {
+                    return new InstrumentLifecycleSweepResult(false, []);
+                }
+
+                _lastSweepDay = checkupDay;
+                _forceNextPostDumpSync = true;
             }
+
+            // Durable claim — иначе после рестарта Host Auto-connect снова откроет суточный Lifecycle.
+            await PersistDayAsync(StateKeyCheckupDay, checkupDay, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            lock (_gate)
+            {
+                _lastSweepDay = checkupDay;
+                _forceNextPostDumpSync = true;
+            }
+
+            await PersistDayAsync(StateKeyCheckupDay, checkupDay, cancellationToken).ConfigureAwait(false);
         }
 
         // Archive по календарной дате экспирации; гейт частоты — checkup-сутки.
         var archived = await store.ArchiveExpiredAsync(calendarToday, cancellationToken).ConfigureAwait(false);
-        lock (_gate)
-        {
-            _lastSweepDay = checkupDay;
-            // Refresh / суточный sweep: после dump Available ещё раз сверим baskets.
-            _forceNextPostDumpSync = force || _forceNextPostDumpSync;
-        }
 
         if (archived.Count > 0)
         {
@@ -85,16 +110,16 @@ public sealed class InstrumentLifecycleService(
 
         // Немедленный re-eval: снять expired из members (Available уже без них).
         // Новые тикеры из сегодняшнего dump — в TrySyncBasketsAfterDumpAsync после idle.
-        await basketEval.ReEvalAllConnectionsAsync(cancellationToken).ConfigureAwait(false);
+        var reEval = await basketEval.ReEvalAllConnectionsAsync(cancellationToken).ConfigureAwait(false);
         await observedCatalog.RebuildCacheAsync(cancellationToken).ConfigureAwait(false);
 
         // Разрешить persist hit-ов на следующем dump (свой суточный гейт в registry).
         registry.Invalidate(force: false);
 
-        var result = new InstrumentLifecycleSweepResult(true, archived);
+        var result = new InstrumentLifecycleSweepResult(true, archived, reEval.Removed);
         if (!force)
         {
-            catalogRefreshNc.PublishDailyCheckup(result);
+            catalogRefreshNc.PublishDailyLifecycle(result);
         }
 
         return result;
@@ -126,26 +151,101 @@ public sealed class InstrumentLifecycleService(
     public async Task<bool> TrySyncBasketsAfterDumpAsync(bool force, CancellationToken cancellationToken)
     {
         var checkupDay = InstrumentLifecycle.CheckupDayMoscow(time);
+
+        bool claimForce;
         lock (_gate)
         {
-            force = force || _forceNextPostDumpSync;
-            if (!force && _lastPostDumpBasketDay == checkupDay)
-            {
-                return false;
-            }
-
-            _lastPostDumpBasketDay = checkupDay;
-            _forceNextPostDumpSync = false;
+            claimForce = force || _forceNextPostDumpSync;
         }
 
-        await basketEval.ReEvalAllConnectionsAsync(cancellationToken).ConfigureAwait(false);
+        if (!claimForce)
+        {
+            await EnsureDayLoadedAsync(
+                () => _lastPostDumpBasketDay,
+                v => _lastPostDumpBasketDay = v,
+                StateKeyPostDumpDay,
+                cancellationToken).ConfigureAwait(false);
+
+            lock (_gate)
+            {
+                if (_lastPostDumpBasketDay == checkupDay)
+                {
+                    return false;
+                }
+
+                _lastPostDumpBasketDay = checkupDay;
+                _forceNextPostDumpSync = false;
+            }
+
+            await PersistDayAsync(StateKeyPostDumpDay, checkupDay, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            lock (_gate)
+            {
+                _lastPostDumpBasketDay = checkupDay;
+                _forceNextPostDumpSync = false;
+            }
+
+            await PersistDayAsync(StateKeyPostDumpDay, checkupDay, cancellationToken).ConfigureAwait(false);
+        }
+
+        var reEval = await basketEval.ReEvalAllConnectionsAsync(cancellationToken).ConfigureAwait(false);
         await observedCatalog.RebuildCacheAsync(cancellationToken).ConfigureAwait(false);
 
-        catalogRefreshNc.PublishBasketSyncAfterDump();
+        catalogRefreshNc.PublishBasketSyncAfterDump(reEval.Added);
         logger.LogInformation(
-            "Lifecycle: post-dump basket sync (force={Force}, checkupDay={CheckupDay})",
-            force, checkupDay);
+            "Lifecycle: post-dump basket sync (force={Force}, checkupDay={CheckupDay}, added={Added})",
+            claimForce, checkupDay, reEval.Added.Count);
         return true;
+    }
+
+    private async Task EnsureDayLoadedAsync(
+        Func<DateOnly?> getter,
+        Action<DateOnly> setter,
+        string stateKey,
+        CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            if (getter() is not null)
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            var raw = await runtimeState.GetAsync(stateKey, cancellationToken).ConfigureAwait(false);
+            if (DateOnly.TryParse(raw, out var day))
+            {
+                lock (_gate)
+                {
+                    if (getter() is null)
+                    {
+                        setter(day);
+                    }
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Lifecycle: не удалось прочитать runtime state {Key}", stateKey);
+        }
+    }
+
+    private async Task PersistDayAsync(string stateKey, DateOnly day, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await runtimeState
+                .SetAsync(stateKey, day.ToString("yyyy-MM-dd"), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Lifecycle: не удалось записать runtime state {Key}={Day}", stateKey, day);
+        }
     }
 
     private async Task DebouncePostDumpSyncAsync(CancellationTokenSource cts)

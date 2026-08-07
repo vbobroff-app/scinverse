@@ -82,7 +82,7 @@ recording_schedule  → RecordingSupervisor  → RecordingManager / coverage
 **Инциденты связи/crash + I11 close-break — код готов, живая приёмка.** **I12 клиент — DONE.** Дальше:
 
 1. **7j.15 / 7j.16** — market profile / `date`-авторинг ([todo.md](todo.md)).
-2. **UI NC Thread** — **phase 11 DONE** — [../phase11/to-threads.md](../phase11/to-threads.md).
+2. **UI NC Thread** — **DONE** — канон [`features/nc/threads`](../../features/nc/threads/spec.md).
 3. Смежно: **H1/H2** (recording-ribbon, 7h); **7i** Auto записи; **не** WebGL до gate 11→12.
 4. **I12 шаг 3** — Host pool только если снова упрёмся в exhausted приёмкой (`Max Pool Size` пока **100**).
 

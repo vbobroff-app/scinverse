@@ -1,6 +1,6 @@
 # NC — маркеры ★ / ⊘ и фильтр «Выбор»
 
-Связано: [dock-settings.md](dock-settings.md) (Группировать), [to-threads.md](to-threads.md),
+Связано: [dock-settings.md](dock-settings.md) (Группировать), [`features/nc/threads`](../../features/nc/threads/spec.md),
 **soft-delete** [incident-soft-delete.md](incident-soft-delete.md).
 Код: `packages/notification-center` — `ncMarks.ts`, `filterItems.ts`, `NotificationRow` /
 `ThreadBlock`, фильтр «Выбор» в `DockFilters`.

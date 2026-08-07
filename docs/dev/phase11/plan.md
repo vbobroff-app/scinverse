@@ -15,7 +15,7 @@ OHS (журнал — **[phase 8](../phase8/plan.md)** / Stage 1).
 
 | Документ | Содержание |
 | -------- | ---------- |
-| [to-threads.md](to-threads.md) | Thread → Incident (Crash\|Break) / Group (Lifecycle\|Action\|Checkup) |
+| [to-threads.md](to-threads.md) | архив → канон [`features/nc/threads`](../../features/nc/threads/spec.md) |
 | [persistence.md](persistence.md) | V025 atoms `notification` |
 | [dock-settings.md](dock-settings.md) | Опции дока |
 | [nc-marks.md](nc-marks.md) | Маркеры ★/⊘ |

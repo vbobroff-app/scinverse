@@ -3,31 +3,34 @@ using Scinverse.Ohs.Domain;
 namespace Scinverse.Ohs.Host;
 
 /// <summary>
-/// NC каталога: Refresh (Action + Lifecycle) и суточный Checkup.
+/// NC каталога: Refresh (Action + Checkup) и суточный Lifecycle.
+/// Ось groupKind — периодичность vs разовая health-проверка (не «была ли мутация»).
+/// Checkup: force, check-health, ad-hoc probe и т.п. — однократный осмотр.
 /// Post-dump sync продолжается в той же lifecycle/checkup-нити, что и sweep.
 /// </summary>
 public sealed class CatalogRefreshNc(INotificationPublisher notifications)
 {
     public const string Module = "ohs.instruments";
+    private const int DetailCap = 80;
 
     private readonly object _gate = new();
     private string? _pendingCacheCorr;
-    /// <summary>Нить, ждущая post-dump sync наборов (lifecycle Refresh или checkup).</summary>
+    /// <summary>Нить, ждущая post-dump sync наборов (суточный Lifecycle или Refresh Checkup).</summary>
     private string? _pendingPostDumpCorr;
     private string? _pendingPostDumpGroupKind;
 
     /// <summary>
-    /// Force Refresh: два corr — кэш (Action) и актуальность (Lifecycle).
-    /// Lifecycle остаётся underway до post-dump sync наборов.
+    /// Force Refresh: два corr — кэш (Action) и актуальность (Checkup: force / health-check).
+    /// Checkup остаётся underway до post-dump sync наборов.
     /// </summary>
-    public (string CacheCorr, string LifecycleCorr) PublishForceRefresh(
+    public (string CacheCorr, string CheckupCorr) PublishForceRefresh(
         bool invalidated,
         InstrumentLifecycleSweepResult sweep,
         bool sessionLive = false)
     {
         var runId = Guid.NewGuid().ToString("N")[..12];
         var cacheCorr = $"instruments.catalog.cache:{runId}";
-        var lifecycleCorr = $"instruments.catalog.lifecycle:{runId}";
+        var checkupCorr = $"instruments.catalog.checkup:{runId}";
 
         lock (_gate)
         {
@@ -44,56 +47,59 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             }
 
             _pendingCacheCorr = cacheCorr;
-            // Новый Refresh: post-dump пойдёт в эту lifecycle-нить.
             AbandonPendingPostDumpLocked("обновление справочника перезапущено");
             if (sweep.Ran)
             {
-                _pendingPostDumpCorr = lifecycleCorr;
-                _pendingPostDumpGroupKind = NotificationThreadData.GroupKindLifecycle;
+                _pendingPostDumpCorr = checkupCorr;
+                _pendingPostDumpGroupKind = NotificationThreadData.GroupKindCheckup;
             }
         }
 
         PublishCacheSteps(cacheCorr, invalidated, sessionLive);
         PublishSweepSteps(
-            lifecycleCorr,
+            checkupCorr,
             sweep,
-            groupKind: NotificationThreadData.GroupKindLifecycle,
+            groupKind: NotificationThreadData.GroupKindCheckup,
             sourceTypeStart: "user",
-            title: "Актуальность каталога");
-        return (cacheCorr, lifecycleCorr);
+            title: "Проверка актуальности");
+        return (cacheCorr, checkupCorr);
     }
 
-    /// <summary>Суточный авто-sweep на первом connect дня: Checkup; underway до post-dump sync.</summary>
-    public string PublishDailyCheckup(InstrumentLifecycleSweepResult sweep)
+    /// <summary>
+    /// Суточный авто-sweep на первом connect checkup-суток: Lifecycle (периодический процесс жизни).
+    /// Underway до post-dump sync.
+    /// </summary>
+    public string PublishDailyLifecycle(InstrumentLifecycleSweepResult sweep)
     {
         var runId = Guid.NewGuid().ToString("N")[..12];
-        var corr = $"instruments.catalog.checkup:{runId}";
+        var corr = $"instruments.catalog.lifecycle:{runId}";
 
         lock (_gate)
         {
-            AbandonPendingPostDumpLocked("начат новый суточный осмотр");
+            AbandonPendingPostDumpLocked("начата новая суточная актуализация");
             if (sweep.Ran)
             {
                 _pendingPostDumpCorr = corr;
-                _pendingPostDumpGroupKind = NotificationThreadData.GroupKindCheckup;
+                _pendingPostDumpGroupKind = NotificationThreadData.GroupKindLifecycle;
             }
         }
 
         PublishSweepSteps(
             corr,
             sweep,
-            groupKind: NotificationThreadData.GroupKindCheckup,
+            groupKind: NotificationThreadData.GroupKindLifecycle,
             sourceTypeStart: "system",
-            title: "Суточный осмотр каталога");
+            title: "Суточная актуализация каталога");
         return corr;
     }
 
     /// <summary>
     /// После dump/Available: дописать новые тикеры в наборы.
-    /// Продолжает pending checkup/lifecycle; иначе отдельная короткая checkup-нить.
+    /// Продолжает pending lifecycle/checkup; иначе отдельная короткая checkup-нить (разовая сверка).
     /// </summary>
-    public string PublishBasketSyncAfterDump()
+    public string PublishBasketSyncAfterDump(IReadOnlyList<BasketMemberChange>? added = null)
     {
+        added ??= [];
         string corr;
         string groupKind;
         lock (_gate)
@@ -127,16 +133,18 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
                 groupKind: groupKind);
         }
 
+        var n = added.Count;
         Publish(
             corr,
             isContinuation
                 ? $"{CorrPrefix(corr)}.baskets_new"
                 : "instruments.catalog.baskets.sync_members",
-            "Наборы: добавлены инструменты по правилам (новые из справочника)",
-            severity: "info",
+            $"Наборы: добавлено ({n}) инструментов по правилам (новые из справочника)",
+            severity: n > 0 ? "ok" : "info",
             sourceType: "system",
             status: "underway",
-            groupKind: groupKind);
+            groupKind: groupKind,
+            data: MemberChangesData(added));
 
         Publish(
             corr,
@@ -258,27 +266,30 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             return;
         }
 
-        var n = sweep.ArchivedInstrumentIds.Count;
+        var archived = sweep.ArchivedInstrumentIds.Count;
         Publish(
             corr,
             $"{prefix}.archive",
-            n > 0
-                ? $"{title}: в архив {n} просроченн(ых) инструмент(ов)"
+            archived > 0
+                ? $"{title}: в архив {archived} просроченн(ых) инструмент(ов)"
                 : $"{title}: просроченных нет",
-            severity: n > 0 ? "warning" : "ok",
+            severity: archived > 0 ? "warning" : "ok",
             sourceType: "system",
             status: "underway",
             groupKind: groupKind,
-            data: new { archivedCount = n, archivedInstrumentIds = sweep.ArchivedInstrumentIds });
+            data: new { archivedCount = archived, archivedInstrumentIds = sweep.ArchivedInstrumentIds });
 
+        var removed = sweep.Removals;
+        var removedN = removed.Count;
         Publish(
             corr,
             $"{prefix}.baskets_expired",
-            $"{title}: из наборов убраны просроченные",
-            severity: "info",
+            $"{title}: из наборов убрано ({removedN}) просроченных",
+            severity: removedN > 0 ? "warning" : "info",
             sourceType: "system",
             status: "underway",
-            groupKind: groupKind);
+            groupKind: groupKind,
+            data: MemberChangesData(removed));
 
         Publish(
             corr,
@@ -299,6 +310,33 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
             groupKind: groupKind);
     }
 
+    private static object MemberChangesData(IReadOnlyList<BasketMemberChange> changes)
+    {
+        var n = changes.Count;
+        if (n == 0)
+        {
+            return new { count = 0 };
+        }
+
+        var items = changes
+            .Take(DetailCap)
+            .Select(c => new
+            {
+                basket = c.BasketName,
+                basketId = c.BasketId,
+                label = c.Label,
+                instrumentId = c.InstrumentId,
+            })
+            .ToList();
+
+        return new
+        {
+            count = n,
+            truncated = n > DetailCap,
+            items,
+        };
+    }
+
     private void AbandonPendingPostDumpLocked(string reason)
     {
         if (_pendingPostDumpCorr is not { } corr || _pendingPostDumpGroupKind is not { } kind)
@@ -311,7 +349,7 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
         Publish(
             corr,
             $"{CorrPrefix(corr)}.superseded",
-            $"Осмотр прерван: {reason}",
+            $"Актуализация прервана: {reason}",
             severity: "warning",
             sourceType: "system",
             status: "resolved",
@@ -335,8 +373,8 @@ public sealed class CatalogRefreshNc(INotificationPublisher notifications)
 
     private static string DoneMessage(string groupKind) =>
         string.Equals(groupKind, NotificationThreadData.GroupKindLifecycle, StringComparison.Ordinal)
-            ? "Актуальность каталога: готово (архив + наборы + новые тикеры)"
-            : "Суточный осмотр каталога: готово (архив + наборы + новые тикеры)";
+            ? "Суточная актуализация каталога: готово (архив + наборы + новые тикеры)"
+            : "Проверка актуальности: готово (архив + наборы + новые тикеры)";
 
     private void Publish(
         string correlationId,

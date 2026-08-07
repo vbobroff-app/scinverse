@@ -78,36 +78,79 @@ public sealed class BasketEvalService(
         return ids.Count;
     }
 
-    /// <summary>Re-eval всех static baskets connection (после archive / Refresh / OK).</summary>
-    public async Task ReEvalConnectionAsync(long connectionId, CancellationToken cancellationToken)
+    /// <summary>Re-eval всех static baskets connection; возвращает дельту members.</summary>
+    public async Task<BasketEvalDelta> ReEvalConnectionAsync(
+        long connectionId, CancellationToken cancellationToken)
     {
         await baskets.EnsureSystemBasketsAsync(connectionId, cancellationToken).ConfigureAwait(false);
         var list = await baskets.ListAsync(connectionId, cancellationToken).ConfigureAwait(false);
         var available = await instruments.ListAvailableAsync(cancellationToken).ConfigureAwait(false);
+        var availableById = available.ToDictionary(a => a.InstrumentId);
 
         var staticBaskets = list.Where(b => b.Kind == BasketKind.Static && b.Rule is not null).ToList();
+        var added = new List<BasketMemberChange>();
+        var removedIds = new List<(long BasketId, string BasketName, long InstrumentId)>();
+
         foreach (var basket in staticBaskets)
         {
+            var before = await baskets.ListMemberIdsAsync(basket.BasketId, cancellationToken)
+                .ConfigureAwait(false);
+            var beforeSet = before.ToHashSet();
+
             var matched = Match(basket.Rule!, available);
-            var ids = matched.Select(m => m.InstrumentId).ToList();
-            await baskets.ReplaceMembersAsync(basket.BasketId, ids, cancellationToken).ConfigureAwait(false);
+            var afterIds = matched.Select(m => m.InstrumentId).ToList();
+            var afterSet = afterIds.ToHashSet();
+
+            await baskets.ReplaceMembersAsync(basket.BasketId, afterIds, cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var id in afterSet.Except(beforeSet))
+            {
+                var label = availableById.TryGetValue(id, out var a)
+                    ? MatchText(a)
+                    : $"#{id}";
+                added.Add(new BasketMemberChange(basket.BasketId, basket.Name, id, label));
+            }
+
+            foreach (var id in beforeSet.Except(afterSet))
+            {
+                removedIds.Add((basket.BasketId, basket.Name, id));
+            }
         }
+
+        var labels = await instruments
+            .GetDisplayLabelsAsync(removedIds.Select(r => r.InstrumentId).Distinct().ToList(), cancellationToken)
+            .ConfigureAwait(false);
+
+        var removed = removedIds
+            .Select(r => new BasketMemberChange(
+                r.BasketId,
+                r.BasketName,
+                r.InstrumentId,
+                labels.TryGetValue(r.InstrumentId, out var lab) ? lab : $"#{r.InstrumentId}"))
+            .ToList();
 
         if (staticBaskets.Count > 0)
         {
             logger.LogInformation(
-                "Basket re-eval: connection {ConnectionId}, {BasketCount} static basket(s), available={Available}",
-                connectionId, staticBaskets.Count, available.Count);
+                "Basket re-eval: connection {ConnectionId}, {BasketCount} static, available={Available}, +{Added}/-{Removed}",
+                connectionId, staticBaskets.Count, available.Count, added.Count, removed.Count);
         }
+
+        return new BasketEvalDelta(added, removed);
     }
 
     /// <summary>Re-eval static по всем connections (суточный Lifecycle / force Refresh).</summary>
-    public async Task ReEvalAllConnectionsAsync(CancellationToken cancellationToken)
+    public async Task<BasketEvalDelta> ReEvalAllConnectionsAsync(CancellationToken cancellationToken)
     {
         var conns = await connections.ListAsync(cancellationToken).ConfigureAwait(false);
+        var delta = BasketEvalDelta.Empty;
         foreach (var conn in conns)
         {
-            await ReEvalConnectionAsync(conn.ConnectionId, cancellationToken).ConfigureAwait(false);
+            var part = await ReEvalConnectionAsync(conn.ConnectionId, cancellationToken).ConfigureAwait(false);
+            delta = delta.Merge(part);
         }
+
+        return delta;
     }
 }

@@ -84,7 +84,7 @@ Stage 1 — в **[stage1/apply.md](stage1/apply.md)**. Семейство фаз
 Хвосты для дальнейшей (production) реализации — **[stage1/abandoned.md](stage1/abandoned.md)**.
 
 **Каталог Online (после close Stage 1, не Stage 2):** `7h.OPT` / `7i.OPT` — **DONE**
-(ATM ±N FORTS, Refresh UX + NC Action/Lifecycle, `instrument.active` = архив по exp).
+(ATM ±N FORTS, Refresh UX + NC Action/Checkup, суточный Lifecycle, `instrument.active` = архив по exp).
 Канон — [wiki-readme/catalog.md](wiki-readme/catalog.md) · [phase7i/issue.md](dev/phase7i/issue.md).
 Остаток по спискам — intraday «торгуется» (**7c.9** / **7c.SEC** в abandoned) и
 фича baskets/Observed ([catalog-basket-instruments](features/catalog-basket-instruments/main.md));

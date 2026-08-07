@@ -26,36 +26,44 @@ public sealed class CatalogRefreshNcTests
     }
 
     [Fact]
-    public void PublishForceRefresh_lifecycle_stays_underway_until_post_dump()
+    public void PublishForceRefresh_checkup_stays_underway_until_post_dump()
     {
         var (nc, hub) = CreateSut();
         var sweep = new InstrumentLifecycleSweepResult(true, [11, 22]);
 
-        var (cacheCorr, lifeCorr) = nc.PublishForceRefresh(invalidated: true, sweep);
+        var (cacheCorr, checkupCorr) = nc.PublishForceRefresh(invalidated: true, sweep);
 
         cacheCorr.Should().StartWith("instruments.catalog.cache:");
-        lifeCorr.Should().StartWith("instruments.catalog.lifecycle:");
+        checkupCorr.Should().StartWith("instruments.catalog.checkup:");
 
-        var life = hub.List().Where(e => e.CorrelationId == lifeCorr).ToList();
-        life.Select(e => e.Code).Should().Equal(
-            "instruments.catalog.lifecycle.start",
-            "instruments.catalog.lifecycle.archive",
-            "instruments.catalog.lifecycle.baskets_expired",
-            "instruments.catalog.lifecycle.observed",
-            "instruments.catalog.lifecycle.wait_dump");
-        life.Last().Status.Should().Be("underway");
-        life.Single(e => e.Code.EndsWith(".archive")).Message.Should().Contain("в архив 2");
+        var checkup = hub.List().Where(e => e.CorrelationId == checkupCorr).ToList();
+        checkup.Select(e => e.Code).Should().Equal(
+            "instruments.catalog.checkup.start",
+            "instruments.catalog.checkup.archive",
+            "instruments.catalog.checkup.baskets_expired",
+            "instruments.catalog.checkup.observed",
+            "instruments.catalog.checkup.wait_dump");
+        checkup.Last().Status.Should().Be("underway");
+        checkup.Single(e => e.Code.EndsWith(".archive")).Message.Should().Contain("в архив 2");
 
-        DataString(life[0], "groupKind").Should().Be(NotificationThreadData.GroupKindLifecycle);
+        DataString(checkup[0], "groupKind").Should().Be(NotificationThreadData.GroupKindCheckup);
         DataString(hub.List().First(e => e.CorrelationId == cacheCorr), "groupKind")
             .Should().Be(NotificationThreadData.GroupKindAction);
 
-        // Post-dump продолжает ту же lifecycle-нить.
-        nc.PublishBasketSyncAfterDump().Should().Be(lifeCorr);
-        var after = hub.List().Where(e => e.CorrelationId == lifeCorr).ToList();
-        after.Last().Code.Should().Be("instruments.catalog.lifecycle.done");
+        // Post-dump продолжает ту же checkup-нить.
+        var added = new[]
+        {
+            new BasketMemberChange(1, "Si", 99, "Si-12.26"),
+        };
+        nc.PublishBasketSyncAfterDump(added).Should().Be(checkupCorr);
+        var after = hub.List().Where(e => e.CorrelationId == checkupCorr).ToList();
+        after.Last().Code.Should().Be("instruments.catalog.checkup.done");
         after.Last().Status.Should().Be("resolved");
-        after.Should().Contain(e => e.Code == "instruments.catalog.lifecycle.baskets_new");
+        var basketsNew = after.Single(e => e.Code == "instruments.catalog.checkup.baskets_new");
+        basketsNew.Message.Should().Contain("добавлено (1)");
+        basketsNew.Data!.Value.GetProperty("count").GetInt32().Should().Be(1);
+        basketsNew.Data!.Value.GetProperty("items")[0].GetProperty("label").GetString()
+            .Should().Be("Si-12.26");
     }
 
     [Fact]
@@ -89,10 +97,10 @@ public sealed class CatalogRefreshNcTests
     }
 
     [Fact]
-    public void Second_refresh_supersedes_previous_pending_cache_and_lifecycle()
+    public void Second_refresh_supersedes_previous_pending_cache_and_checkup()
     {
         var (nc, hub) = CreateSut();
-        var (firstCache, firstLife) = nc.PublishForceRefresh(
+        var (firstCache, firstCheckup) = nc.PublishForceRefresh(
             invalidated: true,
             new InstrumentLifecycleSweepResult(true, []));
         var (secondCache, _) = nc.PublishForceRefresh(
@@ -102,8 +110,8 @@ public sealed class CatalogRefreshNcTests
         firstCache.Should().NotBe(secondCache);
         hub.List().Last(e => e.CorrelationId == firstCache).Code
             .Should().Be("instruments.catalog.cache.superseded");
-        hub.List().Last(e => e.CorrelationId == firstLife).Code
-            .Should().Be("instruments.catalog.lifecycle.superseded");
+        hub.List().Last(e => e.CorrelationId == firstCheckup).Code
+            .Should().Be("instruments.catalog.checkup.superseded");
     }
 
     [Fact]
@@ -115,29 +123,58 @@ public sealed class CatalogRefreshNcTests
     }
 
     [Fact]
-    public void PublishDailyCheckup_continues_on_post_dump()
+    public void PublishDailyLifecycle_continues_on_post_dump()
     {
         var (nc, hub) = CreateSut();
-        var corr = nc.PublishDailyCheckup(new InstrumentLifecycleSweepResult(true, [7]));
+        var corr = nc.PublishDailyLifecycle(new InstrumentLifecycleSweepResult(true, [7]));
 
         var mid = hub.List().Where(e => e.CorrelationId == corr).ToList();
-        mid.Last().Code.Should().Be("instruments.catalog.checkup.wait_dump");
+        mid.Last().Code.Should().Be("instruments.catalog.lifecycle.wait_dump");
         mid.Last().Status.Should().Be("underway");
-        DataString(mid[0], "groupKind").Should().Be(NotificationThreadData.GroupKindCheckup);
+        DataString(mid[0], "groupKind").Should().Be(NotificationThreadData.GroupKindLifecycle);
 
-        nc.PublishBasketSyncAfterDump().Should().Be(corr);
+        nc.PublishBasketSyncAfterDump([]).Should().Be(corr);
         hub.List().Last(e => e.CorrelationId == corr).Code
-            .Should().Be("instruments.catalog.checkup.done");
+            .Should().Be("instruments.catalog.lifecycle.done");
+    }
+
+    [Fact]
+    public void PublishDailyLifecycle_baskets_expired_includes_count_and_details()
+    {
+        var (nc, hub) = CreateSut();
+        var sweep = new InstrumentLifecycleSweepResult(
+            true,
+            [11],
+            [
+                new BasketMemberChange(5, "Currency", 11, "Si-6.26"),
+                new BasketMemberChange(5, "Currency", 12, "Si-9.26"),
+            ]);
+
+        var corr = nc.PublishDailyLifecycle(sweep);
+        var expired = hub.List().Single(e =>
+            e.CorrelationId == corr && e.Code == "instruments.catalog.lifecycle.baskets_expired");
+
+        expired.Message.Should().Be("Суточная актуализация каталога: из наборов убрано (2) просроченных");
+        expired.Data!.Value.GetProperty("count").GetInt32().Should().Be(2);
+        expired.Data!.Value.GetProperty("items")[0].GetProperty("basket").GetString()
+            .Should().Be("Currency");
+        expired.Data!.Value.GetProperty("items")[0].GetProperty("label").GetString()
+            .Should().Be("Si-6.26");
     }
 
     [Fact]
     public void PublishBasketSyncAfterDump_without_pending_uses_standalone_corr()
     {
         var (nc, hub) = CreateSut();
-        var corr = nc.PublishBasketSyncAfterDump();
+        var corr = nc.PublishBasketSyncAfterDump([]);
 
         corr.Should().StartWith("instruments.catalog.baskets:");
         hub.List().Last(e => e.CorrelationId == corr).Code
             .Should().Be("instruments.catalog.baskets.sync_done");
+        hub.List().Should().Contain(e =>
+            e.CorrelationId == corr
+            && e.Message.Contains("добавлено (0)", StringComparison.Ordinal));
+        DataString(hub.List().First(e => e.CorrelationId == corr), "groupKind")
+            .Should().Be(NotificationThreadData.GroupKindCheckup);
     }
 }

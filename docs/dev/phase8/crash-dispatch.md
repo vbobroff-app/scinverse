@@ -9,7 +9,7 @@
 
 **Связано:** [incident-journal.md](incident-journal.md) ·
 [incident-soft-delete.md](incident-soft-delete.md) ·
-[../phase11/to-threads.md](../phase11/to-threads.md) ·
+[`features/nc/threads`](../../features/nc/threads/spec.md) ·
 wiki [`incident.md`](../../wiki-readme/incident.md) · [`layers.md`](../../wiki-readme/layers.md) ·
 продюсер [../phase7j/incident.md](../phase7j/incident.md) · [plan.md](plan.md).
 

@@ -37,9 +37,26 @@ internal sealed class FakeInstrumentStore : IInstrumentStore
                 i.Key.Ticker,
                 i.Key.Board,
                 _secTypes.GetValueOrDefault(i.InstrumentId),
-                _shortNames.GetValueOrDefault(i.InstrumentId)))
+                _shortNames.GetValueOrDefault(i.InstrumentId),
+                _expirations.GetValueOrDefault(i.InstrumentId)))
             .ToList();
         return Task.FromResult<IReadOnlyList<AvailableInstrument>>(list);
+    }
+
+    public Task<IReadOnlyDictionary<long, string>> GetDisplayLabelsAsync(
+        IReadOnlyList<long> instrumentIds, CancellationToken cancellationToken)
+    {
+        var set = instrumentIds.ToHashSet();
+        var map = _instruments
+            .Where(i => set.Contains(i.InstrumentId))
+            .ToDictionary(
+                i => i.InstrumentId,
+                i =>
+                {
+                    var shortName = _shortNames.GetValueOrDefault(i.InstrumentId);
+                    return string.IsNullOrWhiteSpace(shortName) ? i.Key.Ticker : shortName!;
+                });
+        return Task.FromResult<IReadOnlyDictionary<long, string>>(map);
     }
 
     public Task<InstrumentCatalogPage> QueryAsync(InstrumentQuery query, CancellationToken cancellationToken)

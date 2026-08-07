@@ -12,6 +12,12 @@ public interface IInstrumentStore
     /// <summary>Available Online (<c>active=TRUE</c>) для eval/preview baskets — id/ticker/board/sec_type.</summary>
     Task<IReadOnlyList<AvailableInstrument>> ListAvailableAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Подписи для NC (в т.ч. архивные): <c>short_name</c> или <c>ticker</c>.
+    /// </summary>
+    Task<IReadOnlyDictionary<long, string>> GetDisplayLabelsAsync(
+        IReadOnlyList<long> instrumentIds, CancellationToken cancellationToken);
+
     /// <summary>Каталог инструментов с фильтрами и пагинацией (для админки).</summary>
     Task<InstrumentCatalogPage> QueryAsync(InstrumentQuery query, CancellationToken cancellationToken);
 

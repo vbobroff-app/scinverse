@@ -11,7 +11,7 @@ UI NC Thread → **phase 11**.
 
 Связано: [auto-connect.md](auto-connect.md), [error-handling.md](error-handling.md), [report.md](report.md),
 [incident.md](incident.md) (§1.1–1.3, J11), 7h (лента Connection / `link_liveness`),
-[../phase11/to-threads.md](../phase11/to-threads.md) (проекция Incident/Group).
+[`features/nc/threads`](../../features/nc/threads/spec.md) (проекция Incident/Group).
 
 ---
 

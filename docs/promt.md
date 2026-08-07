@@ -49,7 +49,7 @@
 ## Запуск (кратко)
 
 ```powershell
-dotnet run --project db/Scinverse.Db.Migrator   # V032+ (baskets); иначе возможны 500
+dotnet run --project db/Scinverse.Db.Migrator   # V032 baskets + V033 ohs_runtime_state; иначе 500 / повтор Checkup
 # Host: services/.../Scinverse.Ohs.Host  (перед rebuild — остановить, lock DLL)
 # Web:  services/online-history-server/web → pnpm dev --port 5174
 ```
