@@ -2,9 +2,12 @@
 
 Дорожная карта по сервису OHS/ODS.
 
-- **Stages** — крупные темы и gate'ы (`stageN/main.md`).
+- **Stages** — крупные темы и gate'ы (`stageN/main.md`). Каркас не ломаем (1→2→3→4).
 - **Phases** — хроника MVP / планы фаз, archive в [`dev/`](dev/main.md) (`phaseN`, пути стабильны).
 - **Features** — параллельный продуктовый backlog после Stage 1: [`features/main.md`](features/main.md).
+  Сквозные тонкие срезы (UI→Host→NC…), а не «сначала вся область → потом соседние контуры».
+  Так раньше появляется рабочий функционал и меньше риск застрять на ширине (см. § «Зачем фичи»
+  в features/main).
 
 Архитектура данных — [`architecture/db-design.md`](architecture/db-design.md);
 дизайн Stage 1 — [`stage1/apply.md`](stage1/apply.md).

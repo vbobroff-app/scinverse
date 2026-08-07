@@ -37,9 +37,10 @@
 
 - **Stage 1 DONE** (phase 4–8). OPT/Refresh/каталог — DONE, не Stage 2.
 - Рабочий контур после MVP — **Features**, не новые phase-папки.
+  Сквозные срезы параллельно (пример: static baskets + lifecycle + NC без ожидания dynamic) —
+  см. [`features/main.md`](features/main.md) § «Зачем фичи». Stages — gate'ы, от них не уходим.
 - Пилот: [`features/catalog-basket-instruments/`](features/catalog-basket-instruments/main.md)
-  (C0–C3 DONE) · [`catalog/`](features/catalog-basket-instruments/catalog/spec.md) ·
-  [`life-cycle/`](features/catalog-basket-instruments/life-cycle/spec.md).
+  (C0–C3 + life-cycle DONE; schedule / spec-instruments DRAFT).
 - Stage 2–4 — gate'ы (Keycloak → NC split → WebGL); не стартовать «заодно».
 
 **Next:** ручной прогон life-cycle / другая фича / dynamic — спросить у пользователя.
