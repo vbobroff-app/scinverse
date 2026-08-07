@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { OhsApi } from '../../core/api';
 import type { AvailableInstrumentDto, BasketDto } from '../../core/types';
 import { useOhsStore } from '../context';
@@ -34,12 +34,33 @@ const BOARDS = [
 
 const PAGE = 80;
 const PREVIEW_DEBOUNCE_MS = 280;
+const DND_MIME = 'application/x-ohs-basket-instrument';
 
 function parsePatterns(text: string): string[] {
   return text
     .split(/[\n,;]+/)
     .map((p) => p.trim())
     .filter(Boolean);
+}
+
+/** Текст паттерна при drop: short_name as-is, иначе ticker. */
+function patternFromInstrument(row: AvailableInstrumentDto): string {
+  const name = row.shortName?.trim();
+  return name && name.length > 0 ? name : row.ticker;
+}
+
+/** Добавить строку в glob без дублей (ignore-case). */
+function appendPatternLine(text: string, line: string): string {
+  const needle = line.trim();
+  if (!needle) {
+    return text;
+  }
+  const existing = parsePatterns(text);
+  if (existing.some((p) => p.toLowerCase() === needle.toLowerCase())) {
+    return text;
+  }
+  const trimmed = text.replace(/\s+$/, '');
+  return trimmed.length === 0 ? needle : `${trimmed}\n${needle}`;
 }
 
 /**
@@ -62,14 +83,19 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
   const [availableTotal, setAvailableTotal] = useState(0);
   const [availableLoading, setAvailableLoading] = useState(false);
   const [match, setMatch] = useState<AvailableInstrumentDto[]>([]);
+  const [matchQ, setMatchQ] = useState('');
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchError, setMatchError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AvailableInstrumentDto | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
   const availableOffset = useRef(0);
   const closingRef = useRef(false);
+  const dragDepth = useRef(0);
+  const isDraggingRef = useRef(false);
 
   useEffect(() => {
     if (!open) {
@@ -85,6 +111,7 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
     setError(null);
     setConfirmDelete(false);
     setAvailableQ('');
+    setMatchQ('');
     availableOffset.current = 0;
   }, [open, editing]);
 
@@ -177,6 +204,20 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
     };
   }, [open, connectionId, patternsText, secType, boardId]);
 
+  const matchFiltered = useMemo(() => {
+    const q = matchQ.trim().toLowerCase();
+    if (!q) {
+      return match;
+    }
+    return match.filter((row) => {
+      const hay = [row.shortName, row.ticker, row.name, row.board, row.secType]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [match, matchQ]);
+
   if (!open) {
     return null;
   }
@@ -263,6 +304,68 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
         setSaving(false);
       },
     });
+  };
+
+  /** Drop Available → Match: строка short_name в glob (дедуп). */
+  const addInstrumentPattern = (row: AvailableInstrumentDto) => {
+    if (match.some((m) => m.instrumentId === row.instrumentId)) {
+      setSelected(row);
+      return;
+    }
+    const line = patternFromInstrument(row);
+    setPatternsText((prev) => {
+      const next = appendPatternLine(prev, line);
+      return next;
+    });
+    setSelected(row);
+  };
+
+  const onMatchDragEnter = (e: DragEvent) => {
+    if (!isDraggingRef.current) {
+      return;
+    }
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDropActive(true);
+  };
+
+  const onMatchDragLeave = (e: DragEvent) => {
+    if (!isDraggingRef.current) {
+      return;
+    }
+    e.preventDefault();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) {
+      setDropActive(false);
+    }
+  };
+
+  const onMatchDragOver = (e: DragEvent) => {
+    if (!isDraggingRef.current) {
+      return;
+    }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const onMatchDrop = (e: DragEvent) => {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDropActive(false);
+    setDraggingId(null);
+    isDraggingRef.current = false;
+    const raw = e.dataTransfer.getData(DND_MIME) || e.dataTransfer.getData('text/plain');
+    if (!raw) {
+      return;
+    }
+    try {
+      const row = JSON.parse(raw) as AvailableInstrumentDto;
+      if (row?.instrumentId != null && (row.ticker || row.shortName)) {
+        addInstrumentPattern(row);
+      }
+    } catch {
+      // ignore bad payload
+    }
   };
 
   return (
@@ -375,35 +478,85 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
                   key={row.instrumentId}
                   row={row}
                   active={selected?.instrumentId === row.instrumentId}
+                  dragging={draggingId === row.instrumentId}
+                  draggable
                   onSelect={() => setSelected(row)}
+                  onDragStart={(e) => {
+                    isDraggingRef.current = true;
+                    setDraggingId(row.instrumentId);
+                    const payload = JSON.stringify(row);
+                    e.dataTransfer.setData(DND_MIME, payload);
+                    e.dataTransfer.setData('text/plain', payload);
+                    e.dataTransfer.effectAllowed = 'copy';
+                  }}
+                  onDragEnd={() => {
+                    isDraggingRef.current = false;
+                    setDraggingId(null);
+                    dragDepth.current = 0;
+                    setDropActive(false);
+                  }}
                 />
               ))}
             </div>
           </section>
 
-          <section className={styles.col}>
+          <section
+            className={[styles.col, dropActive ? styles.colDropTarget : ''].filter(Boolean).join(' ')}
+            onDragEnter={onMatchDragEnter}
+            onDragLeave={onMatchDragLeave}
+            onDragOver={onMatchDragOver}
+            onDrop={onMatchDrop}
+          >
             <div className={styles.colHead}>
               <span>Match</span>
               <span className={styles.colMeta}>
-                {matchLoading ? '…' : String(match.length)}
+                {matchLoading
+                  ? '…'
+                  : matchQ.trim()
+                    ? `${matchFiltered.length}/${match.length}`
+                    : String(match.length)}
               </span>
             </div>
+            <div style={{ padding: '6px 8px' }}>
+              <input
+                className={styles.input}
+                value={matchQ}
+                onChange={(e) => setMatchQ(e.target.value)}
+                placeholder="Поиск…"
+              />
+            </div>
             <div className={styles.colBody}>
-              {patterns.length === 0 && (
-                <div className={styles.empty}>Задайте glob-паттерны</div>
-              )}
-              {matchLoading && <div className={styles.empty}>Считаем Match…</div>}
-              {matchError && !matchLoading && (
-                <div className={styles.empty}>{matchError}</div>
-              )}
-              {patterns.length > 0 && match.length === 0 && !matchLoading && !matchError && (
+              {patterns.length === 0 && !dropActive && (
                 <div className={styles.empty}>
-                  Нет совпадений по short_name.
-                  <br />
-                  Обозначение MOEX: Si-*.* (не seccode SiU6).
+                  Перетащите из Available или задайте glob
                 </div>
               )}
-              {match.map((row) => (
+              {dropActive && (
+                <div className={styles.empty}>Отпустите — добавить в набор</div>
+              )}
+              {matchLoading && !dropActive && <div className={styles.empty}>Считаем Match…</div>}
+              {matchError && !matchLoading && !dropActive && (
+                <div className={styles.empty}>{matchError}</div>
+              )}
+              {patterns.length > 0 &&
+                match.length === 0 &&
+                !matchLoading &&
+                !matchError &&
+                !dropActive && (
+                  <div className={styles.empty}>
+                    Нет совпадений по short_name.
+                    <br />
+                    Обозначение MOEX: Si-*.* (не seccode SiU6).
+                  </div>
+                )}
+              {patterns.length > 0 &&
+                match.length > 0 &&
+                matchFiltered.length === 0 &&
+                !matchLoading &&
+                !dropActive && (
+                  <div className={styles.empty}>Нет инструментов по поиску</div>
+                )}
+              {matchFiltered.map((row) => (
                 <InstrumentRow
                   key={row.instrumentId}
                   row={row}
@@ -480,9 +633,9 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
         <ConfirmDialog
           title="Удалить набор"
           message={
-            `Удалить набор «${editing.name}»?\n` +
             `Действие необратимо — инструменты выйдут из основного списка, ` +
-            `записи ON/AUTO будут доступны в наборе Recording.`
+            `записи ON/AUTO будут доступны в наборе Recording.\n` +
+            `Удалить набор «${editing.name}»?`
           }
           icon={<DeleteBasketIcon />}
           confirmLabel="Удалить"
@@ -521,17 +674,35 @@ function DeleteBasketIcon() {
 function InstrumentRow({
   row,
   active,
+  dragging,
+  draggable: canDrag,
   onSelect,
+  onDragStart,
+  onDragEnd,
 }: {
   row: AvailableInstrumentDto;
   active: boolean;
+  dragging?: boolean;
+  draggable?: boolean;
   onSelect: () => void;
+  onDragStart?: (e: DragEvent) => void;
+  onDragEnd?: () => void;
 }) {
   return (
     <button
       type="button"
-      className={[styles.row, active ? styles.rowActive : ''].filter(Boolean).join(' ')}
+      className={[
+        styles.row,
+        active ? styles.rowActive : '',
+        canDrag ? styles.rowDraggable : '',
+        dragging ? styles.rowDragging : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       onClick={onSelect}
+      draggable={canDrag}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
     >
       <span className={styles.rowTicker}>{row.shortName || row.ticker}</span>
       <span className={styles.rowMeta}>

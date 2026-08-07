@@ -137,6 +137,12 @@
   overflow: hidden;
 }
 
+.colDropTarget {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-panel, var(--color-bg-input)));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
 .colHead {
   display: flex;
   align-items: center;
@@ -182,6 +188,18 @@
 
 .rowActive {
   background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+.rowDraggable {
+  cursor: grab;
+}
+
+.rowDraggable:active {
+  cursor: grabbing;
+}
+
+.rowDragging {
+  opacity: 0.45;
 }
 
 .rowTicker {
