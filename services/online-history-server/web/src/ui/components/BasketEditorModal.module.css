@@ -44,6 +44,13 @@
   font-weight: 600;
 }
 
+.headActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .iconBtn {
   display: inline-flex;
   align-items: center;
@@ -86,6 +93,20 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-text-muted);
+}
+
+.req {
+  margin-left: 1px;
+}
+
+.reqInvalid {
+  margin-left: 1px;
+  color: var(--color-error);
+}
+
+.labelKeepCase {
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .formWide {

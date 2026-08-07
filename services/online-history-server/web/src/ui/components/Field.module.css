@@ -17,6 +17,12 @@
   border-color: var(--color-border-focus);
 }
 
+.invalid,
+.invalid:focus,
+.invalid:focus-visible {
+  border-color: var(--color-error);
+}
+
 .field:disabled {
   opacity: 0.5;
   cursor: not-allowed;

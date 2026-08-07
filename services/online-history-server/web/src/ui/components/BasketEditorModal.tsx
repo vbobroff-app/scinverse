@@ -6,6 +6,7 @@ import { useBehavior } from '../hooks/useObservable';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Dropdown } from './Dropdown';
 import { Input } from './Input';
+import { SettingsMenu } from './SettingsMenu';
 import { TextArea } from './TextArea';
 import { FilterSearch } from './filters/FilterSearch';
 import styles from './BasketEditorModal.module.css';
@@ -93,6 +94,12 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
   const [selected, setSelected] = useState<AvailableInstrumentDto | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** После клика OK — показать ошибки обязательных полей. */
+  const [submitted, setSubmitted] = useState(false);
+  const [showAvailableSearch, setShowAvailableSearch] = useState(true);
+  const [showMatchSearch, setShowMatchSearch] = useState(true);
+  /** Резерв: запрос спецификации (пока без эффекта). */
+  const [requestSpec, setRequestSpec] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [draggingId, setDraggingId] = useState<number | null>(null);
@@ -113,6 +120,10 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
     setBoardId(src?.boardId ?? '');
     setSelected(null);
     setError(null);
+    setSubmitted(false);
+    setShowAvailableSearch(true);
+    setShowMatchSearch(true);
+    setRequestSpec(true);
     setConfirmDelete(false);
     setAvailableQ('');
     setMatchQ('');
@@ -224,7 +235,13 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
   }
 
   const patterns = parsePatterns(patternsText);
-  const canSave = name.trim().length > 0 && patterns.length > 0 && !saving;
+  const nameOk = name.trim().length > 0;
+  const patternsOk = patterns.length > 0;
+  const formValid = nameOk && patternsOk;
+  const nameInvalid = submitted && !nameOk;
+  const patternsInvalid = submitted && !patternsOk;
+  /** До первой попытки OK кликабелен; после ошибок — пока форма не валидна. */
+  const okDisabled = saving || (submitted && !formValid);
 
   const loadMoreAvailable = () => {
     if (availableLoading || available.length >= availableTotal) {
@@ -252,7 +269,8 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
   };
 
   const save = () => {
-    if (!canSave) {
+    setSubmitted(true);
+    if (!formValid || saving) {
       return;
     }
     setSaving(true);
@@ -389,16 +407,64 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
           <span className={styles.headTitle}>
             {editing ? `Набор «${editing.name}»` : 'Новый набор'}
           </span>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Закрыть">
-            ×
-          </button>
+          <div className={styles.headActions}>
+            <SettingsMenu
+              sections={[
+                {
+                  title: 'Available',
+                  items: [
+                    {
+                      key: 'availableSearch',
+                      label: 'Поиск доступных',
+                      checked: showAvailableSearch,
+                      onChange: (v) => {
+                        setShowAvailableSearch(v);
+                        if (!v) setAvailableQ('');
+                      },
+                    },
+                  ],
+                },
+                {
+                  title: 'Match',
+                  items: [
+                    {
+                      key: 'matchSearch',
+                      label: 'Поиск выбранных',
+                      checked: showMatchSearch,
+                      onChange: (v) => {
+                        setShowMatchSearch(v);
+                        if (!v) setMatchQ('');
+                      },
+                    },
+                  ],
+                },
+                {
+                  title: 'Инфо',
+                  items: [
+                    {
+                      key: 'requestSpec',
+                      label: 'Запрашивать спецификацию',
+                      checked: requestSpec,
+                      onChange: setRequestSpec,
+                    },
+                  ],
+                },
+              ]}
+            />
+            <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Закрыть">
+              ×
+            </button>
+          </div>
         </header>
 
         <div className={styles.form}>
           <label className={styles.field}>
-            <span className={styles.fieldLabel}>Имя</span>
+            <span className={styles.fieldLabel}>
+              Имя<span className={nameInvalid ? styles.reqInvalid : styles.req}>*</span>
+            </span>
             <Input
               value={name}
+              invalid={nameInvalid}
               onChange={(e) => setName(e.target.value)}
               placeholder="Напр. Si futures"
             />
@@ -424,11 +490,14 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
           <div />
           <label className={`${styles.field} ${styles.formWide}`}>
             <span className={styles.fieldLabel}>
-              Glob по short_name / обозначению MOEX (OR, через запятую)
+              Glob{' '}
+              <span className={styles.labelKeepCase}>по short_name</span>
+              <span className={patternsInvalid ? styles.reqInvalid : styles.req}>*</span>
             </span>
             <TextArea
               mono
               value={patternsText}
+              invalid={patternsInvalid}
               onChange={(e) => setPatternsText(e.target.value)}
               placeholder="Si-*.*, RTS-*.2[0-9], SBRF-*.*"
             />
@@ -443,14 +512,16 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
                 {availableLoading ? '…' : `${available.length}/${availableTotal}`}
               </span>
             </div>
-            <div className={styles.colFilter}>
-              <FilterSearch
-                key={`available-${basketId ?? 'new'}-${open}`}
-                fullWidth
-                placeholder="Поиск…"
-                onSearch={setAvailableQ}
-              />
-            </div>
+            {showAvailableSearch && (
+              <div className={styles.colFilter}>
+                <FilterSearch
+                  key={`available-${basketId ?? 'new'}-${open}`}
+                  fullWidth
+                  placeholder="Поиск…"
+                  onSearch={setAvailableQ}
+                />
+              </div>
+            )}
             <div
               className={styles.colBody}
               onScroll={(e) => {
@@ -507,14 +578,16 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
                     : String(match.length)}
               </span>
             </div>
-            <div className={styles.colFilter}>
-              <FilterSearch
-                key={`match-${basketId ?? 'new'}-${open}`}
-                fullWidth
-                placeholder="Поиск…"
-                onSearch={setMatchQ}
-              />
-            </div>
+            {showMatchSearch && (
+              <div className={styles.colFilter}>
+                <FilterSearch
+                  key={`match-${basketId ?? 'new'}-${open}`}
+                  fullWidth
+                  placeholder="Поиск…"
+                  onSearch={setMatchQ}
+                />
+              </div>
+            )}
             <div className={styles.colBody}>
               {patterns.length === 0 && !dropActive && (
                 <div className={styles.empty}>
@@ -610,7 +683,7 @@ export function BasketEditorModal({ connectionId, basketId, open, onClose }: Pro
             <button
               type="button"
               className={`${styles.btn} ${styles.btnPrimary}`}
-              disabled={!canSave}
+              disabled={okDisabled}
               onClick={save}
             >
               {saving ? 'Сохранение…' : 'OK'}

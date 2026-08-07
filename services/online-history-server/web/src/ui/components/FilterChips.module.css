@@ -233,6 +233,8 @@
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
+  /* ✎ по умолчанию «для левши» — зеркалим для правши. */
+  transform: scaleX(-1);
 }
 
 .optionAction:hover {
