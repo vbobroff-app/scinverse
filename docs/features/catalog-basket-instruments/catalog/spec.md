@@ -269,8 +269,9 @@ OK сохраняет правила; галка набора на основн�
   и прочие атрибуты из Available/БД, что уже есть;
 - без торговых действий и без Start/Auto.
 
-Точный набор полей и live-котировки (bid/ask) в модалке — TBD (T7); канон: спека видна,
-управление записью — нет.
+Точный набор полей, live-котировки и реальный `sec_info` — часть
+[`../spec-instruments/`](../spec-instruments/spec.md) (T7 → туда); канон модалки: спека
+видна, управление записью — нет.
 
 ---
 
@@ -310,7 +311,7 @@ v1 уже ограничивает кэш: glob → static membership → Observ
 | T4c | Filter chips 7d | **DONE** — оставляем, источник = Observed-кэш |
 | T5 | Схема БД: basket / rule / member (+ connection_id, system id) | **DONE** — V032 |
 | T6 | Следующие system-id сверх `recording` / `has_data` | Открытый список |
-| T7 | Поля спецификации в 3-й колонке (+ live quotes?) | Минимум из БД; эталон — Финам |
+| T7 | Поля спецификации / мультитаб / sec_info | → [`../spec-instruments/`](../spec-instruments/spec.md) |
 | T8 | `has_data` предикат | **DONE** (внедрение после v1) — ниже |
 
 ### T8 — решение (`has_data`, поставка после v1)
